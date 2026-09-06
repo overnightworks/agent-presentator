@@ -1,0 +1,117 @@
+name: Sonar bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure SonarCloud project exists
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Auth goes through a per-call curl config file built from a process
+          # substitution, never a literal -u/-H flag: gitleaks' curl-auth-user
+          # and curl-auth-header rules match those flags themselves, regardless
+          # of whether the value is a secret or a shell variable.
+          sonar_curl() {
+            curl --config <(printf 'header = "Authorization: Bearer %s"\n' "$SONAR_TOKEN") "$@"
+          }
+
+          if sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator" > /tmp/show.json 2>/tmp/show.err; then
+            echo "Project already exists."
+          else
+            status=$(sonar_curl -s -o /dev/null -w "%{http_code}" "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator")
+            if [ "$status" = "404" ]; then
+              echo "Project does not exist yet, creating it."
+              sonar_curl -fsS -X POST "https://sonarcloud.io/api/projects/create" --data-urlencode organization=overnightworks --data-urlencode project=overnightworks_agent-presentator --data-urlencode name=agent-presentator --data-urlencode visibility=public
+            else
+              echo "Unexpected status $status from components/show"
+              exit 1
+            fi
+          fi
+
+          echo "--- components/show ---"
+          sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator"
+
+          echo "--- project_branches/list ---"
+          sonar_curl -fsS "https://sonarcloud.io/api/project_branches/list?project=overnightworks_agent-presentator"
+
+          echo "--- disable Automatic Analysis (autoscan) ---"
+          sonar_curl -fsS -X POST "https://sonarcloud.io/api/autoscan/activation" --data-urlencode projectKey=overnightworks_agent-presentator --data-urlencode enable=false || echo "autoscan endpoint not available"
+
+      - name: Ensure the presentator quality gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          sonar_curl() {
+            curl --config <(printf 'header = "Authorization: Bearer %s"\n' "$SONAR_TOKEN") "$@"
+          }
+
+          organization=overnightworks
+          gate_name=presentator
+          project_key=overnightworks_agent-presentator
+
+          list_json=$(sonar_curl -fsS "https://sonarcloud.io/api/qualitygates/list?organization=${organization}")
+          gate_id=$(printf '%s' "$list_json" | jq -r --arg name "$gate_name" '(.qualitygates // [])[] | select(.name == $name) | .id')
+
+          if [ -z "$gate_id" ]; then
+            echo "Quality gate ${gate_name} does not exist yet, creating it."
+            created_json=$(sonar_curl -fsS -X POST "https://sonarcloud.io/api/qualitygates/create" --data-urlencode "organization=${organization}" --data-urlencode "name=${gate_name}")
+            gate_id=$(printf '%s' "$created_json" | jq -r '.id')
+          else
+            echo "Quality gate ${gate_name} already exists."
+          fi
+
+          if [ -z "$gate_id" ] || [ "$gate_id" = "null" ]; then
+            echo "Could not resolve the id of quality gate ${gate_name}"
+            exit 1
+          fi
+
+          show_json=$(sonar_curl -fsS "https://sonarcloud.io/api/qualitygates/show?organization=${organization}&name=${gate_name}")
+          gate_id=$(printf '%s' "$show_json" | jq -r '.id')
+
+          ensure_condition() {
+            metric=$1
+            op=$2
+            error=$3
+            existing=$(printf '%s' "$show_json" | jq -c --arg metric "$metric" '[.conditions[]? | select(.metric == $metric)] | .[0] // empty')
+            if [ -z "$existing" ]; then
+              echo "Creating condition ${metric} ${op} ${error}."
+              sonar_curl -fsS -X POST "https://sonarcloud.io/api/qualitygates/create_condition" --data-urlencode "organization=${organization}" --data-urlencode "gateId=${gate_id}" --data-urlencode "metric=${metric}" --data-urlencode "op=${op}" --data-urlencode "error=${error}"
+              echo
+            else
+              existing_id=$(printf '%s' "$existing" | jq -r '.id')
+              existing_op=$(printf '%s' "$existing" | jq -r '.op')
+              existing_error=$(printf '%s' "$existing" | jq -r '.error')
+              if [ "$existing_op" != "$op" ] || [ "$existing_error" != "$error" ]; then
+                echo "Updating condition ${metric} to ${op} ${error}."
+                sonar_curl -fsS -X POST "https://sonarcloud.io/api/qualitygates/update_condition" --data-urlencode "id=${existing_id}" --data-urlencode "metric=${metric}" --data-urlencode "op=${op}" --data-urlencode "error=${error}" --data-urlencode "organization=${organization}"
+                echo
+              else
+                echo "Condition ${metric} ${op} ${error} already set."
+              fi
+            fi
+          }
+
+          ensure_condition new_coverage LT 90
+          ensure_condition new_reliability_rating GT 1
+          ensure_condition new_security_rating GT 1
+          ensure_condition new_maintainability_rating GT 1
+          ensure_condition new_duplicated_lines_density GT 3
+          ensure_condition new_security_hotspots_reviewed LT 100
+
+          echo "Assigning quality gate ${gate_name} to ${project_key}."
+          sonar_curl -fsS -X POST "https://sonarcloud.io/api/qualitygates/select" --data-urlencode "organization=${organization}" --data-urlencode "gateId=${gate_id}" --data-urlencode "projectKey=${project_key}"
+          echo
+
+          echo "--- qualitygates/get_by_project ---"
+          sonar_curl -fsS "https://sonarcloud.io/api/qualitygates/get_by_project?organization=${organization}&project=${project_key}"
+          echo
