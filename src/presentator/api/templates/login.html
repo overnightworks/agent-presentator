@@ -2,16 +2,18 @@
 {% block title %}{{ title }}{% endblock %}
 {% block body %}
 <main>
-  <p>{{ wordmark }}</p>
-  <h1>{{ title }}</h1>
-  {% if refusal %}<p role="alert">{{ refusal }}</p>{% endif %}
-  <form method="post" action="/login">
-    <label for="username">{{ username }}</label>
-    <input id="username" name="username" autocomplete="username" required>
-    <label for="password">{{ password }}</label>
-    <input id="password" name="password" type="password"
-           autocomplete="current-password" required>
-    <button type="submit">{{ submit }}</button>
-  </form>
+  <article>
+    <p>{{ wordmark }}</p>
+    <h1>{{ title }}</h1>
+    {% if refusal %}<p role="alert">{{ refusal }}</p>{% endif %}
+    <form method="post" action="/login">
+      <label for="username">{{ username }}</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">{{ password }}</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      <button type="submit">{{ submit }}</button>
+    </form>
+  </article>
 </main>
 {% endblock %}

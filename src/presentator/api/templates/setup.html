@@ -2,21 +2,23 @@
 {% block title %}{{ title }}{% endblock %}
 {% block body %}
 <main>
-  <p>{{ wordmark }}</p>
-  <h1>{{ title }}</h1>
-  <p>{{ once }}</p>
-  <p>{{ explanation }}</p>
-  {% if mismatch %}<p role="alert">{{ mismatch }}</p>{% endif %}
-  <form method="post" action="/setup">
-    <label for="username">{{ username }}</label>
-    <input id="username" name="username" autocomplete="username" required>
-    <label for="password">{{ password }}</label>
-    <input id="password" name="password" type="password"
-           autocomplete="new-password" required>
-    <label for="repeated-password">{{ repeated_password }}</label>
-    <input id="repeated-password" name="repeated_password" type="password"
-           autocomplete="new-password" required>
-    <button type="submit">{{ submit }}</button>
-  </form>
+  <article>
+    <p>{{ wordmark }}</p>
+    <h1>{{ title }}</h1>
+    <p>{{ once }}</p>
+    <p>{{ explanation }}</p>
+    {% if mismatch %}<p role="alert">{{ mismatch }}</p>{% endif %}
+    <form method="post" action="/setup">
+      <label for="username">{{ username }}</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">{{ password }}</label>
+      <input id="password" name="password" type="password"
+             autocomplete="new-password" required>
+      <label for="repeated-password">{{ repeated_password }}</label>
+      <input id="repeated-password" name="repeated_password" type="password"
+             autocomplete="new-password" required>
+      <button type="submit">{{ submit }}</button>
+    </form>
+  </article>
 </main>
 {% endblock %}

@@ -1,6 +1,7 @@
 """The lobby's real routes, driven the way a browser drives them."""
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -29,6 +30,7 @@ from tests.application.fakes import (
     UserStoreThatLostTheRace,
 )
 
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _USERNAME = "felix"
 _WINNERS_HASH = "the hash the winning first start stored"
 _TYPED_WORDS = "the words only this test types"
@@ -348,3 +350,64 @@ def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
     assert "HttpOnly" in cleared
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
+
+
+def test_the_theme_stylesheet_is_linked_on_a_signed_out_page(lobby: Lobby) -> None:
+    for path in ("/login", "/setup"):
+        page = lobby.client.get(path).text
+
+        assert '<link rel="stylesheet" href="/static/tokens.css">' in page
+        assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
+
+
+def test_the_theme_stylesheet_is_linked_on_the_signed_in_home_page(
+    signed_in_lobby: Lobby,
+) -> None:
+    page = signed_in_lobby.client.get("/").text
+
+    assert '<link rel="stylesheet" href="/static/tokens.css">' in page
+
+
+def test_the_theme_stylesheet_is_served_without_signing_in(lobby: Lobby) -> None:
+    served = lobby.client.get("/static/tokens.css")
+
+    assert served.status_code == HTTPStatus.OK
+    assert "--canvas:" in served.text
+    assert "@media (prefers-color-scheme: dark)" in served.text
+
+
+def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
+    signed_in_lobby: Lobby,
+) -> None:
+    for path in ("/", "/login"):
+        page = signed_in_lobby.client.get(path).text
+
+        assert not _HEX_COLOUR.search(page)
+        assert "style=" not in page
+
+
+def test_the_open_setup_page_carries_no_hex_colour_or_inline_style(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/setup").text
+
+    assert not _HEX_COLOUR.search(page)
+    assert "style=" not in page
+
+
+def test_the_signed_in_header_offers_the_person_and_log_out_not_settings(
+    signed_in_lobby: Lobby,
+) -> None:
+    page = signed_in_lobby.client.get("/").text
+
+    assert _USERNAME in page
+    assert _TEXT.log_out in page
+    assert "Settings" not in page
+
+
+def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
+    page = lobby.client.get("/login").text
+
+    assert _TEXT.wordmark in page
+    assert _TEXT.log_out not in page
+    assert _USERNAME not in page
