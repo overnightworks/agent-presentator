@@ -26,10 +26,9 @@ yet are named in [docs/README.md](docs/README.md).
 
 ## Verifying a change
 
-These are the commands, identical locally and in CI. They exist once the
-foundation of
-[#3](https://github.com/overnightworks/agent-presentator/issues/3) has landed;
-`pyproject.toml` owns their configuration.
+These are the commands, identical locally and in CI. `pyproject.toml` owns the
+configuration of the Python ones, `frontend/package.json` that of the frontend
+ones.
 
 ```sh
 uv run --locked ruff check
@@ -40,5 +39,16 @@ uv run --locked vulture
 uv run --locked pytest
 ```
 
+From `frontend/`:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build:example
+```
+
 Run locally the checks that prove your own change; CI on the pull request is the
-gate.
+gate, and `main` takes nothing that has not passed it — how that is enforced is
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
