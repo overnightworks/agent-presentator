@@ -6,13 +6,22 @@ build-backend = "hatchling.build"
 name = "agent-presentator"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "babel==2.18.0",
+    "fastapi==0.141.1",
+    "jinja2==3.1.6",
+    "pwdlib[argon2]==0.3.1",
+    "pydantic-settings==2.15.0",
+    "python-multipart==0.0.32",
+    "uvicorn==0.52.4",
+]
 
 [project.scripts]
 agent-presentator = "presentator.host.main:main"
 
 [dependency-groups]
 dev = [
+    "httpx2==2.12.0",
     "import-linter==2.13",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
@@ -60,9 +69,10 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-# pytest states its expectations with bare `assert`, and a test's name already
-# states the behaviour a docstring would repeat.
-"tests/**" = ["S101", "D103"]
+# pytest states its expectations with bare `assert`; a test's name already states
+# the behaviour a docstring would repeat, and a double's method repeats the
+# contract the port it stands in for already carries.
+"tests/**" = ["S101", "D102", "D103"]
 # Standalone gate, not a package; it must spawn the git executable PATH names.
 "scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
 # Drives a temporary git repository and the check script as a process.
@@ -70,6 +80,7 @@ convention = "google"
 
 [tool.importlinter]
 root_package = "presentator"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "layers"
@@ -112,4 +123,24 @@ forbidden_modules = ["presentator.ports"]
 as_packages = true
 # A route reaching a port through the application it is allowed to import is the
 # legal chain, not a violation; only naming a port type in the api itself is.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "auth-and-database-libraries"
+name = "Only adapters import the auth and the database library"
+type = "forbidden"
+# ADR 0001: a third-party library lives in the adapter that owns it, and its
+# contract is written with its first import. `pwdlib` hashes passwords and
+# `sqlite3` is the store, so a layer above must ask a port instead.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["pwdlib", "sqlite3"]
+as_packages = true
+# The host composes the adapter that owns them, so the legal chain runs through
+# it; only naming the library in a layer above is the violation.
 allow_indirect_imports = true

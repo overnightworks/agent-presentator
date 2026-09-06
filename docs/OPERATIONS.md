@@ -2,6 +2,24 @@
 
 Audience: whoever administers this repository and the machines it runs on.
 
+## Running an instance
+
+One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. It signs
+the session cookie, and without it the process refuses to start. In development
+it lives in a gitignored `.env` at the repository root; on the server it comes
+from the process environment.
+
+```sh
+export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
+uv run agent-presentator
+```
+
+The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
+SQLite file, `presentator.sqlite3`), `PRESENTATOR_HTTPS` (marks the session
+cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and `PRESENTATOR_PORT`
+(`8000`). An empty instance offers `/setup` once, to create the admin; from
+then on that page is closed.
+
 ## Branch protection
 
 `main` takes a change only through a pull request whose gates are green. A

@@ -94,12 +94,13 @@ manifest says which ([ADR 0005](0005-deck-folder-and-slidev.md), `language`).
 The AI presents a deck in the deck's language regardless of the interface
 language around it.
 
-### Candidates to vet
+### The catalog format
 
-Named as candidates, not as choices; each is vetted before the first string
-lands, per the rule that an existing solution is looked for before one is
-written. For the Jinja2 lobby: Babel with gettext `.po` catalogs. For the addon
-overlay: `vue-i18n`.
+Vetted with the first strings and taken: Babel owns the gettext `.po` catalogs
+of the Jinja2 lobby, read once at startup into a typed record, so that adding a
+language stays adding a file and no template holds a sentence. For the addon
+overlay `vue-i18n` is still a candidate, to be vetted when the overlay gets its
+first string.
 
 ## Consequences
 
