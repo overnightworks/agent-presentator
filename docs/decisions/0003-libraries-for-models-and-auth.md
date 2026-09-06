@@ -80,8 +80,8 @@ this product runs no MCP server and generates no images.
 From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
-Redis, as are the `SessionCache` and `RateLimitBackend` ports the extraction
-names. `AuditSink`, `CsrfPolicy`, `BodySizePolicy`, and `SecurityHeadersPolicy`
+Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
+is implemented here at all — see below. `AuditSink`, `CsrfPolicy`, `BodySizePolicy`, and `SecurityHeadersPolicy`
 are taken with their defaults and stubbed until something here needs them.
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
@@ -91,9 +91,10 @@ extraction names them as library ports, `SessionCache` and `RateLimitBackend`,
 with Redis as the shipped implementation; a non-Redis implementation is
 follow-up work.
 
-So this product's `webauth` adapter fills those ports itself, without Redis: a
-single-process rate-limit backend, and no session cache at all — the SQLite
-session store is authoritative. It starts no Redis and mounts no Redis limiter,
+So this product's `webauth` adapter fills one of them and refuses the other. It
+supplies a single-process `RateLimitBackend`, and it builds no `SessionCache`:
+it passes `session_cache=None` and lets the SQLite session store be
+authoritative. It starts no Redis and mounts no Redis limiter,
 and [ADR 0006](0006-sqlite-and-files.md) stands unchanged.
 
 That adapter is a **bridge, not permanent code**, and its owner is
