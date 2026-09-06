@@ -173,3 +173,30 @@
 header {
   border-bottom: 1px solid var(--line-soft);
 }
+
+/* The picture's login form is a fixed 320px column
+ * (docs/mockups/m0-lobby.html, `.login-card { width: 320px; }`), not the
+ * wider illustrative frame drawn around it for the annotation sheet. Pico's
+ * own `body>main` breakpoints would otherwise widen toward the viewport, so
+ * this repeats the same selector Pico grows `main` through, at every
+ * breakpoint, to hold it at that width instead; the page background stays
+ * full width because only `main` is targeted, not `body`.
+ */
+body > main {
+  max-width: 20rem;
+}
+
+/* Log out has no person menu to sit quietly inside yet — that arrives with
+ * Settings/Account (ADR 0012, issue #8 line 22) — so until then it renders
+ * as a plain control beside the person's name rather than Pico's primary
+ * button, which would make ending a session the loudest thing on the page.
+ * `header [type="submit"]` matches Pico's own `[type=submit]` (and its
+ * `:hover`/`:active`/`:focus` variant) at equal-or-higher specificity.
+ */
+header [type="submit"],
+header [type="submit"]:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  color: var(--ink-soft);
+}
