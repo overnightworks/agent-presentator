@@ -37,6 +37,7 @@ uv run --locked ruff format --check
 uv run --locked pyright
 uv run --locked lint-imports
 uv run --locked vulture
+uv run --locked python scripts/check_root_layout.py
 uv run --locked pytest
 ```
 
