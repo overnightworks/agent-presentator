@@ -16,14 +16,20 @@ in for a higher one.
 | Layer | Proves | How |
 | --- | --- | --- |
 | `contracts`, `application` | Pure logic, including the run state machine | Direct calls. Fakes at the ports. No key, no browser, no subprocess. |
-| `adapters` | The real dependency, in a temporary form | A tmp SQLite file; a tmp bare git repository; a fake subprocess at the port boundary for a Slidev build; a fixture built deck under `tests/fixtures/`. |
+| `ports` | A protocol | It is a protocol; it is not proven by a port suite. Application tests against a fake of that port prove it. Tests do not invent the port. |
+| `adapters` | The real dependency, in a temporary form | A tmp SQLite file; a tmp bare git repository; real Slidev in a container in tmp for the build adapter. A fixture sits next to the test that reads it. |
 | `api` | Routes and wire schemas | FastAPI `TestClient` driving the real routes with the real application and fake or tmp adapters. |
+| Template | Lobby HTML as the surface of a route | A ruled person-sentence is proven by a delegated agent driving the real interface. A route or fragment is FastAPI `TestClient` on the real route. A direct Jinja unit test is not the proof. |
 | `host` | Composition | Once: start the app with a test configuration. |
 | Slidev addon | That Slidev resolves this package; later, components | Vitest driving Slidev's own resolver, as `frontend/tests/addon-package.test.ts` already does. Component tests once components exist. |
-| Surface | A person does X at the lobby | Playwright against the built app in CI, at desktop 1280 and laptop 1024, plus 390 for the narrow boards. One flow per ruled sentence. Screenshots attach to the pull request as evidence. A unit test is not this proof. |
+| Surface | A person does X at the lobby | A delegated agent driving the real interface at the widths the dispatch brief names, taken from the picture at [mockups/README.md](mockups/README.md). One flow per ruled sentence. A unit test is not this proof. |
 
 `gitmirror` is proven the same way as an adapter: against a tmp bare repository,
 with no presentation code in the loop.
+
+Core tests import no adapter. The first adapter import moves that module to the
+integration suite. A remaining exception is one registered module marker, never
+a path allowlist.
 
 ## The 100% floor
 
@@ -38,8 +44,7 @@ choice — is reached in one of three ways:
 2. A failing or succeeding dependency in a temporary form, for adapter tests.
 3. A test configuration for the composition root.
 
-`# pragma: no cover` is allowed only for a line unreachable by construction,
-with the reason beside it.
+An unreachable line is removed.
 
 ## Naming and shape
 
@@ -83,22 +88,18 @@ pnpm exec vitest run tests/addon-package.test.ts
 
 Never `pnpm test` of the whole tree locally.
 
-CI on the pull request is the gate. The jobs in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) that must be green
-are `Python: architecture, lint, types`, `Python: tests`, `Frontend: lint,
-types, tests, deck build`, `Secret scan`, and `SonarCloud scan`. How `main`
-enforces that is [OPERATIONS.md](OPERATIONS.md). The Python tests job collects
-coverage for `src/presentator`; the frontend job runs Vitest with coverage. The
-floor those reports must meet is the configuration above, not a number restated
-here.
+CI on the pull request is the gate. What `main` requires is
+[OPERATIONS.md](OPERATIONS.md). What the workflow runs is
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Coverage collection
+is `--cov=src/presentator` for Python and Vitest `--coverage` for the frontend.
+The floor those reports must meet is the configuration above, not a number
+restated here.
 
 ## Probe stack and browser proofs
 
 Every UI change is proven by a delegated agent driving the real interface at
-the widths the brief names. Playwright in CI is the automated half of that
-proof; the agent drive is the other. Widths for a surface sentence follow the
-row above unless the brief names different ones. The picture for those boards
-is [mockups/README.md](mockups/README.md).
+the widths the brief names. The picture those widths are taken from is
+[mockups/README.md](mockups/README.md).
 
 Targeted browser proofs, live Docker probe stacks, and targeted E2E take
 `/tmp/probe-stack.lock` (`flock`, shared across repositories). Wait for the

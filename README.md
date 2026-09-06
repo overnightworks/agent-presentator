@@ -27,7 +27,7 @@ yet are named in [docs/README.md](docs/README.md).
 
 ## Verifying a change
 
-These are the commands, identical locally and in CI. `pyproject.toml` owns the
+These are the commands CI and the tools run. `pyproject.toml` owns the
 configuration of the Python ones, `frontend/package.json` that of the frontend
 ones.
 
@@ -51,7 +51,7 @@ pnpm test
 pnpm build:example
 ```
 
-Run locally the checks that prove your own change; which layer's test is the
-proof is [docs/TESTING.md](docs/TESTING.md). CI on the pull request is the
-gate, and `main` takes nothing that has not passed it — how that is enforced is
+Which layer's test is the proof, and how to target a local run, is
+[docs/TESTING.md](docs/TESTING.md). CI on the pull request is the gate, and
+`main` takes nothing that has not passed it — how that is enforced is
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
