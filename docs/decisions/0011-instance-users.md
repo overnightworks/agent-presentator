@@ -30,7 +30,10 @@ presents does not change whose subscription pays.
 
 An admin creates accounts. There is no self-registration. The first start of a
 fresh instance creates the admin, and that is the only way an account appears
-without one. There are two roles, `admin` and `user`, and no third.
+without one. There are two roles, `admin` and `user`, and no third. Users live
+as a tab under Settings, and personal preferences live under Account
+([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 23,
+2026-09-06).
 
 Decks and deck sources carry an owner from day one
 ([ADR 0010](0010-git-sources-mirror.md)).
