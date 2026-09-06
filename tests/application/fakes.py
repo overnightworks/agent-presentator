@@ -1,6 +1,6 @@
-"""In-memory stands-in for the identity ports, so the use cases run pure."""
+"""In-memory stands-in for the ports, so the use cases run pure."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 
 from presentator.contracts.models import (
@@ -9,6 +9,8 @@ from presentator.contracts.models import (
     Session,
     User,
 )
+from presentator.contracts.preferences import InstanceSettings, PersonPreferences
+from presentator.contracts.text import LobbyText
 
 
 @dataclass
@@ -127,3 +129,37 @@ class UserStoreThatLostTheRace(FakeUserStore):
 
     def count(self) -> int:
         return 0
+
+
+@dataclass
+class FakeInstanceSettingsStore:
+    """The one row of instance defaults, in memory."""
+
+    saved: InstanceSettings | None = None
+
+    def read(self) -> InstanceSettings | None:
+        return self.saved
+
+    def write(self, settings: InstanceSettings) -> None:
+        self.saved = settings
+
+
+@dataclass
+class FakePersonPreferencesStore:
+    """One entry per person who chose something of their own."""
+
+    chosen: dict[str, PersonPreferences] = field(
+        default_factory=dict[str, PersonPreferences],
+    )
+
+    def read(self, user_id: str) -> PersonPreferences | None:
+        return self.chosen.get(user_id)
+
+    def write(self, user_id: str, preferences: PersonPreferences) -> None:
+        self.chosen[user_id] = preferences
+
+
+def some_words(*, language_tag: str, language_name: str) -> LobbyText:
+    """A catalog whose every word is its own field name, in a named language."""
+    named = LobbyText(**{field.name: field.name for field in fields(LobbyText)})
+    return replace(named, language_tag=language_tag, language_name=language_name)

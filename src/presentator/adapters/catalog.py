@@ -1,4 +1,4 @@
-"""Reads a gettext catalog into the lobby's words (ADR 0012).
+"""Reads the gettext catalogs into the lobby's words (ADR 0012).
 
 Babel owns the `.po` format, so adding a language stays adding a file.
 """
@@ -9,15 +9,24 @@ from typing import Final
 
 from babel.messages.pofile import read_po
 
-from presentator.contracts.text import LobbyText
+from presentator.contracts.text import Catalogs, LobbyText
 
-ENGLISH_CATALOG: Final = Path(__file__).parent / "catalogs" / "en.po"
+CATALOG_DIRECTORY: Final = Path(__file__).parent / "catalogs"
 
+_CATALOG_FILES: Final = "*.po"
 _LANGUAGE_FIELD: Final = "language_tag"
 
 
 class IncompleteCatalogError(ValueError):
     """A catalog that misses its language or a message would render a blank word."""
+
+
+def load_catalogs(directory: Path) -> Catalogs:
+    """Read every catalog file the directory holds, keyed by its language."""
+    files = sorted(directory.glob(_CATALOG_FILES))
+    return Catalogs(
+        by_tag={text.language_tag: text for text in map(load_lobby_text, files)},
+    )
 
 
 def load_lobby_text(catalog_file: Path) -> LobbyText:

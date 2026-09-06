@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ text.setup_title }}{% endblock %}
 {% block body %}
 <main>
-  <p>{{ wordmark }}</p>
-  <h1>{{ title }}</h1>
-  <p>{{ once }}</p>
-  <p>{{ explanation }}</p>
-  {% if mismatch %}<p role="alert">{{ mismatch }}</p>{% endif %}
+  <p>{{ text.wordmark }}</p>
+  <h1>{{ text.setup_title }}</h1>
+  <p>{{ text.setup_once }}</p>
+  <p>{{ text.setup_explanation }}</p>
+  {% if mismatch %}<p role="alert">{{ text.setup_passwords_differ }}</p>{% endif %}
   <form method="post" action="/setup">
-    <label for="username">{{ username }}</label>
+    <label for="username">{{ text.setup_username }}</label>
     <input id="username" name="username" autocomplete="username" required>
-    <label for="password">{{ password }}</label>
+    <label for="password">{{ text.setup_password }}</label>
     <input id="password" name="password" type="password"
            autocomplete="new-password" required>
-    <label for="repeated-password">{{ repeated_password }}</label>
+    <label for="repeated-password">{{ text.setup_repeat_password }}</label>
     <input id="repeated-password" name="repeated_password" type="password"
            autocomplete="new-password" required>
-    <button type="submit">{{ submit }}</button>
+    <button type="submit">{{ text.setup_submit }}</button>
   </form>
 </main>
 {% endblock %}

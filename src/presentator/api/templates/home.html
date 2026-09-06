@@ -1,19 +1,2 @@
 {% extends "base.html" %}
-{% block title %}{{ wordmark }}{% endblock %}
-{% block body %}
-<header>
-  <nav>
-    <ul>
-      <li><strong>{{ wordmark }}</strong></li>
-    </ul>
-    <ul>
-      <li>{{ person }}</li>
-      <li>
-        <form method="post" action="/logout">
-          <button type="submit">{{ log_out }}</button>
-        </form>
-      </li>
-    </ul>
-  </nav>
-</header>
-{% endblock %}
+{% block title %}{{ text.wordmark }}{% endblock %}

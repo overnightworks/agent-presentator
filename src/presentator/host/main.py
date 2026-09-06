@@ -7,7 +7,7 @@ adapter satisfies which port.
 import uvicorn
 from fastapi import FastAPI
 
-from presentator.adapters.catalog import ENGLISH_CATALOG, load_lobby_text
+from presentator.adapters.catalog import CATALOG_DIRECTORY, load_catalogs
 from presentator.adapters.identity import (
     Argon2PasswordHasher,
     HmacSessionCookieSigner,
@@ -18,14 +18,21 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
+from presentator.adapters.preferences import (
+    SqliteInstanceSettingsStore,
+    SqlitePersonPreferencesStore,
+    create_preference_tables,
+)
 from presentator.api.auth import create_lobby
 from presentator.application.identity import Identity
+from presentator.application.preferences import Preferences
 from presentator.host.config import Settings, load_settings
 
 
 def build_lobby(settings: Settings) -> FastAPI:
     """Choose the adapter behind every port and hand the routes their use cases."""
     create_identity_tables(settings.database)
+    create_preference_tables(settings.database)
     identity = Identity(
         users=SqliteUserStore(settings.database),
         sessions=SqliteSessionRecordStore(settings.database),
@@ -37,9 +44,14 @@ def build_lobby(settings: Settings) -> FastAPI:
             settings.secret_key.get_secret_value().encode(),
         ),
     )
+    preferences = Preferences(
+        instance=SqliteInstanceSettingsStore(settings.database),
+        people=SqlitePersonPreferencesStore(settings.database),
+        catalogs=load_catalogs(CATALOG_DIRECTORY),
+    )
     return create_lobby(
         identity=identity,
-        text=load_lobby_text(ENGLISH_CATALOG),
+        preferences=preferences,
         secure_cookies=settings.https,
     )
 

@@ -1,0 +1,37 @@
+<header>
+  <nav>
+    <ul>
+      <li><strong>{{ text.wordmark }}</strong></li>
+      <li><a href="/">{{ text.section_decks }}</a></li>
+      {% if person.is_admin %}
+      <li><a href="/settings">{{ text.section_settings }}</a></li>
+      {% endif %}
+    </ul>
+    <ul>
+      <li>
+        <details>
+          <summary>{{ person.username }}</summary>
+          <div>
+            <a href="/account">{{ text.menu_account }}</a>
+            <form hx-post="/theme" hx-trigger="change">
+              <fieldset>
+                <legend>{{ text.menu_theme }}</legend>
+                {% for row in theme_rows %}
+                <label>
+                  <input type="radio" name="theme" value="{{ row.value }}"
+                         {% if row.chosen %}checked{% endif %}>
+                  {{ row.label }}
+                </label>
+                {% endfor %}
+              </fieldset>
+            </form>
+            <hr>
+            <form method="post" action="/logout">
+              <button type="submit">{{ text.log_out }}</button>
+            </form>
+          </div>
+        </details>
+      </li>
+    </ul>
+  </nav>
+</header>

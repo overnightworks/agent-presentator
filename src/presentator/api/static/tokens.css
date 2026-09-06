@@ -170,8 +170,44 @@
  * a page-level `header`, like the picture's app bar, gets none, so the line
  * that separates it from the page body below is added here.
  */
-header {
+body > header {
   border-bottom: 1px solid var(--line-soft);
+}
+
+/* The title row of a page: its name on the left, its one action on the right,
+ * as the picture's Settings board shows Save beside "General". The action is
+ * an ordinary submit button of the form below it, so the row needs no second
+ * form and no script.
+ */
+main > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pico-spacing);
+  align-items: center;
+  justify-content: space-between;
+}
+
+main > header {
+  margin-bottom: var(--pico-spacing);
+}
+
+main > header h1,
+main > header [type="submit"] {
+  margin-bottom: 0;
+}
+
+main > header [type="submit"] {
+  width: auto;
+}
+
+/* The picture's section label over a group of controls — quiet and small, so
+ * the field labels below it stay the loudest words of the group.
+ */
+main fieldset legend {
+  color: var(--ink-soft);
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* The picture's login form is a fixed 320px column
@@ -180,23 +216,54 @@ header {
  * own `body>main` breakpoints would otherwise widen toward the viewport, so
  * this repeats the same selector Pico grows `main` through, at every
  * breakpoint, to hold it at that width instead; the page background stays
- * full width because only `main` is targeted, not `body`.
+ * full width because only `main` is targeted, not `body`. Only the pages
+ * nobody is signed in for are that column: they are the ones whose `main`
+ * opens the body, while every other page carries the app bar above it.
  */
-body > main {
+body > main:first-child {
   max-width: 20rem;
 }
 
-/* Log out has no person menu to sit quietly inside yet — that arrives with
- * Settings/Account (ADR 0012, issue #8 line 22) — so until then it renders
- * as a plain control beside the person's name rather than Pico's primary
- * button, which would make ending a session the loudest thing on the page.
- * `header [type="submit"]` matches Pico's own `[type=submit]` (and its
- * `:hover`/`:active`/`:focus` variant) at equal-or-higher specificity.
+/* Log out is a quiet row of the person menu, not Pico's primary button, which
+ * would make ending a session the loudest thing on the page.
+ * The selector matches Pico's own `[type=submit]` (and its `:hover`/`:active`/
+ * `:focus` variant) at higher specificity, and only inside the app bar, so a
+ * page's own Save button keeps Pico's primary look.
  */
-header [type="submit"],
-header [type="submit"]:is(:hover, :active, :focus) {
+body > header [type="submit"],
+body > header [type="submit"]:is(:hover, :active, :focus) {
   background-color: transparent;
   border: none;
   padding: 0;
+  text-align: left;
   color: var(--ink-soft);
+}
+
+/* The person control of the picture: the name opens a panel holding Account,
+ * the theme rows, and Log out. Pico's classless build ships no dropdown
+ * component, so the panel a `details` opens is placed here, over the page.
+ */
+body > header details {
+  position: relative;
+  margin-bottom: 0;
+}
+
+body > header details > div {
+  position: absolute;
+  right: 0;
+  z-index: 1;
+  min-width: 12rem;
+  padding: var(--pico-spacing);
+  background-color: var(--screen);
+  border: 1px solid var(--line);
+  border-radius: var(--pico-border-radius);
+  box-shadow: var(--shadow);
+}
+
+body > header details :is(fieldset, legend, label, form, hr) {
+  margin-bottom: 0;
+}
+
+body > header details hr {
+  margin: var(--pico-spacing) 0;
 }
