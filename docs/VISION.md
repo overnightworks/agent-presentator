@@ -23,8 +23,8 @@ rebuild as a reusable tool, decided by the operator on 2026-09-06.
 
 ## How the operator will notice it exists
 
-He drops a new deck folder into Git, logs in from the laptop, presses start,
-and Claude presents.
+He pushes a new deck folder to a private git repository, logs in from the
+laptop, presses start, and Claude presents.
 
 ## Phases
 
