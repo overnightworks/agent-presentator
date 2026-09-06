@@ -87,6 +87,8 @@ convention = "google"
 "src/gitmirror/mirror.py" = ["S404", "S603"]
 # Builds the temporary git repositories every layer that reads one is proven on.
 "tests/conftest.py" = ["S404", "S603", "S607"]
+# Asks the real `git` whether it accepts the credential configuration it is given.
+"tests/gitmirror/test_mirror.py" = ["S404", "S603", "S607"]
 
 [tool.importlinter]
 root_packages = ["presentator", "gitmirror"]

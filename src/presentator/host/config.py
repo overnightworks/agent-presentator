@@ -18,8 +18,10 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     source_url: str | None = None
     source_ref: str = "main"
     # The name of the environment variable holding the read-only secret, never
-    # the secret itself, so it is resolved at the pull and can rotate meanwhile.
+    # the secret itself, so no durable record of this instance carries a value.
     source_credential: str | None = None
+    # A pull happens while someone waits for the deck list, so it is bounded.
+    source_timeout_seconds: float = 20.0
     https: bool = False
     host: str = "127.0.0.1"
     port: int = 8000

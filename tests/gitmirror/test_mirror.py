@@ -1,11 +1,16 @@
 """The mirror against a real bare repository in a temporary directory."""
 
-from datetime import UTC, datetime
+import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from gitmirror.mirror import GitMirror
+from gitmirror.mirror import (
+    GitMirror,
+    credential_arguments,
+    unattended_environment,
+)
 from gitmirror.model import (
     ConnectionState,
     CredentialReference,
@@ -17,6 +22,9 @@ from gitmirror.model import (
 from tests.conftest import MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_A_GENEROUS_BOUND = timedelta(seconds=30)
+_NO_BUDGET_AT_ALL = timedelta(0)
+_WHAT_THE_RESOLVER_ANSWERS = "what only this test made up"
 _TOKEN_REFERENCE = CredentialReference(name="A_READ_ONLY_TOKEN")
 _A_DECK = {
     "hello-deck/deck.toml": 'title = "Hello"\n',
@@ -33,10 +41,10 @@ class NoSecretAnywhere:
 
 
 class OneKnownSecret:
-    """A resolver that answers the reference the source names."""
+    """A resolver that answers whatever reference the source names."""
 
     def resolve(self, reference: CredentialReference) -> str | None:
-        return f"the secret behind {reference.name}"
+        return f"{_WHAT_THE_RESOLVER_ANSWERS} for {reference.name}"
 
 
 def a_mirror(
@@ -45,11 +53,13 @@ def a_mirror(
     directory: Path,
     credential: CredentialReference | None = None,
     resolver: NoSecretAnywhere | OneKnownSecret | None = None,
+    pull_timeout: timedelta = _A_GENEROUS_BOUND,
 ) -> GitMirror:
     return GitMirror(
         source=GitSource(url=url, ref=MAIN_BRANCH, credential=credential),
         directory=directory / "mirror.git",
         credentials=NoSecretAnywhere() if resolver is None else resolver,
+        pull_timeout=pull_timeout,
     )
 
 
@@ -114,7 +124,6 @@ def test_a_credential_reference_that_resolves_to_nothing_stops_the_pull(
         remote.url,
         directory=tmp_path,
         credential=_TOKEN_REFERENCE,
-        resolver=NoSecretAnywhere(),
     )
 
     connection = unresolvable.connect()
@@ -123,21 +132,68 @@ def test_a_credential_reference_that_resolves_to_nothing_stops_the_pull(
     assert connection.revision is None
 
 
-def test_a_source_with_a_resolved_credential_is_pulled(
+def test_a_resolved_credential_reaches_git_without_riding_on_its_command_line() -> None:
+    arguments = credential_arguments(_WHAT_THE_RESOLVER_ANSWERS)
+
+    answered = subprocess.run(
+        ["git", *arguments, "credential", "fill"],
+        capture_output=True,
+        check=True,
+        env=unattended_environment(_WHAT_THE_RESOLVER_ANSWERS),
+        input="protocol=https\nhost=git.example\nusername=token-user\n\n",
+        text=True,
+    )
+
+    assert f"password={_WHAT_THE_RESOLVER_ANSWERS}" in answered.stdout
+    assert _WHAT_THE_RESOLVER_ANSWERS not in " ".join(arguments)
+
+
+def test_git_runs_without_the_machine_settings_that_could_hang_or_leak_it() -> None:
+    environment = unattended_environment(None)
+
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert "BatchMode=yes" in environment["GIT_SSH_COMMAND"]
+    assert "GITMIRROR_CREDENTIAL" not in environment
+    assert set(environment) <= {
+        "PATH",
+        "HOME",
+        "GIT_TERMINAL_PROMPT",
+        "GIT_SSH_COMMAND",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+    }
+
+
+def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
     remote.commit(_A_DECK, at=_PUSHED_AT)
-    authenticated = a_mirror(
+    impatient = a_mirror(
         remote.url,
+        directory=tmp_path,
+        pull_timeout=_NO_BUDGET_AT_ALL,
+    )
+
+    connection = impatient.connect()
+
+    assert connection.state is ConnectionState.UNREACHABLE
+    assert connection.revision is None
+
+
+def test_a_resolved_credential_tells_an_unreachable_remote_from_a_missing_secret(
+    tmp_path: Path,
+) -> None:
+    resolved = a_mirror(
+        (tmp_path / "nothing.git").as_uri(),
         directory=tmp_path,
         credential=_TOKEN_REFERENCE,
         resolver=OneKnownSecret(),
     )
 
-    connection = authenticated.connect()
+    connection = resolved.connect()
 
-    assert connection.state is ConnectionState.READY
+    assert connection.state is ConnectionState.UNREACHABLE
 
 
 def test_reading_a_path_the_commit_does_not_carry_is_refused(

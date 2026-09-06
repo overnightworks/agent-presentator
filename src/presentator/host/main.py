@@ -4,6 +4,7 @@ Imports every other layer, because it is the one place that decides which
 adapter satisfies which port.
 """
 
+from datetime import timedelta
 from functools import partial
 
 import uvicorn
@@ -62,6 +63,7 @@ def build_lobby(settings: Settings) -> FastAPI:
         folders=MirroredDeckFolders(
             mirrors=settings.mirrors,
             credentials=EnvironmentCredentials(),
+            pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
         ),
         store=SqliteDeckStore(database=settings.database),
         clock=SystemClock(),

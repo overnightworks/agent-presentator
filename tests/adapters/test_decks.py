@@ -1,15 +1,15 @@
 """Deck folders read out of a real repository, and deck rows in a real file."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from gitmirror.model import CredentialReference
 from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
-    MalformedManifestError,
     MirroredDeckFolders,
     SqliteDeckStore,
     create_deck_tables,
@@ -22,6 +22,8 @@ from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _OWNER = User(id="the-admin", username="felix", role=Role.ADMIN)
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
+_A_GENEROUS_BOUND = timedelta(seconds=30)
+_NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
 
 
@@ -34,10 +36,15 @@ def a_source(url: str, *, credential: str | None = None) -> Source:
     )
 
 
-def folders_under(tmp_path: Path) -> MirroredDeckFolders:
+def folders_under(
+    tmp_path: Path,
+    *,
+    pull_timeout: timedelta = _A_GENEROUS_BOUND,
+) -> MirroredDeckFolders:
     return MirroredDeckFolders(
         mirrors=tmp_path / "mirrors",
         credentials=EnvironmentCredentials(),
+        pull_timeout=pull_timeout,
     )
 
 
@@ -75,17 +82,45 @@ def test_a_folder_without_a_manifest_is_read_without_a_title(
     assert [folder.title for folder in folders] == [None]
 
 
-def test_a_manifest_that_names_no_title_is_refused(
+@pytest.mark.parametrize(
+    ("broken", "manifest"),
+    [
+        ("nameless", 'language = "en"\n'),
+        ("not-toml", "this is not a manifest at all\n"),
+    ],
+    ids=["names no title", "is not TOML"],
+)
+def test_a_folder_whose_manifest_is_unreadable_leaves_the_others_listed(
+    broken: str,
+    manifest: str,
+    caplog: pytest.LogCaptureFixture,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
     remote.commit(
-        {"nameless/deck.toml": 'language = "en"\n', "nameless/slides.md": "# x\n"},
+        {f"{broken}/deck.toml": manifest, f"{broken}/slides.md": "# x\n"},
         at=_PUSHED_AT,
     )
 
-    with pytest.raises(MalformedManifestError, match="nameless"):
-        folders_under(tmp_path).folders(a_source(remote.url))
+    with caplog.at_level(logging.WARNING):
+        folders = folders_under(tmp_path).folders(a_source(remote.url))
+
+    assert [folder.name for folder in folders] == [EXAMPLE_SLUG]
+    assert broken in caplog.text
+
+
+def test_a_pull_that_runs_past_its_bound_leaves_the_list_empty_rather_than_waiting(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    folders = folders_under(tmp_path, pull_timeout=_NO_BUDGET_AT_ALL).folders(
+        a_source(remote.url),
+    )
+
+    assert folders == ()
 
 
 def test_a_source_that_cannot_be_read_yields_no_folders_and_says_so(
@@ -103,17 +138,15 @@ def test_a_source_that_cannot_be_read_yields_no_folders_and_says_so(
 
 def test_a_credential_reference_is_resolved_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
-    remote: GitRemote,
-    tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, "a read-only token")
-    remote.commit_example_deck(at=_PUSHED_AT)
+    monkeypatch.setenv(_CREDENTIAL_VARIABLE, "what only this test wrote")
+    reference = CredentialReference(name=_CREDENTIAL_VARIABLE)
 
-    folders = folders_under(tmp_path).folders(
-        a_source(remote.url, credential=_CREDENTIAL_VARIABLE),
-    )
+    resolved = EnvironmentCredentials().resolve(reference)
+    monkeypatch.delenv(_CREDENTIAL_VARIABLE)
 
-    assert [folder.name for folder in folders] == [EXAMPLE_SLUG]
+    assert resolved == "what only this test wrote"
+    assert EnvironmentCredentials().resolve(reference) is None
 
 
 def test_a_credential_reference_the_environment_does_not_carry_stops_the_read(

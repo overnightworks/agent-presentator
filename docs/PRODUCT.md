@@ -50,14 +50,18 @@ user management, and it is deleted with them. How an instance is started is
 One Git source is configured with `PRESENTATOR_SOURCE_URL`, an optional
 `PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
 naming the environment variable that carries a read-only secret — the
-configuration holds the reference, never the value, so the secret can rotate
-between two pulls. `gitmirror` keeps a bare mirror of that repository under
-`PRESENTATOR_MIRRORS` by driving `git` as a subprocess
-([ADR 0010](decisions/0010-git-sources-mirror.md)); nothing is ever checked
-out, and the tree is read at one commit.
+configuration holds the reference, never the value. `gitmirror` keeps a bare
+mirror of that repository under `PRESENTATOR_MIRRORS` by driving `git` as a
+subprocess ([ADR 0010](decisions/0010-git-sources-mirror.md)); nothing is ever
+checked out, and the tree is read at one commit. The pull runs with a minimal
+environment that cannot prompt, and inside
+`PRESENTATOR_SOURCE_TIMEOUT_SECONDS`, so an unreachable source costs the list
+that bound and no more.
 
-Opening the deck list pulls the source and then renders it. A folder counts as
-a deck when it carries both `deck.toml` and `slides.md`; its folder name is the
+Opening the deck list pulls the source and then renders it. A source that
+cannot be read, and a folder whose manifest cannot be read, are logged and
+leave the rest of the list standing. A folder counts as a deck when it carries
+both `deck.toml` and `slides.md`; its folder name is the
 slug and therefore its address, so changing `title` in the manifest changes no
 link. The most recently changed deck stands first, and a deck belongs to the
 account that owns the source it came from — for a configured source, the admin

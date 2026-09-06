@@ -8,7 +8,7 @@ import logging
 import os
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Final
@@ -39,12 +39,13 @@ CREATE TABLE IF NOT EXISTS decks (
 """
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
+_UNREADABLE_MANIFEST: Final = "folder %s is not listed: %s"
 
 _log = logging.getLogger(__name__)
 
 
 class MalformedManifestError(ValueError):
-    """A deck manifest that names no title would give the deck a blank name."""
+    """A manifest that cannot be read, or that names no title."""
 
 
 def create_deck_tables(database: Path) -> None:
@@ -82,8 +83,8 @@ class ConfiguredSource:
 class EnvironmentCredentials:
     """Resolves a credential reference to the value the environment carries.
 
-    Reading it at the moment of the pull rather than at startup is what lets a
-    secret rotate without restarting the instance (ADR 0010).
+    The configuration holds the name, so the durable record never holds a
+    secret; the value is read out of the process environment at every pull.
     """
 
     def resolve(self, reference: CredentialReference) -> str | None:
@@ -97,6 +98,7 @@ class MirroredDeckFolders:
 
     mirrors: Path
     credentials: CredentialResolver
+    pull_timeout: timedelta
 
     def folders(self, source: Source) -> tuple[DeckFolder, ...]:
         """Every top-level folder at the source's newest commit."""
@@ -106,31 +108,42 @@ class MirroredDeckFolders:
         if revision is None:
             _log.warning(_UNREADABLE_SOURCE, source.url, connection.state)
             return ()
-        return tuple(
+        read = (
             self._folder(mirror, revision, entry.name)
             for entry in mirror.entries(revision)
             if entry.is_directory
         )
+        return tuple(folder for folder in read if folder is not None)
 
     def _folder(
         self,
         mirror: GitMirror,
         revision: Revision,
         name: str,
-    ) -> DeckFolder:
+    ) -> DeckFolder | None:
+        """The folder, or nothing when its manifest is the one thing unreadable.
+
+        One folder nobody can read must not take the whole list with it; the
+        row that says so belongs to the build states.
+        """
         file_names = frozenset(
             entry.name
             for entry in mirror.entries(revision, inside=name)
             if not entry.is_directory
         )
-        return DeckFolder(
-            name=name,
-            file_names=file_names,
-            title=(
+        try:
+            title = (
                 _title(mirror.read(revision, f"{name}/{MANIFEST_FILE}"), folder=name)
                 if MANIFEST_FILE in file_names
                 else None
-            ),
+            )
+        except MalformedManifestError as unreadable:
+            _log.warning(_UNREADABLE_MANIFEST, name, unreadable)
+            return None
+        return DeckFolder(
+            name=name,
+            file_names=file_names,
+            title=title,
             changed_at=mirror.last_changed_at(revision, name),
         )
 
@@ -146,6 +159,7 @@ class MirroredDeckFolders:
             ),
             directory=self.mirrors / _mirror_name(source),
             credentials=self.credentials,
+            pull_timeout=self.pull_timeout,
         )
 
 
@@ -190,7 +204,11 @@ class SqliteDeckStore:
 
 
 def _title(manifest: bytes, *, folder: str) -> str:
-    named = tomllib.loads(manifest.decode()).get(_TITLE_KEY)
+    try:
+        named = tomllib.loads(manifest.decode()).get(_TITLE_KEY)
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as unreadable:
+        message = f"{folder}/{MANIFEST_FILE} is not readable TOML: {unreadable}"
+        raise MalformedManifestError(message) from unreadable
     if not isinstance(named, str):
         message = f"{folder}/{MANIFEST_FILE} names no title"
         raise MalformedManifestError(message)

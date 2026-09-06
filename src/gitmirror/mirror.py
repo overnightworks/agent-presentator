@@ -9,7 +9,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Final
 
@@ -30,13 +30,28 @@ _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
 # The user name belongs in the source URL: only the operator knows which name
 # the host expects beside a read-only token.
 _CREDENTIAL_HELPER: Final = f'!f() {{ echo "password=${_CREDENTIAL_VARIABLE}"; }}; f'
+_SSH_CONNECT_SECONDS: Final = 10
+# Only what git and ssh need to run; the child inherits nothing else, so no
+# machine-wide askpass helper can hang a pull and no machine-wide trace setting
+# can write the secret into a file.
+_INHERITED: Final = ("PATH", "HOME")
 _UNATTENDED: Final = {
     # Nothing here can answer a prompt, so a remote that asks for one has to
     # fail instead of waiting for a terminal that will never come.
     "GIT_TERMINAL_PROMPT": "0",
+    "GIT_SSH_COMMAND": (
+        f"ssh -o BatchMode=yes -o ConnectTimeout={_SSH_CONNECT_SECONDS}"
+    ),
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
 }
 _COMMIT_TIME: Final = "--format=%cI"
 _GIT_MISSING: Final = "git is required to mirror a source"
+_UNREACHABLE: Final = Connection(state=ConnectionState.UNREACHABLE, revision=None)
+_CREDENTIAL_UNRESOLVABLE: Final = Connection(
+    state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
+    revision=None,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -46,6 +61,7 @@ class GitMirror:
     source: GitSource
     directory: Path
     credentials: CredentialResolver
+    pull_timeout: timedelta
 
     def connect(self) -> Connection:
         """Pull the source's ref, and say what stopped that when it failed."""
@@ -53,10 +69,7 @@ class GitMirror:
             return self._pull(secret=None)
         secret = self.credentials.resolve(self.source.credential)
         if secret is None:
-            return Connection(
-                state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
-                revision=None,
-            )
+            return _CREDENTIAL_UNRESOLVABLE
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -78,26 +91,30 @@ class GitMirror:
         self.directory.parent.mkdir(parents=True, exist_ok=True)
         self._run("init", "--bare", "--quiet")
         ref = self.source.ref
-        helper = _credential_helper(secret)
         # The URL is the one argument that may carry a user name, so this is the
         # only call that never turns its command line into an error message.
-        pulled = subprocess.run(
-            [
-                _git_executable(),
-                *helper,
-                "--git-dir",
-                str(self.directory),
-                "fetch",
-                "--no-tags",
-                self.source.url,
-                f"+refs/heads/{ref}:refs/heads/{ref}",
-            ],
-            capture_output=True,
-            check=False,
-            env=_environment({} if secret is None else {_CREDENTIAL_VARIABLE: secret}),
-        )
+        try:
+            pulled = subprocess.run(
+                [
+                    _git_executable(),
+                    *credential_arguments(secret),
+                    "--git-dir",
+                    str(self.directory),
+                    "fetch",
+                    "--no-tags",
+                    self.source.url,
+                    f"+refs/heads/{ref}:refs/heads/{ref}",
+                ],
+                capture_output=True,
+                check=False,
+                env=unattended_environment(secret),
+                timeout=self.pull_timeout.total_seconds(),
+            )
+        except subprocess.TimeoutExpired:
+            # A remote nobody can reach must not hold the page that asked for it.
+            return _UNREACHABLE
         if pulled.returncode != 0:
-            return Connection(state=ConnectionState.UNREACHABLE, revision=None)
+            return _UNREACHABLE
         return Connection(
             state=ConnectionState.READY,
             revision=Revision(
@@ -114,7 +131,7 @@ class GitMirror:
             [_git_executable(), "--git-dir", str(self.directory), *arguments],
             capture_output=True,
             check=False,
-            env=_environment({}),
+            env=unattended_environment(secret=None),
         )
         if completed.returncode != 0:
             message = f"git {' '.join(arguments)}: {completed.stderr.decode().strip()}"
@@ -129,14 +146,21 @@ def _git_executable() -> str:
     return git
 
 
-def _credential_helper(secret: str | None) -> tuple[str, ...]:
+def credential_arguments(secret: str | None) -> tuple[str, ...]:
+    """The `-c` options git is run with, carrying no secret value itself."""
+    # An empty helper clears whatever a config file or the environment set, so
+    # only the helper named here can ever answer.
+    cleared = ("-c", "credential.helper=")
     if secret is None:
-        return ()
-    return ("-c", f"credential.helper={_CREDENTIAL_HELPER}")
+        return cleared
+    return (*cleared, "-c", f"credential.helper={_CREDENTIAL_HELPER}")
 
 
-def _environment(extra: dict[str, str]) -> dict[str, str]:
-    return {**os.environ, **_UNATTENDED, **extra}
+def unattended_environment(secret: str | None) -> dict[str, str]:
+    """The whole environment git runs in, with the secret only when there is one."""
+    inherited = {name: os.environ[name] for name in _INHERITED if name in os.environ}
+    carried = {} if secret is None else {_CREDENTIAL_VARIABLE: secret}
+    return {**inherited, **_UNATTENDED, **carried}
 
 
 def _tree_entry(line: str) -> TreeEntry:

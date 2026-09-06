@@ -179,6 +179,21 @@ def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
     assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, admin.id)]
 
 
+def test_a_source_slower_than_its_bound_still_answers_the_deck_list(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    listed = a_signed_in_instance().get("/")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE not in listed.text
+    assert "<table" not in listed.text
+
+
 @pytest.mark.usefixtures("environment")
 def test_an_instance_without_a_source_shows_the_empty_list() -> None:
     listed = a_signed_in_instance().get("/")

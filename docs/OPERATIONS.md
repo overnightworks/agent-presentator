@@ -22,9 +22,10 @@ session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
 the admin; from then on that page is closed.
 
 The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
-(`main`). Without a URL the instance runs and its deck list stays empty. A
-private remote adds `PRESENTATOR_SOURCE_CREDENTIAL`, which holds the *name* of
-the environment variable carrying the read-only secret, never the secret:
+(`main`) and `PRESENTATOR_SOURCE_TIMEOUT_SECONDS` (`20`). Without a URL the
+instance runs and its deck list stays empty. A private remote adds
+`PRESENTATOR_SOURCE_CREDENTIAL`, which holds the *name* of the environment
+variable carrying the read-only secret, never the secret:
 
 ```sh
 export PRESENTATOR_SOURCE_URL="https://token-user@git.example/decks.git"
@@ -33,9 +34,20 @@ export DECKS_TOKEN="…"
 ```
 
 The user name belongs in the URL, because only the operator knows which name
-the host expects beside a token. The secret is read at every pull, so replacing
-it takes effect without a restart, and `git` is run with prompting disabled so
-a remote that wants one fails instead of hanging.
+the host expects beside a token.
+
+Opening the deck list pulls the source, so a pull runs while someone waits. It
+is bounded by `PRESENTATOR_SOURCE_TIMEOUT_SECONDS`, after which the list renders
+without that source rather than holding the request. `git` runs with a minimal
+environment: terminal prompting off, the global and system git configuration
+neutralised, any inherited credential helper cleared, and `ssh` in batch mode
+with its own connect timeout — so nothing on the machine can turn a pull into a
+wait for an answer nobody will give.
+
+Replacing the secret means changing the environment of the running process, so
+today it takes a restart. A rotation path without one is open work on
+[ADR 0010](decisions/0010-git-sources-mirror.md), together with polling, the
+webhook, and the fetch log.
 
 ## Branch protection
 

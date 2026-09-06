@@ -61,7 +61,8 @@ class TreeEntry:
 class CredentialResolver(Protocol):
     """Turns a reference into the secret behind it, at the moment it is needed.
 
-    Resolving late is what lets a secret rotate without restarting the caller.
+    Resolving at the pull leaves rotation to whoever holds the value, rather
+    than to the mirror.
     """
 
     @abstractmethod
