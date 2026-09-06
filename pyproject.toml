@@ -77,6 +77,10 @@ convention = "google"
 "scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
 # Drives a temporary git repository and the check script as a process.
 "tests/test_root_layout.py" = ["S404", "S603"]
+# Standalone gate, not a package.
+"scripts/check_catalog_purity.py" = ["INP001"]
+# Drives the check script as a subprocess against temporary and real templates.
+"tests/test_catalog_purity.py" = ["S404", "S603"]
 
 [tool.importlinter]
 root_package = "presentator"

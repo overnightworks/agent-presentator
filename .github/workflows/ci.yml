@@ -58,6 +58,9 @@ jobs:
       - name: Check the root layout
         run: uv run --locked python scripts/check_root_layout.py
 
+      - name: Check catalog purity
+        run: uv run --locked python scripts/check_catalog_purity.py
+
   tests:
     name: "Python: tests"
     runs-on: ubuntu-24.04
