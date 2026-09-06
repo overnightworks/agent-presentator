@@ -1,2 +1,36 @@
 {% extends "base.html" %}
-{% block title %}{{ text.wordmark }}{% endblock %}
+{% block title %}{{ text.decks_title }}{% endblock %}
+{% block body %}
+<main>
+  <header>
+    <h1>{{ text.decks_title }}</h1>
+  </header>
+  {% if decks %}
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">{{ text.decks_column_deck }}</th>
+        <th scope="col">{{ text.decks_column_changed }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for deck in decks %}
+      <tr>
+        <td>
+          <a href="/deck/{{ deck.slug }}">{{ deck.title }}</a>
+          <code>{{ deck.slug }}</code>
+        </td>
+        <td>{{ deck.changed }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <section>
+    <h2>{{ text.decks_empty_title }}</h2>
+    <p>{{ text.decks_empty_explanation }}</p>
+    {% if source_address %}<p><code>{{ source_address }}</code></p>{% endif %}
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

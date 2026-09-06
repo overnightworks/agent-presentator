@@ -37,6 +37,11 @@ class LobbyText:
     setup_repeat_password: str
     setup_submit: str
     setup_passwords_differ: str
+    decks_title: str
+    decks_column_deck: str
+    decks_column_changed: str
+    decks_empty_title: str
+    decks_empty_explanation: str
     settings_title: str
     settings_instance_name: str
     settings_default_language: str

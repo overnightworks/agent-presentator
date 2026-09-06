@@ -6,13 +6,15 @@ describes something this file does not list, that thing is not built.
 
 ## What exists today
 
-An instance signs a person in and lets an admin and every person say how the
-lobby looks and which language it speaks; nothing else of the product exists:
-no deck is listed, built, or presented, and nothing is deployed. No phase of
+An instance signs a person in, lists the decks a configured Git source carries,
+and lets an admin and every person say how the lobby looks and which language it
+speaks. Nothing is built, presented, or deployed yet, so no phase of
 [VISION.md](VISION.md) is reached. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
-[#22](https://github.com/overnightworks/agent-presentator/issues/22), and
+[#22](https://github.com/overnightworks/agent-presentator/issues/22), the deck
+list as
+[#26](https://github.com/overnightworks/agent-presentator/issues/26), and
 Settings, Account and the person menu as
 [#32](https://github.com/overnightworks/agent-presentator/issues/32).
 
@@ -77,3 +79,33 @@ the whole document, down to the `<html>` element the theme sits on.
 Settings has no Sources and no Users tab yet, and Account carries neither the
 password nor the sessions part of the picture; each arrives with the slice that
 fills it.
+
+### Listing decks
+
+One Git source is configured with `PRESENTATOR_SOURCE_URL`, an optional
+`PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
+naming the environment variable that carries a read-only secret — the
+configuration holds the reference, never the value. `gitmirror` keeps a bare
+mirror of that repository under `PRESENTATOR_MIRRORS` by driving `git` as a
+subprocess ([ADR 0010](decisions/0010-git-sources-mirror.md)); nothing is ever
+checked out, and the tree is read at one commit. The pull runs with a minimal
+environment that cannot prompt, and inside
+`PRESENTATOR_SOURCE_TIMEOUT_SECONDS`, so an unreachable source costs the list
+that bound and no more.
+
+Opening the deck list pulls the source and then renders it. A source that
+cannot be read, and a folder whose manifest cannot be read, are logged and
+leave the rest of the list standing. A folder counts as a deck when it carries
+both `deck.toml` and `slides.md`; its folder name is the
+slug and therefore its address, so changing `title` in the manifest changes no
+link. The most recently changed deck stands first, and a deck belongs to the
+account that owns the source it came from — for a configured source, the admin
+that first start created. While no deck exists, the list says so and names the
+Git address instead of showing an empty table; there is no upload, no editing,
+and no way to add a source in the lobby
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
+
+A deck's page, its build, and its PDF do not exist yet, so a row links to an
+address that answers nothing. Polling and the "fetch now" webhook, reconciling
+a folder deleted in Git, and build states are open on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8).

@@ -2,9 +2,9 @@
   <nav>
     <ul>
       <li><strong>{{ text.wordmark }}</strong></li>
-      <li><a href="/">{{ text.section_decks }}</a></li>
+      <li><a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>{{ text.section_decks }}</a></li>
       {% if person.is_admin %}
-      <li><a href="/settings">{{ text.section_settings }}</a></li>
+      <li><a href="/settings"{% if request.url.path == "/settings" %} aria-current="page"{% endif %}>{{ text.section_settings }}</a></li>
       {% endif %}
     </ul>
     <ul>

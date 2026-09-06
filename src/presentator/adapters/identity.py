@@ -16,7 +16,7 @@ from typing import Final
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
-from presentator.adapters.sqlite import create_tables, rows
+from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import (
     Credentials,
     FirstStartClosedError,
@@ -56,8 +56,8 @@ def _hash_of_a_secret_nobody_typed() -> str:
 
 
 def create_identity_tables(database: Path) -> None:
-    """Make the identity schema exist."""
-    create_tables(database, _SCHEMA)
+    """Make the accounts, sessions, and attempts tables exist."""
+    apply_schema(database, _SCHEMA)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +111,16 @@ class SqliteUserStore:
         with rows(self.database) as cursor:
             (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
         return int(accounts)
+
+    def first_admin(self) -> User | None:
+        """The account first start created, or nothing while none exists."""
+        with rows(self.database) as cursor:
+            row = cursor.execute(
+                "SELECT id, username, role FROM users WHERE role = ?"
+                " ORDER BY rowid LIMIT 1",
+                (Role.ADMIN.value,),
+            ).fetchone()
+        return None if row is None else _user(row)
 
 
 @dataclass(frozen=True, slots=True)

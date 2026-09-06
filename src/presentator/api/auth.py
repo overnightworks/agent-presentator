@@ -5,7 +5,9 @@ redirect while nobody is signed in, a form another site submitted is refused,
 and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
@@ -17,6 +19,7 @@ from starlette.responses import RedirectResponse
 
 from presentator.api.pages import Pages
 from presentator.api.preferences import preference_routes
+from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.application.preferences import Preferences
 from presentator.contracts.models import FirstStartClosedError
@@ -67,11 +70,22 @@ def _comes_from_elsewhere(request: Request) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class DeckRow:
+    """One deck as the list renders it: a name, its folder, and its age."""
+
+    title: str
+    slug: str
+    changed: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Surfaces:
-    """The sign-in answers, each one asking the use cases what is true."""
+    """The lobby's HTML answers, each one asking the use cases what is true."""
 
     identity: Identity
+    decks: Decks
     pages: Pages
+    age_in_words: Callable[[timedelta, str], str]
     secure_cookies: bool
 
     async def only_signed_in(
@@ -94,8 +108,23 @@ class _Surfaces:
         return answer
 
     def home(self, request: Request) -> Response:
-        """Show the lobby to the person the guard let through."""
-        return self.pages.page(request, "home.html")
+        """List the decks the sources delivered, newest first."""
+        return self.pages.page(
+            request,
+            "home.html",
+            source_address=self.decks.source_address(),
+            decks=self._rows(self.pages.appearance(request).text.language_tag),
+        )
+
+    def _rows(self, language_tag: str) -> tuple[DeckRow, ...]:
+        return tuple(
+            DeckRow(
+                title=deck.title,
+                slug=deck.slug,
+                changed=self.age_in_words(deck.age, language_tag),
+            )
+            for deck in self.decks.refreshed_list()
+        )
 
     def login_page(self, request: Request) -> Response:
         """Ask for a username and a password, and offer nothing else."""
@@ -178,14 +207,18 @@ class _Surfaces:
 def create_lobby(
     *,
     identity: Identity,
+    decks: Decks,
     preferences: Preferences,
+    age_in_words: Callable[[timedelta, str], str],
     secure_cookies: bool,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose."""
     pages = Pages(preferences=preferences)
     surfaces = _Surfaces(
         identity=identity,
+        decks=decks,
         pages=pages,
+        age_in_words=age_in_words,
         secure_cookies=secure_cookies,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)

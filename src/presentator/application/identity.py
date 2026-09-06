@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from presentator.contracts.models import Credentials, Role, Session, User
+from presentator.ports.clock import Clock
 from presentator.ports.identity import (
-    Clock,
     IdentifierFactory,
     LoginAttemptStore,
     PasswordHasher,

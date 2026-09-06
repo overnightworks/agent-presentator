@@ -51,13 +51,13 @@ adapter, and keep `ports` out of `api`.
 `gitmirror` sits beside this tree rather than inside it: it is a second
 top-level package with its own isolation contract, owned by
 [ADR 0010](0010-git-sources-mirror.md), and the layers above do not apply to
-it.
+it. Two contracts hold that boundary: `gitmirror` may not import `presentator`,
+and only an adapter may name `gitmirror`.
 
-The third-party rule is not yet in that file. Per
-[#3](https://github.com/overnightworks/agent-presentator/issues/3), a
-library's contract is written when that library is first imported, not
-speculatively before it exists. Until then the rule is a review question, and
-this record says so rather than claiming a gate that is not there.
+The third-party rule is written per library, when that library is first
+imported, rather than speculatively before it exists. `pwdlib` and `sqlite3`
+carry one contract, `tomllib` and `babel` another. A library with no contract
+yet is one nothing imports; the first import writes it.
 
 ## Consequences
 

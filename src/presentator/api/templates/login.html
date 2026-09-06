@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ text.login_title }}{% endblock %}
 {% block body %}
-<main>
+<main data-column>
   <p>{{ text.wordmark }}</p>
   <h1>{{ text.login_title }}</h1>
   {% if refused %}<p role="alert">{{ text.login_refused }}</p>{% endif %}

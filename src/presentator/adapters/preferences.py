@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from presentator.adapters.sqlite import create_tables, rows
+from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.preferences import (
     InstanceSettings,
     PersonPreferences,
@@ -31,7 +31,7 @@ _THE_ONLY_ROW: Final = 1
 
 def create_preference_tables(database: Path) -> None:
     """Make the settings and preference schema exist."""
-    create_tables(database, _SCHEMA)
+    apply_schema(database, _SCHEMA)
 
 
 @dataclass(frozen=True, slots=True)
