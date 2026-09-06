@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import create_lobby
+from presentator.api.auth import Wording, create_lobby
 from presentator.api.hooks import HOOKS_PATH, fetch_hook
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
@@ -70,8 +70,8 @@ def a_pushed_folder() -> DeckFolder:
     )
 
 
-def a_lobby_with_a_hook(*, secret: str | None) -> Hooked:
-    """The lobby the host composes: its pages, and the hook beside them."""
+def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
+    """The lobby the host composes: its pages, and the hook while one arms it."""
     clock = FrozenClock(instant=_NOW)
     store = FakeDeckStore()
     decks = Decks(
@@ -98,11 +98,21 @@ def a_lobby_with_a_hook(*, secret: str | None) -> Hooked:
             cookies=MarkingCookieSigner(),
         ),
         decks=decks,
-        text=_TEXT,
-        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        wording=Wording(
+            text=_TEXT,
+            age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        ),
         secure_cookies=False,
+        fetch_hook=(
+            fetch_hook(
+                decks=decks,
+                source=_SOURCE_NAME,
+                secret=_WHAT_THE_HOST_CARRIES,
+            )
+            if armed
+            else None
+        ),
     )
-    lobby.include_router(fetch_hook(decks=decks, source=_SOURCE_NAME, secret=secret))
     return Hooked(client=TestClient(lobby, follow_redirects=False), store=store)
 
 
@@ -112,7 +122,7 @@ def carrying(words: str) -> dict[str, str]:
 
 @pytest.fixture
 def hooked() -> Hooked:
-    return a_lobby_with_a_hook(secret=_WHAT_THE_HOST_CARRIES)
+    return a_lobby_with_a_hook()
 
 
 def test_a_call_carrying_the_sources_secret_takes_the_push_in(hooked: Hooked) -> None:
@@ -164,6 +174,17 @@ def test_whatever_a_host_posts_in_its_body_changes_nothing(hooked: Hooked) -> No
             carrying(_WHAT_THE_HOST_CARRIES),
             id="unknown source",
         ),
+        pytest.param(
+            f"{_SOURCE_NAME}/",
+            carrying(_WHAT_THE_HOST_CARRIES),
+            id="the source with a trailing slash",
+        ),
+        pytest.param(
+            f"{_SOURCE_NAME}/refresh",
+            carrying(_WHAT_THE_HOST_CARRIES),
+            id="a path below the source",
+        ),
+        pytest.param("", carrying(_WHAT_THE_HOST_CARRIES), id="no source at all"),
     ],
 )
 def test_a_call_that_cannot_name_a_source_and_its_secret_is_refused_alike(
@@ -177,10 +198,27 @@ def test_a_call_that_cannot_name_a_source_and_its_secret_is_refused_alike(
     assert hooked.slugs() == []
 
 
-def test_an_instance_with_no_hook_secret_refuses_the_hook_the_same_way() -> None:
-    hooked = a_lobby_with_a_hook(secret=None)
+@pytest.mark.parametrize("method", ["GET", "PUT", "DELETE"])
+def test_reading_the_hook_address_leads_to_the_login_like_any_other(
+    hooked: Hooked,
+    method: str,
+) -> None:
+    asked = hooked.client.request(
+        method,
+        f"{HOOKS_PATH}/{_SOURCE_NAME}",
+        headers=carrying(_WHAT_THE_HOST_CARRIES),
+    )
 
-    refused = hooked.call_hook(headers=carrying(_WHAT_THE_HOST_CARRIES))
-
-    assert (refused.status_code, refused.content) == (HTTPStatus.NOT_FOUND, b"")
+    assert asked.status_code == HTTPStatus.FOUND
+    assert asked.headers["location"] == "/login"
     assert hooked.slugs() == []
+
+
+def test_without_a_secret_the_hook_address_is_no_address() -> None:
+    unarmed = a_lobby_with_a_hook(armed=False)
+
+    called = unarmed.call_hook(headers=carrying(_WHAT_THE_HOST_CARRIES))
+
+    assert called.status_code == HTTPStatus.FOUND
+    assert called.headers["location"] == "/login"
+    assert unarmed.slugs() == []

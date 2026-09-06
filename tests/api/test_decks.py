@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import create_lobby
+from presentator.api.auth import Wording, create_lobby
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
@@ -68,9 +68,12 @@ def a_signed_in_lobby(
             cookies=MarkingCookieSigner(),
         ),
         decks=decks,
-        text=_TEXT,
-        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        wording=Wording(
+            text=_TEXT,
+            age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        ),
         secure_cookies=False,
+        fetch_hook=None,
     )
     client = TestClient(lobby, follow_redirects=False)
     client.post(

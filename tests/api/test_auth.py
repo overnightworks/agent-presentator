@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import SESSION_COOKIE, create_lobby
+from presentator.api.auth import SESSION_COOKIE, Wording, create_lobby
 from presentator.application.decks import Decks
 from presentator.application.identity import (
     FAILURES_BEFORE_THROTTLE,
@@ -107,9 +107,12 @@ def a_lobby(
             store=FakeDeckStore(),
             clock=clock,
         ),
-        text=_TEXT,
-        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        wording=Wording(
+            text=_TEXT,
+            age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        ),
         secure_cookies=secure_cookies,
+        fetch_hook=None,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
 

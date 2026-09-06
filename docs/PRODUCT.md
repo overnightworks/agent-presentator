@@ -64,14 +64,17 @@ never runs two pulls at once and starts the next tick after the bound ends a
 slow one. Where a host can call back, `POST /hooks/<source>` with the source's
 own secret does the same at once; it reads no payload, so every git host and a
 `post-receive` hook are the same caller, and a wrong secret, a missing secret,
-and an unknown source answer alike. A flood of calls collapses into the one
-refresh that runs at a time. Opening the deck list only reads the database. A
-source that cannot be read, and a folder whose manifest cannot be read, are
-logged and leave the rest of the list standing. A folder counts as a deck when
-it carries both `deck.toml` and `slides.md`; its folder name is the slug and
-therefore its address, so changing `title` in the manifest changes no link. The
-most recently changed deck stands first, and a deck belongs to the account that
-owns the source it came from — for a configured source, the admin
+an unknown source, and any other path there answer alike. That address exists
+only while a secret of at least 32 characters arms it, and only that one POST
+is open — everything else under it stays behind the login, as does every
+address on an instance that carries no hook secret. A flood of calls collapses
+into the one refresh that runs at a time. Opening the deck list only reads the
+database. A source that cannot be read, and a folder whose manifest cannot be
+read, are logged and leave the rest of the list standing. A folder counts as a
+deck when it carries both `deck.toml` and `slides.md`; its folder name is the
+slug and therefore its address, so changing `title` in the manifest changes no
+link. The most recently changed deck stands first, and a deck belongs to the
+account that owns the source it came from — for a configured source, the admin
 that first start created. While no deck exists, the list says so and names the
 Git address instead of showing an empty table; there is no upload, no editing,
 and no way to add a source in the lobby

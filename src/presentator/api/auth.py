@@ -12,13 +12,13 @@ from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import APIRouter, FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
-from presentator.api.hooks import HOOKS_PATH
+from presentator.api.hooks import HOOK_CALLS
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import FirstStartClosedError, User
@@ -34,13 +34,11 @@ _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
 # Signing in, first start, and signing out are the only addresses that work
-# without a session; logging out ends one rather than using one.
+# without a session; logging out ends one rather than using one. The theme
+# stylesheet has to render the login and setup pages themselves, so it is
+# public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
-# Neither the theme stylesheet, which the login page needs before any session
-# exists, nor a source's host, which has none and is another origin by nature,
-# asks from a page of this instance; the hook's own secret is what guards it
-# instead (ADR 0010).
-_OPEN_PREFIXES: Final = (f"{_STATIC_PATH}/", f"{HOOKS_PATH}/")
+_STATIC_FILES: Final = f"{_STATIC_PATH}/"
 _SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
 
@@ -50,37 +48,20 @@ async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Res
     return response
 
 
-async def _same_origin_only(
-    request: Request,
-    call_next: RequestResponseEndpoint,
-) -> Response:
-    """Refuse a form another site submitted.
-
-    Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first start
-    and login are answered without a cookie, so `SameSite=Lax` does not cover
-    them, and a foreign page could otherwise create the instance's admin.
-    """
-    if _is_a_foreign_form(request):
-        return Response(status_code=HTTPStatus.FORBIDDEN)
-    return await call_next(request)
-
-
-def _is_a_foreign_form(request: Request) -> bool:
-    if request.method != HTTPMethod.POST or _is_open(request.url.path):
-        return False
-    return _comes_from_elsewhere(request)
-
-
-def _is_open(path: str) -> bool:
-    return path.startswith(_OPEN_PREFIXES)
-
-
 def _comes_from_elsewhere(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is not None:
         return origin != f"{request.url.scheme}://{request.url.netloc}"
     fetch_site = request.headers.get("sec-fetch-site")
     return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Wording:
+    """The words a page shows, and how this language words an age."""
+
+    text: LobbyText
+    age_in_words: Callable[[timedelta], str]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -101,6 +82,23 @@ class _Pages:
     text: LobbyText
     age_in_words: Callable[[timedelta], str]
     secure_cookies: bool
+    hook_is_armed: bool
+
+    async def same_origin_only(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Refuse a form another site submitted.
+
+        Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first
+        start and login are answered without a cookie, so `SameSite=Lax` does
+        not cover them, and a foreign page could otherwise create the
+        instance's admin.
+        """
+        if self._is_a_foreign_form(request):
+            return Response(status_code=HTTPStatus.FORBIDDEN)
+        return await call_next(request)
 
     async def only_signed_in(
         self,
@@ -109,7 +107,11 @@ class _Pages:
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
         path = request.url.path
-        if path in _WITHOUT_A_SESSION or _is_open(path):
+        if (
+            path in _WITHOUT_A_SESSION
+            or path.startswith(_STATIC_FILES)
+            or self._is_a_call_from_a_source_host(request)
+        ):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -119,6 +121,26 @@ class _Pages:
         answer = await call_next(request)
         self._carry_session(answer, cookie_value)
         return answer
+
+    def _is_a_foreign_form(self, request: Request) -> bool:
+        if request.method != HTTPMethod.POST:
+            return False
+        if self._is_a_call_from_a_source_host(request):
+            return False
+        return _comes_from_elsewhere(request)
+
+    def _is_a_call_from_a_source_host(self, request: Request) -> bool:
+        """Whether this is the sessionless, cross-origin POST the hook is for.
+
+        Only that one call is open, and only while a secret arms the hook; a
+        read of the same address, and every other method, stays behind the
+        session the way any other address does.
+        """
+        return (
+            self.hook_is_armed
+            and request.method == HTTPMethod.POST
+            and request.url.path.startswith(HOOK_CALLS)
+        )
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
@@ -260,23 +282,28 @@ def create_lobby(
     *,
     identity: Identity,
     decks: Decks,
-    text: LobbyText,
-    age_in_words: Callable[[timedelta], str],
+    wording: Wording,
     secure_cookies: bool,
+    fetch_hook: APIRouter | None,
 ) -> FastAPI:
-    """Build the lobby around the use cases and the words the host chose."""
+    """Build the lobby around the use cases and the words the host chose.
+
+    Without a fetch hook the instance has no address a source's host may call,
+    and nothing below `/hooks/` leaves the session guard.
+    """
     pages = _Pages(
         identity=identity,
         decks=decks,
-        text=text,
-        age_in_words=age_in_words,
+        text=wording.text,
+        age_in_words=wording.age_in_words,
         secure_cookies=secure_cookies,
+        hook_is_armed=fetch_hook is not None,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.only_signed_in)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=_same_origin_only)
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.same_origin_only)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
     lobby.add_api_route(_LOBBY, pages.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, pages.login_page, methods=["GET"])
@@ -285,4 +312,6 @@ def create_lobby(
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
+    if fetch_hook is not None:
+        lobby.include_router(fetch_hook)
     return lobby

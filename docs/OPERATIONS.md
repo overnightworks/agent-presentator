@@ -7,7 +7,9 @@ Audience: whoever administers this repository and the machines it runs on.
 One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. It signs
 the session cookie, and without it the process refuses to start. In development
 it lives in a gitignored `.env` at the repository root; on the server it comes
-from the process environment.
+from the process environment. A refusal names the setting and what is wrong
+with it, never the value it was given, so a mistyped secret does not land in
+the startup output.
 
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
@@ -55,12 +57,22 @@ today it takes a restart. A rotation path without one is open work on
 ## The fetch-now hook
 
 Setting `PRESENTATOR_SOURCE_HOOK_SECRET` opens
-`POST /hooks/<PRESENTATOR_SOURCE_NAME>` for that source. The call carries the
-secret as `Authorization: Bearer …`, and nothing else: no payload is read, which
-is what lets any host or a `post-receive` hook call it
+`POST /hooks/<PRESENTATOR_SOURCE_NAME>` for that source. That secret is the
+only guard on the address, so it is at least 32 characters that are not blank,
+generated rather than typed; an empty, blank, or shorter value refuses to
+start rather than opening a hook anybody could call:
+
+```sh
+export PRESENTATOR_SOURCE_HOOK_SECRET="$(openssl rand -base64 32)"
+```
+
+The call carries the secret as `Authorization: Bearer …`, and nothing else: no
+payload is read, which is what lets any host or a `post-receive` hook call it
 ([ADR 0010](decisions/0010-git-sources-mirror.md)). A wrong secret, a missing
-one, and an unknown source all answer `404` with an empty body. Without the
-variable there is no hook, only the poll.
+one, an unknown source, and any other path under `/hooks/` all answer `404`
+with an empty body. Only that one `POST` is open: every other method there
+leads to the login like any other address. Without the variable the instance
+has no hook address at all, only the poll.
 
 ```sh
 curl -X POST -H "Authorization: Bearer $PRESENTATOR_SOURCE_HOOK_SECRET" \

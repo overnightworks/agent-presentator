@@ -10,7 +10,7 @@ from datetime import timedelta
 from functools import partial
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
 from presentator.adapters.catalog import (
     ENGLISH_CATALOG,
@@ -34,7 +34,7 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
-from presentator.api.auth import create_lobby
+from presentator.api.auth import Wording, create_lobby
 from presentator.api.hooks import fetch_hook
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
@@ -81,29 +81,35 @@ def build_instance(settings: Settings) -> Instance:
         clock=SystemClock(),
     )
     text = load_lobby_text(ENGLISH_CATALOG)
-    lobby = create_lobby(
-        identity=identity,
-        decks=decks,
-        text=text,
-        age_in_words=partial(age_in_words, language_tag=text.language_tag),
-        secure_cookies=settings.https,
-    )
-    hook_secret = settings.source_hook_secret
-    lobby.include_router(
-        fetch_hook(
-            decks=decks,
-            source=settings.source_name,
-            secret=None if hook_secret is None else hook_secret.get_secret_value(),
-        ),
-    )
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
     return Instance(
-        lobby=lobby,
+        lobby=create_lobby(
+            identity=identity,
+            decks=decks,
+            wording=Wording(
+                text=text,
+                age_in_words=partial(age_in_words, language_tag=text.language_tag),
+            ),
+            secure_cookies=settings.https,
+            fetch_hook=_armed_hook(settings, decks),
+        ),
         poller=SourcePoller(
             refresh=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
+    )
+
+
+def _armed_hook(settings: Settings, decks: Decks) -> APIRouter | None:
+    """The hook's route once a secret arms it; without one there is no address."""
+    secret = settings.source_hook_secret
+    if secret is None:
+        return None
+    return fetch_hook(
+        decks=decks,
+        source=settings.source_name,
+        secret=secret.get_secret_value(),
     )
 
 
