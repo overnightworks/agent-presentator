@@ -23,15 +23,16 @@ _AUTHORSHIP = {
 }
 
 
-def _git(inside: Path, *arguments: str, at: datetime | None = None) -> None:
+def _git(inside: Path, *arguments: str, at: datetime | None = None) -> str:
     stamped = {} if at is None else {"GIT_COMMITTER_DATE": at.isoformat()}
-    subprocess.run(
+    ran = subprocess.run(
         ["git", *arguments],
         capture_output=True,
         check=True,
         cwd=inside,
         env={**os.environ, **_AUTHORSHIP, **stamped},
     )
+    return ran.stdout.decode().strip()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -45,6 +46,11 @@ class GitRemote:
     def url(self) -> str:
         """The address a source is configured with."""
         return self.bare.as_uri()
+
+    @property
+    def head(self) -> str:
+        """The commit this remote's newest push wrote."""
+        return _git(self.work, "rev-parse", "HEAD")
 
     def commit(self, files: Mapping[str, str], *, at: datetime) -> None:
         """Write the files, commit them at that moment, and push."""

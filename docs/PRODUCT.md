@@ -6,14 +6,17 @@ describes something this file does not list, that thing is not built.
 
 ## What exists today
 
-An instance signs a person in and lists the decks a configured Git source
-carries. Nothing is built, presented, or deployed yet, so no phase of
+An instance signs a person in, lists the decks a configured Git source
+carries, gives each deck a page, and delivers a deck's built talk from that
+page. Nothing builds that talk yet, and nothing is deployed, so no phase of
 [VISION.md](VISION.md) is reached. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
 [#22](https://github.com/overnightworks/agent-presentator/issues/22), the deck
 list as
-[#26](https://github.com/overnightworks/agent-presentator/issues/26).
+[#26](https://github.com/overnightworks/agent-presentator/issues/26), the deck
+page and the serving boundary as
+[#33](https://github.com/overnightworks/agent-presentator/issues/33).
 
 A decision record is a technical choice, not a claim that its slice exists.
 
@@ -70,7 +73,34 @@ Git address instead of showing an empty table; there is no upload, no editing,
 and no way to add a source in the lobby
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
-A deck's page, its build, and its PDF do not exist yet, so a row links to an
-address that answers nothing. Polling and the "fetch now" webhook, reconciling
-a folder deleted in Git, and build states are open on
+Polling and the "fetch now" webhook, reconciling a folder deleted in Git, and
+build states are open on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8).
+
+### A deck's page, and the talk behind it
+
+`/deck/<folder>` shows the deck's title, its folder, the address it was
+mirrored from, and the short commit that folder was read at, so before speaking
+a person sees which state the delivered talk stands at. The build time joins
+them with the slice that builds.
+
+Where a deck's built talk stands is one column on the deck's row. Only putting
+a build moves it, and taking the deck in from Git again leaves it standing, so
+a new push never unpresents the talk that already works. Nothing writes that
+column yet — the build itself, its states, and the PDF are open on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8) — so a deck
+page says no talk has been built from it yet and offers no view rather than a
+dead link.
+
+While a build is pointed at, the projector view is `/deck/<folder>/` and the
+presenter view `/deck/<folder>/presenter/`, both delivered out of that
+directory as static files, with the slide in the address so a closed window
+comes back to the same slide. Both stand behind the same session as every other
+address of the instance ([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)):
+a signed-out request answers the login redirect, never a file and never a hint
+that a folder exists. The address only chooses a row; the directory comes from
+that row, so no part of a request becomes part of a path, and a path that would
+leave the build directory — through `..`, through percent-encoded separators, or
+through a symlink out of it — is refused. Every signed-in person may hold every
+deck; a deck still belongs to the account that owns its source, and
+per-person visibility is not ruled for this phase.

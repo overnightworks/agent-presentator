@@ -14,18 +14,18 @@ from typing import Annotated, Final
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
+from presentator.api.decks import add_deck_pages
+from presentator.api.pages import PageRenderer
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
-from presentator.contracts.models import FirstStartClosedError, User
+from presentator.contracts.models import FirstStartClosedError
 from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
 
-_TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
 _LOBBY: Final = "/"
@@ -84,6 +84,7 @@ class _Pages:
 
     identity: Identity
     decks: Decks
+    renderer: PageRenderer
     text: LobbyText
     age_in_words: Callable[[timedelta], str]
     secure_cookies: bool
@@ -108,13 +109,9 @@ class _Pages:
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
-        person: User = request.state.signed_in_person
-        return self._page(
+        return self.renderer.signed_in_page(
             request,
             "home.html",
-            person=person.username,
-            log_out=self.text.log_out,
-            section_decks=self.text.section_decks,
             title=self.text.decks_title,
             column_deck=self.text.decks_column_deck,
             column_changed=self.text.decks_column_changed,
@@ -191,7 +188,7 @@ class _Pages:
         return self._signed_in(cookie_value)
 
     def _login(self, request: Request, *, refusal: str | None) -> Response:
-        return self._page(
+        return self.renderer.page(
             request,
             "login.html",
             title=self.text.login_title,
@@ -202,7 +199,7 @@ class _Pages:
         )
 
     def _setup(self, request: Request, *, mismatch: str | None) -> Response:
-        return self._page(
+        return self.renderer.page(
             request,
             "setup.html",
             title=self.text.setup_title,
@@ -213,17 +210,6 @@ class _Pages:
             repeated_password=self.text.setup_repeat_password,
             submit=self.text.setup_submit,
             mismatch=mismatch,
-        )
-
-    def _page(self, request: Request, name: str, **words: object) -> Response:
-        return _TEMPLATES.TemplateResponse(
-            request,
-            name,
-            {
-                "language": self.text.language_tag,
-                "wordmark": self.text.wordmark,
-                **words,
-            },
         )
 
     def _signed_in(self, cookie_value: str) -> Response:
@@ -251,9 +237,11 @@ def create_lobby(
     secure_cookies: bool,
 ) -> FastAPI:
     """Build the lobby around the use cases and the words the host chose."""
+    renderer = PageRenderer(text=text)
     pages = _Pages(
         identity=identity,
         decks=decks,
+        renderer=renderer,
         text=text,
         age_in_words=age_in_words,
         secure_cookies=secure_cookies,
@@ -270,5 +258,6 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
+    add_deck_pages(lobby, decks=decks, renderer=renderer, text=text)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     return lobby

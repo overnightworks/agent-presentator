@@ -1,14 +1,21 @@
-"""Taking decks in from a source, and the list a person reads.
+"""Taking decks in from a source, the list a person reads, and one deck's page.
 
-Which folder counts as a deck, and in which order the decks are shown, is
-decided here; git, TOML, and SQL stay outside (ADR 0001, ADR 0005).
+Which folder counts as a deck, in which order the decks are shown, and what a
+deck page says is decided here; git, TOML, and SQL stay outside (ADR 0001,
+ADR 0005).
 """
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
 
-from presentator.contracts.decks import SLIDES_FILE, Deck, ListedDeck
+from presentator.contracts.decks import SLIDES_FILE, Deck, DeckPage, ListedDeck
 from presentator.ports.clock import Clock
 from presentator.ports.decks import DeckFolders, DeckStore, SourceStore
+
+# A person compares the commit on the page with the one their push wrote, and
+# reads it off the screen; the first characters are what git itself shows.
+_SHORT_COMMIT: Final = 7
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -28,6 +35,24 @@ class Decks:
         """
         self._take_in()
         return self._listed()
+
+    def page(self, slug: str) -> DeckPage | None:
+        """What that deck's page says, or nothing while no deck carries the slug."""
+        deck = self.store.get(slug)
+        if deck is None:
+            return None
+        return DeckPage(
+            slug=deck.slug,
+            title=deck.title,
+            source=self.source_address(),
+            commit=deck.commit[:_SHORT_COMMIT],
+            built=deck.active_build is not None,
+        )
+
+    def built_talk(self, slug: str) -> Path | None:
+        """The directory the deck's talk is delivered from, while one is built."""
+        deck = self.store.get(slug)
+        return None if deck is None else deck.active_build
 
     def source_address(self) -> str | None:
         """The git address an empty list names, while one is configured."""
@@ -51,6 +76,8 @@ class Decks:
                     title=folder.title,
                     changed_at=folder.changed_at,
                     owner_id=source.owner_id,
+                    commit=folder.commit,
+                    active_build=None,
                 ),
             )
 

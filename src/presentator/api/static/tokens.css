@@ -232,3 +232,63 @@ td code {
 main code {
   overflow-wrap: anywhere;
 }
+
+/* The picture writes a deck's facts as one row of separate things — folder,
+ * state, where the delivered talk came from — with air between them, not as a
+ * sentence. On a phone that row wraps instead of running out of the page.
+ */
+[data-meta] {
+  align-items: baseline;
+  color: var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+/* In that row a folder name and a git address are addresses to recognise, like
+ * the folder under a list row, so they stay plain monospace. The commit stands
+ * as `samp`, git's own output, and keeps the chip Pico draws around it.
+ */
+[data-meta] code {
+  background: none;
+  color: var(--ink-soft);
+  padding: 0;
+}
+
+[data-meta] small {
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The picture marks the state with a filled dot before its word. The word is
+ * what says which state it is; the dot and its colour only make it findable.
+ */
+[data-state]::before {
+  background: currentColor;
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 0.5em;
+  margin-right: 0.4em;
+  width: 0.5em;
+}
+
+[data-state="ready"] {
+  color: var(--ok);
+}
+
+[data-state="not-built"] {
+  color: var(--ink-faint);
+}
+
+/* The picture fills one way into a deck — the presenter view, what the speaker
+ * opens — and outlines the others, so the two do not compete for the eye.
+ * Pico's classless build carries no outline variant, so it is written here.
+ */
+[role="button"][data-quiet],
+[role="button"][data-quiet]:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border-color: var(--line);
+  color: var(--ink);
+}
