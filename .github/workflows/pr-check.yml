@@ -3,6 +3,8 @@ name: pr-check
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -11,7 +13,10 @@ jobs:
   # `main` accepts a landing only when the pull request says which item it
   # closes, so a merge can never leave its own item open. `agent-claim pr-check`
   # owns that grammar (its README's "Landing classification" section); the
-  # pull request template asks for exactly what it verifies.
+  # pull request template asks for exactly what it verifies. A `merge_group`
+  # event carries no pull request number, so the check cannot re-run there --
+  # it already ran on the `pull_request` event that armed the candidate -- and
+  # that branch only holds the required check name green for the queue.
   pr-check:
     name: pr-check
     runs-on: ubuntu-24.04
@@ -24,12 +29,18 @@ jobs:
       - name: Install uv
         # No Python pin here: this job runs agent-claim's own tool environment
         # through uvx, not this repository's interpreter.
+        if: ${{ github.event_name == 'pull_request' }}
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           version: "0.10.9"
 
       - name: Check the pull request's landing classification
+        if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v0.12.1 agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}
+        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v0.12.2 agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}
+
+      - name: Hold the required check name for the merge queue
+        if: ${{ github.event_name == 'merge_group' }}
+        run: echo "merge_group carries no pull request number; the classification already ran on the pull request event that armed this candidate."

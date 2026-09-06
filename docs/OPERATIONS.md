@@ -30,10 +30,15 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
       "parameters": {
         "required_approving_review_count": 0,
         "dismiss_stale_reviews_on_push": false,
+        "required_reviewers": [],
         "require_code_owner_review": false,
+        "dismissal_restriction": {
+          "enabled": false,
+          "allowed_actors": []
+        },
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
-        "automatic_copilot_code_review_enabled": false,
+        "require_extra_approval_for_unattributed_changes": true,
         "allowed_merge_methods": ["squash", "rebase"]
       }
     },
@@ -68,7 +73,10 @@ commit would violate the linear history the same ruleset requires.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has
-to pass the classification gate.
+to pass the classification gate. A merge-queue candidate still reports
+that check: the workflow answers `merge_group` by holding the name
+green, because the classification already ran on the pull request that
+armed the candidate.
 
 ## SonarCloud
 

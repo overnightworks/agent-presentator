@@ -14,7 +14,7 @@ this map and an owner disagree, the owner is right.
 | What exists today? | Product | [`PRODUCT.md`](PRODUCT.md) |
 | Why was it built this way? | Decisions | Records indexed by [`decisions/README.md`](decisions/README.md) |
 | What must it be able to do? | Requirements | No owner yet. `docs/requirements/` is created with the first ruled expectation list. |
-| How is this installation administered and redeployed? | Operations | [`OPERATIONS.md`](OPERATIONS.md) |
+| How is this installation started, protected, and scanned? | Operations | [`OPERATIONS.md`](OPERATIONS.md) |
 
 Agent policy lives in [`AGENTS.md`](../AGENTS.md) at the repository root, not
 here. The human entry point is [`README.md`](../README.md).
