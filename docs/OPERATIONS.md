@@ -8,7 +8,8 @@ Audience: whoever administers this repository and the machines it runs on.
 repository ruleset owns that — not the legacy per-branch settings — and this is
 the command that created it. It is reproducible: `POST` refuses a second
 ruleset of the same name, so an update sends the same body to
-`PUT repos/overnightworks/agent-presentator/rulesets/<id>`.
+`PUT repos/overnightworks/agent-presentator/rulesets/<id>`, with the id that
+`gh api repos/overnightworks/agent-presentator/rulesets` reports.
 
 ```sh
 gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <<'JSON'
@@ -64,10 +65,10 @@ repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
 
-`SonarCloud scan` is not among the required checks. A required check that never
-reports blocks every pull request, and the scan only reports once the
-SonarCloud project exists and the operator has stored `SONAR_TOKEN`. It is
-added to the list above — and to the live ruleset — with the first green scan.
+`SonarCloud scan` is deliberately not among the required checks yet. The job
+runs and reports, but the quality gate still fails on the findings it collected
+on `main`, and a required check that cannot go green blocks every pull request.
+It joins the list above — and the live ruleset — with the first green gate.
 
 ## SonarCloud
 
