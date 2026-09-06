@@ -19,6 +19,7 @@ plus a PDF export survives a dead tunnel. Why it exists and where it is going is
 | Why this tool exists, its phases and latency targets | [docs/VISION.md](docs/VISION.md) |
 | Implementation status | [docs/PRODUCT.md](docs/PRODUCT.md) |
 | Technical decisions | Records indexed by [docs/decisions/README.md](docs/decisions/README.md) |
+| How a change is proven | [docs/TESTING.md](docs/TESTING.md) |
 | Reusable agent policy | [AGENTS.md](AGENTS.md); [CLAUDE.md](CLAUDE.md) only loads it for Claude |
 
 Do not copy an owner's facts into another document. Layers that have no owner
@@ -26,7 +27,7 @@ yet are named in [docs/README.md](docs/README.md).
 
 ## Verifying a change
 
-These are the commands, identical locally and in CI. `pyproject.toml` owns the
+These are the commands CI and the tools run. `pyproject.toml` owns the
 configuration of the Python ones, `frontend/package.json` that of the frontend
 ones.
 
@@ -50,6 +51,7 @@ pnpm test
 pnpm build:example
 ```
 
-Run locally the checks that prove your own change; CI on the pull request is the
-gate, and `main` takes nothing that has not passed it — how that is enforced is
+Which layer's test is the proof, and how to target a local run, is
+[docs/TESTING.md](docs/TESTING.md). CI on the pull request is the gate, and
+`main` takes nothing that has not passed it — how that is enforced is
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
