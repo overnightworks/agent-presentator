@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    types: [checks_requested]
+
+# A pull request collapses onto its newest push, but every push to main keeps a
+# group of its own so no landing is ever cancelled by the next one.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: "Python: architecture, lint, types"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          version: "0.10.9"
+
+      - name: Verify the dependency lock
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Check source
+        run: uv run --locked ruff check
+
+      - name: Check formatting
+        run: uv run --locked ruff format --check
+
+      - name: Check types
+        run: uv run --locked pyright
+
+      - name: Check layer boundaries
+        run: uv run --locked lint-imports
+
+      - name: Check for dead code
+        run: uv run --locked vulture
+
+  tests:
+    name: "Python: tests"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          version: "0.10.9"
+
+      - name: Verify the dependency lock
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Test
+        run: uv run --locked pytest -q --cov=src/presentator --cov-report=xml:reports/coverage.xml
+
+      - name: Upload the coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: reports/coverage.xml
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the event commit with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install pinned gitleaks
+        # The gitleaks-action wrapper requires an organization license key; the
+        # MIT-licensed binary does not, so it is fetched directly and verified
+        # against the release checksum.
+        run: |
+          set -euo pipefail
+          curl -sSLo gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+
+      # The report is written outside the checkout on purpose: a path inside the
+      # pull request's own tree could already be a symlink, and the upload
+      # follows symlinks into a world-readable artifact.
+      - name: Scan the history for secrets
+        env:
+          SECRET_SCAN_REPORT: ${{ runner.temp }}/gitleaks-report.json
+        run: |
+          set -euo pipefail
+          scan_status=0
+          ./gitleaks git --redact --no-banner \
+            --report-format json --report-path "${SECRET_SCAN_REPORT}" . || scan_status=$?
+          if [ -L "${SECRET_SCAN_REPORT}" ] || [ ! -f "${SECRET_SCAN_REPORT}" ]; then
+            echo "::error::the scan left no regular report file at ${SECRET_SCAN_REPORT}; there is no evidence to publish" >&2
+            exit 1
+          fi
+          exit "${scan_status}"
+
+      # Findings exit 1, so the upload cannot wait on success. The repository is
+      # public, so the report stays redacted: rule, file, commit and line, never
+      # the value.
+      - name: Upload the secret-scan report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: secret-scan-report
+          path: ${{ runner.temp }}/gitleaks-report.json
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
+
+  sonar:
+    name: SonarCloud scan
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the event commit with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Download the coverage report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-report
+          path: reports
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

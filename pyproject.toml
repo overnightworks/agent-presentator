@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-presentator"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+agent-presentator = "presentator.host.main:main"
+
+[dependency-groups]
+dev = [
+    "import-linter==2.13",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "pyright==1.1.411",
+    "ruff==0.16.2",
+    "vulture==2.16",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/presentator"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+
+[tool.vulture]
+paths = ["src", "tests", "vulture_allowlist.py"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # The formatter owns trailing commas; the rule fights it.
+    "COM812",
+    # This repository carries no per-file copyright header.
+    "CPY001",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# pytest states its expectations with bare `assert`, and a test's name already
+# states the behaviour a docstring would repeat.
+"tests/**" = ["S101", "D103"]
+
+[tool.importlinter]
+root_package = "presentator"
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Presentator package layers"
+type = "layers"
+containers = ["presentator"]
+layers = ["host", "api", "application", "ports", "contracts"]
+
+[[tool.importlinter.contracts]]
+id = "adapters-reach-down-only"
+name = "Adapters never reach up into application, api, or host"
+type = "forbidden"
+source_modules = ["presentator.adapters"]
+forbidden_modules = [
+    "presentator.application",
+    "presentator.api",
+    "presentator.host",
+]
+as_packages = true
+
+[[tool.importlinter.contracts]]
+id = "adapters-are-chosen-by-the-host"
+name = "Only the host names an adapter"
+type = "forbidden"
+source_modules = [
+    "presentator.application",
+    "presentator.api",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["presentator.adapters"]
+as_packages = true
+
+[[tool.importlinter.contracts]]
+id = "route-vocabulary"
+name = "Routes name no port type"
+type = "forbidden"
+source_modules = ["presentator.api"]
+forbidden_modules = ["presentator.ports"]
+as_packages = true
+# A route reaching a port through the application it is allowed to import is the
+# legal chain, not a violation; only naming a port type in the api itself is.
+allow_indirect_imports = true
