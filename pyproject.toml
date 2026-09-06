@@ -29,12 +29,12 @@ addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 
 [tool.vulture]
-paths = ["src", "tests", "vulture_allowlist.py"]
+paths = ["src", "tests", "tests/vulture_allowlist.py"]
 
 [tool.ruff]
 target-version = "py312"
@@ -56,6 +56,10 @@ convention = "google"
 # pytest states its expectations with bare `assert`, and a test's name already
 # states the behaviour a docstring would repeat.
 "tests/**" = ["S101", "D103"]
+# Standalone gate, not a package; it must spawn the git executable PATH names.
+"scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
+# Drives a temporary git repository and the check script as a process.
+"tests/test_root_layout.py" = ["S404", "S603"]
 
 [tool.importlinter]
 root_package = "presentator"
