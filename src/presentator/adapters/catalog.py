@@ -4,9 +4,11 @@ Babel owns the `.po` format, so adding a language stays adding a file.
 """
 
 from dataclasses import fields
+from datetime import timedelta
 from pathlib import Path
 from typing import Final
 
+from babel.dates import format_timedelta
 from babel.messages.pofile import read_po
 
 from presentator.contracts.text import LobbyText
@@ -14,6 +16,9 @@ from presentator.contracts.text import LobbyText
 ENGLISH_CATALOG: Final = Path(__file__).parent / "catalogs" / "en.po"
 
 _LANGUAGE_FIELD: Final = "language_tag"
+# Babel rounds an age up to the next unit at 0.85 of it by default, which would
+# call six days a week; the list says what the operator would say.
+_NO_ROUNDING_UP: Final = 1.0
 
 
 class IncompleteCatalogError(ValueError):
@@ -47,3 +52,14 @@ def _words(translated: dict[str, str], *, missing_in: Path) -> dict[str, str]:
         message = f"{missing_in}: no message for {', '.join(missing)}"
         raise IncompleteCatalogError(message)
     return {name: translated[name] for name in wanted}
+
+
+def age_in_words(age: timedelta, *, language_tag: str) -> str:
+    """Say how long ago something changed, in the catalog's language."""
+    return format_timedelta(
+        -age,
+        granularity="minute",
+        threshold=_NO_ROUNDING_UP,
+        add_direction=True,
+        locale=language_tag,
+    )

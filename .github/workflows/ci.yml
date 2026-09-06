@@ -84,7 +84,7 @@ jobs:
         run: uv sync --locked --all-groups
 
       - name: Test
-        run: uv run --locked pytest -q --cov=src/presentator --cov-report=xml:reports/coverage.xml
+        run: uv run --locked pytest -q --cov=src --cov-report=xml:reports/coverage.xml
 
       - name: Upload the coverage report
         if: ${{ !cancelled() }}

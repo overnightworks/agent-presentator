@@ -5,16 +5,20 @@ redirect while nobody is signed in, a form another site submitted is refused,
 and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
 
 from fastapi import FastAPI, Form, Request, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
+from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import FirstStartClosedError, User
 from presentator.contracts.text import LobbyText
@@ -22,12 +26,16 @@ from presentator.contracts.text import LobbyText
 SESSION_COOKIE: Final = "presentator_session"
 
 _TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
+_STATIC_DIR: Final = Path(__file__).parent / "static"
+_STATIC_PATH: Final = "/static"
 _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
 # Signing in, first start, and signing out are the only addresses that work
-# without a session; logging out ends one rather than using one.
+# without a session; logging out ends one rather than using one. The theme
+# stylesheet has to render the login and setup pages themselves, so it is
+# public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
 _SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
@@ -62,11 +70,22 @@ def _comes_from_elsewhere(request: Request) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class DeckRow:
+    """One deck as the list renders it: a name, its folder, and its age."""
+
+    title: str
+    slug: str
+    changed: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Pages:
     """The lobby's HTML answers, each one asking the use cases what is true."""
 
     identity: Identity
+    decks: Decks
     text: LobbyText
+    age_in_words: Callable[[timedelta], str]
     secure_cookies: bool
 
     async def only_signed_in(
@@ -75,7 +94,8 @@ class _Pages:
         call_next: RequestResponseEndpoint,
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
-        if request.url.path in _WITHOUT_A_SESSION:
+        path = request.url.path
+        if path in _WITHOUT_A_SESSION or path.startswith(f"{_STATIC_PATH}/"):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -87,13 +107,31 @@ class _Pages:
         return answer
 
     def home(self, request: Request) -> Response:
-        """Show the lobby to the person the guard let through."""
+        """List the decks the sources delivered, newest first."""
         person: User = request.state.signed_in_person
         return self._page(
             request,
             "home.html",
             person=person.username,
             log_out=self.text.log_out,
+            section_decks=self.text.section_decks,
+            title=self.text.decks_title,
+            column_deck=self.text.decks_column_deck,
+            column_changed=self.text.decks_column_changed,
+            empty_title=self.text.decks_empty_title,
+            empty_explanation=self.text.decks_empty_explanation,
+            source_address=self.decks.source_address(),
+            decks=self._rows(),
+        )
+
+    def _rows(self) -> tuple[DeckRow, ...]:
+        return tuple(
+            DeckRow(
+                title=deck.title,
+                slug=deck.slug,
+                changed=self.age_in_words(deck.age),
+            )
+            for deck in self.decks.refreshed_list()
         )
 
     def login_page(self, request: Request) -> Response:
@@ -207,11 +245,19 @@ class _Pages:
 def create_lobby(
     *,
     identity: Identity,
+    decks: Decks,
     text: LobbyText,
+    age_in_words: Callable[[timedelta], str],
     secure_cookies: bool,
 ) -> FastAPI:
     """Build the lobby around the use cases and the words the host chose."""
-    pages = _Pages(identity=identity, text=text, secure_cookies=secure_cookies)
+    pages = _Pages(
+        identity=identity,
+        decks=decks,
+        text=text,
+        age_in_words=age_in_words,
+        secure_cookies=secure_cookies,
+    )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
@@ -224,4 +270,5 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
+    lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     return lobby

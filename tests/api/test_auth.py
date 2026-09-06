@@ -1,16 +1,19 @@
 """The lobby's real routes, driven the way a browser drives them."""
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from http import HTTPStatus
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.adapters.catalog import ENGLISH_CATALOG, load_lobby_text
+from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
 from presentator.api.auth import SESSION_COOKIE, create_lobby
+from presentator.application.decks import Decks
 from presentator.application.identity import (
     FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
@@ -20,8 +23,11 @@ from presentator.contracts.models import Credentials, Role, User
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
+    FakeDeckFolders,
+    FakeDeckStore,
     FakeLoginAttemptStore,
     FakeSessionRecordStore,
+    FakeSourceStore,
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
@@ -29,6 +35,7 @@ from tests.application.fakes import (
     UserStoreThatLostTheRace,
 )
 
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _USERNAME = "felix"
 _WINNERS_HASH = "the hash the winning first start stored"
 _TYPED_WORDS = "the words only this test types"
@@ -94,7 +101,14 @@ def a_lobby(
     )
     lobby = create_lobby(
         identity=identity,
+        decks=Decks(
+            sources=FakeSourceStore(),
+            folders=FakeDeckFolders(),
+            store=FakeDeckStore(),
+            clock=clock,
+        ),
         text=_TEXT,
+        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
         secure_cookies=secure_cookies,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
@@ -348,3 +362,70 @@ def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
     assert "HttpOnly" in cleared
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
+
+
+def test_both_stylesheets_are_linked_on_the_open_setup_and_login_pages(
+    lobby: Lobby,
+) -> None:
+    for path in ("/setup", "/login"):
+        page = lobby.client.get(path).text
+
+        assert '<link rel="stylesheet" href="/static/tokens.css">' in page
+        assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
+
+
+def test_both_stylesheets_are_linked_on_the_signed_in_home_page(
+    signed_in_lobby: Lobby,
+) -> None:
+    page = signed_in_lobby.client.get("/").text
+
+    assert '<link rel="stylesheet" href="/static/tokens.css">' in page
+    assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
+
+
+def test_both_theme_files_are_served_without_signing_in(lobby: Lobby) -> None:
+    tokens = lobby.client.get("/static/tokens.css")
+    pico = lobby.client.get("/static/pico.classless.min.css")
+
+    assert tokens.status_code == HTTPStatus.OK
+    assert "--canvas:" in tokens.text
+    assert "@media (prefers-color-scheme: dark)" in tokens.text
+    assert pico.status_code == HTTPStatus.OK
+    assert "Pico CSS" in pico.text
+
+
+def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
+    signed_in_lobby: Lobby,
+) -> None:
+    for path in ("/", "/login"):
+        page = signed_in_lobby.client.get(path).text
+
+        assert not _HEX_COLOUR.search(page)
+        assert "style=" not in page
+
+
+def test_the_open_setup_page_carries_no_hex_colour_or_inline_style(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/setup").text
+
+    assert not _HEX_COLOUR.search(page)
+    assert "style=" not in page
+
+
+def test_the_signed_in_header_offers_the_person_and_log_out_not_settings(
+    signed_in_lobby: Lobby,
+) -> None:
+    page = signed_in_lobby.client.get("/").text
+
+    assert _USERNAME in page
+    assert _TEXT.log_out in page
+    assert "Settings" not in page
+
+
+def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
+    page = lobby.client.get("/login").text
+
+    assert _TEXT.wordmark in page
+    assert _TEXT.log_out not in page
+    assert _USERNAME not in page

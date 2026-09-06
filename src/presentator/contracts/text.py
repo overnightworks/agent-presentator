@@ -10,6 +10,7 @@ class LobbyText:
     language_tag: str
     wordmark: str
     log_out: str
+    section_decks: str
     login_title: str
     login_username: str
     login_password: str
@@ -23,3 +24,8 @@ class LobbyText:
     setup_repeat_password: str
     setup_submit: str
     setup_passwords_differ: str
+    decks_title: str
+    decks_column_deck: str
+    decks_column_changed: str
+    decks_empty_title: str
+    decks_empty_explanation: str

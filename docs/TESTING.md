@@ -91,7 +91,7 @@ Never `pnpm test` of the whole tree locally.
 CI on the pull request is the gate. What `main` requires is
 [OPERATIONS.md](OPERATIONS.md). What the workflow runs is
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Coverage collection
-is `--cov=src/presentator` for Python and Vitest `--coverage` for the frontend.
+is `--cov=src` for Python and Vitest `--coverage` for the frontend.
 The floor those reports must meet is the configuration above, not a number
 restated here.
 

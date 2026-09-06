@@ -1,0 +1,234 @@
+/* The lobby's first theme (ADR 0012). Every colour, font, and shadow a page
+ * or the vendored Pico stylesheet uses lives here, taken verbatim from the
+ * blessed picture's `:root` block: docs/mockups/m0-lobby.html. No template
+ * names a colour; this file is the one place that can change to add a theme.
+ * The page itself sits on `--screen`, matching the picture's `.frame`; the
+ * picture only ever paints `--canvas`/`--canvas-2` outside the application
+ * (its own annotation-sheet backdrop and mock address bar), so those two
+ * stay unused here until a slice inside the app actually needs them.
+ *
+ * The dark values and the Pico bridge below repeat under the picture's own
+ * two selectors — the system-preference block guarded by `:not([data-theme=
+ * "light"])`, and an unconditional `:root[data-theme="dark"]` — rather than a
+ * plain `:root`, so a later explicit theme choice (slice 11) already wins
+ * without editing this file, and so each rule matches the specificity of the
+ * Pico rule it must beat (Pico themes itself the same way).
+ */
+
+:root {
+  --canvas: #E9ECEE;
+  --canvas-2: #DFE3E6;
+  --screen: #FFFFFF;
+  --ink: #14181D;
+  --ink-soft: #5C6774;
+  --ink-faint: #8A94A0;
+  --line: #D2D8DD;
+  --line-soft: #E4E8EB;
+  --accent: #0C6C77;
+  --accent-soft: #DCEDEE;
+  --on-accent: #FFFFFF;
+  --ok: #1D7444;
+  --ok-soft: #DDEFE4;
+  --busy: #9A6200;
+  --busy-soft: #F6EAD3;
+  --fail: #AC2222;
+  --fail-soft: #F6E1E0;
+  --shadow: 0 1px 2px rgba(20, 24, 29, .06), 0 8px 24px -12px rgba(20, 24, 29, .28);
+
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Consolas", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #101317;
+    --canvas-2: #171B21;
+    --screen: #1C2128;
+    --ink: #E8ECF0;
+    --ink-soft: #9BA5B1;
+    --ink-faint: #737E8B;
+    --line: #2C333C;
+    --line-soft: #242A32;
+    --accent: #56C3CD;
+    --accent-soft: #16333A;
+    --on-accent: #06181B;
+    --ok: #63C48D;
+    --ok-soft: #16301F;
+    --busy: #E0A63F;
+    --busy-soft: #33260F;
+    --fail: #EE7070;
+    --fail-soft: #35191A;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 28px -14px rgba(0, 0, 0, .8);
+  }
+}
+
+:root[data-theme="dark"] {
+  --canvas: #101317;
+  --canvas-2: #171B21;
+  --screen: #1C2128;
+  --ink: #E8ECF0;
+  --ink-soft: #9BA5B1;
+  --ink-faint: #737E8B;
+  --line: #2C333C;
+  --line-soft: #242A32;
+  --accent: #56C3CD;
+  --accent-soft: #16333A;
+  --on-accent: #06181B;
+  --ok: #63C48D;
+  --ok-soft: #16301F;
+  --busy: #E0A63F;
+  --busy-soft: #33260F;
+  --fail: #EE7070;
+  --fail-soft: #35191A;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 28px -14px rgba(0, 0, 0, .8);
+}
+
+/* Pico is themed through its own custom properties (its documented theming
+ * API), so every bare element the classless base already styles — body,
+ * header, nav, article, form controls, buttons, links — picks up the tokens
+ * above without a single component class. Pico redefines these same
+ * properties on `:root:not([data-theme="dark"]), [data-theme="light"]`, on
+ * its dark media query, and on `[data-theme="dark"]`; a plain `:root` bridge
+ * has lower specificity than all three and would lose to Pico's own colours,
+ * so the bridge repeats on matching selectors instead.
+ */
+:root:not([data-theme="dark"]),
+[data-theme="light"] {
+  --pico-background-color: var(--screen);
+  --pico-color: var(--ink);
+  --pico-font-family: var(--sans);
+  --pico-h1-color: var(--ink);
+  --pico-h2-color: var(--ink);
+  --pico-muted-color: var(--ink-soft);
+  --pico-muted-border-color: var(--line);
+  --pico-primary: var(--accent);
+  --pico-primary-background: var(--accent);
+  --pico-primary-underline: var(--accent);
+  --pico-primary-hover: var(--accent);
+  --pico-primary-hover-background: var(--accent);
+  --pico-primary-focus: var(--accent-soft);
+  --pico-primary-inverse: var(--on-accent);
+  --pico-form-element-background-color: var(--screen);
+  --pico-form-element-border-color: var(--line);
+  --pico-form-element-color: var(--ink);
+  --pico-form-element-placeholder-color: var(--ink-faint);
+  --pico-form-element-active-border-color: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pico-background-color: var(--screen);
+    --pico-color: var(--ink);
+    --pico-font-family: var(--sans);
+    --pico-h1-color: var(--ink);
+    --pico-h2-color: var(--ink);
+    --pico-muted-color: var(--ink-soft);
+    --pico-muted-border-color: var(--line);
+    --pico-primary: var(--accent);
+    --pico-primary-background: var(--accent);
+    --pico-primary-underline: var(--accent);
+    --pico-primary-hover: var(--accent);
+    --pico-primary-hover-background: var(--accent);
+    --pico-primary-focus: var(--accent-soft);
+    --pico-primary-inverse: var(--on-accent);
+    --pico-form-element-background-color: var(--screen);
+    --pico-form-element-border-color: var(--line);
+    --pico-form-element-color: var(--ink);
+    --pico-form-element-placeholder-color: var(--ink-faint);
+    --pico-form-element-active-border-color: var(--accent);
+  }
+}
+
+:root[data-theme="dark"] {
+  --pico-background-color: var(--screen);
+  --pico-color: var(--ink);
+  --pico-font-family: var(--sans);
+  --pico-h1-color: var(--ink);
+  --pico-h2-color: var(--ink);
+  --pico-muted-color: var(--ink-soft);
+  --pico-muted-border-color: var(--line);
+  --pico-primary: var(--accent);
+  --pico-primary-background: var(--accent);
+  --pico-primary-underline: var(--accent);
+  --pico-primary-hover: var(--accent);
+  --pico-primary-hover-background: var(--accent);
+  --pico-primary-focus: var(--accent-soft);
+  --pico-primary-inverse: var(--on-accent);
+  --pico-form-element-background-color: var(--screen);
+  --pico-form-element-border-color: var(--line);
+  --pico-form-element-color: var(--ink);
+  --pico-form-element-placeholder-color: var(--ink-faint);
+  --pico-form-element-active-border-color: var(--accent);
+}
+
+[role="alert"] {
+  color: var(--fail);
+}
+
+/* Pico's classless base only borders a `header` nested inside an `article`;
+ * a page-level `header`, like the picture's app bar, gets none, so the line
+ * that separates it from the page body below is added here.
+ */
+header {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The picture's sign-in form is a fixed 320px column
+ * (docs/mockups/m0-lobby.html, `.login-card { width: 320px; }`), not the
+ * wider illustrative frame drawn around it for the annotation sheet. Pico's
+ * own `body>main` breakpoints would otherwise widen toward the viewport, so
+ * this holds it at that width instead; the page background stays full width
+ * because only `main` is targeted, not `body`.
+ *
+ * A page asks for the column, rather than every page getting it: the picture
+ * gives that width to the sign-in card alone, and a deck list squeezed into it
+ * would read as a card floating in an empty page.
+ */
+body > main[data-column] {
+  max-width: 20rem;
+}
+
+/* Log out has no person menu to sit quietly inside yet — that arrives with
+ * Settings/Account (ADR 0012, issue #8 line 22) — so until then it renders
+ * as a plain control beside the person's name rather than Pico's primary
+ * button, which would make ending a session the loudest thing on the page.
+ * `header [type="submit"]` matches Pico's own `[type=submit]` (and its
+ * `:hover`/`:active`/`:focus` variant) at equal-or-higher specificity.
+ */
+header [type="submit"],
+header [type="submit"]:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border: none;
+  margin: 0;
+  padding: 0;
+  color: var(--ink-soft);
+}
+
+/* Pico's spacing below a form and below a button is meant for a page's flow.
+ * In the header's single centred row it only lifts the log-out control off the
+ * baseline of the person's name it stands beside.
+ */
+header nav form {
+  margin-bottom: 0;
+}
+
+/* The picture writes a deck's folder under its title in plain monospace: it is
+ * the address to recognise, not a code sample lifted out of the page. The
+ * chip Pico draws around `code` stays wherever a fragment is quoted on its own,
+ * as the empty list quotes the git address.
+ */
+td code {
+  background: none;
+  color: var(--ink-soft);
+  display: block;
+  font-size: 0.875em;
+  padding: 0;
+}
+
+/* A git address has no spaces to break at, so it must break anywhere rather
+ * than run out of the page on a phone.
+ */
+main code {
+  overflow-wrap: anywhere;
+}

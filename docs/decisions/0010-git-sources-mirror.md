@@ -3,8 +3,8 @@
 Audience: humans and agents adding a deck source, or building the second caller
 of this package.
 
-- Status: ACCEPTED 2026-09-06 — nothing built; source mirroring is phase M0 of
-  [VISION.md](../VISION.md)
+- Status: ACCEPTED 2026-09-06 — `src/gitmirror` exists and mirrors one source;
+  polling, the webhook, secret rotation, and the fetch log are still open
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -34,9 +34,8 @@ two libraries out later without a rewrite.
 its own top-level name, beside the layered tree of
 [ADR 0001](0001-enforced-layers.md) rather than inside it. An import-linter
 contract forbids any import from `presentator`, so the dependency runs one way
-only. That contract does not exist yet — `pyproject.toml` on main names one root
-package — and it is written in the change that adds the package, in the same
-breath as its first module. When a second caller
+only, and a second one keeps every layer but an adapter from naming the package.
+When a second caller
 arrives, the package moves to its own repository and is consumed by tag, exactly
 as `agent_providers` and `webauth` are ([ADR 0003](0003-libraries-for-models-and-auth.md)).
 

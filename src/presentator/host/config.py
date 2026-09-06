@@ -14,6 +14,14 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
 
     secret_key: SecretStr = Field(min_length=SECRET_KEY_LENGTH)
     database: Path = Path("presentator.sqlite3")
+    mirrors: Path = Path("mirrors")
+    source_url: str | None = None
+    source_ref: str = "main"
+    # The name of the environment variable holding the read-only secret, never
+    # the secret itself, so no durable record of this instance carries a value.
+    source_credential: str | None = None
+    # A pull happens while someone waits for the deck list, so it is bounded.
+    source_timeout_seconds: float = 20.0
     https: bool = False
     host: str = "127.0.0.1"
     port: int = 8000

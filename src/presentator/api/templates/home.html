@@ -2,10 +2,49 @@
 {% block title %}{{ wordmark }}{% endblock %}
 {% block body %}
 <header>
-  <p>{{ wordmark }}</p>
-  <p>{{ person }}</p>
-  <form method="post" action="/logout">
-    <button type="submit">{{ log_out }}</button>
-  </form>
+  <nav>
+    <ul>
+      <li><strong>{{ wordmark }}</strong></li>
+      <li><a href="/" aria-current="page">{{ section_decks }}</a></li>
+    </ul>
+    <ul>
+      <li>{{ person }}</li>
+      <li>
+        <form method="post" action="/logout">
+          <button type="submit">{{ log_out }}</button>
+        </form>
+      </li>
+    </ul>
+  </nav>
 </header>
+<main>
+  <h1>{{ title }}</h1>
+  {% if decks %}
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">{{ column_deck }}</th>
+        <th scope="col">{{ column_changed }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for deck in decks %}
+      <tr>
+        <td>
+          <a href="/deck/{{ deck.slug }}">{{ deck.title }}</a>
+          <code>{{ deck.slug }}</code>
+        </td>
+        <td>{{ deck.changed }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <section>
+    <h2>{{ empty_title }}</h2>
+    <p>{{ empty_explanation }}</p>
+    {% if source_address %}<p><code>{{ source_address }}</code></p>{% endif %}
+  </section>
+  {% endif %}
+</main>
 {% endblock %}
