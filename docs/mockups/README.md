@@ -27,6 +27,12 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/login.png` | Resting state | group 12, 14 |
 | `m0-lobby/login-error.png` | After failed attempts | group 12, 14 |
 
+### First start (line 14)
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/setup.png` | First start | 14 |
+
 ### Deck list (lines 1, 3, 4, 8, 9, 18)
 
 | PNG | Caption | Lines |
@@ -35,7 +41,13 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/deck-list.png` | Five decks | group 1, 3, 4, 8, 9, 18 |
 | `m0-lobby/deck-list-narrow.png` | Split screen, 390 px | group 1, 3, 4, 8, 9, 18 |
 
-### Sources (lines 1, 4, 4a, 7, 14a)
+### Settings · General (lines 21, 22, 23)
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/settings-general.png` | General | 21, 22, 23 |
+
+### Settings · Sources (lines 1, 4, 4a, 7, 14a)
 
 | PNG | Caption | Lines |
 |---|---|---|
@@ -49,16 +61,20 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/sources-created.png` | Created — shown once | 1 |
 | `m0-lobby/sources-detail.png` | Source | 7, 14a, 4a |
 
-### Accounts (lines 14, 14b)
+### Settings · Users (lines 14, 14b)
 
 | PNG | Caption | Lines |
 |---|---|---|
-| `m0-lobby/setup.png` | First start | 14 |
 | `m0-lobby/users.png` | Users | 14b |
 | `m0-lobby/users-narrow.png` | Split screen, 390 px | group 14, 14b |
 | `m0-lobby/users-create.png` | Create user | 14 |
 | `m0-lobby/users-deactivate.png` | Deactivate — confirm | 14b |
-| `m0-lobby/account.png` | Account | 14b |
+
+### Account (lines 14b, 21, 22)
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/account.png` | Account | 14b, 21, 22 |
 
 ### Deck page (lines 7, 9, 10, 16)
 
@@ -69,4 +85,6 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/deck-page-failed.png` | Failed | 9, 16 |
 
 M0 has no Start: the deck page offers presenter view, projector view, and the
-PDF. Start belongs to the co-presenter run in M1.
+PDF. Start belongs to the co-presenter run in M1. Instance language and theme
+live under Settings (admin); a personal override and a header toggle live on
+Account and in the bar (lines 21, 22, 23).
