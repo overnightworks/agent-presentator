@@ -36,6 +36,7 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
         "allowed_merge_methods": ["squash", "rebase"]
       }
     },
+    {"type": "deletion"},
     {"type": "non_fast_forward"},
     {"type": "required_linear_history"},
     {
@@ -57,11 +58,11 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
 JSON
 ```
 
-No bypass actor exists: an administrator is subject to the same gates.
-Approvals are set to zero on purpose — this repository is reviewed by agents
-before the pull request opens, not through GitHub review requests. Only
-`squash` and `rebase` are offered because a merge commit would violate the
-linear history the same ruleset requires.
+No bypass actor exists: an administrator is subject to the same gates, and
+`main` cannot be deleted at all. Approvals are set to zero on purpose — this
+repository is reviewed by agents before the pull request opens, not through
+GitHub review requests. Only `squash` and `rebase` are offered because a merge
+commit would violate the linear history the same ruleset requires.
 
 `SonarCloud scan` is not among the required checks. A required check that never
 reports blocks every pull request, and the scan only reports once the
