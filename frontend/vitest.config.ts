@@ -1,13 +1,20 @@
-import { defineConfig } from 'vitest/config'
+import { fileURLToPath } from 'node:url'
+
+import { coverageConfigDefaults, defineConfig } from 'vitest/config'
+
+// SonarCloud reads coverage paths from the repository root, so the run is
+// rooted there and the report lands where the CI artifact is picked up.
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 
 export default defineConfig({
+  root: repositoryRoot,
   test: {
+    include: ['frontend/tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcovonly'],
-      // SonarCloud reads the lcov file from the repository root, and the CI
-      // artifact is uploaded from the same path.
-      reportsDirectory: '../reports/frontend-coverage',
+      reportsDirectory: 'reports/frontend-coverage',
+      exclude: [...coverageConfigDefaults.exclude, '**/package.json'],
     },
   },
 })
