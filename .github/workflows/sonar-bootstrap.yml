@@ -1,0 +1,46 @@
+name: Sonar bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure SonarCloud project exists
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Auth goes through a per-call curl config file built from a process
+          # substitution, never a literal -u/-H flag: gitleaks' curl-auth-user
+          # and curl-auth-header rules match those flags themselves, regardless
+          # of whether the value is a secret or a shell variable.
+          sonar_curl() {
+            curl --config <(printf 'header = "Authorization: Bearer %s"\n' "$SONAR_TOKEN") "$@"
+          }
+
+          if sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator" > /tmp/show.json 2>/tmp/show.err; then
+            echo "Project already exists."
+          else
+            status=$(sonar_curl -s -o /dev/null -w "%{http_code}" "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator")
+            if [ "$status" = "404" ]; then
+              echo "Project does not exist yet, creating it."
+              sonar_curl -fsS -X POST "https://sonarcloud.io/api/projects/create" --data-urlencode organization=overnightworks --data-urlencode project=overnightworks_agent-presentator --data-urlencode name=agent-presentator --data-urlencode visibility=public
+            else
+              echo "Unexpected status $status from components/show"
+              exit 1
+            fi
+          fi
+
+          echo "--- components/show ---"
+          sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator"
+
+          echo "--- project_branches/list ---"
+          sonar_curl -fsS "https://sonarcloud.io/api/project_branches/list?project=overnightworks_agent-presentator"
+
+          echo "--- disable Automatic Analysis (autoscan) ---"
+          sonar_curl -fsS -X POST "https://sonarcloud.io/api/autoscan/activation" --data-urlencode projectKey=overnightworks_agent-presentator --data-urlencode enable=false || echo "autoscan endpoint not available"
