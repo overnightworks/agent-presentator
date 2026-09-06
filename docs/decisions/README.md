@@ -22,6 +22,7 @@ number is never reused and never renumbered.
 - [ADR 0009: German sentence boundaries come from a library; the incremental buffer is ours](0009-german-speech-text.md)
 - [ADR 0010: A reusable `gitmirror` package owns deck sources, mirroring them from any git remote](0010-git-sources-mirror.md)
 - [ADR 0011: An instance has accounts an admin creates; the AI subscriptions belong to the host](0011-instance-users.md)
+- [ADR 0012: Appearance is a theme file and language is a catalog; neither is code](0012-themes-and-language.md)
 
 ## How to read a record
 

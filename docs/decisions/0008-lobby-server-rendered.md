@@ -29,8 +29,10 @@ The lobby is server-rendered HTML from FastAPI: `Jinja2Templates` for pages,
 [jinja2-fragments](https://github.com/sponsfreixes/jinja2-fragments) (MIT) so
 one template serves both the full page and the partial that htmx swaps in,
 [htmx 2.x](https://htmx.org) (0BSD, declared feature-complete) for the
-interaction, and classless Pico.css for the look, from one `<link>` with no
-build step.
+interaction, and classless Pico.css as the base stylesheet, from one `<link>`
+with no build step. What it looks like is not decided here:
+[ADR 0012](0012-themes-and-language.md) owns the design tokens that drive it,
+and the same record puts every string in a catalog.
 
 There is no JavaScript build for the lobby, no client-side router, and no state
 in the browser beyond the session cookie `webauth`

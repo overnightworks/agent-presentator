@@ -20,6 +20,10 @@ accounts rather than a program for one person: an admin creates users, decks and
 sources have owners, and someone else can host their own instance. What that
 means in detail is [ADR 0011](decisions/0011-instance-users.md).
 
+How it looks and which language it speaks are configuration, not code: one theme
+file and one message catalog, so a different look or a second language is a file
+rather than a change ([ADR 0012](decisions/0012-themes-and-language.md)).
+
 ## Why now
 
 The first talk, in March 2026, proved the idea works on a stage. Its code did
