@@ -92,9 +92,5 @@ Analysis and the CI scan are mutually exclusive: while Automatic Analysis is
 on, SonarCloud refuses the report the `SonarCloud scan` job uploads.
 
 SonarCloud runs its built-in "Sonar way" gate (80% on new code; custom gates
-are a paid feature). The 100% floor is owned by the tools — `fail_under` in
-`pyproject.toml` for Python and Vitest thresholds for the addon — the same
-pattern as the organization's other repositories. The floor is met only by
-useful tests: each test pins one observable behaviour (the repository's
-`AGENTS.md` and the testing conventions), never a test that exists to touch
-a line.
+are a paid feature). The coverage floor and what meets it are owned by
+[TESTING.md](TESTING.md).
