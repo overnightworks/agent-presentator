@@ -1,0 +1,54 @@
+# The lobby in English, the instance default until a language is chosen.
+msgid ""
+msgstr ""
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "wordmark"
+msgstr "Presentator"
+
+msgid "log_out"
+msgstr "Log out"
+
+msgid "login_title"
+msgstr "Login"
+
+msgid "login_username"
+msgstr "Username"
+
+msgid "login_password"
+msgstr "Password"
+
+msgid "login_submit"
+msgstr "Log in"
+
+msgid "login_refused"
+msgstr "Login incorrect, please wait a moment"
+
+msgid "setup_title"
+msgstr "Set up admin"
+
+msgid "setup_once"
+msgstr "shown once"
+
+msgid "setup_explanation"
+msgstr ""
+"This page exists only until the first account. After that /setup is closed "
+"and an admin creates further accounts under Users."
+
+msgid "setup_username"
+msgstr "Username"
+
+msgid "setup_password"
+msgstr "Password"
+
+msgid "setup_repeat_password"
+msgstr "Repeat password"
+
+msgid "setup_submit"
+msgstr "Create admin"
+
+msgid "setup_passwords_differ"
+msgstr "The two passwords do not match"

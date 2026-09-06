@@ -81,8 +81,13 @@ From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
-is implemented here at all — see below. `AuditSink`, `CsrfPolicy`, `BodySizePolicy`, and `SecurityHeadersPolicy`
-are taken with their defaults and stubbed until something here needs them.
+is implemented here at all — see below. `AuditSink`, `BodySizePolicy`, and
+`SecurityHeadersPolicy` are taken with their defaults and stubbed until
+something here needs them. `CsrfPolicy` is the one that could not wait: first
+start and login are answered without a cookie, so `SameSite` does not protect
+them, and the bridge refuses a form whose origin is not this instance. That
+check is containment with the same removal path as the rest of the bridge — it
+goes when the library's policy arrives.
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is
