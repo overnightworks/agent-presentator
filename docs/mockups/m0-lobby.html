@@ -1,0 +1,3146 @@
+<title>Presentator Lobby</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans+Condensed:wght@600&amp;family=IBM+Plex+Sans:wght@400;450;600&amp;display=swap">
+<style>
+  :root {
+    --canvas: #E9ECEE;
+    --canvas-2: #DFE3E6;
+    --screen: #FFFFFF;
+    --ink: #14181D;
+    --ink-soft: #5C6774;
+    --ink-faint: #8A94A0;
+    --line: #D2D8DD;
+    --line-soft: #E4E8EB;
+    --accent: #0C6C77;
+    --accent-soft: #DCEDEE;
+    --on-accent: #FFFFFF;
+    --ok: #1D7444;
+    --ok-soft: #DDEFE4;
+    --busy: #9A6200;
+    --busy-soft: #F6EAD3;
+    --fail: #AC2222;
+    --fail-soft: #F6E1E0;
+    --shadow: 0 1px 2px rgba(20, 24, 29, .06), 0 8px 24px -12px rgba(20, 24, 29, .28);
+
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas: #101317;
+      --canvas-2: #171B21;
+      --screen: #1C2128;
+      --ink: #E8ECF0;
+      --ink-soft: #9BA5B1;
+      --ink-faint: #737E8B;
+      --line: #2C333C;
+      --line-soft: #242A32;
+      --accent: #56C3CD;
+      --accent-soft: #16333A;
+      --on-accent: #06181B;
+      --ok: #63C48D;
+      --ok-soft: #16301F;
+      --busy: #E0A63F;
+      --busy-soft: #33260F;
+      --fail: #EE7070;
+      --fail-soft: #35191A;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 28px -14px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --canvas: #101317;
+    --canvas-2: #171B21;
+    --screen: #1C2128;
+    --ink: #E8ECF0;
+    --ink-soft: #9BA5B1;
+    --ink-faint: #737E8B;
+    --line: #2C333C;
+    --line-soft: #242A32;
+    --accent: #56C3CD;
+    --accent-soft: #16333A;
+    --on-accent: #06181B;
+    --ok: #63C48D;
+    --ok-soft: #16301F;
+    --busy: #E0A63F;
+    --busy-soft: #33260F;
+    --fail: #EE7070;
+    --fail-soft: #35191A;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 28px -14px rgba(0, 0, 0, .8);
+  }
+
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ---------- annotation layer ---------- */
+
+  .eyebrow {
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .sheet-head {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .sheet-head h1 {
+    font-size: clamp(30px, 5vw, 44px);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.08;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 16px;
+  }
+
+  .head-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 12px;
+  }
+
+  .panel {
+    border-top: 2px solid var(--ink);
+    padding-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .panel h2 {
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  .key {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .key-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+  }
+
+  .key-row b {
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .out-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+  }
+
+  .out-list li {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 8px;
+  }
+
+  .out-list li::before {
+    content: "×";
+    color: var(--ink-faint);
+    font-family: var(--mono);
+  }
+
+  .out-list b {
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+
+  .group-head h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  .lines {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  .boards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    align-items: flex-start;
+  }
+
+  .board {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 100%;
+  }
+
+  .board-cap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 48ch;
+  }
+
+  .board-title {
+    font-family: var(--cond);
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .board-title .w {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-faint);
+  }
+
+  .board-note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+
+  .open-mark {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--busy);
+    border: 1px solid var(--busy);
+    border-radius: 2px;
+    padding: 0 5px;
+  }
+
+  /* ---------- the frame: a rendered page ---------- */
+
+  .frame {
+    width: var(--w, 960px);
+    max-width: 100%;
+    background: var(--screen);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    container-type: inline-size;
+    overflow: hidden;
+  }
+
+  .route {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    background: var(--canvas-2);
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+
+  .route::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+    opacity: .5;
+    flex: none;
+  }
+
+  /* ---------- product chrome ---------- */
+
+  .app {
+    padding: 0;
+  }
+
+  .app-bar {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--line-soft);
+    min-height: 48px;
+  }
+
+  .wordmark {
+    font-weight: 600;
+    letter-spacing: .04em;
+    font-size: 14px;
+  }
+
+  .wordmark span {
+    color: var(--accent);
+  }
+
+  .icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: block;
+  }
+
+  .icon-sheet {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .brand {
+    display: flex;
+    align-items: stretch;
+    gap: 22px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .brand .wordmark {
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+
+  .nav {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .nav-link,
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 450;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .nav-link {
+    padding: 14px 8px 12px;
+    margin-bottom: -1px;
+  }
+
+  .nav-link--now,
+  .tab--now {
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+  }
+
+  .person {
+    position: relative;
+    flex: none;
+    align-self: center;
+  }
+
+  .person-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--cond);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+  .person-name {
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  .person-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 6;
+    width: 228px;
+    background: var(--screen);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 6px 0;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 13.5px;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  div.menu-item {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+    gap: 0;
+  }
+
+  .menu-sub .radio {
+    font-size: 13.5px;
+  }
+
+  .person-menu,
+  .person-menu * {
+    box-sizing: border-box;
+  }
+
+  .menu-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .menu-item-row .icon:last-child {
+    margin-left: auto;
+  }
+
+  .menu-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 2px 12px 10px 36px;
+  }
+
+  .menu-sep {
+    height: 1px;
+    background: var(--line);
+    margin: 6px 0;
+  }
+
+  .tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .tab {
+    padding: 8px 8px 10px;
+    margin-bottom: -1px;
+  }
+
+  .row--user .stand .lbl { display: none; }
+
+  .row--head {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: var(--canvas-2);
+    border-bottom-color: var(--line);
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .toast {
+    position: absolute;
+    right: 28px;
+    bottom: 24px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--ink);
+    color: var(--canvas);
+    font-size: 13.5px;
+    font-weight: 500;
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+  }
+
+  .nav-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+
+  .nav-sample {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+
+  .app {
+    position: relative;
+  }
+
+  .linkish {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+  }
+
+  .body {
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ---------- login ---------- */
+
+  .login {
+    padding: 56px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+  }
+
+  .login-card {
+    width: 320px;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .login h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field label {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .input {
+    border: 1px solid var(--line);
+    background: var(--screen);
+    color: var(--ink);
+    padding: 9px 11px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    border-radius: 2px;
+  }
+
+  .input.filled {
+    color: var(--ink);
+  }
+
+  .input.dots {
+    font-family: var(--mono);
+    letter-spacing: .18em;
+    color: var(--ink-soft);
+  }
+
+  .input.placeholder {
+    color: var(--ink-faint);
+  }
+
+  /* ---------- buttons ---------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--screen);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: default;
+  }
+
+  .btn svg {
+    flex: none;
+  }
+
+  .btn--primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+  }
+
+  .btn--wide { width: 100%; }
+
+  .btn--off {
+    opacity: .42;
+    border-style: dashed;
+  }
+
+  .btn--primary.btn--off {
+    background: transparent;
+    border-color: var(--ink-faint);
+    color: var(--ink-soft);
+    opacity: .62;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* ---------- state markers: shape + colour ---------- */
+
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .glyph {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    display: inline-block;
+    position: relative;
+  }
+
+  /* ready — filled disc */
+  .state--ok { color: var(--ok); }
+  .state--ok .glyph {
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  /* building — open ring, turning */
+  .state--busy { color: var(--busy); }
+  .state--busy .glyph {
+    border-radius: 50%;
+    border: 2px solid var(--busy);
+    border-top-color: transparent;
+    animation: turn 1.1s linear infinite;
+  }
+
+  /* failed — triangle */
+  .state--fail { color: var(--fail); }
+  .state--fail .glyph {
+    background: var(--fail);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  }
+
+  @keyframes turn { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .state--busy .glyph { animation: none; }
+  }
+
+  /* ---------- deck list ---------- */
+
+  .list-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .list-head h1 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+  }
+
+  a.source {
+    border-bottom: 1px solid var(--line);
+    text-decoration: none;
+  }
+
+  .source {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  .path {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    background: var(--canvas-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 2px;
+    padding: 1px 6px;
+    word-break: break-all;
+  }
+
+  .rows {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 158px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 13px 8px 13px 4px;
+    border-bottom: 1px solid var(--line-soft);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .row-name {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .row-title {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .slug {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+
+  .age {
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  @container (max-width: 520px) {
+    .body { padding: 20px 16px; }
+    .app-bar { padding: 0 16px; flex-wrap: wrap; }
+    .brand { gap: 12px; flex-wrap: wrap; }
+    .nav { gap: 0; flex-wrap: wrap; }
+    .person-name { display: none; }
+    .toast { right: 16px; bottom: 16px; }
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 6px;
+      padding: 12px 2px;
+    }
+    .row .state { grid-column: 1; grid-row: 1; }
+    .row .age { grid-column: 2; grid-row: 1; }
+    .row .row-name { grid-column: 1 / -1; grid-row: 2; }
+    .list-head { flex-direction: column; gap: 8px; }
+    .row--head { display: none; }
+    .row--user .stand .lbl { display: inline; }
+    .actions { flex-direction: column; align-items: stretch; }
+    .actions .btn { width: 100%; }
+  }
+
+  /* ---------- empty state ---------- */
+
+  .empty {
+    border: 1px dashed var(--line);
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+  }
+
+  .empty-mark {
+    width: 34px;
+    height: 26px;
+    border: 2px dashed var(--ink-faint);
+    border-radius: 2px;
+    opacity: .7;
+  }
+
+  .empty h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .empty p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* ---------- deck page ---------- */
+
+  .crumb {
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .deck-head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .deck-head h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+
+  .stand {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
+  }
+
+  .stand .lbl {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .sha {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink);
+    background: var(--canvas-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 2px;
+    padding: 0 5px;
+  }
+
+  /* ---------- banners ---------- */
+
+  .banner {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-left-width: 3px;
+    border-radius: 2px;
+  }
+
+  .banner--busy {
+    background: var(--busy-soft);
+    border-color: var(--busy);
+  }
+
+  .banner--fail {
+    background: var(--fail-soft);
+    border-color: var(--fail);
+  }
+
+  .banner .glyph { margin-top: 3px; }
+
+  .banner-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .banner h2 {
+    margin: 0;
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .banner p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+
+  .attempt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .errlog {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--ink);
+    background: var(--screen);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .cut {
+    color: var(--ink-faint);
+  }
+
+  .sheet-foot {
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    font-size: 13px;
+    color: var(--ink-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+
+  /* ---------- quellen: state, tags, blocks ---------- */
+
+  /* never fetched — hollow dashed square, grey */
+  .state--never { color: var(--ink-faint); }
+  .state--never .glyph {
+    border: 2px dashed var(--ink-faint);
+    border-radius: 1px;
+  }
+
+  .banner--ok {
+    background: var(--ok-soft);
+    border-color: var(--ok);
+  }
+
+  .tag {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+
+  .once {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--busy);
+    border: 1px solid var(--busy);
+    background: var(--busy-soft);
+    border-radius: 2px;
+    padding: 0 5px;
+    white-space: nowrap;
+  }
+
+  .btn--s {
+    padding: 5px 11px;
+    font-size: 13px;
+  }
+
+  .sub {
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .mini {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .dots-line {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: .18em;
+    color: var(--ink-soft);
+  }
+
+  .block {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    border: 1px solid var(--line);
+    background: var(--canvas-2);
+    border-radius: 2px;
+    padding: 10px 10px 10px 12px;
+  }
+
+  .block code {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- the one explanation affordance ---------- */
+
+  .info {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border: 1px solid var(--ink-faint);
+    border-radius: 50%;
+    color: var(--ink-soft);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: default;
+  }
+
+  .pop {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: -8px;
+    z-index: 3;
+    width: 262px;
+    background: var(--ink);
+    color: var(--canvas);
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 1.45;
+    letter-spacing: 0;
+    text-align: left;
+    padding: 9px 11px;
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+  }
+
+  .info:hover .pop,
+  .info:focus-visible .pop,
+  .info--open .pop { display: block; }
+
+  /* ---------- quellen list rows ---------- */
+
+  .row--src {
+    grid-template-columns: 150px minmax(0, 1fr) auto auto auto;
+    gap: 14px;
+  }
+
+  .src-name {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .src-title {
+    align-self: flex-start;
+    font-size: 15px;
+    font-weight: 500;
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .src-url {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    overflow-wrap: anywhere;
+  }
+
+  .why {
+    font-size: 12.5px;
+    color: var(--fail);
+  }
+
+  /* ---------- fetch log ---------- */
+
+  .log {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .log-row {
+    display: grid;
+    grid-template-columns: 150px 130px minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: inherit;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 4px 10px;
+  }
+
+  /* ---------- create form ---------- */
+
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .form-part {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 13px;
+  }
+
+  .lbl-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .input--mono {
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .radios {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .radio {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 14.5px;
+  }
+
+  .dot {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 1px solid var(--ink-faint);
+    border-radius: 50%;
+    position: relative;
+  }
+
+  .dot--on { border-color: var(--accent); }
+
+  .dot--on::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ---------- deferred: reverse direction ---------- */
+
+  .later {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    border: 1px dashed var(--line);
+    border-radius: 2px;
+    padding: 12px 14px;
+    color: var(--ink-faint);
+  }
+
+  .later-mark {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 0 5px;
+  }
+
+  /* ---------- deck page: which source built this ---------- */
+
+  .qlink {
+    font-size: 13px;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sep { color: var(--ink-faint); }
+
+  /* ---------- accounts: the one new state, the user row ---------- */
+
+  /* deactivated — split disc, grey: switched off, not broken */
+  .state--off { color: var(--ink-faint); }
+  .state--off .glyph {
+    border-radius: 50%;
+    background: var(--ink-faint);
+    clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);
+  }
+
+  /* fixed tracks: every row is its own grid, so only fixed widths line the columns up */
+  .row--user {
+    grid-template-columns: 142px minmax(0, 1fr) 62px 176px 222px;
+    gap: 14px;
+  }
+
+  .row--user .row-act { justify-self: end; }
+
+  @container (max-width: 520px) {
+    .row--src {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 8px;
+    }
+    .row--src .state { grid-column: 1; grid-row: 1; }
+    .row--src .age { grid-column: 2; grid-row: 1; }
+    .row--src .src-name { grid-column: 1 / -1; grid-row: 2; }
+    .row--src .row-act { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
+    .row--user {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 8px;
+    }
+    .row--user .state { grid-column: 1; grid-row: 1; }
+    .row--user .tag { grid-column: 2; grid-row: 1; justify-self: end; }
+    .row--user .src-name { grid-column: 1 / -1; grid-row: 2; }
+    .row--user .stand { grid-column: 1 / -1; grid-row: 3; }
+    .row--user .row-act { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
+    .log-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .block { grid-template-columns: minmax(0, 1fr); }
+    .nav { gap: 0; }
+  }
+
+  a:focus-visible,
+  .btn:focus-visible,
+  .input:focus-visible,
+  .info:focus-visible,
+  .person-btn:focus-visible,
+  .nav-link:focus-visible,
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- settings selects ---------- */
+
+  .select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--line);
+    background: var(--screen);
+    color: var(--ink);
+    padding: 9px 11px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    border-radius: 2px;
+  }
+
+  .select svg {
+    flex: none;
+    color: var(--ink-soft);
+  }
+
+  .sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+</style>
+
+<main class="sheet">
+
+  <!-- Lucide icons, ISC. -->
+  <svg class="icon-sheet" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <symbol id="icon-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="7" height="7" x="3" y="3" rx="1"></rect>
+      <rect width="7" height="7" x="14" y="3" rx="1"></rect>
+      <rect width="7" height="7" x="14" y="14" rx="1"></rect>
+      <rect width="7" height="7" x="3" y="14" rx="1"></rect>
+    </symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+      <circle cx="12" cy="12" r="3"></circle>
+    </symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+      <circle cx="12" cy="7" r="4"></circle>
+    </symbol>
+    <symbol id="icon-contrast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <path d="M12 18a6 6 0 0 0 0-12v12z"></path>
+    </symbol>
+    <symbol id="icon-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+      <polyline points="16 17 21 12 16 7"></polyline>
+      <line x1="21" x2="9" y1="12" y2="12"></line>
+    </symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6 9 17l-5-5"></path>
+    </symbol>
+    <symbol id="icon-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="21" x2="14" y1="4" y2="4"></line>
+      <line x1="10" x2="3" y1="4" y2="4"></line>
+      <line x1="21" x2="12" y1="12" y2="12"></line>
+      <line x1="8" x2="3" y1="12" y2="12"></line>
+      <line x1="21" x2="16" y1="20" y2="20"></line>
+      <line x1="12" x2="3" y1="20" y2="20"></line>
+      <line x1="14" x2="14" y1="2" y2="6"></line>
+      <line x1="8" x2="8" y1="10" y2="14"></line>
+      <line x1="16" x2="16" y1="18" y2="22"></line>
+    </symbol>
+    <symbol id="icon-git-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="6" x2="6" y1="3" y2="15"></line>
+      <circle cx="18" cy="6" r="3"></circle>
+      <circle cx="6" cy="18" r="3"></circle>
+      <path d="M18 9a9 9 0 0 1-9 9"></path>
+    </symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+      <circle cx="9" cy="7" r="4"></circle>
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+    </symbol>
+    <symbol id="icon-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path>
+      <circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle>
+    </symbol>
+    <symbol id="icon-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+      <line x1="8" x2="16" y1="21" y2="21"></line>
+      <line x1="12" x2="12" y1="17" y2="21"></line>
+    </symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m6 9 6 6 6-6"></path>
+    </symbol>
+  </svg>
+
+  <header class="sheet-head">
+    <div class="eyebrow">Mockup for ruling · Issue #8 · M0</div>
+    <h1>Presentator Lobby</h1>
+    <p class="lead">Login, the deck list, the deck page, Settings (admin), and Account. An admin creates every account and sets instance language, theme, sources, and users under Settings. Decks arrive exclusively via Git — from a repository on any host, which the server only mirrors. Once blessed, this mockup is frozen; after that the expectation lines are ruled and cut.</p>
+
+    <div class="head-panels">
+      <section class="panel">
+        <h2>Build state: shape and color</h2>
+        <div class="key">
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>ready</span><span>filled circle, green — both views open</span></div>
+          <div class="key-row"><span class="state state--busy"><span class="glyph"></span>building</span><span>open ring, spinning, yellow</span></div>
+          <div class="key-row"><span class="state state--fail"><span class="glyph"></span>failed</span><span>triangle, red — only you can fix this</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Source state: shape and color</h2>
+        <div class="key">
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>reachable</span><span>filled circle, green — last read</span></div>
+          <div class="key-row"><span class="state state--fail"><span class="glyph"></span>Error</span><span>triangle, red — access or host</span></div>
+          <div class="key-row"><span class="state state--never"><span class="glyph"></span>never fetched</span><span>dashed square, grey</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Account state: shape and color</h2>
+        <div class="key">
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>active</span><span>filled circle, green — can log in</span></div>
+          <div class="key-row"><span class="state state--off"><span class="glyph"></span>deactivated</span><span>split circle, grey — switched off, not broken</span></div>
+          <div class="key-row"><span class="tag">Admin</span><span>role is a label, never a color</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Navigation</h2>
+        <div class="nav-legend">
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-user"></use></svg> Account</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-contrast"></use></svg> Theme</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Deliberately left out</h2>
+        <ul class="out-list">
+          <li><span><b>No theme icon in the bar</b> — theme lives in the person menu; presenter and projector views use Slidev's own <span class="path">d</span> key for dark mode</span></li>
+          <li><span><b>OAuth, GitHub App, host picker</b> — one read-only secret per source, the same form for every host (line 1)</span></li>
+          <li><span><b>Writing back to Git</b> — the server is a mirror, never the origin (line 1)</span></li>
+          <li><span><b>Showing the secret again</b> — after entry it can only be renewed (line 12)</span></li>
+          <li><span><b>New deck / upload</b> — decks are created in Git (line 4)</span></li>
+          <li><span><b>Name filter</b> — twenty decks don't need one (line 18)</span></li>
+          <li><span><b>Sign up, forgot password</b> — an admin creates the account and resets the password (lines 14, 14b)</span></li>
+          <li><span><b>Start in M0</b> — the two views are the way into the talk; the co-presenter run arrives with M1 (line 10)</span></li>
+          <li><span><b>Build progress bar</b> — the server doesn't know percentages</span></li>
+        </ul>
+      </section>
+    </div>
+  </header>
+
+  <!-- ================= LOGIN ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Login</h2>
+      <span class="lines">lines 12, 14</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Resting state <span class="w">1024 px</span></div>
+          <p class="board-note">Username, password, one button. No sign-up link, no “forgot password”.</p>
+        </figcaption>
+        <div class="frame" style="--w: 520px">
+          <div class="route">presentator.local/login</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login</h1>
+                <div class="field">
+                  <label for="u1">Username</label>
+                  <div class="input placeholder" id="u1">felix</div>
+                </div>
+                <div class="field">
+                  <label for="p1">Password</label>
+                  <div class="input dots" id="p1">••••••••••</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">After failed attempts <span class="w">1024 px</span></div>
+          <p class="board-note">One sentence covers wrong username, wrong password, and rate limiting — it doesn't reveal which one applied.</p>
+        </figcaption>
+        <div class="frame" style="--w: 520px">
+          <div class="route">presentator.local/login</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login</h1>
+                <div class="banner banner--fail">
+                  <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                  <div class="banner-body">
+                    <p>Login incorrect, please wait a moment</p>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="u2">Username</label>
+                  <div class="input filled" id="u2">felix</div>
+                </div>
+                <div class="field">
+                  <label for="p2">Password</label>
+                  <div class="input placeholder" id="p2">&nbsp;</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <!-- ================= FIRST START ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>First start</h2>
+      <span class="lines">line 14</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">First start <span class="w">1024 px</span></div>
+          <p class="board-note">The only page that ever creates an account without being logged in — and it is gone the moment it succeeds. The badge says so at a glance; the ⓘ carries the sentence: “This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.” No self-registration, here or anywhere (line 14).</p>
+        </figcaption>
+        <div class="frame" style="--w: 520px">
+          <div class="route">presentator.local/setup</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <div class="pair">
+                  <h1>Set up admin</h1>
+                  <span class="once">shown once</span>
+                  <span class="info" tabindex="0">i<span class="pop">This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.</span></span>
+                </div>
+                <div class="field">
+                  <label for="su">Username</label>
+                  <div class="input filled" id="su">felix</div>
+                </div>
+                <div class="field">
+                  <label for="sp">Password</label>
+                  <div class="input dots" id="sp">••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="sr">Repeat password</label>
+                  <div class="input dots" id="sr">••••••••••••</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Create admin</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================= DECK LIST ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Deck list</h2>
+      <span class="lines">lines 1, 3, 4, 8, 9, 18</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">First day, empty <span class="w">1024 px</span></div>
+          <p class="board-note">The empty list names the path you push to — no blank area, no leftover table.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+              </div>
+              <div class="empty">
+                <div class="empty-mark"></div>
+                <h2>No deck yet</h2>
+                <p>Push a folder into one of your <a class="qlink" href="#sources">sources</a>, e.g. <span class="path">git@heimserver:decks.git</span></p>
+                <a class="btn btn--primary btn--s" href="#sources">Add source</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Five decks <span class="w">1024 px</span></div>
+          <p class="board-note">Most recently changed on top. One build is running, one has failed — both carry shape and color, the word only confirms. Folders deleted in Git no longer appear here.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+                <a class="source" href="#sources">3 sources</a>
+              </div>
+              <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
+                <a class="row" href="#deck-kundenfeedback">
+                  <span class="state state--busy"><span class="glyph"></span>building</span>
+                  <span class="row-name">
+                    <span class="row-title">Kundenfeedback Q3</span>
+                    <span class="slug">kundenfeedback</span>
+                  </span>
+                  <span class="age">2 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-knowledge-fabric">
+                  <span class="state state--fail"><span class="glyph"></span>failed</span>
+                  <span class="row-name">
+                    <span class="row-title">Knowledge Fabric</span>
+                    <span class="slug">knowledge-fabric</span>
+                  </span>
+                  <span class="age">26 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-agenten-fabrik">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Agenten-Fabrik</span>
+                    <span class="slug">agenten-fabrik</span>
+                  </span>
+                  <span class="age">3 hours ago</span>
+                </a>
+                <a class="row" href="#deck-onboarding">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Onboarding Handwerk</span>
+                    <span class="slug">onboarding-handwerk</span>
+                  </span>
+                  <span class="age">yesterday</span>
+                </a>
+                <a class="row" href="#deck-jahresrueckblick">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Jahresrückblick 2025</span>
+                    <span class="slug">jahresrueckblick-2025</span>
+                  </span>
+                  <span class="age">6 days ago</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Person menu open <span class="w">1024 px</span></div>
+          <p class="board-note">The person control is the only place for Account, theme, and log out (lines 15, 22). Theme opens as radio rows — Follow system is on, marked by a filled dot, never by colour alone.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person person--open">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+              <div class="person-menu">
+                <a class="menu-item" href="#account"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-user"></use></svg> Account</a>
+                <div class="menu-item">
+                  <div class="menu-item-row"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-contrast"></use></svg> Theme <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></div>
+                  <div class="menu-sub">
+                    <span class="radio"><span class="dot dot--on"></span>Follow system</span>
+                    <span class="radio"><span class="dot"></span>Light</span>
+                    <span class="radio"><span class="dot"></span>Dark</span>
+                  </div>
+                </div>
+                <div class="menu-sep"></div>
+                <a class="menu-item" href="#logout"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</a>
+              </div>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+                <a class="source" href="#sources">3 sources</a>
+              </div>
+              <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
+                <a class="row" href="#deck-kundenfeedback-menu">
+                  <span class="state state--busy"><span class="glyph"></span>building</span>
+                  <span class="row-name">
+                    <span class="row-title">Kundenfeedback Q3</span>
+                    <span class="slug">kundenfeedback</span>
+                  </span>
+                  <span class="age">2 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-knowledge-fabric-menu">
+                  <span class="state state--fail"><span class="glyph"></span>failed</span>
+                  <span class="row-name">
+                    <span class="row-title">Knowledge Fabric</span>
+                    <span class="slug">knowledge-fabric</span>
+                  </span>
+                  <span class="age">26 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-agenten-fabrik-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Agenten-Fabrik</span>
+                    <span class="slug">agenten-fabrik</span>
+                  </span>
+                  <span class="age">3 hours ago</span>
+                </a>
+                <a class="row" href="#deck-onboarding-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Onboarding Handwerk</span>
+                    <span class="slug">onboarding-handwerk</span>
+                  </span>
+                  <span class="age">yesterday</span>
+                </a>
+                <a class="row" href="#deck-jahresrueckblick-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Jahresrückblick 2025</span>
+                    <span class="slug">jahresrueckblick-2025</span>
+                  </span>
+                  <span class="age">6 days ago</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">Half a company laptop: state and time stay in the first row, title and folder wrap below. Nothing state-bearing gets cut off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+                <a class="source" href="#sources">3 sources</a>
+              </div>
+              <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
+                <a class="row" href="#deck-kundenfeedback-schmal">
+                  <span class="state state--busy"><span class="glyph"></span>building</span>
+                  <span class="age">2 min. ago</span>
+                  <span class="row-name">
+                    <span class="row-title">Kundenfeedback Q3</span>
+                    <span class="slug">kundenfeedback</span>
+                  </span>
+                </a>
+                <a class="row" href="#deck-knowledge-fabric-schmal">
+                  <span class="state state--fail"><span class="glyph"></span>failed</span>
+                  <span class="age">26 min. ago</span>
+                  <span class="row-name">
+                    <span class="row-title">Knowledge Fabric</span>
+                    <span class="slug">knowledge-fabric</span>
+                  </span>
+                </a>
+                <a class="row" href="#deck-agenten-fabrik-schmal">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="age">3 h ago</span>
+                  <span class="row-name">
+                    <span class="row-title">Agenten-Fabrik</span>
+                    <span class="slug">agenten-fabrik</span>
+                  </span>
+                </a>
+                <a class="row" href="#deck-onboarding-schmal">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="age">yesterday</span>
+                  <span class="row-name">
+                    <span class="row-title">Onboarding Handwerk</span>
+                    <span class="slug">onboarding-handwerk</span>
+                  </span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS · GENERAL ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Settings · General</h2>
+      <span class="lines">lines 21, 22, 23</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">General <span class="w">1024 px</span></div>
+          <p class="board-note">Instance name, default language, default theme. English is the only catalog today; the ⓘ says how a second language arrives — a file, not code (line 21). Theme for you lives in the person menu (line 22). This whole area is admin-only (line 23).</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>General</h1>
+                <span class="btn btn--primary">Save</span>
+              </div>
+              <nav class="tabs">
+                <a class="tab tab--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="form">
+                <div class="field">
+                  <label for="iname">Instance name</label>
+                  <div class="input filled" id="iname">Heim</div>
+                </div>
+                <div class="field">
+                  <div class="lbl-row">
+                    <label for="ilang">Default language</label>
+                    <span class="info info--open" tabindex="0">i<span class="pop">Add a catalog file to add a language.</span></span>
+                  </div>
+                  <div class="select" id="ilang">
+                    <span>English</span>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="itheme">Default theme</label>
+                  <div class="select" id="itheme">
+                    <span>Follow system</span>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS · SOURCES ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Settings · Sources</h2>
+      <span class="lines">lines 1, 4, 4a, 7, 14a</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Three sources, three hosts <span class="w">1024 px</span></div>
+          <p class="board-note">Company GitLab, GitHub, and a bare Git server sit in the same row, with the same column for access and state — no host gets its own form, no logo, no connect-login (line 1). That the GitLab uses a token and GitHub a deploy key is a choice per source, not a property of the host.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/sources</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Sources</h1>
+                <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--src">
+                  <span>State</span>
+                  <span>Source</span>
+                  <span>Access</span>
+                  <span>Fetched</span>
+                  <span></span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--ok"><span class="glyph"></span>reachable</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-firmen-gitlab">firmen-gitlab</a>
+                    <span class="src-url">https://gitlab.firma.intern/vortraege/decks.git</span>
+                  </span>
+                  <span class="tag">Token</span>
+                  <span class="age">3 minutes ago</span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--fail"><span class="glyph"></span>Error</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-github-privat">github-privat</a>
+                    <span class="src-url">git@github.com:felix/decks.git</span>
+                    <span class="why">Access denied — the deploy key is no longer registered there</span>
+                  </span>
+                  <span class="tag">Deploy-Key</span>
+                  <span class="age">2 hours ago</span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--never"><span class="glyph"></span>never fetched</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-heimserver">heimserver</a>
+                    <span class="src-url">git@heimserver:decks.git</span>
+                  </span>
+                  <span class="tag">Deploy-Key</span>
+                  <span class="age">—</span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">First day, empty <span class="w">1024 px</span></div>
+          <p class="board-note">The empty state says what a source is and what you need for it — a Git URL and a read-only secret. The same Add source action sits in the title row and in the empty state.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/sources</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Sources</h1>
+                <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="empty">
+                <div class="empty-mark"></div>
+                <h2>No source yet</h2>
+                <p>A source is a Git repository that the server reads every few minutes — GitHub, GitLab, in-house, or bare.</p>
+                <p>You need the Git URL and a read-only secret: <span class="path">SSH deploy key</span> or <span class="path">HTTPS token</span></p>
+                <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">State and age stay in the first row, name, URL, and reason wrap below, “Fetch now” goes to the very bottom. The URL wraps instead of being cut off — it is the identity of the source.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/settings/sources</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Sources</h1>
+                <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--src">
+                  <span>State</span>
+                  <span>Source</span>
+                  <span>Access</span>
+                  <span>Fetched</span>
+                  <span></span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--ok"><span class="glyph"></span>reachable</span>
+                  <span class="age">3 min. ago</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-firmen-gitlab-schmal">firmen-gitlab</a>
+                    <span class="src-url">https://gitlab.firma.intern/vortraege/decks.git</span>
+                    <span class="tag">Token</span>
+                  </span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--fail"><span class="glyph"></span>Error</span>
+                  <span class="age">2 h ago</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-github-privat-schmal">github-privat</a>
+                    <span class="src-url">git@github.com:felix/decks.git</span>
+                    <span class="why">Access denied</span>
+                    <span class="tag">Deploy-Key</span>
+                  </span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+                <div class="row row--src">
+                  <span class="state state--never"><span class="glyph"></span>never fetched</span>
+                  <span class="age">—</span>
+                  <span class="src-name">
+                    <a class="src-title" href="#quelle-heimserver-schmal">heimserver</a>
+                    <span class="src-url">git@heimserver:decks.git</span>
+                    <span class="tag">Deploy-Key</span>
+                  </span>
+                  <span class="btn btn--s row-act">Fetch now</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Add source <span class="w">1024 px</span></div>
+          <p class="board-note">The same form for every host: name, URL, a read-only secret. What the secret entails sits behind the ⓘ, not as a paragraph in the form — expanded here for viewing. Below that, the one thing you enter on the other side — the server's public key (line 1).</p>
+        </figcaption>
+        <div class="frame" style="--w: 620px">
+          <div class="route">presentator.local/settings/sources/new</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#sources">← Sources</a>
+              <div class="deck-head">
+                <h1>Add source</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="form">
+                <div class="field">
+                  <label for="qn">Name</label>
+                  <div class="input filled" id="qn">firmen-gitlab</div>
+                </div>
+                <div class="field">
+                  <label for="qu">Git URL</label>
+                  <div class="input filled input--mono" id="qu">git@gitlab.firma.intern:vortraege/decks.git</div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">Access</span>
+                  <div class="radios">
+                    <span class="radio"><span class="dot dot--on"></span>SSH deploy key</span>
+                    <span class="radio"><span class="dot"></span>HTTPS token</span>
+                  </div>
+                  <div class="field">
+                    <div class="lbl-row">
+                      <label for="qs">Secret</label>
+                      <span class="info info--open" tabindex="0">i<span class="pop">Stored encrypted and never shown again after creation. It only needs read access — the server never writes back to Git.</span></span>
+                    </div>
+                    <div class="input dots" id="qs">••••••••••••••••••</div>
+                  </div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">Enter on the other side</span>
+                  <span class="mini">The server's public key — as a deploy key with read access</span>
+                  <div class="block">
+                    <code>ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8p2r0vQ9m4kZt7bXcW1sLdJqR6yN3oP presentator@heimserver</code>
+                    <span class="btn btn--s">Copy</span>
+                  </div>
+                  <span class="mini">The webhook address and its secret are created only once you add the source.</span>
+                </div>
+
+                <div class="actions">
+                  <span class="btn">Check connection</span>
+                  <span class="btn btn--primary">Create</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Check: reachable <span class="w">Excerpt</span></div>
+          <p class="board-note">The server has read the repository and names the head it found — proof instead of a checkmark.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/sources/new</div>
+          <div class="app">
+            <div class="body">
+              <div class="actions">
+                <span class="btn">Check connection</span>
+                <span class="btn btn--primary">Create</span>
+              </div>
+              <div class="banner banner--ok">
+                <span class="glyph" style="border-radius: 50%; background: var(--ok);"></span>
+                <div class="banner-body">
+                  <h2>Reachable</h2>
+                  <p>Repository read, head <span class="sha">a3f19c2</span>.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Check: auth failed <span class="w">Excerpt</span></div>
+          <p class="board-note">The host responds, but the secret isn't enough. Red, because only you can fix this — the sentence says where.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/sources/new</div>
+          <div class="app">
+            <div class="body">
+              <div class="actions">
+                <span class="btn">Check connection</span>
+                <span class="btn btn--primary btn--off">Create</span>
+              </div>
+              <div class="banner banner--fail">
+                <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                <div class="banner-body">
+                  <h2>Access denied</h2>
+                  <p>The host responds but won't let the key read. Add it there as a deploy key with read access.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Check: unreachable <span class="w">Excerpt</span></div>
+          <p class="board-note">No route to the host. This is exactly where the pointer to the reverse direction belongs — not built yet, but planned (line 4a).</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/sources/new</div>
+          <div class="app">
+            <div class="body">
+              <div class="actions">
+                <span class="btn">Check connection</span>
+                <span class="btn btn--primary btn--off">Create</span>
+              </div>
+              <div class="banner banner--fail">
+                <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                <div class="banner-body">
+                  <h2>Host unreachable</h2>
+                  <p><span class="path">gitlab.firma.intern</span> is not responding to the home server.</p>
+                  <div class="later">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1.5 9h9M7.5 5.5 11 9l-3.5 3.5"></path><rect x="12.5" y="3" width="4" height="12" rx="1"></rect></svg>
+                    <span>Push inbox: your company Git pushes to the home server</span>
+                    <span class="later-mark">later</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Created — shown once <span class="w">1024 px</span></div>
+          <p class="board-note">The webhook secret appears on screen exactly once, with the marker next to it. Whoever doesn't copy it here renews it later — it is never shown again (line 1).</p>
+        </figcaption>
+        <div class="frame" style="--w: 620px">
+          <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#sources">← Sources</a>
+              <div class="deck-head">
+                <h1>firmen-gitlab created</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="form-part" style="border-top: none; padding-top: 0;">
+                <span class="sub">Webhook — enter both of these in your GitLab</span>
+                <span class="mini">Address</span>
+                <div class="block">
+                  <code>https://presentator.local/sources/firmen-gitlab/fetch</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="pair">
+                  <span class="mini">Secret</span>
+                  <span class="once">visible only now</span>
+                </div>
+                <div class="block">
+                  <code>whs_4Kd9pQ2mTn7xLv0aZs3Bc6Ej1Rf8Yg5U</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <span class="mini">The server doesn't read the host's payload — every valid call just means “fetch now”.</span>
+              </div>
+              <div class="actions">
+                <a class="btn btn--primary" href="#quelle-firmen-gitlab">Done</a>
+              </div>
+              <div class="toast"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg> Source created</div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Source <span class="w">1024 px</span></div>
+          <p class="board-note">One page, one question: is this source working. A log of the last three runs with commit as evidence, the decks that come from here (line 7), and the build hint (line 14a). There is exactly one action on the secret: renew. The push inbox stands greyed out as a plan (line 4a).</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#sources">← Sources</a>
+              <div class="deck-head">
+                <h1>firmen-gitlab</h1>
+                <div class="meta">
+                  <span class="src-url">git@gitlab.firma.intern:vortraege/decks.git</span>
+                  <span class="state state--ok"><span class="glyph"></span>reachable</span>
+                  <span class="stand"><span class="lbl">Fetched</span><span>3 minutes ago</span></span>
+                  <span class="pair"><span class="tag">Built isolated</span><span class="info" tabindex="0">i<span class="pop">A deck is code. Every build runs in its own container with no network and none of the server's secrets.</span></span></span>
+                </div>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="actions">
+                <span class="btn btn--primary btn--s">Fetch now</span>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Access to the Git</span>
+                <div class="pair">
+                  <span class="tag">Deploy-Key</span>
+                  <span class="dots-line">••••••••••••••••••</span>
+                  <span class="info" tabindex="0">i<span class="pop">Stored encrypted and never shown again since entry. Renewing replaces it with a new one.</span></span>
+                  <span class="btn btn--s">Renew secret</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Webhook</span>
+                <div class="block">
+                  <code>https://presentator.local/sources/firmen-gitlab/fetch</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="pair">
+                  <span class="dots-line">••••••••••••••••••</span>
+                  <span class="btn btn--s">Renew secret</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Recent runs</span>
+                <div class="log">
+                  <div class="log-row">
+                    <span class="state state--ok"><span class="glyph"></span>fetched</span>
+                    <span class="age">3 minutes ago</span>
+                    <span><span class="sha">a3f19c2</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span class="state state--ok"><span class="glyph"></span>fetched</span>
+                    <span class="age">8 minutes ago</span>
+                    <span><span class="sha">c40b7e1</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span class="state state--fail"><span class="glyph"></span>Error</span>
+                    <span class="age">13 minutes ago</span>
+                    <span class="why">Host unreachable</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Decks from this source</span>
+                <div class="chips">
+                  <a class="chip" href="#deck-kundenfeedback">Kundenfeedback Q3 <span class="slug">kundenfeedback</span></a>
+                  <a class="chip" href="#deck-knowledge-fabric">Knowledge Fabric <span class="slug">knowledge-fabric</span></a>
+                  <a class="chip" href="#deck-agenten-fabrik">Agenten-Fabrik <span class="slug">agenten-fabrik</span></a>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Reverse direction</span>
+                <div class="later">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1.5 9h9M7.5 5.5 11 9l-3.5 3.5"></path><rect x="12.5" y="3" width="4" height="12" rx="1"></rect></svg>
+                  <span>Push inbox — the home server offers its own Git when it can't reach your company Git</span>
+                  <span class="later-mark">later</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS · USERS ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Settings · Users</h2>
+      <span class="lines">lines 14, 14b</span>
+    </div>
+
+    <div class="boards">
+
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Users <span class="w">1024 px</span> <span class="open-mark">open</span></div>
+          <p class="board-note">Admins only, as a tab under Settings (line 23). State carries shape and color, the role carries a word — a deactivated account is grey and split, never red, because nothing is broken (line 14b). Your own row offers no reset and no deactivate; your password lives on Account. Open to rule: whether a deactivated account can be switched back on, as drawn, or only removed.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/users</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Users</h1>
+                <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--user">
+                  <span>State</span>
+                  <span>User</span>
+                  <span>Role</span>
+                  <span>Last login</span>
+                  <span></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="src-name">
+                    <span class="row-title">felix</span>
+                    <span class="mini">your account</span>
+                  </span>
+                  <span class="tag">Admin</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 minutes ago</span></span>
+                  <span class="row-act pair"><a class="btn btn--s" href="#account">Account</a></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="src-name">
+                    <span class="row-title">anna</span>
+                  </span>
+                  <span class="tag">User</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
+                  <span class="row-act pair">
+                    <span class="btn btn--s">Reset password</span>
+                    <span class="btn btn--s">Deactivate</span>
+                  </span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
+                  <span class="src-name">
+                    <span class="row-title">jonas</span>
+                  </span>
+                  <span class="tag">User</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
+                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">State and role stay in the first row, name and last login wrap below, the row's actions go to the bottom. Nothing state-bearing is cut off — you can still see who is switched off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/settings/users</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Users</h1>
+                <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--user">
+                  <span>State</span>
+                  <span>User</span>
+                  <span>Role</span>
+                  <span>Last login</span>
+                  <span></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="tag">Admin</span>
+                  <span class="src-name">
+                    <span class="row-title">felix</span>
+                    <span class="mini">your account</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 min. ago</span></span>
+                  <span class="row-act pair"><a class="btn btn--s" href="#account">Account</a></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="tag">User</span>
+                  <span class="src-name">
+                    <span class="row-title">anna</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
+                  <span class="row-act pair">
+                    <span class="btn btn--s">Reset password</span>
+                    <span class="btn btn--s">Deactivate</span>
+                  </span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
+                  <span class="tag">User</span>
+                  <span class="src-name">
+                    <span class="row-title">jonas</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
+                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Create user <span class="w">1024 px</span></div>
+          <p class="board-note">Its own small page, not a dialog over the list — a created account is a thing, not a setting. Username, role, first password; no mail address and no invitation link, because nobody registers themselves (line 14). What happens to that first password sits behind the ⓘ — expanded here for viewing.</p>
+        </figcaption>
+        <div class="frame" style="--w: 620px">
+          <div class="route">presentator.local/settings/users/new</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#users">← Users</a>
+              <div class="deck-head">
+                <h1>Create user</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="form">
+                <div class="field">
+                  <label for="bn">Username</label>
+                  <div class="input filled" id="bn">anna</div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">Role</span>
+                  <div class="radios">
+                    <span class="radio"><span class="dot"></span>Admin — may create, reset, and deactivate accounts</span>
+                    <span class="radio"><span class="dot dot--on"></span>User — own decks and sources</span>
+                  </div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">First password</span>
+                  <div class="field">
+                    <div class="lbl-row">
+                      <label for="bp">Password</label>
+                      <span class="info info--open" tabindex="0">i<span class="pop">You set it and hand it over yourself. Anna changes it under Account; there is no invitation mail and no signup link.</span></span>
+                    </div>
+                    <div class="input dots" id="bp">••••••••••••</div>
+                  </div>
+                  <div class="field">
+                    <label for="br">Repeat password</label>
+                    <div class="input dots" id="br">••••••••••••</div>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <span class="btn btn--primary">Create</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Deactivate — confirm <span class="w">Excerpt</span></div>
+          <p class="board-note">One verb, one consequence line, and the glyph of the state it will produce. Grey, not red: the account is switched off, not destroyed — and it can be switched back on (line 14b).</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/users</div>
+          <div class="app">
+            <div class="body">
+              <div class="banner">
+                <span class="glyph" style="border-radius: 50%; background: var(--ink-faint); clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);"></span>
+                <div class="banner-body">
+                  <h2>Deactivate anna</h2>
+                  <p>Ends their open sessions now.</p>
+                  <div class="pair">
+                    <span class="btn">Cancel</span>
+                    <span class="btn btn--primary">Deactivate</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+
+    </div>
+  </section>
+
+  <!-- ================= ACCOUNT ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Account</h2>
+      <span class="lines">lines 14b, 21, 22</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Account <span class="w">1024 px</span></div>
+          <p class="board-note">Everyone has this page — one question: what is mine. Password and sessions (line 14b); language and theme override the instance default for you only (lines 21, 22). The current device is marked, so “End others” needs no explanation of what it spares. Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/account</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="deck-head">
+                <h1>Account</h1>
+                <div class="meta">
+                  <span class="slug">felix</span>
+                  <span class="tag">Admin</span>
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                </div>
+              </div>
+
+              <div class="form-part" style="border-top: none; padding-top: 0;">
+                <span class="sub">Preferences</span>
+                <div class="field">
+                  <label for="alang">Language</label>
+                  <div class="select" id="alang">
+                    <span>Instance default</span>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="atheme">Theme</label>
+                  <div class="select" id="atheme">
+                    <span>Instance default</span>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
+                <div class="field">
+                  <label for="kc">Current password</label>
+                  <div class="input dots" id="kc">••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="kn">New password</label>
+                  <div class="input dots" id="kn">••••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="kw">Repeat new password</label>
+                  <div class="input dots" id="kw">••••••••••••••</div>
+                </div>
+                <div class="actions">
+                  <span class="btn btn--primary btn--s">Change password</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
+                <div class="log">
+                  <div class="log-row">
+                    <span>Firefox · Linux</span>
+                    <span class="age">active now</span>
+                    <span><span class="tag">this device</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span>Chrome · Windows</span>
+                    <span class="age">2 hours ago</span>
+                    <span></span>
+                  </div>
+                  <div class="log-row">
+                    <span>Safari · iPhone</span>
+                    <span class="age">yesterday</span>
+                    <span></span>
+                  </div>
+                </div>
+                <div class="pair">
+                  <span class="btn btn--s">End others</span>
+                  <span class="info" tabindex="0">i<span class="pop">Ends every session except this one. On the other devices you log in again — this device keeps running.</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <!-- ================= DECK PAGE ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Deck page</h2>
+      <span class="lines">lines 7, 9, 10, 16</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Ready <span class="w">1024 px</span></div>
+          <p class="board-note">Status names source, short sha, and build time — before you speak, you see whether your last push made it in and which repository it came from (line 7). The source name links to the source. Three ways out, each exactly once. Start arrives with M1 (the co-presenter run); M0 has only the two views.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/agenten-fabrik</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#decks">← Decks</a>
+              <div class="deck-head">
+                <h1>Agenten-Fabrik</h1>
+                <div class="meta">
+                  <span class="slug">agenten-fabrik</span>
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">a3f19c2</span><span>built 12 minutes ago</span></span>
+                </div>
+              </div>
+              <div class="actions">
+                <span class="btn btn--primary">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
+                  Presenter view
+                </span>
+                <span class="btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.4" width="13.6" height="9" rx="1"></rect><path d="M5.4 13.8h5.2"></path></svg>
+                  Projector view
+                </span>
+                <span class="btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8v8.4M4.8 7.4 8 10.6l3.2-3.2M2 13.4h12"></path></svg>
+                  PDF
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Building <span class="w">1024 px</span> <span class="open-mark">open</span></div>
+          <p class="board-note">Both views stay locked until the build is done (line 10). Open to rule: whether locking both is right — in the mockup, yes; the PDF from the last good build stays loadable.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/kundenfeedback</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#decks">← Decks</a>
+              <div class="deck-head">
+                <h1>Kundenfeedback Q3</h1>
+                <div class="meta">
+                  <span class="slug">kundenfeedback</span>
+                  <span class="state state--busy"><span class="glyph"></span>building</span>
+                  <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">c40b7e1</span><span>built 2 days ago</span></span>
+                </div>
+              </div>
+              <div class="banner banner--busy">
+                <span class="glyph" style="border-radius:50%; border:2px solid var(--busy); border-top-color: transparent; animation: turn 1.1s linear infinite;"></span>
+                <div class="banner-body">
+                  <p>Both views unlock once the build is done. Reload the page.</p>
+                  <div class="attempt"><span>Building <span class="sha">7d1e04b</span></span><span>for 40 seconds</span></div>
+                </div>
+              </div>
+              <div class="actions">
+                <span class="btn btn--primary btn--off">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
+                  Presenter view
+                </span>
+                <span class="btn btn--off">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.4" width="13.6" height="9" rx="1"></rect><path d="M5.4 13.8h5.2"></path></svg>
+                  Projector view
+                </span>
+                <span class="btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8v8.4M4.8 7.4 8 10.6l3.2-3.2M2 13.4h12"></path></svg>
+                  PDF
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Failed <span class="w">1024 px</span></div>
+          <p class="board-note">The error text appears truncated on the page, not just in the server log (line 9). The status above is still the last good build — both views stay open (line 16).</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/knowledge-fabric</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#decks">← Decks</a>
+              <div class="deck-head">
+                <h1>Knowledge Fabric</h1>
+                <div class="meta">
+                  <span class="slug">knowledge-fabric</span>
+                  <span class="state state--fail"><span class="glyph"></span>failed</span>
+                  <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">a3f19c2</span><span>built yesterday at 19:04</span></span>
+                </div>
+              </div>
+              <div class="banner banner--fail">
+                <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                <div class="banner-body">
+                  <h2>Error</h2>
+                  <div class="attempt"><span>Attempt <span class="sha">e91c5ad</span></span><span>26 minutes ago</span></div>
+                  <pre class="errlog">slides.md:41:3  Unexpected token '}' in frontmatter
+  41 |   layout: two-cols }
+     |                    ^
+Cannot resolve import "./folien/03-fabric.md" from slides.md
+<span class="cut">… truncated after 2000 characters</span></pre>
+                  <p>Yesterday's talk still opens in both views.</p>
+                </div>
+              </div>
+              <div class="actions">
+                <span class="btn btn--primary">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
+                  Presenter view
+                </span>
+                <span class="btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.4" width="13.6" height="9" rx="1"></rect><path d="M5.4 13.8h5.2"></path></svg>
+                  Projector view
+                </span>
+                <span class="btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8v8.4M4.8 7.4 8 10.6l3.2-3.2M2 13.4h12"></path></svg>
+                  PDF
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <footer class="sheet-foot">
+    <span>Jinja templates, no SPA — every state change comes through a page load.</span>
+    <span>Paths, titles, and times in the mockup are examples.</span>
+  </footer>
+
+</main>
