@@ -1,0 +1,37 @@
+{
+  "name": "slidev-addon-presentator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Slidev addon of the co-presenter",
+  "keywords": [
+    "slidev-addon",
+    "slidev"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=24.0.0",
+    "slidev": ">=52.0.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run --coverage",
+    "build:example": "slidev build ../examples/hello-deck/slides.md --out dist"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@slidev/cli": "52.19.1",
+    "@slidev/theme-default": "0.25.0",
+    "@vitest/coverage-v8": "5.0.0",
+    "eslint": "10.10.0",
+    "eslint-plugin-vue": "10.11.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "5.0.0",
+    "vue": "3.5.42",
+    "vue-eslint-parser": "10.4.1",
+    "vue-tsc": "3.3.11"
+  }
+}
