@@ -5,9 +5,13 @@ Audience: humans and agents writing any user-facing string or any colour.
 - Status: ACCEPTED 2026-09-06 — binding from the first line of the lobby, which
   is phase M0 of [VISION.md](../VISION.md). Amended 2026-09-06: per-user
   language and theme, and the Settings/Account structure (see Decision).
+  Amended again 2026-09-06: theme lives in the person menu; there is no
+  standalone header-bar toggle
+  ([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22).
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06, including
-  [#8](https://github.com/overnightworks/agent-presentator/issues/8) lines 21–23
+  [#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22
+  (theme is a per-user preference, not a header-bar control)
 - Neighbours: [ADR 0008](0008-lobby-server-rendered.md) owns how the lobby is
   built; [ADR 0005](0005-deck-folder-and-slidev.md) owns the addon this theme
   also reaches
@@ -64,19 +68,26 @@ start. Adding a language is adding a catalog file — never a code change.
 
 ### Preference levels (amendment 2026-09-06)
 
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) lines 21–23,
-operator ruling 2026-09-06: a per-user preference is no longer deferred.
+[#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22,
+operator ruling 2026-09-06: a per-user preference is no longer deferred, and
+there is no standalone theme toggle in the header bar.
 
 Language and theme resolve in this order; the first set value wins:
 
-1. The header light/dark toggle, for the current session only. It is theme
-   only — a dark room on stage needs a fast flip without visiting Account.
-2. The signed-in person's Account preference, which overrides the instance
+1. The signed-in person's Account preference, which overrides the instance
    default for that person alone.
-3. The instance default, set by an admin under Settings.
+2. The instance default, set by an admin under Settings.
 
-An unset higher level falls through. The header toggle does not write Account;
-Account does not write the instance default.
+An unset higher level falls through. Account does not write the instance
+default.
+
+The lobby header follows the app convention: product name and sections on the
+left (Decks, and Settings for admins); one person control on the right, opening
+Account, Theme (follow system / light / dark), and Log out. The Theme entry in
+that person menu writes the Account preference.
+
+Presenter and projector views use Slidev's own `d` key for dark mode. That is
+the deck's own dark mode, not the lobby theme.
 
 Deck content is never translated. A deck is written in a language, and its
 manifest says which ([ADR 0005](0005-deck-folder-and-slidev.md), `language`).
@@ -104,11 +115,13 @@ overlay: `vue-i18n`.
 - English-only at start means the operator's own German talks run under an
   English interface until a German catalog is added. Adding it is a file.
 - The Settings/Account structure owns these controls
-  ([#8](https://github.com/overnightworks/agent-presentator/issues/8) lines
-  21–23): instance defaults live under Settings for admins (General, alongside
-  Sources and Users); personal overrides live under Account; the header toggle
-  is session-only. The [ADR 0008](0008-lobby-server-rendered.md) lobby therefore
-  gains a Settings area; that record still owns how the lobby is built.
+  ([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22,
+  operator ruling 2026-09-06): instance defaults live under Settings for admins
+  (General, alongside Sources and Users); personal overrides live under
+  Account; Theme in the person menu writes that Account preference. There is
+  no standalone theme toggle in the header bar. The
+  [ADR 0008](0008-lobby-server-rendered.md) lobby therefore gains a Settings
+  area; that record still owns how the lobby is built.
 
 ## Rejected alternatives
 
