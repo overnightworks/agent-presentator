@@ -1,6 +1,7 @@
 """The composition root, from the environment to a lobby that answers."""
 
 import logging
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,9 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from presentator.adapters.decks import SqliteDeckStore
+from presentator.adapters.identity import SqliteUserStore
 from presentator.api.auth import SESSION_COOKIE
 from presentator.host import main
 from presentator.host.config import load_settings
+from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, GitRemote
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -19,6 +23,7 @@ if TYPE_CHECKING:
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
 _TYPED_WORDS = "the words only this test types"
+_PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -128,3 +133,70 @@ def test_the_instance_key_is_never_shown() -> None:
 
     assert _INSTANCE_KEY not in repr(settings)
     assert settings.secret_key.get_secret_value() == _INSTANCE_KEY
+
+
+def a_signed_in_instance() -> TestClient:
+    """The real stack with its admin created and its session open."""
+    instance = a_real_lobby()
+    instance.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+    )
+    return instance
+
+
+def test_the_real_stack_lists_a_deck_pushed_into_a_git_source(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    listed = a_signed_in_instance().get("/").text
+
+    assert EXAMPLE_TITLE in listed
+    assert f'href="/deck/{EXAMPLE_SLUG}"' in listed
+
+
+def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    remote.commit_example_deck(at=_PUSHED_AT)
+    database = tmp_path / "presentator.sqlite3"
+
+    a_signed_in_instance().get("/")
+
+    kept = SqliteDeckStore(database=database).all()
+    admin = SqliteUserStore(database).first_admin()
+    assert admin is not None
+    assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, admin.id)]
+
+
+def test_a_source_slower_than_its_bound_still_answers_the_deck_list(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    listed = a_signed_in_instance().get("/")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE not in listed.text
+    assert "<table" not in listed.text
+
+
+@pytest.mark.usefixtures("environment")
+def test_an_instance_without_a_source_shows_the_empty_list() -> None:
+    listed = a_signed_in_instance().get("/")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert "<table" not in listed.text

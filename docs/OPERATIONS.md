@@ -15,10 +15,39 @@ uv run agent-presentator
 ```
 
 The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
-SQLite file, `presentator.sqlite3`), `PRESENTATOR_HTTPS` (marks the session
-cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and `PRESENTATOR_PORT`
-(`8000`). An empty instance offers `/setup` once, to create the admin; from
-then on that page is closed.
+SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
+mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HTTPS` (marks the
+session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
+`PRESENTATOR_PORT` (`8000`). An empty instance offers `/setup` once, to create
+the admin; from then on that page is closed.
+
+The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
+(`main`) and `PRESENTATOR_SOURCE_TIMEOUT_SECONDS` (`20`). Without a URL the
+instance runs and its deck list stays empty. A private remote adds
+`PRESENTATOR_SOURCE_CREDENTIAL`, which holds the *name* of the environment
+variable carrying the read-only secret, never the secret:
+
+```sh
+export PRESENTATOR_SOURCE_URL="https://token-user@git.example/decks.git"
+export PRESENTATOR_SOURCE_CREDENTIAL="DECKS_TOKEN"
+export DECKS_TOKEN="…"
+```
+
+The user name belongs in the URL, because only the operator knows which name
+the host expects beside a token.
+
+Opening the deck list pulls the source, so a pull runs while someone waits. It
+is bounded by `PRESENTATOR_SOURCE_TIMEOUT_SECONDS`, after which the list renders
+without that source rather than holding the request. `git` runs with a minimal
+environment: terminal prompting off, the global and system git configuration
+neutralised, any inherited credential helper cleared, and `ssh` in batch mode
+with its own connect timeout — so nothing on the machine can turn a pull into a
+wait for an answer nobody will give.
+
+Replacing the secret means changing the environment of the running process, so
+today it takes a restart. A rotation path without one is open work on
+[ADR 0010](decisions/0010-git-sources-mirror.md), together with polling, the
+webhook, and the fetch log.
 
 ## Branch protection
 

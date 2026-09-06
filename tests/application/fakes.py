@@ -1,11 +1,13 @@
-"""In-memory stands-in for the identity ports, so the use cases run pure."""
+"""In-memory stands-in for the ports, so the use cases run pure."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from presentator.contracts.decks import Deck, DeckFolder, Source
 from presentator.contracts.models import (
     Credentials,
     FirstStartClosedError,
+    Role,
     Session,
     User,
 )
@@ -36,6 +38,14 @@ class FakeUserStore:
 
     def count(self) -> int:
         return len(self.accounts)
+
+    def first_admin(self) -> User | None:
+        admins = [
+            credentials.user
+            for credentials in self.accounts.values()
+            if credentials.user.role is Role.ADMIN
+        ]
+        return admins[0] if admins else None
 
 
 @dataclass
@@ -127,3 +137,36 @@ class UserStoreThatLostTheRace(FakeUserStore):
 
     def count(self) -> int:
         return 0
+
+
+@dataclass
+class FakeSourceStore:
+    """The one source an installation would have configured."""
+
+    source: Source | None = None
+
+    def configured(self) -> Source | None:
+        return self.source
+
+
+@dataclass
+class FakeDeckFolders:
+    """The folders a source carries, handed straight to the use cases."""
+
+    found: tuple[DeckFolder, ...] = ()
+
+    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
+        return self.found
+
+
+@dataclass
+class FakeDeckStore:
+    """Deck rows in a dictionary, keyed by slug the way the table is."""
+
+    kept: dict[str, Deck] = field(default_factory=dict[str, Deck])
+
+    def put(self, deck: Deck) -> None:
+        self.kept[deck.slug] = deck
+
+    def all(self) -> tuple[Deck, ...]:
+        return tuple(self.kept.values())
