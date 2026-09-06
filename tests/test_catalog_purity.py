@@ -128,13 +128,6 @@ def _run_check(cwd: Path) -> subprocess.CompletedProcess[str]:
         ),
         pytest.param(
             "probe.html",
-            '<input{% if required %} required{% endif %} type="text">\n',
-            0,
-            "",
-            id="conditional-inside-a-tag-passes",
-        ),
-        pytest.param(
-            "probe.html",
             '<input title="Name{% if suffix %} ({{ suffix }}){% endif %}">\n',
             1,
             "probe.html: literal text outside the catalog: 'Name ()'\n",
@@ -146,6 +139,28 @@ def _run_check(cwd: Path) -> subprocess.CompletedProcess[str]:
             1,
             "probe.html: literal text outside the catalog: 'Sign in below'\n",
             id="literal-inside-a-jinja-expression-fails",
+        ),
+        pytest.param(
+            "probe.html",
+            '<p>{{ labels["home"] }}</p>\n',
+            0,
+            "",
+            id="literal-used-as-a-subscript-key-passes",
+        ),
+        pytest.param(
+            "probe.html",
+            '<p>{{ "Yes" if flag else "No" }}</p>\n',
+            1,
+            "probe.html: literal text outside the catalog: 'Yes No'\n",
+            id="literal-conditional-expression-branch-fails",
+        ),
+        pytest.param(
+            "probe.html",
+            "{% if debug %}<script>{% endif %}<p>Sign in below</p>\n",
+            1,
+            "probe.html: <script> is opened but never closed; everything "
+            "after it is invisible to this check\n",
+            id="unclosed-raw-text-tag-fails-loud",
         ),
         pytest.param(
             "auth/probe.html",
@@ -194,16 +209,17 @@ def test_catalog_purity_check_reports_a_template_syntax_error_without_crashing(
     )
 
 
-def test_catalog_purity_check_fails_loudly_when_the_templates_directory_is_missing(
+def test_catalog_purity_check_reports_a_missing_templates_directory_without_crashing(
     tmp_path: Path,
 ) -> None:
     completed = _run_check(tmp_path)
 
     assert completed.returncode == 1
-    assert completed.stdout == ""
+    assert completed.stdout == "src/presentator/api/templates: no templates directory\n"
+    assert completed.stderr == ""
 
 
-def test_catalog_purity_check_fails_loudly_when_no_template_exists(
+def test_catalog_purity_check_reports_an_empty_templates_directory_without_crashing(
     tmp_path: Path,
 ) -> None:
     (tmp_path / _TEMPLATES_DIRECTORY).mkdir(parents=True)
@@ -211,7 +227,8 @@ def test_catalog_purity_check_fails_loudly_when_no_template_exists(
     completed = _run_check(tmp_path)
 
     assert completed.returncode == 1
-    assert completed.stdout == ""
+    assert completed.stdout == "src/presentator/api/templates: no template found\n"
+    assert completed.stderr == ""
 
 
 def test_catalog_purity_check_passes_on_the_real_templates() -> None:

@@ -21,12 +21,15 @@ an AST in which every literal template character lives in a `TemplateData`
 node and every substituted value is an expression node (`Name`, `Getattr`,
 `Const`, ...); a catalog lookup is always a `Name`/`Getattr`, never a literal.
 A hard-coded `{{ "Sign in" }}` bypasses the catalog exactly as much as the
-same words typed straight into the template, so a `Const` string folded
-anywhere into an expression — including inside a ternary such as `{{ "Yes" if
-flag else "No" }}` — is treated as literal text too. Walking that AST, rather
-than a regular expression over the raw source, cannot be fooled by markup
-that looks like a sentence or by a `{{ }}` that happens to look like plain
-text.
+same words typed straight into the template, so a `Const` string is treated
+as literal text too, but only where it can be the expression's own runtime
+value: the expression itself, a conditional expression's branch (`{{ "Yes" if
+flag else "No" }}`), or an `or`-chain's side (`{{ x or "Fallback" }}`). A
+constant used as a subscript key (`{{ labels["home"] }}`) or as a call or
+filter argument never reaches the page as that expression's value, so it is
+not followed. Walking that AST, rather than a regular expression over the raw
+source, cannot be fooled by markup that looks like a sentence or by a `{{ }}`
+that happens to look like plain text.
 
 The AST's `Output` nodes are visited in document order (`find_all` walks
 `If`/`For`/`Block` bodies in the order they are written) and fed, one after
@@ -44,13 +47,25 @@ flagged-attribute position", never "is the markup correctly nested".
 Script and style bodies are excluded from the text-node scan: a `<script>`
 or `<style>` element's content is code, not something a person reads as
 prose, and flagging a JavaScript string literal here would be a false
-positive this check has no business raising.
+positive this check has no business raising. The one persistent scanner pays
+for that with a new failure mode: a `<script>` or `<style>` opened on one
+branch of a template and never closed leaves the scanner inside it for the
+rest of the file, so every literal after it would otherwise go unseen. That
+is reported as its own finding — an open tag caught at end of file — rather
+than a silent pass, because a scan that can be silently blinded is worse than
+one that visibly refuses to trust itself.
 
-Named gap, not fixed here: a word that reaches the rendered page from Python
+Named gaps, not fixed here: a word that reaches the rendered page from Python
 — a value computed or interpolated by a route rather than looked up in the
 catalog — is invisible to this check, because it never appears as
-`TemplateData` or a `Const` in any template's AST. A template scan can prove
-a template stays literal-free; it cannot prove the whole page does.
+`TemplateData` or a `Const` in any template's AST. So is a literal bound with
+`{% set heading = "Sign in" %}` and rendered later through the bound name:
+this check only ever looks at what an `Output` node renders, never at what a
+`set` assigns, because following an assignment to every place its name is
+later used is a dataflow analysis, not the narrow "does literal text sit at a
+text or attribute position" this rule stays mechanical by asking. A template
+scan can prove a template's own markup and expressions stay literal-free; it
+cannot prove the whole rendered page does.
 
 Rejected: a regular expression over the raw template source, which the task
 that named this check already rejected — it cannot tell a `{{ catalog_value
@@ -93,11 +108,20 @@ _RAW_TEXT_TAGS: frozenset[str] = frozenset({"script", "style"})
 _OFFENDER_MESSAGE = "{template}: {problem}"
 _LITERAL_TEXT_PROBLEM = "literal text outside the catalog: {text!r}"
 _PARSE_ERROR_PROBLEM = "cannot parse: {error}"
+_UNCLOSED_RAW_TEXT_PROBLEM = (
+    "<{tag}> is opened but never closed; everything after it is invisible to this check"
+)
+_NO_TEMPLATES_DIRECTORY_PROBLEM = "no templates directory"
+_NO_TEMPLATE_FOUND_PROBLEM = "no template found"
 
 
 @dataclass(frozen=True)
 class CatalogPurityFinding:
-    """One problem found in one template: a literal string, or a syntax error."""
+    """One problem found under the templates directory.
+
+    A literal string, a syntax error, an unclosed script/style tag, or a
+    missing or empty templates directory.
+    """
 
     template_name: str
     problem: str
@@ -128,20 +152,31 @@ def _flagged_attribute_names(
     return frozenset(names)
 
 
-def _string_literal_in_expression(expression: nodes.Node) -> str:
-    """Fold every string constant nested in a Jinja expression into plain text.
+def _string_literal_values(expression: nodes.Node) -> tuple[str, ...]:
+    """Return the string literals that can be this expression's own runtime value.
 
-    `find_all` only searches an expression's children, so a bare `Const`
-    string used directly as the whole expression (`{{ "Sign in" }}`) is
-    included explicitly alongside any `Const` nested deeper (`{{ "Yes" if
-    flag else "No" }}`).
+    Only descends into node types whose evaluated result is exactly one of
+    their operands: a bare constant, a conditional expression's taken
+    branch, or an `or`-chain's left or right side. A constant used as a
+    subscript key (`labels["home"]`) or a call/filter argument never reaches
+    the page as this expression's value, so those node types are not
+    followed.
     """
-    candidates = (expression, *expression.find_all(nodes.Const))
-    return " ".join(
-        candidate.value
-        for candidate in candidates
-        if isinstance(candidate, nodes.Const) and isinstance(candidate.value, str)
-    )
+    if isinstance(expression, nodes.Const):
+        return (expression.value,) if isinstance(expression.value, str) else ()
+    if isinstance(expression, nodes.CondExpr):
+        branches = [expression.expr1]
+        if expression.expr2 is not None:
+            branches.append(expression.expr2)
+        return tuple(
+            literal for branch in branches for literal in _string_literal_values(branch)
+        )
+    if isinstance(expression, nodes.Or):
+        return (
+            *_string_literal_values(expression.left),
+            *_string_literal_values(expression.right),
+        )
+    return ()
 
 
 def _reconstruct_fragment(children: tuple[nodes.Node, ...]) -> str:
@@ -149,7 +184,7 @@ def _reconstruct_fragment(children: tuple[nodes.Node, ...]) -> str:
     parts = [
         child.data
         if isinstance(child, nodes.TemplateData)
-        else _string_literal_in_expression(child)
+        else " ".join(_string_literal_values(child))
         for child in children
     ]
     return "".join(parts)
@@ -161,11 +196,11 @@ class _CatalogPurityScanner(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.literal_texts: list[str] = []
-        self._raw_text_tag: str | None = None
+        self.open_raw_text_tag: str | None = None
 
     def handle_data(self, data: str) -> None:
         """Record text-node content, ignoring script/style bodies."""
-        if self._raw_text_tag is not None:
+        if self.open_raw_text_tag is not None:
             return
         if _is_user_facing_text(data):
             self.literal_texts.append(data.strip())
@@ -178,31 +213,29 @@ class _CatalogPurityScanner(HTMLParser):
             if value is not None and _is_user_facing_text(value):
                 self.literal_texts.append(value.strip())
         if tag in _RAW_TEXT_TAGS:
-            self._raw_text_tag = tag
+            self.open_raw_text_tag = tag
 
     def handle_endtag(self, tag: str) -> None:
         """Leave a script/style body once it closes."""
-        if tag == self._raw_text_tag:
-            self._raw_text_tag = None
+        if tag == self.open_raw_text_tag:
+            self.open_raw_text_tag = None
 
 
-def _literal_texts_in_template(template_ast: nodes.Template) -> list[str]:
+def _scan_template(template_ast: nodes.Template) -> _CatalogPurityScanner:
     scanner = _CatalogPurityScanner()
     for output in template_ast.find_all(nodes.Output):
         scanner.feed(_reconstruct_fragment(tuple(output.nodes)))
     scanner.close()
-    return scanner.literal_texts
+    return scanner
 
 
 def _require_template_paths(templates_directory: Path) -> tuple[Path, ...]:
     """Return every template path, sorted; refuse silence when there is none."""
     if not templates_directory.is_dir():
-        message = f"no templates directory at {templates_directory}"
-        raise FileNotFoundError(message)
+        raise FileNotFoundError(_NO_TEMPLATES_DIRECTORY_PROBLEM)
     template_paths = tuple(sorted(templates_directory.rglob(_TEMPLATE_GLOB)))
     if not template_paths:
-        message = f"no template found under {templates_directory}"
-        raise FileNotFoundError(message)
+        raise FileNotFoundError(_NO_TEMPLATE_FOUND_PROBLEM)
     return template_paths
 
 
@@ -215,21 +248,42 @@ def _template_findings(
     except jinja2.TemplateSyntaxError as error:
         problem = _PARSE_ERROR_PROBLEM.format(error=error.message)
         return [CatalogPurityFinding(template_name=relative_name, problem=problem)]
-    return [
+    scanner = _scan_template(template_ast)
+    findings = [
         CatalogPurityFinding(
             template_name=relative_name,
             problem=_LITERAL_TEXT_PROBLEM.format(text=text),
         )
-        for text in _literal_texts_in_template(template_ast)
+        for text in scanner.literal_texts
     ]
+    if scanner.open_raw_text_tag is not None:
+        findings.append(
+            CatalogPurityFinding(
+                template_name=relative_name,
+                problem=_UNCLOSED_RAW_TEXT_PROBLEM.format(
+                    tag=scanner.open_raw_text_tag
+                ),
+            )
+        )
+    return findings
 
 
 def find_catalog_purity_findings(repository: Path) -> tuple[CatalogPurityFinding, ...]:
-    """Return every literal string or template syntax error found under templates."""
+    """Return every problem found under the templates.
+
+    Names the templates directory itself when there is nothing to scan.
+    """
     environment = jinja2.Environment()
     templates_directory = repository / _TEMPLATES_DIRECTORY
+    try:
+        template_paths = _require_template_paths(templates_directory)
+    except FileNotFoundError as error:
+        problem = CatalogPurityFinding(
+            template_name=_TEMPLATES_DIRECTORY.as_posix(), problem=str(error)
+        )
+        return (problem,)
     findings: list[CatalogPurityFinding] = []
-    for template_path in _require_template_paths(templates_directory):
+    for template_path in template_paths:
         relative_name = template_path.relative_to(templates_directory).as_posix()
         findings.extend(_template_findings(template_path, relative_name, environment))
     return tuple(findings)
