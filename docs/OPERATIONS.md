@@ -91,6 +91,10 @@ Running it again is harmless; it converges on the same state. Automatic
 Analysis and the CI scan are mutually exclusive: while Automatic Analysis is
 on, SonarCloud refuses the report the `SonarCloud scan` job uploads.
 
-SonarCloud runs its built-in "Sonar way" gate (80% on new code; custom gates
-are a paid feature). The coverage floor and what meets it are owned by
-[TESTING.md](TESTING.md).
+The project runs SonarCloud's built-in "Sonar way" gate. A custom
+`presentator` gate exists in the organisation but is not associated, because
+the bootstrap token lacks the right to associate one and because a custom
+gate would buy nothing here — its coverage condition (90% of new code) is
+strictly weaker than this repository's own floor, and its other conditions
+are identical to the built-in gate's. The coverage floor and what meets it
+are owned by [TESTING.md](TESTING.md).
