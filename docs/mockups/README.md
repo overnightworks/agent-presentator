@@ -49,6 +49,17 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/sources-created.png` | Created — shown once | 1 |
 | `m0-lobby/sources-detail.png` | Source | 7, 14a, 4a |
 
+### Accounts (lines 14, 14b)
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/setup.png` | First start | 14 |
+| `m0-lobby/users.png` | Users | 14b |
+| `m0-lobby/users-narrow.png` | Split screen, 390 px | group 14, 14b |
+| `m0-lobby/users-create.png` | Create user | 14 |
+| `m0-lobby/users-deactivate.png` | Deactivate — confirm | 14b |
+| `m0-lobby/account.png` | Account | 14b |
+
 ### Deck page (lines 7, 9, 10, 16)
 
 | PNG | Caption | Lines |
@@ -56,3 +67,6 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/deck-page-ready.png` | Ready | 7 |
 | `m0-lobby/deck-page-building.png` | Building | 10 |
 | `m0-lobby/deck-page-failed.png` | Failed | 9, 16 |
+
+M0 has no Start: the deck page offers presenter view, projector view, and the
+PDF. Start belongs to the co-presenter run in M1.

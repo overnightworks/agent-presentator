@@ -1101,6 +1101,24 @@
 
   .sep { color: var(--ink-faint); }
 
+  /* ---------- accounts: the one new state, the user row ---------- */
+
+  /* deactivated — split disc, grey: switched off, not broken */
+  .state--off { color: var(--ink-faint); }
+  .state--off .glyph {
+    border-radius: 50%;
+    background: var(--ink-faint);
+    clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);
+  }
+
+  /* fixed tracks: every row is its own grid, so only fixed widths line the columns up */
+  .row--user {
+    grid-template-columns: 142px minmax(0, 1fr) 62px 176px 222px;
+    gap: 14px;
+  }
+
+  .row--user .row-act { justify-self: end; }
+
   @container (max-width: 520px) {
     .row--src {
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1110,6 +1128,15 @@
     .row--src .age { grid-column: 2; grid-row: 1; }
     .row--src .src-name { grid-column: 1 / -1; grid-row: 2; }
     .row--src .row-act { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
+    .row--user {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 8px;
+    }
+    .row--user .state { grid-column: 1; grid-row: 1; }
+    .row--user .tag { grid-column: 2; grid-row: 1; justify-self: end; }
+    .row--user .src-name { grid-column: 1 / -1; grid-row: 2; }
+    .row--user .stand { grid-column: 1 / -1; grid-row: 3; }
+    .row--user .row-act { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
     .log-row { grid-template-columns: minmax(0, 1fr) auto; }
     .block { grid-template-columns: minmax(0, 1fr); }
     .nav { gap: 12px; }
@@ -1129,13 +1156,13 @@
   <header class="sheet-head">
     <div class="eyebrow">Mockup for ruling · Issue #8 · M0</div>
     <h1>Presentator Lobby</h1>
-    <p class="lead">Four server-rendered areas: login, deck list, deck page, and sources. One account, one presenter, decks arrive exclusively via Git — from a repository on any host, which the server only mirrors. Once blessed, this mockup is frozen; after that the expectation lines are ruled and cut.</p>
+    <p class="lead">Five server-rendered areas: login, deck list, deck page, sources, and accounts. An admin creates every account, decks arrive exclusively via Git — from a repository on any host, which the server only mirrors. Once blessed, this mockup is frozen; after that the expectation lines are ruled and cut.</p>
 
     <div class="head-panels">
       <section class="panel">
         <h2>Build state: shape and color</h2>
         <div class="key">
-          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>ready</span><span>filled circle, green — startable</span></div>
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>ready</span><span>filled circle, green — both views open</span></div>
           <div class="key-row"><span class="state state--busy"><span class="glyph"></span>building</span><span>open ring, spinning, yellow</span></div>
           <div class="key-row"><span class="state state--fail"><span class="glyph"></span>failed</span><span>triangle, red — only you can fix this</span></div>
         </div>
@@ -1151,6 +1178,15 @@
       </section>
 
       <section class="panel">
+        <h2>Account state: shape and color</h2>
+        <div class="key">
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>active</span><span>filled circle, green — can log in</span></div>
+          <div class="key-row"><span class="state state--off"><span class="glyph"></span>deactivated</span><span>split circle, grey — switched off, not broken</span></div>
+          <div class="key-row"><span class="tag">Admin</span><span>role is a label, never a color</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Deliberately left out</h2>
         <ul class="out-list">
           <li><span><b>OAuth, GitHub App, host picker</b> — one read-only secret per source, the same form for every host (line 1)</span></li>
@@ -1158,7 +1194,9 @@
           <li><span><b>Showing the secret again</b> — after entry it can only be renewed (line 12)</span></li>
           <li><span><b>New deck / upload</b> — decks are created in Git (line 4)</span></li>
           <li><span><b>Name filter</b> — twenty decks don't need one (line 18)</span></li>
-          <li><span><b>Sign up, forgot password, user management</b> — one account (line 14)</span></li>
+          <li><span><b>Sign up, forgot password</b> — an admin creates the account and resets the password (lines 14, 14b)</span></li>
+          <li><span><b>Start in M0</b> — the two views are the way into the talk; the co-presenter run arrives with M1 (line 10)</span></li>
+          <li><span><b>Theme or language switch</b> — dark/light follows the system, language is instance configuration (ADR 0012)</span></li>
           <li><span><b>Build progress bar</b> — the server doesn't know percentages</span></li>
         </ul>
       </section>
@@ -1857,6 +1895,336 @@
     </div>
   </section>
 
+  <!-- ================= ACCOUNTS ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Accounts</h2>
+      <span class="lines">lines 14, 14b</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">First start <span class="w">1024 px</span></div>
+          <p class="board-note">The only page that ever creates an account without being logged in — and it is gone the moment it succeeds. The badge says so at a glance; the ⓘ carries the sentence: “This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.” No self-registration, here or anywhere (line 14).</p>
+        </figcaption>
+        <div class="frame" style="--w: 520px">
+          <div class="route">presentator.local/setup</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <div class="pair">
+                  <h1>Set up admin</h1>
+                  <span class="once">shown once</span>
+                  <span class="info" tabindex="0">i<span class="pop">This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.</span></span>
+                </div>
+                <div class="field">
+                  <label for="su">Username</label>
+                  <div class="input filled" id="su">felix</div>
+                </div>
+                <div class="field">
+                  <label for="sp">Password</label>
+                  <div class="input dots" id="sp">••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="sr">Repeat password</label>
+                  <div class="input dots" id="sr">••••••••••••</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Create admin</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Users <span class="w">1024 px</span> <span class="open-mark">open</span></div>
+          <p class="board-note">Admins only. State carries shape and color, the role carries a word — a deactivated account is grey and split, never red, because nothing is broken (line 14b). Your own row offers no reset and no deactivate; your password lives on Account. The bar gains two entries here: Account for everyone, Users only for an admin — the boards above were drawn before accounts existed. Open to rule: whether a deactivated account can be switched back on, as drawn, or only removed.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/users</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="wordmark">Presen<span>tator</span></div>
+              <nav class="nav">
+                <a class="linkish" href="#decks">Decks</a>
+                <a class="linkish" href="#quellen">Sources</a>
+                <a class="linkish linkish--now" href="#benutzer">Users</a>
+                <a class="linkish" href="#konto">Account</a>
+                <a class="linkish" href="#abmelden">Log out</a>
+              </nav>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Users</h1>
+                <a class="btn btn--primary btn--s" href="#benutzer-neu">Create user</a>
+              </div>
+              <div class="rows">
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="src-name">
+                    <span class="row-title">felix</span>
+                    <span class="mini">your account</span>
+                  </span>
+                  <span class="tag">Admin</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 minutes ago</span></span>
+                  <span class="row-act pair"><a class="btn btn--s" href="#konto">Account</a></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="src-name">
+                    <span class="row-title">anna</span>
+                  </span>
+                  <span class="tag">User</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
+                  <span class="row-act pair">
+                    <span class="btn btn--s">Reset password</span>
+                    <span class="btn btn--s">Deactivate</span>
+                  </span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
+                  <span class="src-name">
+                    <span class="row-title">jonas</span>
+                  </span>
+                  <span class="tag">User</span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
+                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">State and role stay in the first row, name and last login wrap below, the row's actions go to the bottom. Nothing state-bearing is cut off — you can still see who is switched off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/users</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="wordmark">Presen<span>tator</span></div>
+              <nav class="nav">
+                <a class="linkish" href="#decks">Decks</a>
+                <a class="linkish" href="#quellen">Sources</a>
+                <a class="linkish linkish--now" href="#benutzer">Users</a>
+                <a class="linkish" href="#konto">Account</a>
+              </nav>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Users</h1>
+                <a class="btn btn--primary btn--s" href="#benutzer-neu">Create user</a>
+              </div>
+              <div class="rows">
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="tag">Admin</span>
+                  <span class="src-name">
+                    <span class="row-title">felix</span>
+                    <span class="mini">your account</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 min. ago</span></span>
+                  <span class="row-act pair"><a class="btn btn--s" href="#konto">Account</a></span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="tag">User</span>
+                  <span class="src-name">
+                    <span class="row-title">anna</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
+                  <span class="row-act pair">
+                    <span class="btn btn--s">Reset password</span>
+                    <span class="btn btn--s">Deactivate</span>
+                  </span>
+                </div>
+                <div class="row row--user">
+                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
+                  <span class="tag">User</span>
+                  <span class="src-name">
+                    <span class="row-title">jonas</span>
+                  </span>
+                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
+                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Create user <span class="w">1024 px</span></div>
+          <p class="board-note">Its own small page, not a dialog over the list — a created account is a thing, not a setting. Username, role, first password; no mail address and no invitation link, because nobody registers themselves (line 14). What happens to that first password sits behind the ⓘ — expanded here for viewing.</p>
+        </figcaption>
+        <div class="frame" style="--w: 620px">
+          <div class="route">presentator.local/users/new</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="wordmark">Presen<span>tator</span></div>
+              <nav class="nav">
+                <a class="linkish" href="#decks">Decks</a>
+                <a class="linkish" href="#quellen">Sources</a>
+                <a class="linkish linkish--now" href="#benutzer">Users</a>
+                <a class="linkish" href="#konto">Account</a>
+                <a class="linkish" href="#abmelden">Log out</a>
+              </nav>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#benutzer">← Users</a>
+              <div class="deck-head">
+                <h1>Create user</h1>
+              </div>
+              <div class="form">
+                <div class="field">
+                  <label for="bn">Username</label>
+                  <div class="input filled" id="bn">anna</div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">Role</span>
+                  <div class="radios">
+                    <span class="radio"><span class="dot"></span>Admin — may create, reset, and deactivate accounts</span>
+                    <span class="radio"><span class="dot dot--on"></span>User — own decks and sources</span>
+                  </div>
+                </div>
+
+                <div class="form-part">
+                  <span class="sub">First password</span>
+                  <div class="field">
+                    <div class="lbl-row">
+                      <label for="bp">Password</label>
+                      <span class="info info--open" tabindex="0">i<span class="pop">You set it and hand it over yourself. Anna changes it under Account; there is no invitation mail and no signup link.</span></span>
+                    </div>
+                    <div class="input dots" id="bp">••••••••••••</div>
+                  </div>
+                  <div class="field">
+                    <label for="br">Repeat password</label>
+                    <div class="input dots" id="br">••••••••••••</div>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <span class="btn btn--primary">Create</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Deactivate — confirm <span class="w">Excerpt</span></div>
+          <p class="board-note">One verb, one consequence line, and the glyph of the state it will produce. Grey, not red: the account is switched off, not destroyed — and it can be switched back on (line 14b).</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/users</div>
+          <div class="app">
+            <div class="body">
+              <div class="banner">
+                <span class="glyph" style="border-radius: 50%; background: var(--ink-faint); clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);"></span>
+                <div class="banner-body">
+                  <h2>Deactivate anna</h2>
+                  <p>Ends their open sessions now.</p>
+                  <div class="pair">
+                    <span class="btn">Cancel</span>
+                    <span class="btn btn--primary">Deactivate</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Account <span class="w">1024 px</span></div>
+          <p class="board-note">Everyone has this page, an admin included — one question: what is mine. Your password, and every place you are still logged in. The current device is marked, so “End others” needs no explanation of what it spares (line 14b). A user without the admin role sees the same page, minus the Users entry in the bar.</p>
+        </figcaption>
+        <div class="frame" style="--w: 620px">
+          <div class="route">presentator.local/account</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="wordmark">Presen<span>tator</span></div>
+              <nav class="nav">
+                <a class="linkish" href="#decks">Decks</a>
+                <a class="linkish" href="#quellen">Sources</a>
+                <a class="linkish" href="#benutzer">Users</a>
+                <a class="linkish linkish--now" href="#konto">Account</a>
+                <a class="linkish" href="#abmelden">Log out</a>
+              </nav>
+            </div>
+            <div class="body">
+              <div class="deck-head">
+                <h1>Account</h1>
+                <div class="meta">
+                  <span class="slug">felix</span>
+                  <span class="tag">Admin</span>
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Password</span>
+                <div class="field">
+                  <label for="kc">Current password</label>
+                  <div class="input dots" id="kc">••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="kn">New password</label>
+                  <div class="input dots" id="kn">••••••••••••••</div>
+                </div>
+                <div class="field">
+                  <label for="kw">Repeat new password</label>
+                  <div class="input dots" id="kw">••••••••••••••</div>
+                </div>
+                <div class="actions">
+                  <span class="btn btn--primary btn--s">Change password</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Sessions</span>
+                <div class="log">
+                  <div class="log-row">
+                    <span>Firefox · Linux</span>
+                    <span class="age">active now</span>
+                    <span><span class="tag">this device</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span>Chrome · Windows</span>
+                    <span class="age">2 hours ago</span>
+                    <span></span>
+                  </div>
+                  <div class="log-row">
+                    <span>Safari · iPhone</span>
+                    <span class="age">yesterday</span>
+                    <span></span>
+                  </div>
+                </div>
+                <div class="pair">
+                  <span class="btn btn--s">End others</span>
+                  <span class="info" tabindex="0">i<span class="pop">Ends every session except this one. On the other devices you log in again — this device keeps running.</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
   <!-- ================= DECK PAGE ================= -->
   <section class="group">
     <div class="group-head">
@@ -1869,7 +2237,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Ready <span class="w">1024 px</span></div>
-          <p class="board-note">Status names source, short sha, and build time — before you speak, you see whether your last push made it in and which repository it came from (line 7). The source name links to the source. Four ways out, each exactly once.</p>
+          <p class="board-note">Status names source, short sha, and build time — before you speak, you see whether your last push made it in and which repository it came from (line 7). The source name links to the source. Three ways out, each exactly once. Start arrives with M1 (the co-presenter run); M0 has only the two views.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/deck/agenten-fabrik</div>
@@ -1894,10 +2262,6 @@
               </div>
               <div class="actions">
                 <span class="btn btn--primary">
-                  <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.2 10.4 6 2 10.8Z" fill="currentColor"></path></svg>
-                  Start
-                </span>
-                <span class="btn">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
                   Presenter view
                 </span>
@@ -1918,7 +2282,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Building <span class="w">1024 px</span> <span class="open-mark">open</span></div>
-          <p class="board-note">Start is locked until the build is done (line 10). Open to rule: whether both views get locked along with it — in the mockup, yes; the PDF from the last good build stays loadable.</p>
+          <p class="board-note">Both views stay locked until the build is done (line 10). Open to rule: whether locking both is right — in the mockup, yes; the PDF from the last good build stays loadable.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/deck/kundenfeedback</div>
@@ -1944,16 +2308,12 @@
               <div class="banner banner--busy">
                 <span class="glyph" style="border-radius:50%; border:2px solid var(--busy); border-top-color: transparent; animation: turn 1.1s linear infinite;"></span>
                 <div class="banner-body">
-                  <p>Start unlocks once the build is done. Reload the page.</p>
+                  <p>Both views unlock once the build is done. Reload the page.</p>
                   <div class="attempt"><span>Building <span class="sha">7d1e04b</span></span><span>for 40 seconds</span></div>
                 </div>
               </div>
               <div class="actions">
                 <span class="btn btn--primary btn--off">
-                  <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.2 10.4 6 2 10.8Z" fill="currentColor"></path></svg>
-                  Start
-                </span>
-                <span class="btn btn--off">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
                   Presenter view
                 </span>
@@ -1974,7 +2334,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Failed <span class="w">1024 px</span></div>
-          <p class="board-note">The error text appears truncated on the page, not just in the server log (line 9). The status above is still the last good build — Start stays unlocked (line 16).</p>
+          <p class="board-note">The error text appears truncated on the page, not just in the server log (line 9). The status above is still the last good build — both views stay open (line 16).</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/deck/knowledge-fabric</div>
@@ -2007,15 +2367,11 @@
      |                    ^
 Cannot resolve import "./folien/03-fabric.md" from slides.md
 <span class="cut">… truncated after 2000 characters</span></pre>
-                  <p>Yesterday's talk stays ready to start.</p>
+                  <p>Yesterday's talk still opens in both views.</p>
                 </div>
               </div>
               <div class="actions">
                 <span class="btn btn--primary">
-                  <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.2 10.4 6 2 10.8Z" fill="currentColor"></path></svg>
-                  Start
-                </span>
-                <span class="btn">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.2" y="2.6" width="8.4" height="7" rx="1"></rect><path d="M11.6 4.4h3.2M11.6 6.6h3.2M11.6 8.8h2.2M3.4 12.4h4.4"></path></svg>
                   Presenter view
                 </span>
