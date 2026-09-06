@@ -11,6 +11,8 @@ reached from outside.
 - Neighbours: [ADR 0002](0002-server-owned-run.md) — the browser renders events
   and captures the microphone, nothing else;
   [ADR 0005](0005-deck-folder-and-slidev.md) owns the deck build
+- Evidence: the build-vs-reuse survey of 2026-09-06, which established the two
+  transport facts below
 
 ## Context
 
@@ -20,6 +22,16 @@ directly. The deck runs on the home server behind that network.
 
 A talk has no second attempt. Whatever the conference network does, the slides
 have to appear.
+
+Two facts about this deployment were established by the 2026-09-06 survey and
+decide more than they look like. A Cloudflare tunnel proxies HTTP and WebSocket
+over TCP; UDP is not available on a public tunnel hostname, so WebRTC needs a
+TURN server or an SFU — new infrastructure against
+[ADR 0006](0006-sqlite-and-files.md). And Slidev's own presenter/projector sync
+falls back to `BroadcastChannel` when there is no dev server, which is exactly
+the static build of [ADR 0005](0005-deck-folder-and-slidev.md);
+`BroadcastChannel` is same-browser, same-origin, so a built deck does not sync
+across machines by itself.
 
 ## Decision
 
@@ -33,6 +45,18 @@ operator.
 Every deck has two offline fallbacks, produced with its build: a static build
 that presents without the server, and a PDF export. A dead tunnel costs the AI
 co-presenter, never the talk.
+
+Audio streams as raw Int16 PCM over the per-run WebSocket of
+[ADR 0002](0002-server-owned-run.md). There is no second media transport and no
+codec: Media Source Extensions never accepted MP3, WebM/Opus would buy an
+encoder and a muxer for bandwidth this stream does not need, and PCM sidesteps
+the whole codec-support matrix. Ordering "slide changed" against "audio chunk n"
+is free, because both arrive on the same socket.
+
+Presenter and projector sync across machines comes from that same socket.
+Slidev exposes `addSyncMethod` as public API, so our addon registers the run
+socket as a sync transport; no fork, no patch, and the static build syncs where
+`BroadcastChannel` cannot.
 
 Audio plays only in the projector window. A second open window stays silent, so
 no view can start a competing voice.
@@ -49,6 +73,11 @@ no view can start a competing voice.
   that browser, which is a step the operator takes before the room fills.
 - Which window is the projector window becomes explicit state the client must
   hold, rather than a property of whichever tab spoke last.
+- PCM costs bandwidth an encoder would save — mono 16-bit at 16–24 kHz is
+  roughly 32–48 KB/s — and buys a client with no decoder state machine in it.
+- The client owns a small amount of real audio machinery: an AudioWorklet
+  player with a jitter buffer, gapless chunk scheduling, and an interrupt that
+  both stops playback and tells the server to stop emitting.
 
 ## Rejected alternatives
 
@@ -63,3 +92,11 @@ no view can start a competing voice.
   works then is not one the operator can rely on for the next talk.
 - **Audio in any window.** Two windows speaking over each other is a failure
   that happens in front of the audience and cannot be undone.
+- **WebRTC for the audio path.** It is the obvious answer and the tunnel
+  forbids it without TURN or an SFU. Its real advantage is loss concealment on
+  a lossy link, which a one-way stream to one listener over TCP does not need.
+- **An encoded audio stream over MSE.** MP3 was never supported there, and
+  WebM/Opus adds an encoder, a muxer, and client state to save bandwidth that
+  is not scarce.
+- **Slidev's built-in sync.** It is right for a dev server and degrades to
+  same-browser only in the static build, which is the mode the talk runs in.

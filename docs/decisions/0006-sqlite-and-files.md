@@ -44,6 +44,12 @@ replaceable if this decision's assumption ever stops holding.
   talks by different users would not be, and that is the trigger to revisit.
 - The audio cache grows on disk with nothing evicting it until something is
   written to do so.
+- This record does real work when other decisions are taken. In the
+  build-vs-reuse survey of 2026-09-06 it is the reason three otherwise
+  reasonable candidates were rejected: LiveKit's media server
+  ([ADR 0002](0002-server-owned-run.md)), fastapi-admin's Redis requirement
+  ([ADR 0008](0008-lobby-server-rendered.md)), and a TURN server for WebRTC
+  ([ADR 0007](0007-browser-client-behind-tunnel.md)).
 
 ## Rejected alternatives
 

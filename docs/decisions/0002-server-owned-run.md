@@ -11,6 +11,8 @@ surface.
 - Neighbours: [ADR 0001](0001-enforced-layers.md) places the state machine in
   `application`; [ADR 0007](0007-browser-client-behind-tunnel.md) decides what
   the browser is
+- Evidence: the build-vs-reuse survey of 2026-09-06, which measured the
+  voice-agent frameworks named under rejected alternatives
 
 ## Context
 
@@ -45,6 +47,14 @@ is what buys the latency target in [VISION.md](../VISION.md) — first audio aft
 a slide change under 1 s — because the next clip is already waiting when the
 slide turns.
 
+Owning the loop does not mean owning what the loop is made of. Two pieces are
+taken from [Pipecat](https://github.com/pipecat-ai/pipecat) (BSD-2-Clause) as
+components rather than as a framework: [Silero VAD](https://github.com/snakers4/silero-vad)
+for voice activity and [smart-turn v3](https://github.com/pipecat-ai/smart-turn)
+(BSD-2-Clause) for endpointing. Two of its designs are copied rather than
+imported: sentence aggregation as a replaceable text aggregator, and
+interruption as "drop the queued speech frames" rather than as a flag.
+
 ## Consequences
 
 - The presentation loop is testable without a browser: drive the state machine
@@ -55,6 +65,8 @@ slide turns.
   past. That is the accepted cost of the latency target.
 - The server holds a live session per run. The WebSocket connection and the run
   state must not be the same object, or a dropped connection kills the talk.
+- Turn-taking, interruption, and endpointing are ours to get right. That is real
+  work a framework would have done, and it is the price of the decision below.
 
 ## Rejected alternatives
 
@@ -69,3 +81,33 @@ slide turns.
 - **Untyped socket messages.** The previous version debugged its protocol on
   stage. Typed events let [ADR 0001](0001-enforced-layers.md)'s gate hold the
   wire schema in `api`, where a reader can see the whole contract in one place.
+- **[Pipecat](https://github.com/pipecat-ai/pipecat) as the pipeline owner.**
+  This is the one honest counter-argument, and it is rejected for three
+  reasons, not for taste. The framework owns the loop and the LLM context, so
+  our state machine would become a set of its frame processors. Its frames
+  would then be the currency of `application`, which
+  [ADR 0001](0001-enforced-layers.md) forbids outside `adapters`. And
+  `agent_providers` ([ADR 0003](0003-libraries-for-models-and-auth.md)) would be
+  wrapped as a second-class LLM service, leaving two owners of one conversation
+  context. Its browser transport pushes the same way: Pipecat's own
+  documentation says the FastAPI WebSocket transport suits telephony and
+  server-side integrations and steers browser clients to WebRTC, which
+  [ADR 0007](0007-browser-client-behind-tunnel.md) cannot use through the
+  tunnel.
+- **[LiveKit Agents](https://github.com/livekit/agents) as the pipeline owner.**
+  The same three reasons, plus a LiveKit media server process and a WebRTC-only
+  media path — new infrastructure against
+  [ADR 0006](0006-sqlite-and-files.md).
+- **[Vocode](https://github.com/vocodedev/vocode-core)** — unmaintained; last
+  push 2024-11-15.
+- **[TEN Framework](https://github.com/TEN-framework/ten-framework)** — excluded
+  on licence: Apache-2.0 with Agora's additional conditions, which forbid
+  deployment competing with Agora's offerings and hosting on end-user devices.
+
+## Revisit trigger
+
+At M2, when turn-taking is the actual problem rather than an anticipated one.
+Adopting Pipecat wholesale is a legitimate reading of "do not build it twice"
+and would delete a lot of code; it costs this record, plus a WebRTC transport
+that has to be made to work through the tunnel. That trade is worth re-asking
+once, with M2's measurements in hand, and not before.

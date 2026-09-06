@@ -44,3 +44,10 @@ A target picture, not a status. What exists today is
 - First audio output after a slide change: under 1 s.
 - First audio output of an answer: under 3 s.
 - Partial speech-to-text transcript: under 0.5 s.
+
+The build-vs-reuse survey of 06.09.2026 found the 0.5 s partial-transcript
+target at risk — no maintained German speech-to-text server publishes a figure
+below it — and it awaits an operator ruling: soften it to 1 s for M2 with 0.5 s
+as the M3 goal, or pull the Voxtral spike of
+[ADR 0004](decisions/0004-provider-neutral-speech.md) earlier. The target stands
+as written until he rules.

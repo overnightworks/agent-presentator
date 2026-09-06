@@ -18,6 +18,8 @@ number is never reused and never renumbered.
 - [ADR 0005: A deck is a Git-tracked folder of Slidev Markdown, and the server derives the slide map from it](0005-deck-folder-and-slidev.md)
 - [ADR 0006: SQLite holds the records and the filesystem holds the files](0006-sqlite-and-files.md)
 - [ADR 0007: The client is the browser alone, reached through a Cloudflare tunnel, with a static build as fallback](0007-browser-client-behind-tunnel.md)
+- [ADR 0008: The lobby is server-rendered HTML with htmx, not an admin framework](0008-lobby-server-rendered.md)
+- [ADR 0009: German sentence boundaries come from a library; the incremental buffer is ours](0009-german-speech-text.md)
 
 ## How to read a record
 
