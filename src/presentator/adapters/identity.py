@@ -6,9 +6,7 @@ and #833 the user management, and this module is deleted with them.
 
 import hmac
 import secrets
-import sqlite3
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -18,6 +16,7 @@ from typing import Final
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
+from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import (
     Credentials,
     FirstStartClosedError,
@@ -56,23 +55,9 @@ def _hash_of_a_secret_nobody_typed() -> str:
     return _argon2id().hash(secrets.token_urlsafe(_IDENTIFIER_BYTES))
 
 
-@contextmanager
-def _rows(database: Path) -> Generator[sqlite3.Cursor]:
-    # Autocommit, so that the one place that needs a transaction can open an
-    # immediate one itself instead of fighting an implicit deferred one.
-    connection = sqlite3.connect(database, isolation_level=None)
-    try:
-        yield connection.cursor()
-        connection.commit()
-    finally:
-        connection.close()
-
-
 def create_identity_tables(database: Path) -> None:
-    """Make the identity schema exist; WAL is set once and stays in the file."""
-    with _rows(database) as cursor:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.executescript(_SCHEMA)
+    """Make the accounts, sessions, and attempts tables exist."""
+    apply_schema(database, _SCHEMA)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +68,7 @@ class SqliteUserStore:
 
     def get(self, user_id: str) -> User | None:
         """Read the account a live session belongs to."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             row = cursor.execute(
                 "SELECT id, username, role FROM users WHERE id = ?",
                 (user_id,),
@@ -92,7 +77,7 @@ class SqliteUserStore:
 
     def credentials_for(self, username: str) -> Credentials | None:
         """Read the account and its hash for the name someone typed."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             row = cursor.execute(
                 "SELECT id, username, role, password_hash FROM users"
                 " WHERE username = ?",
@@ -105,7 +90,7 @@ class SqliteUserStore:
 
     def add_first_account(self, credentials: Credentials) -> None:
         """Count and insert inside one write lock, so first start happens once."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             cursor.execute("BEGIN IMMEDIATE")
             (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
             if accounts:
@@ -123,9 +108,19 @@ class SqliteUserStore:
 
     def count(self) -> int:
         """How many accounts exist, which is what first start asks."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
         return int(accounts)
+
+    def first_admin(self) -> User | None:
+        """The account first start created, or nothing while none exists."""
+        with rows(self.database) as cursor:
+            row = cursor.execute(
+                "SELECT id, username, role FROM users WHERE role = ?"
+                " ORDER BY rowid LIMIT 1",
+                (Role.ADMIN.value,),
+            ).fetchone()
+        return None if row is None else _user(row)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +131,7 @@ class SqliteSessionRecordStore:
 
     def get(self, session_id: str) -> Session | None:
         """Read the row a cookie points at."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             row = cursor.execute(
                 "SELECT id, user_id, last_seen FROM sessions WHERE id = ?",
                 (session_id,),
@@ -152,7 +147,7 @@ class SqliteSessionRecordStore:
 
     def put(self, session: Session) -> None:
         """Write the session, whether it is new or has just been touched."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             cursor.execute(
                 "INSERT INTO sessions (id, user_id, last_seen) VALUES (?, ?, ?)"
                 " ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen",
@@ -161,7 +156,7 @@ class SqliteSessionRecordStore:
 
     def remove(self, session_id: str) -> None:
         """Delete the row, so logging out cannot be undone with the old cookie."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
@@ -173,7 +168,7 @@ class SqliteLoginAttemptStore:
 
     def record_failure(self, username: str, *, at: datetime) -> None:
         """Remember one refused attempt for the name that was typed."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             cursor.execute(
                 "INSERT INTO login_attempts (username, failed_at) VALUES (?, ?)",
                 (username, at.isoformat()),
@@ -181,7 +176,7 @@ class SqliteLoginAttemptStore:
 
     def failure_count(self, username: str, *, since: datetime) -> int:
         """Count the refused attempts inside the caller's window."""
-        with _rows(self.database) as cursor:
+        with rows(self.database) as cursor:
             (failures,) = cursor.execute(
                 "SELECT count(*) FROM login_attempts"
                 " WHERE username = ? AND failed_at >= ?",

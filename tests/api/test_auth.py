@@ -3,14 +3,16 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from http import HTTPStatus
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.adapters.catalog import ENGLISH_CATALOG, load_lobby_text
+from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
 from presentator.api.auth import SESSION_COOKIE, create_lobby
+from presentator.application.decks import Decks
 from presentator.application.identity import (
     FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
@@ -20,8 +22,11 @@ from presentator.contracts.models import Credentials, Role, User
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
+    FakeDeckFolders,
+    FakeDeckStore,
     FakeLoginAttemptStore,
     FakeSessionRecordStore,
+    FakeSourceStore,
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
@@ -94,7 +99,14 @@ def a_lobby(
     )
     lobby = create_lobby(
         identity=identity,
+        decks=Decks(
+            sources=FakeSourceStore(),
+            folders=FakeDeckFolders(),
+            store=FakeDeckStore(),
+            clock=clock,
+        ),
         text=_TEXT,
+        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
         secure_cookies=secure_cookies,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)

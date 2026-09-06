@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/presentator"]
+packages = ["src/gitmirror", "src/presentator"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
@@ -72,14 +72,24 @@ convention = "google"
 # pytest states its expectations with bare `assert`; a test's name already states
 # the behaviour a docstring would repeat, and a double's method repeats the
 # contract the port it stands in for already carries.
-"tests/**" = ["S101", "D102", "D103"]
+# A double honours the signature of the port it stands in for, even where its
+# canned answer has no use for an argument.
+"tests/**" = ["S101", "D102", "D103", "ARG002"]
 # Standalone gate, not a package; it must spawn the git executable PATH names.
 "scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
 # Drives a temporary git repository and the check script as a process.
 "tests/test_root_layout.py" = ["S404", "S603"]
+# `vulture` reads a whitelist as bare attribute expressions; naming a field
+# there is the entry, and assigning it would only move the dead name.
+"tests/vulture_allowlist.py" = ["B018"]
+# Mirroring a remote is spawning `git`; the executable is resolved on PATH and
+# every argument is built here, never taken from a request.
+"src/gitmirror/mirror.py" = ["S404", "S603"]
+# Builds the temporary git repositories every layer that reads one is proven on.
+"tests/conftest.py" = ["S404", "S603", "S607"]
 
 [tool.importlinter]
-root_package = "presentator"
+root_packages = ["presentator", "gitmirror"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -123,6 +133,51 @@ forbidden_modules = ["presentator.ports"]
 as_packages = true
 # A route reaching a port through the application it is allowed to import is the
 # legal chain, not a violation; only naming a port type in the api itself is.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "gitmirror-is-independent"
+name = "gitmirror never imports the product"
+type = "forbidden"
+# ADR 0010: the dependency runs one way, so the package can move to its own
+# repository and be consumed by tag when its second caller arrives.
+source_modules = ["gitmirror"]
+forbidden_modules = ["presentator"]
+as_packages = true
+
+[[tool.importlinter.contracts]]
+id = "gitmirror-belongs-to-an-adapter"
+name = "Only an adapter names gitmirror"
+type = "forbidden"
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["gitmirror"]
+as_packages = true
+# The host composes the adapter that owns it, so the legal chain runs through
+# it; only naming the package in a layer above is the violation.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "manifest-and-wording-libraries"
+name = "Only adapters read the manifest format and word a language"
+type = "forbidden"
+# ADR 0001: a third-party or format library lives in the adapter that owns it.
+# `tomllib` reads the deck manifest and `babel` owns the catalog and the
+# wording of an age, so a layer above must ask a port or be handed the words.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["tomllib", "babel"]
+as_packages = true
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]

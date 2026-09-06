@@ -12,6 +12,9 @@ msgstr "Presentator"
 msgid "log_out"
 msgstr "Log out"
 
+msgid "section_decks"
+msgstr "Decks"
+
 msgid "login_title"
 msgstr "Login"
 
@@ -52,3 +55,20 @@ msgstr "Create admin"
 
 msgid "setup_passwords_differ"
 msgstr "The two passwords do not match"
+
+msgid "decks_title"
+msgstr "Decks"
+
+msgid "decks_column_deck"
+msgstr "Deck"
+
+msgid "decks_column_changed"
+msgstr "Changed"
+
+msgid "decks_empty_title"
+msgstr "No deck yet"
+
+msgid "decks_empty_explanation"
+msgstr ""
+"Decks come only from Git. Push a folder holding deck.toml and slides.md into "
+"your deck source."

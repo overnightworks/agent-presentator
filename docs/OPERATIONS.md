@@ -15,10 +15,27 @@ uv run agent-presentator
 ```
 
 The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
-SQLite file, `presentator.sqlite3`), `PRESENTATOR_HTTPS` (marks the session
-cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and `PRESENTATOR_PORT`
-(`8000`). An empty instance offers `/setup` once, to create the admin; from
-then on that page is closed.
+SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
+mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HTTPS` (marks the
+session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
+`PRESENTATOR_PORT` (`8000`). An empty instance offers `/setup` once, to create
+the admin; from then on that page is closed.
+
+The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
+(`main`). Without a URL the instance runs and its deck list stays empty. A
+private remote adds `PRESENTATOR_SOURCE_CREDENTIAL`, which holds the *name* of
+the environment variable carrying the read-only secret, never the secret:
+
+```sh
+export PRESENTATOR_SOURCE_URL="https://token-user@git.example/decks.git"
+export PRESENTATOR_SOURCE_CREDENTIAL="DECKS_TOKEN"
+export DECKS_TOKEN="…"
+```
+
+The user name belongs in the URL, because only the operator knows which name
+the host expects beside a token. The secret is read at every pull, so replacing
+it takes effect without a restart, and `git` is run with prompting disabled so
+a remote that wants one fails instead of hanging.
 
 ## Branch protection
 

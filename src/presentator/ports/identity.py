@@ -34,6 +34,10 @@ class UserStore(Protocol):
     def count(self) -> int:
         """First start is offered only while no account exists."""
 
+    @abstractmethod
+    def first_admin(self) -> User | None:
+        """Whoever set this instance up, and therefore owns what it configures."""
+
 
 class SessionRecordStore(Protocol):
     """Server-side session rows; logout deletes the row, not only the cookie."""
@@ -77,14 +81,6 @@ class PasswordHasher(Protocol):
         An absent hash still costs a full verification, so an unknown name and a
         wrong password cannot be told apart by how long the answer takes.
         """
-
-
-class Clock(Protocol):
-    """Time enters here so a test can freeze it."""
-
-    @abstractmethod
-    def now(self) -> datetime:
-        """Callers must not read the system clock themselves."""
 
 
 class IdentifierFactory(Protocol):
