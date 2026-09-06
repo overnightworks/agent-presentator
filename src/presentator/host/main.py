@@ -6,5 +6,5 @@ adapter satisfies which port.
 
 
 def main() -> None:
-    """Run the presentation host until it is asked to stop."""
+    """Refuse to start, because nothing is wired into the composition root yet."""
     raise NotImplementedError

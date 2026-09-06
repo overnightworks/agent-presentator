@@ -99,3 +99,6 @@ type = "forbidden"
 source_modules = ["presentator.api"]
 forbidden_modules = ["presentator.ports"]
 as_packages = true
+# A route reaching a port through the application it is allowed to import is the
+# legal chain, not a violation; only naming a port type in the api itself is.
+allow_indirect_imports = true
