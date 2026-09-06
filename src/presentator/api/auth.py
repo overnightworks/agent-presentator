@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Final
 
 from fastapi import FastAPI, Form, Request, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
@@ -22,12 +23,16 @@ from presentator.contracts.text import LobbyText
 SESSION_COOKIE: Final = "presentator_session"
 
 _TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
+_STATIC_DIR: Final = Path(__file__).parent / "static"
+_STATIC_PATH: Final = "/static"
 _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
 # Signing in, first start, and signing out are the only addresses that work
-# without a session; logging out ends one rather than using one.
+# without a session; logging out ends one rather than using one. The theme
+# stylesheet has to render the login and setup pages themselves, so it is
+# public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
 _SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
@@ -75,7 +80,8 @@ class _Pages:
         call_next: RequestResponseEndpoint,
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
-        if request.url.path in _WITHOUT_A_SESSION:
+        path = request.url.path
+        if path in _WITHOUT_A_SESSION or path.startswith(f"{_STATIC_PATH}/"):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -224,4 +230,5 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
+    lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     return lobby
