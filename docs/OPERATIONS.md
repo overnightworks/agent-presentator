@@ -91,7 +91,10 @@ Running it again is harmless; it converges on the same state. Automatic
 Analysis and the CI scan are mutually exclusive: while Automatic Analysis is
 on, SonarCloud refuses the report the `SonarCloud scan` job uploads.
 
-The quality gate `presentator` (90% coverage on new code, and Sonar way's other
-conditions) is created and assigned to `overnightworks_agent-presentator` by
-the same Sonar bootstrap `workflow_dispatch`. That 90% lives only on the gate;
-pytest has no fail-under.
+SonarCloud runs its built-in "Sonar way" gate (80% on new code; custom gates
+are a paid feature). The 100% floor is owned by the tools — `fail_under` in
+`pyproject.toml` for Python and Vitest thresholds for the addon — the same
+pattern as the organization's other repositories. The floor is met only by
+useful tests: each test pins one observable behaviour (the repository's
+`AGENTS.md` and the testing conventions), never a test that exists to touch
+a line.
