@@ -352,28 +352,34 @@ def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
     assert "Max-Age=0" in cleared
 
 
-def test_the_theme_stylesheet_is_linked_on_a_signed_out_page(lobby: Lobby) -> None:
-    for path in ("/login", "/setup"):
+def test_both_stylesheets_are_linked_on_the_open_setup_and_login_pages(
+    lobby: Lobby,
+) -> None:
+    for path in ("/setup", "/login"):
         page = lobby.client.get(path).text
 
         assert '<link rel="stylesheet" href="/static/tokens.css">' in page
         assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
 
 
-def test_the_theme_stylesheet_is_linked_on_the_signed_in_home_page(
+def test_both_stylesheets_are_linked_on_the_signed_in_home_page(
     signed_in_lobby: Lobby,
 ) -> None:
     page = signed_in_lobby.client.get("/").text
 
     assert '<link rel="stylesheet" href="/static/tokens.css">' in page
+    assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
 
 
-def test_the_theme_stylesheet_is_served_without_signing_in(lobby: Lobby) -> None:
-    served = lobby.client.get("/static/tokens.css")
+def test_both_theme_files_are_served_without_signing_in(lobby: Lobby) -> None:
+    tokens = lobby.client.get("/static/tokens.css")
+    pico = lobby.client.get("/static/pico.classless.min.css")
 
-    assert served.status_code == HTTPStatus.OK
-    assert "--canvas:" in served.text
-    assert "@media (prefers-color-scheme: dark)" in served.text
+    assert tokens.status_code == HTTPStatus.OK
+    assert "--canvas:" in tokens.text
+    assert "@media (prefers-color-scheme: dark)" in tokens.text
+    assert pico.status_code == HTTPStatus.OK
+    assert "Pico CSS" in pico.text
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
