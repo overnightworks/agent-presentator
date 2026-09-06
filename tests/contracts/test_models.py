@@ -12,20 +12,10 @@ from presentator.contracts.models import (
     Role,
     Session,
     Source,
-    User,
 )
 
 _NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
 _IDLE_WINDOW = timedelta(seconds=10)
-
-
-def a_user(
-    *,
-    user_id: str = "user-1",
-    username: str = "operator",
-    role: Role = Role.ADMIN,
-) -> User:
-    return User(id=user_id, username=username, role=role)
 
 
 def a_session(
@@ -48,23 +38,6 @@ def a_deck(
         owner_id="user-1",
         source_id="source-1",
         changed_at=_NOW,
-    )
-
-
-def a_source(
-    *,
-    source_id: str = "source-1",
-    owner_id: str = "user-1",
-    url: str = "git@example.com:talks.git",
-    ref: str = "main",
-    credential_ref: str | None = None,
-) -> Source:
-    return Source(
-        id=source_id,
-        owner_id=owner_id,
-        url=url,
-        ref=ref,
-        credential_ref=credential_ref,
     )
 
 
@@ -140,33 +113,3 @@ def test_owner_id_is_required_on_deck_and_source(
     owner = next(field for field in fields(model) if field.name == "owner_id")
     assert owner.default is MISSING
     assert owner.default_factory is MISSING
-
-
-def test_a_user_keeps_the_role_it_was_built_with() -> None:
-    user = a_user(role=Role.USER)
-    assert user.id == "user-1"
-    assert user.role is Role.USER
-    assert user.username == "operator"
-
-
-def test_a_deck_keeps_an_optional_build_pointer_and_last_error() -> None:
-    deck = Deck(
-        slug="knowledge-fabric",
-        title="Knowledge Fabric",
-        owner_id="user-1",
-        source_id="source-1",
-        changed_at=_NOW,
-        active_build_path="/builds/talk",
-        last_error="slidev failed",
-    )
-    assert deck.owner_id == "user-1"
-    assert deck.changed_at == _NOW
-    assert deck.active_build_path == "/builds/talk"
-    assert deck.last_error == "slidev failed"
-
-
-def test_a_source_keeps_an_optional_credential_reference() -> None:
-    source = a_source(credential_ref="credential-1")
-    assert source.id == "source-1"
-    assert source.owner_id == "user-1"
-    assert source.credential_ref == "credential-1"

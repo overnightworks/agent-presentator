@@ -6,10 +6,13 @@ describes something this file does not list, that thing is not built.
 
 ## What exists today
 
-No product code exists. No phase of [VISION.md](VISION.md) is reached, nothing
-presents, and nothing is deployed. What is being built to make the first slice
-possible is tracked on
-[#2](https://github.com/overnightworks/agent-presentator/issues/2).
+The repository carries the M0 domain contracts
+(`src/presentator/contracts/models.py`) and nothing else of the product. No
+phase of [VISION.md](VISION.md) is reached, nothing presents, and nothing is
+deployed. M0 is tracked on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8); this
+contracts seam landed as
+[#22](https://github.com/overnightworks/agent-presentator/issues/22).
 
 A decision record is a technical choice, not a claim that its slice exists.
 
