@@ -24,12 +24,15 @@ A hard-coded `{{ "Sign in" }}` bypasses the catalog exactly as much as the
 same words typed straight into the template, so a `Const` string is treated
 as literal text too, but only where it can be the expression's own runtime
 value: the expression itself, a conditional expression's branch (`{{ "Yes" if
-flag else "No" }}`), or an `or`-chain's side (`{{ x or "Fallback" }}`). A
-constant used as a subscript key (`{{ labels["home"] }}`) or as a call or
-filter argument never reaches the page as that expression's value, so it is
-not followed. Walking that AST, rather than a regular expression over the raw
-source, cannot be fooled by markup that looks like a sentence or by a `{{ }}`
-that happens to look like plain text.
+flag else "No" }}`), an `or`-chain's side (`{{ x or "Fallback" }}`), a `~`
+concatenation's operand (`{{ "Welcome " ~ name }}`), or `default`'s first
+positional argument (`{{ value | default("Sign in") }}`) — the one filter
+whose argument becomes its own output when the piped value is empty. A
+constant used as a subscript key (`{{ labels["home"] }}`) or as any other
+call or filter argument never reaches the page as that expression's value, so
+it is not followed. Walking that AST, rather than a regular expression over
+the raw source, cannot be fooled by markup that looks like a sentence or by a
+`{{ }}` that happens to look like plain text.
 
 The AST's `Output` nodes are visited in document order (`find_all` walks
 `If`/`For`/`Block` bodies in the order they are written) and fed, one after
@@ -104,6 +107,7 @@ _INPUT_TYPES_WITH_A_READ_LABEL_VALUE: frozenset[str] = frozenset(
     {"submit", "button", "reset"}
 )
 _RAW_TEXT_TAGS: frozenset[str] = frozenset({"script", "style"})
+_DEFAULT_FILTER_NAME = "default"
 
 _OFFENDER_MESSAGE = "{template}: {problem}"
 _LITERAL_TEXT_PROBLEM = "literal text outside the catalog: {text!r}"
@@ -157,10 +161,12 @@ def _string_literal_values(expression: nodes.Node) -> tuple[str, ...]:
 
     Only descends into node types whose evaluated result is exactly one of
     their operands: a bare constant, a conditional expression's taken
-    branch, or an `or`-chain's left or right side. A constant used as a
-    subscript key (`labels["home"]`) or a call/filter argument never reaches
-    the page as this expression's value, so those node types are not
-    followed.
+    branch, an `or`-chain's left or right side, a `~` concatenation's
+    operand, or the `default` filter's first positional argument (the one
+    filter whose argument becomes its own output when the piped value is
+    empty). A constant used as a subscript key (`labels["home"]`) or as any
+    other call/filter argument never reaches the page as this expression's
+    value, so those are not followed.
     """
     if isinstance(expression, nodes.Const):
         return (expression.value,) if isinstance(expression.value, str) else ()
@@ -176,6 +182,16 @@ def _string_literal_values(expression: nodes.Node) -> tuple[str, ...]:
             *_string_literal_values(expression.left),
             *_string_literal_values(expression.right),
         )
+    if isinstance(expression, nodes.Concat):
+        return tuple(
+            literal
+            for operand in expression.nodes
+            for literal in _string_literal_values(operand)
+        )
+    if isinstance(expression, nodes.Filter) and expression.name == _DEFAULT_FILTER_NAME:
+        first_positional_argument = expression.args[0] if expression.args else None
+        if first_positional_argument is not None:
+            return _string_literal_values(first_positional_argument)
     return ()
 
 

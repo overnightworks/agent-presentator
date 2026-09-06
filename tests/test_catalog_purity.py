@@ -156,6 +156,27 @@ def _run_check(cwd: Path) -> subprocess.CompletedProcess[str]:
         ),
         pytest.param(
             "probe.html",
+            '<p>{{ label or "Fallback" }}</p>\n',
+            1,
+            "probe.html: literal text outside the catalog: 'Fallback'\n",
+            id="literal-or-chain-fallback-fails",
+        ),
+        pytest.param(
+            "probe.html",
+            '<p>{{ "Welcome " ~ name }}</p>\n',
+            1,
+            "probe.html: literal text outside the catalog: 'Welcome'\n",
+            id="literal-concatenation-operand-fails",
+        ),
+        pytest.param(
+            "probe.html",
+            '<p>{{ value | default("Sign in") }}</p>\n',
+            1,
+            "probe.html: literal text outside the catalog: 'Sign in'\n",
+            id="literal-default-filter-argument-fails",
+        ),
+        pytest.param(
+            "probe.html",
             "{% if debug %}<script>{% endif %}<p>Sign in below</p>\n",
             1,
             "probe.html: <script> is opened but never closed; everything "
