@@ -79,6 +79,11 @@ convention = "google"
 "scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
 # Drives a temporary git repository and the check script as a process.
 "tests/test_root_layout.py" = ["S404", "S603"]
+# Standalone gate, not a package; it only parses templates to an AST, it
+# never renders one, so autoescape has no effect on its behaviour.
+"scripts/check_catalog_purity.py" = ["INP001", "S701"]
+# Drives the check script as a subprocess against temporary and real templates.
+"tests/test_catalog_purity.py" = ["S404", "S603"]
 # `vulture` reads a whitelist as bare attribute expressions; naming a field
 # there is the entry, and assigning it would only move the dead name.
 "tests/vulture_allowlist.py" = ["B018"]
