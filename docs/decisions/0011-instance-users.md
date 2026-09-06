@@ -42,21 +42,23 @@ person or one particular deployment.
 
 The mechanics come from `webauth` ([ADR 0003](0003-libraries-for-models-and-auth.md)).
 The user model, the first-run setup, and the admin routes do not: songmaker
-keeps those today, so every new project would rebuild exactly this part. That is
-filed as `webauth[users]`, follow-up work on the library with this product as
-its first caller.
+keeps those today, so every new project would rebuild exactly this part. #825
+carries that as follow-up row F1, `webauth[users]` — first-run setup, an admin
+who creates users, the two roles, deactivation, and ending sessions — with this
+product recorded as its first caller.
 
-Until it exists, this repository builds the first-run setup minimally against
-the `webauth` ports and marks it as moving to the library. Minimally means: what
-M0 needs to log in and no more — no admin console, no user administration
-surface built here to be deleted later.
+Until F1 lands, this repository builds the first-run setup minimally against the
+`webauth` ports. It is a **bridge owned by F1**, not this repository's code to
+keep: it is listed against that row and deleted when the library ships it.
+Minimally means what M0 needs to log in and no more — no admin console, no user
+administration surface built here to be deleted later.
 
 ## Consequences
 
 - Every durable row that belongs to somebody has an owner from its first
   migration, and no later change has to invent one.
-- The first-run setup is code written to be deleted. Naming that out loud is
-  what keeps it small.
+- The first-run setup is code written to be deleted, and #825 row F1 is the
+  owner that deletes it. Naming that out loud is what keeps it small.
 - Two roles are enough until something needs a third, and that something has to
   argue for itself against this record.
 - No self-registration means an instance cannot be joined by a stranger who

@@ -48,6 +48,11 @@ What it proves today is the direction: one `layers` contract over `host`,
 that keep `adapters` from reaching up, keep everything but `host` from naming an
 adapter, and keep `ports` out of `api`.
 
+`gitmirror` sits beside this tree rather than inside it: it is a second
+top-level package with its own isolation contract, owned by
+[ADR 0010](0010-git-sources-mirror.md), and the layers above do not apply to
+it.
+
 The third-party rule is not yet in that file. Per
 [#3](https://github.com/overnightworks/agent-presentator/issues/3), a
 library's contract is written when that library is first imported, not
@@ -60,9 +65,10 @@ this record says so rather than claiming a gate that is not there.
   socket, and no GPU, because everything it touches is a protocol.
 - Replacing a speech engine, a provider library, or the store is an edit inside
   one adapter.
-- Adding a library means first deciding which adapter owns it. That decision
-  cannot be postponed, and a shortcut import fails the pull request rather than
-  a review.
+- Adding a library means first deciding which adapter owns it, and writing that
+  library's contract in the same change. Until a library has one, a shortcut
+  import is caught by review rather than by the gate — which is why the
+  contract is written with the first import and not after it.
 - The gate proves import direction only. It does not prove that a module holds
   the right responsibility; that stays a review question.
 

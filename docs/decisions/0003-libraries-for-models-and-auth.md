@@ -92,9 +92,16 @@ with Redis as the shipped implementation; a non-Redis implementation is
 follow-up work.
 
 So this product's `webauth` adapter supplies SQLite implementations of
-`SessionCache` and `RateLimitBackend` itself until the library ships one. It
-starts no Redis and mounts no Redis limiter, and
-[ADR 0006](0006-sqlite-and-files.md) stands unchanged.
+`SessionCache` and `RateLimitBackend` itself. It starts no Redis and mounts no
+Redis limiter, and [ADR 0006](0006-sqlite-and-files.md) stands unchanged.
+
+Those two implementations are a **bridge, not permanent code**. #825 carries a
+defaults layer as follow-up row F2 — `agent_providers[env]` and
+`webauth[defaults]` with an in-memory cache and limiter, SQLAlchemy stores, and
+policy defaults — scheduled after the repository split. This product is recorded
+there as the first caller of the Redis-free variant. When F2 lands, these
+adapters are deleted in favour of it; they are written to be replaced and are
+listed against that row, not defended.
 
 ### If the tags are late
 

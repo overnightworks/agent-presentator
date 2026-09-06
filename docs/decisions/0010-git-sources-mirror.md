@@ -31,8 +31,12 @@ two libraries out later without a rewrite.
 ## Decision
 
 `gitmirror` is an independent package in this repository, `src/gitmirror`, with
-its own top-level name. An import-linter contract forbids any import from
-`presentator`, so the dependency runs one way only. When a second caller
+its own top-level name, beside the layered tree of
+[ADR 0001](0001-enforced-layers.md) rather than inside it. An import-linter
+contract forbids any import from `presentator`, so the dependency runs one way
+only. That contract does not exist yet — `pyproject.toml` on main names one root
+package — and it is written in the change that adds the package, in the same
+breath as its first module. When a second caller
 arrives, the package moves to its own repository and is consumed by tag, exactly
 as `agent_providers` and `webauth` are ([ADR 0003](0003-libraries-for-models-and-auth.md)).
 
@@ -56,9 +60,21 @@ this product's job ([ADR 0005](0005-deck-folder-and-slidev.md)), and the deck
 build's container isolation is stated there.
 
 Credential vocabulary follows atelier-2's
-[ADR 0017](https://github.com/FlexOr2/atelier-2/blob/main/docs/decisions/0017-account-credential-model.md):
-the account holds the credential value, the application holds a reference to it.
-Using the same model from the start is what lets the two trees merge later
+[ADR 0017](https://github.com/FlexOr2/atelier-2/blob/main/docs/decisions/0017-account-credential-model.md),
+which is still PROPOSED there and is adopted here as vocabulary, not as a
+finished contract. Its split, in its own terms: an **Account** is the
+installation-owned record of one connected external identity, holding the
+provider, the auth mode, the credential *source*, and exactly one credential
+anchor — a reference. The durable application database stores that record and
+**never** a secret value. Where the value itself lives is a separate axis:
+server-held, or runner-local, where the server holds no secret material at all.
+Its stated preference is *reference-before-vault* — hold a reference wherever
+one exists, and store a raw secret only where no delegated form is offered.
+
+For a deck source that reads as: a server-generated deploy key is the
+runner-local shape, since the private half never leaves the machine that made
+it; a pasted HTTPS token is the stored-key shape and gets encryption at rest.
+Using the same words from the start is what lets the two trees merge later
 without a translation layer.
 
 ### Callers

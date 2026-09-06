@@ -9,7 +9,8 @@ reached from outside.
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
 - Neighbours: [ADR 0002](0002-server-owned-run.md) — the browser renders events
-  and captures the microphone, nothing else;
+  and delivers what the audience said, in the form that phase uses, nothing
+  else;
   [ADR 0005](0005-deck-folder-and-slidev.md) owns the deck build
 - Evidence: the build-vs-reuse survey of 2026-09-06, which established the two
   transport facts below
@@ -40,7 +41,10 @@ and no local agent on the presenting machine.
 
 Access goes through a Cloudflare tunnel with Cloudflare Access in front of it,
 so the home server is reachable without an inbound port, and only by the
-operator.
+instance's allow-list. Access is the outer door and admits the instance's
+people; the application login is the second door, and everyone on that list
+still passes through it as the account [ADR 0011](0011-instance-users.md) gives
+them.
 
 Every deck has two offline fallbacks, produced with its build: a static build
 that presents without the server, and a PDF export. A dead tunnel costs the AI
@@ -88,6 +92,8 @@ no view can start a competing voice.
   both stops playback and tells the server to stop emitting.
 - Keepalive and resume are in the first slice that opens the socket. A run that
   cannot be rejoined is a talk that ends when the network hiccups.
+- Two doors mean two places to add a person, and an instance host has to keep
+  the Access allow-list and the account list in step.
 - Cloudflare's plan limits on streaming through a public hostname are an
   operations item to check before the first talk. Nothing here has measured
   them, and a limit found on stage is found too late.
@@ -98,8 +104,12 @@ no view can start a competing voice.
   defines this product; anything requiring installation cannot be used where the
   talks happen.
 - **Exposing the home server directly, by port forwarding or VPN.** An inbound
-  port on a home network to serve one person is the larger risk, and a VPN needs
-  client software the laptop will not have.
+  port on a home network to serve a handful of people is the larger risk, and a
+  VPN needs client software the laptop will not have.
+- **Treating Cloudflare Access as the only door.** It authenticates a person
+  into the network path; it does not say which account they are, who owns which
+  deck, or whether they may start a run. That is
+  [ADR 0011](0011-instance-users.md)'s question, and it needs the second door.
 - **A live-only presentation with no static fallback.** The March 2026 talk
   proved the concept works when the network cooperates. A product that only
   works then is not one the operator can rely on for the next talk.
