@@ -39,6 +39,7 @@ none, the group's line range from the sheet's section header is given instead
 |---|---|---|
 | `m0-lobby/deck-list-empty.png` | First day, empty | group 1, 3, 4, 8, 9, 18 |
 | `m0-lobby/deck-list.png` | Five decks | group 1, 3, 4, 8, 9, 18 |
+| `m0-lobby/person-menu.png` | Person menu open | 15, 22 |
 | `m0-lobby/deck-list-narrow.png` | Split screen, 390 px | group 1, 3, 4, 8, 9, 18 |
 
 ### Settings · General (lines 21, 22, 23)
@@ -86,5 +87,5 @@ none, the group's line range from the sheet's section header is given instead
 
 M0 has no Start: the deck page offers presenter view, projector view, and the
 PDF. Start belongs to the co-presenter run in M1. Instance language and theme
-live under Settings (admin); a personal override and a header toggle live on
-Account and in the bar (lines 21, 22, 23).
+live under Settings (admin); a personal override lives on Account, and theme
+in the bar lives in the person menu (lines 21, 22, 23).

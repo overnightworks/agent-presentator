@@ -319,11 +319,12 @@
 
   .app-bar {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-between;
     gap: 16px;
-    padding: 14px 28px;
+    padding: 0 28px;
     border-bottom: 1px solid var(--line-soft);
+    min-height: 48px;
   }
 
   .wordmark {
@@ -334,6 +335,222 @@
 
   .wordmark span {
     color: var(--accent);
+  }
+
+  .icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: block;
+  }
+
+  .icon-sheet {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .brand {
+    display: flex;
+    align-items: stretch;
+    gap: 22px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .brand .wordmark {
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+
+  .nav {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .nav-link,
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 450;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .nav-link {
+    padding: 14px 8px 12px;
+    margin-bottom: -1px;
+  }
+
+  .nav-link--now,
+  .tab--now {
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+  }
+
+  .person {
+    position: relative;
+    flex: none;
+    align-self: center;
+  }
+
+  .person-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--cond);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+  .person-name {
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  .person-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 6;
+    width: 228px;
+    background: var(--screen);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 6px 0;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 13.5px;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  div.menu-item {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+    gap: 0;
+  }
+
+  .menu-sub .radio {
+    font-size: 13.5px;
+  }
+
+  .person-menu,
+  .person-menu * {
+    box-sizing: border-box;
+  }
+
+  .menu-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .menu-item-row .icon:last-child {
+    margin-left: auto;
+  }
+
+  .menu-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 2px 12px 10px 36px;
+  }
+
+  .menu-sep {
+    height: 1px;
+    background: var(--line);
+    margin: 6px 0;
+  }
+
+  .tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .tab {
+    padding: 8px 8px 10px;
+    margin-bottom: -1px;
+  }
+
+  .row--user .stand .lbl { display: none; }
+
+  .row--head {
+    font-family: var(--cond);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: var(--canvas-2);
+    border-bottom-color: var(--line);
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .toast {
+    position: absolute;
+    right: 28px;
+    bottom: 24px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--ink);
+    color: var(--canvas);
+    font-size: 13.5px;
+    font-weight: 500;
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+  }
+
+  .nav-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+
+  .nav-sample {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+
+  .app {
+    position: relative;
   }
 
   .linkish {
@@ -593,8 +810,11 @@
 
   @container (max-width: 520px) {
     .body { padding: 20px 16px; }
-    .app-bar { padding: 12px 16px; flex-wrap: wrap; }
-    .nav { gap: 12px; flex-wrap: wrap; }
+    .app-bar { padding: 0 16px; flex-wrap: wrap; }
+    .brand { gap: 12px; flex-wrap: wrap; }
+    .nav { gap: 0; flex-wrap: wrap; }
+    .person-name { display: none; }
+    .toast { right: 16px; bottom: 16px; }
     .row {
       grid-template-columns: minmax(0, 1fr) auto;
       row-gap: 6px;
@@ -604,6 +824,8 @@
     .row .age { grid-column: 2; grid-row: 1; }
     .row .row-name { grid-column: 1 / -1; grid-row: 2; }
     .list-head { flex-direction: column; gap: 8px; }
+    .row--head { display: none; }
+    .row--user .stand .lbl { display: inline; }
     .actions { flex-direction: column; align-items: stretch; }
     .actions .btn { width: 100%; }
   }
@@ -783,19 +1005,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px 20px;
-  }
-
-  /* ---------- navigation between the two lists ---------- */
-
-  .nav {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-  }
-
-  .linkish--now {
-    color: var(--ink);
-    border-bottom-color: var(--ink);
   }
 
   /* ---------- quellen: state, tags, blocks ---------- */
@@ -1140,30 +1349,21 @@
     .row--user .row-act { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
     .log-row { grid-template-columns: minmax(0, 1fr) auto; }
     .block { grid-template-columns: minmax(0, 1fr); }
-    .nav { gap: 12px; }
+    .nav { gap: 0; }
   }
 
   a:focus-visible,
   .btn:focus-visible,
   .input:focus-visible,
   .info:focus-visible,
-  .theme-btn:focus-visible {
+  .person-btn:focus-visible,
+  .nav-link:focus-visible,
+  .tab:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 
-  /* ---------- settings tabs, selects, header theme toggle ---------- */
-
-  .settings-chrome {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .tabs {
-    border-bottom: 1px solid var(--line-soft);
-    padding-bottom: 10px;
-  }
+  /* ---------- settings selects ---------- */
 
   .select {
     display: flex;
@@ -1184,34 +1384,79 @@
     color: var(--ink-soft);
   }
 
-  .theme-btn {
-    position: relative;
+  .sub {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    flex: none;
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    background: transparent;
-    color: var(--ink);
+    gap: 6px;
   }
-
-  .theme-btn .pop {
-    right: 0;
-    left: auto;
-    width: max-content;
-    max-width: 280px;
-    white-space: nowrap;
-  }
-
-  .theme-btn:hover .pop,
-  .theme-btn:focus-visible .pop,
-  .theme-btn--open .pop { display: block; }
 </style>
 
 <main class="sheet">
+
+  <!-- Lucide icons, ISC. -->
+  <svg class="icon-sheet" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <symbol id="icon-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="7" height="7" x="3" y="3" rx="1"></rect>
+      <rect width="7" height="7" x="14" y="3" rx="1"></rect>
+      <rect width="7" height="7" x="14" y="14" rx="1"></rect>
+      <rect width="7" height="7" x="3" y="14" rx="1"></rect>
+    </symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+      <circle cx="12" cy="12" r="3"></circle>
+    </symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+      <circle cx="12" cy="7" r="4"></circle>
+    </symbol>
+    <symbol id="icon-contrast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <path d="M12 18a6 6 0 0 0 0-12v12z"></path>
+    </symbol>
+    <symbol id="icon-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+      <polyline points="16 17 21 12 16 7"></polyline>
+      <line x1="21" x2="9" y1="12" y2="12"></line>
+    </symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6 9 17l-5-5"></path>
+    </symbol>
+    <symbol id="icon-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="21" x2="14" y1="4" y2="4"></line>
+      <line x1="10" x2="3" y1="4" y2="4"></line>
+      <line x1="21" x2="12" y1="12" y2="12"></line>
+      <line x1="8" x2="3" y1="12" y2="12"></line>
+      <line x1="21" x2="16" y1="20" y2="20"></line>
+      <line x1="12" x2="3" y1="20" y2="20"></line>
+      <line x1="14" x2="14" y1="2" y2="6"></line>
+      <line x1="8" x2="8" y1="10" y2="14"></line>
+      <line x1="16" x2="16" y1="18" y2="22"></line>
+    </symbol>
+    <symbol id="icon-git-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="6" x2="6" y1="3" y2="15"></line>
+      <circle cx="18" cy="6" r="3"></circle>
+      <circle cx="6" cy="18" r="3"></circle>
+      <path d="M18 9a9 9 0 0 1-9 9"></path>
+    </symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+      <circle cx="9" cy="7" r="4"></circle>
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+    </symbol>
+    <symbol id="icon-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path>
+      <circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle>
+    </symbol>
+    <symbol id="icon-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+      <line x1="8" x2="16" y1="21" y2="21"></line>
+      <line x1="12" x2="12" y1="17" y2="21"></line>
+    </symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m6 9 6 6 6-6"></path>
+    </symbol>
+  </svg>
 
   <header class="sheet-head">
     <div class="eyebrow">Mockup for ruling · Issue #8 · M0</div>
@@ -1247,8 +1492,25 @@
       </section>
 
       <section class="panel">
+        <h2>Navigation</h2>
+        <div class="nav-legend">
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-user"></use></svg> Account</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-contrast"></use></svg> Theme</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Deliberately left out</h2>
         <ul class="out-list">
+          <li><span><b>No theme icon in the bar</b> — theme lives in the person menu; presenter and projector views use Slidev's own <span class="path">d</span> key for dark mode</span></li>
           <li><span><b>OAuth, GitHub App, host picker</b> — one read-only secret per source, the same form for every host (line 1)</span></li>
           <li><span><b>Writing back to Git</b> — the server is a mirror, never the origin (line 1)</span></li>
           <li><span><b>Showing the secret again</b> — after entry it can only be renewed (line 12)</span></li>
@@ -1398,14 +1660,20 @@
           <div class="route">presentator.local/</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <div class="list-head">
@@ -1415,6 +1683,7 @@
                 <div class="empty-mark"></div>
                 <h2>No deck yet</h2>
                 <p>Push a folder into one of your <a class="qlink" href="#sources">sources</a>, e.g. <span class="path">git@heimserver:decks.git</span></p>
+                <a class="btn btn--primary btn--s" href="#sources">Add source</a>
               </div>
             </div>
           </div>
@@ -1430,14 +1699,20 @@
           <div class="route">presentator.local/</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn theme-btn--open" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <div class="list-head">
@@ -1445,6 +1720,11 @@
                 <a class="source" href="#sources">3 sources</a>
               </div>
               <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
                 <a class="row" href="#deck-kundenfeedback">
                   <span class="state state--busy"><span class="glyph"></span>building</span>
                   <span class="row-name">
@@ -1493,21 +1773,40 @@
 
       <figure class="board">
         <figcaption class="board-cap">
-          <div class="board-title">Split screen <span class="w">390 px</span></div>
-          <p class="board-note">Half a company laptop: state and time stay in the first row, title and folder wrap below. Nothing state-bearing gets cut off.</p>
+          <div class="board-title">Person menu open <span class="w">1024 px</span></div>
+          <p class="board-note">The person control is the only place for Account, theme, and log out (lines 15, 22). Theme opens as radio rows — Follow system is on, marked by a filled dot, never by colour alone.</p>
         </figcaption>
-        <div class="frame" style="--w: 390px">
+        <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person person--open">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+              <div class="person-menu">
+                <a class="menu-item" href="#account"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-user"></use></svg> Account</a>
+                <div class="menu-item">
+                  <div class="menu-item-row"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-contrast"></use></svg> Theme <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></div>
+                  <div class="menu-sub">
+                    <span class="radio"><span class="dot dot--on"></span>Follow system</span>
+                    <span class="radio"><span class="dot"></span>Light</span>
+                    <span class="radio"><span class="dot"></span>Dark</span>
+                  </div>
+                </div>
+                <div class="menu-sep"></div>
+                <a class="menu-item" href="#logout"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</a>
+              </div>
+            </div>
             </div>
             <div class="body">
               <div class="list-head">
@@ -1515,6 +1814,91 @@
                 <a class="source" href="#sources">3 sources</a>
               </div>
               <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
+                <a class="row" href="#deck-kundenfeedback-menu">
+                  <span class="state state--busy"><span class="glyph"></span>building</span>
+                  <span class="row-name">
+                    <span class="row-title">Kundenfeedback Q3</span>
+                    <span class="slug">kundenfeedback</span>
+                  </span>
+                  <span class="age">2 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-knowledge-fabric-menu">
+                  <span class="state state--fail"><span class="glyph"></span>failed</span>
+                  <span class="row-name">
+                    <span class="row-title">Knowledge Fabric</span>
+                    <span class="slug">knowledge-fabric</span>
+                  </span>
+                  <span class="age">26 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-agenten-fabrik-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Agenten-Fabrik</span>
+                    <span class="slug">agenten-fabrik</span>
+                  </span>
+                  <span class="age">3 hours ago</span>
+                </a>
+                <a class="row" href="#deck-onboarding-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Onboarding Handwerk</span>
+                    <span class="slug">onboarding-handwerk</span>
+                  </span>
+                  <span class="age">yesterday</span>
+                </a>
+                <a class="row" href="#deck-jahresrueckblick-menu">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Jahresrückblick 2025</span>
+                    <span class="slug">jahresrueckblick-2025</span>
+                  </span>
+                  <span class="age">6 days ago</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">Half a company laptop: state and time stay in the first row, title and folder wrap below. Nothing state-bearing gets cut off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+                <a class="source" href="#sources">3 sources</a>
+              </div>
+              <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
                 <a class="row" href="#deck-kundenfeedback-schmal">
                   <span class="state state--busy"><span class="glyph"></span>building</span>
                   <span class="age">2 min. ago</span>
@@ -1568,33 +1952,38 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">General <span class="w">1024 px</span></div>
-          <p class="board-note">Instance name, default language, default theme. English is the only catalog today; the ⓘ says how a second language arrives — a file, not code (line 21). The header toggle is the fast path for a dark room (line 22). This whole area is admin-only (line 23).</p>
+          <p class="board-note">Instance name, default language, default theme. English is the only catalog today; the ⓘ says how a second language arrives — a file, not code (line 21). Theme for you lives in the person menu (line 22). This whole area is admin-only (line 23).</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/settings</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish linkish--now" href="#settings">General</a>
-                  <a class="linkish" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-              <div class="deck-head">
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
                 <h1>General</h1>
+                <span class="btn btn--primary">Save</span>
               </div>
+              <nav class="tabs">
+                <a class="tab tab--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="form">
                 <div class="field">
                   <label for="iname">Instance name</label>
@@ -1607,18 +1996,15 @@
                   </div>
                   <div class="select" id="ilang">
                     <span>English</span>
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4"></path></svg>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
                   </div>
                 </div>
                 <div class="field">
                   <label for="itheme">Default theme</label>
                   <div class="select" id="itheme">
                     <span>Follow system</span>
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4"></path></svg>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
                   </div>
-                </div>
-                <div class="actions">
-                  <span class="btn btn--primary">Save</span>
                 </div>
               </div>
             </div>
@@ -1647,30 +2033,40 @@
           <div class="route">presentator.local/settings/sources</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <div class="list-head">
                 <h1>Sources</h1>
                 <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="rows">
+                <div class="row row--head row--src">
+                  <span>State</span>
+                  <span>Source</span>
+                  <span>Access</span>
+                  <span>Fetched</span>
+                  <span></span>
+                </div>
                 <div class="row row--src">
                   <span class="state state--ok"><span class="glyph"></span>reachable</span>
                   <span class="src-name">
@@ -1711,40 +2107,44 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">First day, empty <span class="w">1024 px</span></div>
-          <p class="board-note">The empty state says what a source is and what you need for it — a Git URL and a read-only secret. The button sits at the top, and only there, even when the list is empty.</p>
+          <p class="board-note">The empty state says what a source is and what you need for it — a Git URL and a read-only secret. The same Add source action sits in the title row and in the empty state.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/settings/sources</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <div class="list-head">
                 <h1>Sources</h1>
                 <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="empty">
                 <div class="empty-mark"></div>
                 <h2>No source yet</h2>
                 <p>A source is a Git repository that the server reads every few minutes — GitHub, GitLab, in-house, or bare.</p>
                 <p>You need the Git URL and a read-only secret: <span class="path">SSH deploy key</span> or <span class="path">HTTPS token</span></p>
+                <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
               </div>
             </div>
           </div>
@@ -1760,30 +2160,39 @@
           <div class="route">presentator.local/settings/sources</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <div class="list-head">
                 <h1>Sources</h1>
                 <a class="btn btn--primary btn--s" href="#quelle-neu">Add source</a>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="rows">
+                <div class="row row--head row--src">
+                  <span>State</span>
+                  <span>Source</span>
+                  <span>Access</span>
+                  <span>Fetched</span>
+                  <span></span>
+                </div>
                 <div class="row row--src">
                   <span class="state state--ok"><span class="glyph"></span>reachable</span>
                   <span class="age">3 min. ago</span>
@@ -1830,29 +2239,32 @@
           <div class="route">presentator.local/settings/sources/new</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <a class="crumb" href="#sources">← Sources</a>
               <div class="deck-head">
                 <h1>Add source</h1>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="form">
                 <div class="field">
                   <label for="qn">Name</label>
@@ -1987,29 +2399,32 @@
           <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <a class="crumb" href="#sources">← Sources</a>
               <div class="deck-head">
                 <h1>firmen-gitlab created</h1>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="form-part" style="border-top: none; padding-top: 0;">
                 <span class="sub">Webhook — enter both of these in your GitLab</span>
                 <span class="mini">Address</span>
@@ -2030,6 +2445,7 @@
               <div class="actions">
                 <a class="btn btn--primary" href="#quelle-firmen-gitlab">Done</a>
               </div>
+              <div class="toast"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg> Source created</div>
             </div>
           </div>
         </div>
@@ -2044,25 +2460,22 @@
           <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish linkish--now" href="#sources">Sources</a>
-                  <a class="linkish" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <a class="crumb" href="#sources">← Sources</a>
               <div class="deck-head">
                 <h1>firmen-gitlab</h1>
@@ -2073,6 +2486,12 @@
                   <span class="pair"><span class="tag">Built isolated</span><span class="info" tabindex="0">i<span class="pop">A deck is code. Every build runs in its own container with no network and none of the server's secrets.</span></span></span>
                 </div>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="actions">
                 <span class="btn btn--primary btn--s">Fetch now</span>
               </div>
@@ -2164,30 +2583,40 @@
           <div class="route">presentator.local/settings/users</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish" href="#sources">Sources</a>
-                  <a class="linkish linkish--now" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <div class="list-head">
                 <h1>Users</h1>
                 <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="rows">
+                <div class="row row--head row--user">
+                  <span>State</span>
+                  <span>User</span>
+                  <span>Role</span>
+                  <span>Last login</span>
+                  <span></span>
+                </div>
                 <div class="row row--user">
                   <span class="state state--ok"><span class="glyph"></span>active</span>
                   <span class="src-name">
@@ -2234,30 +2663,39 @@
           <div class="route">presentator.local/settings/users</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish" href="#sources">Sources</a>
-                  <a class="linkish linkish--now" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <div class="list-head">
                 <h1>Users</h1>
                 <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="rows">
+                <div class="row row--head row--user">
+                  <span>State</span>
+                  <span>User</span>
+                  <span>Role</span>
+                  <span>Last login</span>
+                  <span></span>
+                </div>
                 <div class="row row--user">
                   <span class="state state--ok"><span class="glyph"></span>active</span>
                   <span class="tag">Admin</span>
@@ -2304,29 +2742,32 @@
           <div class="route">presentator.local/settings/users/new</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish linkish--now" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
-            </div>
-            <div class="body">
-              <div class="settings-chrome">
-                <span class="sub">Settings</span>
-                <nav class="nav tabs">
-                  <a class="linkish" href="#settings">General</a>
-                  <a class="linkish" href="#sources">Sources</a>
-                  <a class="linkish linkish--now" href="#users">Users</a>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
                 </nav>
               </div>
-
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
               <a class="crumb" href="#users">← Users</a>
               <div class="deck-head">
                 <h1>Create user</h1>
               </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
               <div class="form">
                 <div class="field">
                   <label for="bn">Username</label>
@@ -2406,20 +2847,26 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Account <span class="w">1024 px</span></div>
-          <p class="board-note">Everyone has this page — one question: what is mine. Password and sessions (line 14b); language and theme override the instance default for you only (lines 21, 22). The current device is marked, so “End others” needs no explanation of what it spares. A user without the admin role sees the same page, minus Settings in the bar.</p>
+          <p class="board-note">Everyone has this page — one question: what is mine. Password and sessions (line 14b); language and theme override the instance default for you only (lines 21, 22). The current device is marked, so “End others” needs no explanation of what it spares. Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/account</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish linkish--now" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <div class="deck-head">
@@ -2437,20 +2884,20 @@
                   <label for="alang">Language</label>
                   <div class="select" id="alang">
                     <span>Instance default</span>
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4"></path></svg>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
                   </div>
                 </div>
                 <div class="field">
                   <label for="atheme">Theme</label>
                   <div class="select" id="atheme">
                     <span>Instance default</span>
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4"></path></svg>
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
                   </div>
                 </div>
               </div>
 
               <div class="form-part">
-                <span class="sub">Password</span>
+                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
                 <div class="field">
                   <label for="kc">Current password</label>
                   <div class="input dots" id="kc">••••••••••••</div>
@@ -2469,7 +2916,7 @@
               </div>
 
               <div class="form-part">
-                <span class="sub">Sessions</span>
+                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
                 <div class="log">
                   <div class="log-row">
                     <span>Firefox · Linux</span>
@@ -2518,14 +2965,20 @@
           <div class="route">presentator.local/deck/agenten-fabrik</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <a class="crumb" href="#decks">← Decks</a>
@@ -2565,14 +3018,20 @@
           <div class="route">presentator.local/deck/kundenfeedback</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <a class="crumb" href="#decks">← Decks</a>
@@ -2619,14 +3078,20 @@
           <div class="route">presentator.local/deck/knowledge-fabric</div>
           <div class="app">
             <div class="app-bar">
-              <div class="wordmark">Presen<span>tator</span></div>
-              <nav class="nav">
-                <a class="linkish linkish--now" href="#decks">Decks</a>
-                <a class="linkish" href="#settings">Settings</a>
-                <a class="linkish" href="#account">Account</a>
-                <span class="theme-btn" tabindex="0" title="Theme: follow system / light / dark" aria-label="Theme: follow system / light / dark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"></path></svg><span class="pop">Theme: follow system / light / dark</span></span>
-                <a class="linkish" href="#logout">Log out</a>
-              </nav>
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
             </div>
             <div class="body">
               <a class="crumb" href="#decks">← Decks</a>
