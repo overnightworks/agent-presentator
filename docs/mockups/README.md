@@ -7,9 +7,10 @@ rendered from it for review. `m0-lobby.html` is the source of truth — a single
 HTML sheet of artboards, one `<figure class="board">` per screen state; the
 PNGs in `m0-lobby/` and the overview `m0-lobby-sheet.png` are derived renders
 committed alongside it so a reader never has to open the HTML or an external
-artifact link to see the picture. It is a proposal until the operator's
-blessing is recorded on #8 — once ruled, this sentence is replaced with the
-blessing date and this file stops changing except for a frozen note.
+artifact link to see the picture. Blessed by the operator on 06.09.2026
+(issue #8); this sheet is the picture owner for the M0 lobby. A change to a
+surface starts here: extend this sheet, get the blessing on the owning item,
+re-render, then rule.
 
 ## M0 lobby sheet
 

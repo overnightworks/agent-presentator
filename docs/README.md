@@ -15,6 +15,7 @@ this map and an owner disagree, the owner is right.
 | Why was it built this way? | Decisions | Records indexed by [`decisions/README.md`](decisions/README.md) |
 | What must it be able to do? | Requirements | No owner yet. `docs/requirements/` is created with the first ruled expectation list. |
 | How is this installation started and redeployed? | Operations | No owner yet. `docs/OPERATIONS.md` is created with the deploy shell. |
+| What does the lobby look like? | Picture | [`mockups/README.md`](mockups/README.md) |
 
 Agent policy lives in [`AGENTS.md`](../AGENTS.md) at the repository root, not
 here. The human entry point is [`README.md`](../README.md).
