@@ -10,9 +10,6 @@ from pathlib import Path
 import pytest
 
 _CHECK_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_root_layout.py"
-_OFFENDER_LINE = (
-    "{entry}: not allowed at the repository root; move it next to its owner\n"
-)
 
 
 def _git_executable() -> str:
@@ -39,20 +36,34 @@ def _write_tracked_readme(repository: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("foreign_root_entry", "expected_returncode", "expected_stdout"),
+    (
+        "foreign_root_entry",
+        "foreign_entry_git_state",
+        "expected_returncode",
+        "expected_stdout",
+    ),
     [
-        pytest.param(None, 0, "", id="allowlisted-root-passes"),
+        pytest.param(None, None, 0, "", id="allowlisted-root-passes"),
         pytest.param(
             "misc",
+            "untracked",
             1,
-            _OFFENDER_LINE.format(entry="misc"),
-            id="foreign-root-entry-fails",
+            "misc: not allowed at the repository root; move it next to its owner\n",
+            id="untracked-foreign-root-entry-fails",
+        ),
+        pytest.param(
+            "misc",
+            "tracked",
+            1,
+            "misc: not allowed at the repository root; move it next to its owner\n",
+            id="tracked-foreign-root-entry-fails",
         ),
     ],
 )
 def test_root_layout_check_reports_whether_every_root_entry_is_allowed(
     tmp_path: Path,
     foreign_root_entry: str | None,
+    foreign_entry_git_state: str | None,
     expected_returncode: int,
     expected_stdout: str,
 ) -> None:
@@ -62,6 +73,8 @@ def test_root_layout_check_reports_whether_every_root_entry_is_allowed(
         foreign_file = tmp_path / foreign_root_entry / "x.txt"
         foreign_file.parent.mkdir()
         foreign_file.write_text("disallowed\n", encoding="utf-8")
+        if foreign_entry_git_state == "tracked":
+            _run_git(tmp_path, "add", foreign_root_entry)
 
     completed = subprocess.run(
         [sys.executable, str(_CHECK_SCRIPT)],

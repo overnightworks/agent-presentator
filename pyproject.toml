@@ -59,7 +59,7 @@ convention = "google"
 # Standalone gate, not a package; it must spawn the git executable PATH names.
 "scripts/check_root_layout.py" = ["INP001", "S404", "S603"]
 # Drives a temporary git repository and the check script as a process.
-"tests/test_root_layout.py" = ["S101", "D103", "S404", "S603"]
+"tests/test_root_layout.py" = ["S404", "S603"]
 
 [tool.importlinter]
 root_package = "presentator"
