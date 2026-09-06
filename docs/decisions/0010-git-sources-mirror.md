@@ -71,11 +71,14 @@ server-held, or runner-local, where the server holds no secret material at all.
 Its stated preference is *reference-before-vault* — hold a reference wherever
 one exists, and store a raw secret only where no delegated form is offered.
 
-For a deck source that reads as: a server-generated deploy key is the
-runner-local shape, since the private half never leaves the machine that made
-it; a pasted HTTPS token is the stored-key shape and gets encryption at rest.
-Using the same words from the start is what lets the two trees merge later
-without a translation layer.
+For a deck source, both credential forms are **server-held stored secrets**:
+the deploy key's private half and the pasted token live on this one machine, so
+the source axis does not separate them, and both are encrypted at rest. This
+product borrows 0017's vocabulary and its reference discipline, not its
+runner-local mode — that mode means the server holds no secret material at all,
+and it would apply here only if some other host held the value. Using the same
+words from the start is what lets the two trees merge later without a
+translation layer.
 
 ### Callers
 
@@ -118,8 +121,10 @@ is not built here.
   rework than discovering them at the move.
 - Polling means a pushed change appears within minutes, not instantly, wherever
   a source cannot call the webhook.
-- Holding an encrypted token means this product holds a secret at rest, with a
-  rotation path and a fetch log as the visible controls.
+- Holding both credential forms on this machine means this product holds
+  secrets at rest, with encryption, a rotation path, and a fetch log as the
+  visible controls. Nothing here is credential-minimal in 0017's sense, and the
+  record says so rather than borrowing a word that would suggest otherwise.
 
 ## Rejected alternatives
 

@@ -91,18 +91,25 @@ extraction names them as library ports, `SessionCache` and `RateLimitBackend`,
 with Redis as the shipped implementation; a non-Redis implementation is
 follow-up work.
 
-So this product's `webauth` adapter supplies SQLite implementations of
-`SessionCache` and `RateLimitBackend` itself. It starts no Redis and mounts no
-Redis limiter, and [ADR 0006](0006-sqlite-and-files.md) stands unchanged.
+So this product's `webauth` adapter fills those ports itself, without Redis: a
+single-process rate-limit backend, and no session cache at all — the SQLite
+session store is authoritative. It starts no Redis and mounts no Redis limiter,
+and [ADR 0006](0006-sqlite-and-files.md) stands unchanged.
 
-Those two implementations are a **bridge, not permanent code**. A defaults layer
-is a task child of #825 —
-[songmaker #832](https://github.com/overnightworks/songmaker/issues/832),
-`agent_providers[env]` and `webauth[defaults]` with an in-memory cache and
-limiter, SQLAlchemy stores, and policy defaults — scheduled after the repository
-split. This product is recorded there as the first caller of the Redis-free
-variant. When #832 lands, these adapters are deleted in favour of it; they are
-written to be replaced and are listed against that item, not defended.
+That adapter is a **bridge, not permanent code**, and its owner is
+[songmaker #835](https://github.com/overnightworks/songmaker/issues/835)
+(`webauth[defaults]`: SQLAlchemy stores over a minimal schema, neutral policy
+defaults, and a single-process rate-limit backend). #835 ships **no** in-memory
+`SessionCache` — its default is no cache, with the database authoritative — so
+the bridge above is built in that same shape rather than inventing one, and it
+is deleted when #835 lands. This product is recorded there as the first caller
+of the Redis-free variant.
+
+The provider side has its own defaults item,
+[songmaker #832](https://github.com/overnightworks/songmaker/issues/832)
+(`agent_providers[env]`: `from_env()`, no tools, an example backend). It is
+where the environment-driven provider configuration comes from and does not
+touch the auth bridge.
 
 ### If the tags are late
 

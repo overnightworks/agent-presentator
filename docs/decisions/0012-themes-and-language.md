@@ -17,10 +17,12 @@ A colour typed into a template and a sentence typed into a route are each a
 single line; a thousand of them are a rewrite. The previous version had both
 problems by construction — one talk, one language, one look, all inline.
 
-There is a second reason here. The AI overlay lives inside the running deck
+The overlay complicates this. It lives inside the running deck
 ([ADR 0005](0005-deck-folder-and-slidev.md)), so it appears on top of whatever
-the deck looks like. If the overlay carries its own colours it will clash with
-some deck, and the clash will be visible on a stage.
+the deck looks like — and a deck's look is Slidev's own per-deck theme, which
+this product does not own. One instance theme cannot match every deck palette,
+so a clash is possible and would be visible on a stage. That is why the gap is
+named below rather than papered over with a promise.
 
 ## Decision
 
@@ -30,11 +32,19 @@ The lobby is styled only through design tokens — colour, type, spacing, and
 state colours — defined once. A theme is one token file. Switching a theme or
 adding one is configuration, not code, and no template names a colour.
 
-The co-presenter overlay in the Slidev addon reads the same tokens, so it
-matches the deck it is running over.
+The co-presenter overlay in the Slidev addon reads the same token file. Lobby
+and overlay share one instance theme, which is what
+[#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22
+rules: one theme, both surfaces.
 
 Decks themselves are untouched. Slidev's per-deck theme mechanism stays exactly
 as it is; this record governs the lobby and the overlay, not slide design.
+
+**Named gap: the overlay does not adapt to a deck's theme.** A deck whose
+palette fights the instance theme will look wrong under the overlay. Nothing
+here promises otherwise, and the fix — whatever it turns out to be — is owned by
+[#8](https://github.com/overnightworks/agent-presentator/issues/8) as a later M1
+item, once a real deck has shown what the clash actually looks like.
 
 This record owns appearance. [ADR 0008](0008-lobby-server-rendered.md) chooses
 the base stylesheet the lobby ships; the tokens here are what drive it.
@@ -72,9 +82,9 @@ overlay: `vue-i18n`.
   string.
 - The first slice pays for a catalog and a token file that serve one language
   and one theme. That is the deliberate cost of the two retrofits it avoids.
-- The overlay inherits the deck's look through the tokens rather than by
-  matching it per deck, so a deck with an unusual palette is a token question,
-  not an overlay patch.
+- The overlay looks like the instance, not like the deck. That is the accepted
+  cost of one theme file, and it is the gap named above rather than a defect to
+  be found later.
 - English-only at start means the operator's own German talks run under an
   English interface until a German catalog is added. Adding it is a file.
 
