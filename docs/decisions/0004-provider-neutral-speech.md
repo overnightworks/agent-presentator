@@ -1,0 +1,61 @@
+# ADR 0004: Speech is a port, and the target voice runs locally on the home server GPU
+
+Audience: humans and agents choosing or implementing a voice or a transcriber.
+
+- Status: ACCEPTED 2026-09-06 — the local models are phase M3 of
+  [VISION.md](../VISION.md); the bootstrap implementations come earlier
+- Date: 2026-09-06
+- Decision authority: the operator's ruling of 2026-09-06 recorded on
+  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+- Neighbours: [ADR 0003](0003-libraries-for-models-and-auth.md) — the model that
+  thinks and the voice that speaks are deliberately separate seams
+
+## Context
+
+Claude, Codex, or Grok may present the same deck. If the voice came from the
+provider, the talk would sound different depending on which model was available
+that day, and the operator's audience would hear the plumbing.
+
+The home server has an RTX 3090. Local text-to-speech and speech-to-text models
+that run on it exist, and their quality and latency differ enough that the
+choice must be measured rather than argued.
+
+## Decision
+
+Text-to-speech and speech-to-text are ports in `ports`, with implementations in
+`adapters` ([ADR 0001](0001-enforced-layers.md)).
+
+The target implementation for both is a local model on the home server GPU. The
+voice is therefore independent of which model is presenting, and no audio leaves
+the machine.
+
+Until then, two bootstrap implementations stand in: edge-tts for the voice and
+the browser's own speech recognition for listening. They exist to make phases M1
+and M2 reachable, not because they are good enough.
+
+Which local models are used is decided in M3 by a measured comparison against
+the latency targets in [VISION.md](../VISION.md), not by this record.
+
+## Consequences
+
+- A voice change is an adapter swap and a configuration value.
+- The presentation loop can be built and tested against a fake speech port
+  before any real engine exists.
+- The bootstrap path has real limits that must not be mistaken for product
+  behavior: edge-tts is a network call to a third party, and browser speech
+  recognition is a different engine per browser.
+- Running a speech model on the GPU competes with anything else that wants it.
+  Whether that is a real conflict is an M3 measurement, not an assumption.
+
+## Rejected alternatives
+
+- **A provider-bound voice, such as Grok TTS** (rejected by the operator,
+  2026-09-06). It ties how the talk sounds to which subscription answers,
+  exactly the coupling this record exists to prevent, and it re-splits a solved
+  problem across three providers.
+- **Committing now to a specific local model.** The choice depends on measured
+  latency and voice quality on this one machine. Deciding it before M3 would be
+  a guess written down as a decision.
+- **Keeping edge-tts as the target.** It is a third-party network dependency in
+  the one code path that must keep working on a stage with a bad conference
+  network.
