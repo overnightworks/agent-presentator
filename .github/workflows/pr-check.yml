@@ -1,0 +1,35 @@
+name: pr-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  # `main` accepts a landing only when the pull request says which item it
+  # closes, so a merge can never leave its own item open. `agent-claim pr-check`
+  # owns that grammar (its README's "Landing classification" section); the
+  # pull request template asks for exactly what it verifies.
+  pr-check:
+    name: pr-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Install uv
+        # No Python pin here: this job runs agent-claim's own tool environment
+        # through uvx, not this repository's interpreter.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          version: "0.10.9"
+
+      - name: Check the pull request's landing classification
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v0.12.1 agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}

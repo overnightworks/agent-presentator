@@ -65,6 +65,10 @@ repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
 
+`pr-check` runs from its own workflow on `opened`, `synchronize`,
+`reopened`, and `edited`, so a body change after the first run still has
+to pass the classification gate.
+
 `SonarCloud scan` is deliberately not among the required checks yet. The job
 runs and reports, but the quality gate still fails on the findings it collected
 on `main`, and a required check that cannot go green blocks every pull request.
