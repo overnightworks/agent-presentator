@@ -50,7 +50,8 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
           {"context": "Python: tests"},
           {"context": "Frontend: lint, types, tests, deck build"},
           {"context": "Secret scan"},
-          {"context": "pr-check"}
+          {"context": "pr-check"},
+          {"context": "SonarCloud scan"}
         ]
       }
     }
@@ -68,11 +69,6 @@ commit would violate the linear history the same ruleset requires.
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has
 to pass the classification gate.
-
-`SonarCloud scan` is deliberately not among the required checks yet. The job
-runs and reports, but the quality gate still fails on the findings it collected
-on `main`, and a required check that cannot go green blocks every pull request.
-It joins the list above — and the live ruleset — with the first green gate.
 
 ## SonarCloud
 
