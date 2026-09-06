@@ -5,6 +5,7 @@ redirect while nobody is signed in, a form another site submitted is refused,
 and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+import posixpath
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -28,6 +29,7 @@ SESSION_COOKIE: Final = "presentator_session"
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
+_INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
@@ -59,6 +61,18 @@ async def _same_origin_only(
     if request.method == HTTPMethod.POST and _comes_from_elsewhere(request):
         return Response(status_code=HTTPStatus.FORBIDDEN)
     return await call_next(request)
+
+
+def _is_a_stylesheet(path: str) -> bool:
+    """Whether the address really stands inside the public stylesheet mount.
+
+    The written address and its normalised form both have to: `/static/../…`
+    carries the mount's prefix without standing inside it, and the guard must
+    not let the way an address is written widen what it lets past.
+    """
+    return path.startswith(_INSIDE_STATIC) and posixpath.normpath(path).startswith(
+        _INSIDE_STATIC,
+    )
 
 
 def _comes_from_elsewhere(request: Request) -> bool:
@@ -96,7 +110,7 @@ class _Pages:
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
         path = request.url.path
-        if path in _WITHOUT_A_SESSION or path.startswith(f"{_STATIC_PATH}/"):
+        if path in _WITHOUT_A_SESSION or _is_a_stylesheet(path):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)

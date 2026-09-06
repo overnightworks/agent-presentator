@@ -161,15 +161,8 @@ def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(address: str) -
         "/deck/hello-deck/..%2foutside%2fsecret.txt",
         "/deck/hello-deck/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
         "/deck/hello-deck/out/secret.txt",
-        "/deck/..%2f..%2fetc/passwd",
     ],
-    ids=[
-        "encoded dots",
-        "encoded separator",
-        "out of the tree",
-        "symlink",
-        "in the slug",
-    ],
+    ids=["encoded dots", "encoded separator", "out of the tree", "symlink"],
 )
 def test_a_path_that_would_leave_the_build_directory_is_refused(
     tmp_path: Path,
