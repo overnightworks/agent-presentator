@@ -5,6 +5,10 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 
+class FirstStartClosedError(RuntimeError):
+    """An instance with an account creates the next one through an admin only."""
+
+
 class Role(StrEnum):
     """An instance has only these two roles (ADR 0011)."""
 

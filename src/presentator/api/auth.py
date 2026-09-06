@@ -1,11 +1,12 @@
 """The pages that sign a person in and out, and the guard on everything else.
 
-Every HTML address but `/login` and `/setup` answers the login redirect, and no
-answer may be replayed from the browser cache (issue #8, lines 11 to 15).
+Every address but signing in, first start, and signing out answers the login
+redirect while nobody is signed in, a form another site submitted is refused,
+and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
 from dataclasses import dataclass
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
 
@@ -15,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import RedirectResponse
 
 from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.contracts.models import FirstStartClosedError, User
 from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
@@ -24,10 +26,10 @@ _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
-
-
-class _NotSignedInError(Exception):
-    """Raised by the guard, so one handler owns where an anonymous visitor goes."""
+# Signing in, first start, and signing out are the only addresses that work
+# without a session; logging out ends one rather than using one.
+_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
+_SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
 
 async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -36,8 +38,27 @@ async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Res
     return response
 
 
-def _to_login(_request: Request, _exception: Exception) -> Response:
-    return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+async def _same_origin_only(
+    request: Request,
+    call_next: RequestResponseEndpoint,
+) -> Response:
+    """Refuse a form another site submitted.
+
+    Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first start
+    and login are answered without a cookie, so `SameSite=Lax` does not cover
+    them, and a foreign page could otherwise create the instance's admin.
+    """
+    if request.method == HTTPMethod.POST and _comes_from_elsewhere(request):
+        return Response(status_code=HTTPStatus.FORBIDDEN)
+    return await call_next(request)
+
+
+def _comes_from_elsewhere(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    if origin is not None:
+        return origin != f"{request.url.scheme}://{request.url.netloc}"
+    fetch_site = request.headers.get("sec-fetch-site")
+    return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -48,20 +69,32 @@ class _Pages:
     text: LobbyText
     secure_cookies: bool
 
-    def home(self, request: Request) -> Response:
-        """Show the lobby to whoever the cookie stands for."""
+    async def only_signed_in(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Send every address but the open ones to the login, and slide the window."""
+        if request.url.path in _WITHOUT_A_SESSION:
+            return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
-        user = self.identity.signed_in_user(cookie_value)
-        if user is None:
-            raise _NotSignedInError
-        answer = self._page(
-            request,
-            "home.html",
-            person=user.username,
-            log_out=self.text.log_out,
-        )
+        person = self.identity.signed_in_user(cookie_value)
+        if person is None:
+            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+        request.state.signed_in_person = person
+        answer = await call_next(request)
         self._carry_session(answer, cookie_value)
         return answer
+
+    def home(self, request: Request) -> Response:
+        """Show the lobby to the person the guard let through."""
+        person: User = request.state.signed_in_person
+        return self._page(
+            request,
+            "home.html",
+            person=person.username,
+            log_out=self.text.log_out,
+        )
 
     def login_page(self, request: Request) -> Response:
         """Ask for a username and a password, and offer nothing else."""
@@ -83,7 +116,12 @@ class _Pages:
         """End the session and take the cookie away."""
         self.identity.log_out(request.cookies.get(SESSION_COOKIE, ""))
         answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
-        answer.delete_cookie(SESSION_COOKIE)
+        answer.delete_cookie(
+            SESSION_COOKIE,
+            httponly=True,
+            samesite="lax",
+            secure=self.secure_cookies,
+        )
         return answer
 
     def setup_page(self, request: Request) -> Response:
@@ -104,9 +142,15 @@ class _Pages:
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         if password != repeated_password:
             return self._setup(request, mismatch=self.text.setup_passwords_differ)
-        return self._signed_in(
-            self.identity.create_first_admin(username=username, password=password),
-        )
+        try:
+            cookie_value = self.identity.create_first_admin(
+                username=username,
+                password=password,
+            )
+        except FirstStartClosedError:
+            # Another first start won the race between the count and the write.
+            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+        return self._signed_in(cookie_value)
 
     def _login(self, request: Request, *, refusal: str | None) -> Response:
         return self._page(
@@ -169,8 +213,11 @@ def create_lobby(
     """Build the lobby around the use cases and the words the host chose."""
     pages = _Pages(identity=identity, text=text, secure_cookies=secure_cookies)
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    # The outermost middleware is added last: every answer, including the
+    # guard's redirect and a refusal, carries `no-store`.
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.only_signed_in)
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=_same_origin_only)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
-    lobby.add_exception_handler(_NotSignedInError, _to_login)
     lobby.add_api_route(_LOBBY, pages.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, pages.login_page, methods=["GET"])
     lobby.add_api_route(_LOGIN, pages.log_in, methods=["POST"])

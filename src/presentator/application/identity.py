@@ -24,10 +24,6 @@ FAILURE_WINDOW: Final = timedelta(minutes=5)
 FAILURES_BEFORE_THROTTLE: Final = 5
 
 
-class FirstStartClosedError(RuntimeError):
-    """An instance with an account creates the next one through an admin only."""
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Identity:
     """Every use case the lobby has around who is signed in."""
@@ -45,18 +41,21 @@ class Identity:
         return self.users.count() == 0
 
     def create_first_admin(self, *, username: str, password: str) -> str:
-        """Return the cookie for the new admin; refuse once an account exists."""
-        if not self.first_start_is_open():
-            message = "first start is over; an admin creates the next account"
-            raise FirstStartClosedError(message)
+        """Return the cookie for the new admin, or refuse if one already exists.
+
+        Hashing happens before the store is asked, so the slow part is outside
+        the write the store takes to keep first start single.
+        """
         admin = User(
             id=self.identifiers.new_id(),
             username=username,
             role=Role.ADMIN,
         )
-        self.users.put(
-            Credentials(user=admin, password_hash=self.hasher.hash(password)),
+        credentials = Credentials(
+            user=admin,
+            password_hash=self.hasher.hash(password),
         )
+        self.users.add_first_account(credentials)
         return self._open_session(admin)
 
     def log_in(self, *, username: str, password: str) -> str | None:
@@ -65,10 +64,11 @@ class Identity:
         if self._is_throttled(username, now=now):
             return None
         credentials = self.users.credentials_for(username)
-        if credentials is None or not self.hasher.verify(
+        verified = self.hasher.verify(
             password,
-            credentials.password_hash,
-        ):
+            None if credentials is None else credentials.password_hash,
+        )
+        if credentials is None or not verified:
             self.attempts.record_failure(username, at=now)
             return None
         return self._open_session(credentials.user)

@@ -3,7 +3,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from presentator.contracts.models import Credentials, Session, User
+from presentator.contracts.models import (
+    Credentials,
+    FirstStartClosedError,
+    Session,
+    User,
+)
 
 
 @dataclass
@@ -23,7 +28,10 @@ class FakeUserStore:
     def credentials_for(self, username: str) -> Credentials | None:
         return self.accounts.get(username)
 
-    def put(self, credentials: Credentials) -> None:
+    def add_first_account(self, credentials: Credentials) -> None:
+        if self.accounts:
+            message = "this instance already has an account"
+            raise FirstStartClosedError(message)
         self.accounts[credentials.user.username] = credentials
 
     def count(self) -> int:
@@ -70,7 +78,7 @@ class ReversibleHasher:
     def hash(self, password: str) -> str:
         return f"{self.marker}{password}"
 
-    def verify(self, password: str, password_hash: str) -> bool:
+    def verify(self, password: str, password_hash: str | None) -> bool:
         return password_hash == self.hash(password)
 
 
@@ -111,3 +119,11 @@ class MarkingCookieSigner:
         if not cookie_value.startswith(self.marker):
             return None
         return cookie_value.removeprefix(self.marker)
+
+
+@dataclass
+class UserStoreThatLostTheRace(FakeUserStore):
+    """Another first start has written; this one still sees the count it read."""
+
+    def count(self) -> int:
+        return 0

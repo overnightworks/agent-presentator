@@ -14,10 +14,15 @@ from presentator.adapters.identity import (
     SqliteSessionRecordStore,
     SqliteUserStore,
     SystemClock,
-    TokenIdentifierFactory,
     create_identity_tables,
 )
-from presentator.contracts.models import Credentials, Role, Session, User
+from presentator.contracts.models import (
+    Credentials,
+    FirstStartClosedError,
+    Role,
+    Session,
+    User,
+)
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _INSTANCE_KEY = b"thirty-two-bytes-of-instance-key"
@@ -48,7 +53,9 @@ def test_an_account_is_read_back_by_name_with_the_hash_it_was_stored_with(
 ) -> None:
     users = SqliteUserStore(database)
     hasher = Argon2PasswordHasher()
-    users.put(Credentials(user=an_admin(), password_hash=hasher.hash(_TYPED_WORDS)))
+    users.add_first_account(
+        Credentials(user=an_admin(), password_hash=hasher.hash(_TYPED_WORDS)),
+    )
 
     credentials = users.credentials_for("felix")
 
@@ -61,7 +68,9 @@ def test_an_account_is_read_back_by_name_with_the_hash_it_was_stored_with(
 def test_a_stored_password_is_not_the_password(database: Path) -> None:
     users = SqliteUserStore(database)
     hasher = Argon2PasswordHasher()
-    users.put(Credentials(user=an_admin(), password_hash=hasher.hash(_TYPED_WORDS)))
+    users.add_first_account(
+        Credentials(user=an_admin(), password_hash=hasher.hash(_TYPED_WORDS)),
+    )
 
     credentials = users.credentials_for("felix")
 
@@ -74,7 +83,7 @@ def test_an_account_is_read_back_by_id_and_counted(database: Path) -> None:
     users = SqliteUserStore(database)
     assert users.count() == 0
 
-    users.put(Credentials(user=an_admin(), password_hash=_STORED_HASH))
+    users.add_first_account(Credentials(user=an_admin(), password_hash=_STORED_HASH))
 
     assert users.get("user-1") == an_admin()
     assert users.count() == 1
@@ -167,11 +176,30 @@ def test_another_instance_key_refuses_the_cookie() -> None:
     )
 
 
-def test_two_minted_identifiers_differ() -> None:
-    identifiers = TokenIdentifierFactory()
-
-    assert identifiers.new_id() != identifiers.new_id()
-
-
 def test_the_system_clock_reads_an_aware_utc_time() -> None:
     assert SystemClock().now().tzinfo == UTC
+
+
+def test_a_second_first_account_is_refused_even_after_an_empty_count(
+    database: Path,
+) -> None:
+    users = SqliteUserStore(database)
+    assert users.count() == 0
+    users.add_first_account(
+        Credentials(user=an_admin(), password_hash=_STORED_HASH),
+    )
+
+    with pytest.raises(FirstStartClosedError, match="already has an account"):
+        users.add_first_account(
+            Credentials(
+                user=an_admin(user_id="user-2", username="stranger"),
+                password_hash=_STORED_HASH,
+            ),
+        )
+
+    assert users.count() == 1
+    assert users.credentials_for("stranger") is None
+
+
+def test_a_password_checked_against_no_account_is_refused() -> None:
+    assert Argon2PasswordHasher().verify(_TYPED_WORDS, None) is False

@@ -23,8 +23,12 @@ class UserStore(Protocol):
         """Login looks up the typed name, never an enumeration of accounts."""
 
     @abstractmethod
-    def put(self, credentials: Credentials) -> None:
-        """The hash is stored beside the user, never on the User record."""
+    def add_first_account(self, credentials: Credentials) -> None:
+        """Store the instance's first account, refusing once one exists.
+
+        Counting and inserting are one step, so two first starts at the same
+        moment cannot both become admin.
+        """
 
     @abstractmethod
     def count(self) -> int:
@@ -67,8 +71,12 @@ class PasswordHasher(Protocol):
         """First start and admin-created accounts store only the hash."""
 
     @abstractmethod
-    def verify(self, password: str, password_hash: str) -> bool:
-        """Login compares against the hash, never against the original password."""
+    def verify(self, password: str, password_hash: str | None) -> bool:
+        """Say whether the password belongs to the hash, and refuse an absent one.
+
+        An absent hash still costs a full verification, so an unknown name and a
+        wrong password cannot be told apart by how long the answer takes.
+        """
 
 
 class Clock(Protocol):

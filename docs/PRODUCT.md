@@ -27,9 +27,13 @@ page is gone as soon as an account exists; there is no other way to an account
 yet. `/login` opens a session that SQLite holds, carried by a signed cookie
 that expires after twelve idle hours and slides forward on every request.
 Wrong name, wrong password, and too many attempts answer with one sentence.
-Logging out is a POST that deletes the session row. Every other address answers
-a redirect to the login until someone is signed in, and no answer may be
-replayed from the browser cache.
+Logging out is a POST that deletes the session row. Every other address, known
+or not, answers a redirect to the login until someone is signed in, and no
+answer may be replayed from the browser cache. A form another site submitted is
+refused: first start and login are answered without a cookie, so `SameSite`
+does not cover them, and until `webauth` brings its `CsrfPolicy`
+([ADR 0003](decisions/0003-libraries-for-models-and-auth.md)) the lobby checks
+that a submitted form came from this instance.
 
 The whole identity implementation is a bridge until `webauth` is tagged
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),

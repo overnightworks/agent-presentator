@@ -18,7 +18,13 @@ from typing import Final
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
-from presentator.contracts.models import Credentials, Role, Session, User
+from presentator.contracts.models import (
+    Credentials,
+    FirstStartClosedError,
+    Role,
+    Session,
+    User,
+)
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -39,11 +45,22 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 """
 _IDENTIFIER_BYTES: Final = 32
 _COOKIE_SEPARATOR: Final = "."
+_FIRST_START_IS_OVER: Final = "this instance already has an account"
+
+
+def _argon2id() -> PasswordHash:
+    return PasswordHash((Argon2Hasher(),))
+
+
+def _hash_of_a_secret_nobody_typed() -> str:
+    return _argon2id().hash(secrets.token_urlsafe(_IDENTIFIER_BYTES))
 
 
 @contextmanager
 def _rows(database: Path) -> Generator[sqlite3.Cursor]:
-    connection = sqlite3.connect(database)
+    # Autocommit, so that the one place that needs a transaction can open an
+    # immediate one itself instead of fighting an implicit deferred one.
+    connection = sqlite3.connect(database, isolation_level=None)
     try:
         yield connection.cursor()
         connection.commit()
@@ -86,9 +103,13 @@ class SqliteUserStore:
         *account, password_hash = row
         return Credentials(user=_user(account), password_hash=password_hash)
 
-    def put(self, credentials: Credentials) -> None:
-        """Write a new account; a name taken twice is a loud integrity error."""
+    def add_first_account(self, credentials: Credentials) -> None:
+        """Count and insert inside one write lock, so first start happens once."""
         with _rows(self.database) as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
+            if accounts:
+                raise FirstStartClosedError(_FIRST_START_IS_OVER)
             cursor.execute(
                 "INSERT INTO users (id, username, role, password_hash)"
                 " VALUES (?, ?, ?, ?)",
@@ -173,16 +194,20 @@ class SqliteLoginAttemptStore:
 class Argon2PasswordHasher:
     """Argon2id, named rather than taken from a recommendation that may move."""
 
-    hashes: PasswordHash = field(
-        default_factory=lambda: PasswordHash((Argon2Hasher(),)),
-    )
+    hashes: PasswordHash = field(default_factory=_argon2id)
+    hash_for_nobody: str = field(default_factory=_hash_of_a_secret_nobody_typed)
 
     def hash(self, password: str) -> str:
         """Hash a password for storage; the password itself is never kept."""
         return self.hashes.hash(password)
 
-    def verify(self, password: str, password_hash: str) -> bool:
+    def verify(self, password: str, password_hash: str | None) -> bool:
         """Say whether the password belongs to the stored hash."""
+        if password_hash is None:
+            # The answer is known; the point is that a name nobody has costs the
+            # same Argon2id verification as a name somebody has.
+            self.hashes.verify(password, self.hash_for_nobody)
+            return False
         return self.hashes.verify(password, password_hash)
 
 

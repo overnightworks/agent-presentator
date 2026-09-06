@@ -8,10 +8,9 @@ from presentator.application.identity import (
     FAILURE_WINDOW,
     FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
-    FirstStartClosedError,
     Identity,
 )
-from presentator.contracts.models import Role
+from presentator.contracts.models import FirstStartClosedError, Role
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeLoginAttemptStore,
@@ -71,7 +70,7 @@ def test_first_start_creates_an_admin_and_signs_them_in(identity: Identity) -> N
 def test_first_start_refuses_a_second_account(identity: Identity) -> None:
     sign_up_the_admin(identity)
 
-    with pytest.raises(FirstStartClosedError, match="an admin creates"):
+    with pytest.raises(FirstStartClosedError):
         identity.create_first_admin(username="stranger", password=_TYPED_WORDS)
 
     assert identity.log_in(username="stranger", password=_TYPED_WORDS) is None

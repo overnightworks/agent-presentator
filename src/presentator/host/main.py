@@ -20,7 +20,7 @@ from presentator.adapters.identity import (
 )
 from presentator.api.auth import create_lobby
 from presentator.application.identity import Identity
-from presentator.host.config import Settings
+from presentator.host.config import Settings, load_settings
 
 
 def build_lobby(settings: Settings) -> FastAPI:
@@ -46,5 +46,5 @@ def build_lobby(settings: Settings) -> FastAPI:
 
 def main() -> None:
     """Serve the lobby with the configuration the environment carries."""
-    settings = Settings()
+    settings = load_settings()
     uvicorn.run(build_lobby(settings), host=settings.host, port=settings.port)

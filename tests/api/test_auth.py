@@ -16,6 +16,7 @@ from presentator.application.identity import (
     IDLE_WINDOW,
     Identity,
 )
+from presentator.contracts.models import Credentials, Role, User
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
@@ -25,9 +26,11 @@ from tests.application.fakes import (
     FrozenClock,
     MarkingCookieSigner,
     ReversibleHasher,
+    UserStoreThatLostTheRace,
 )
 
 _USERNAME = "felix"
+_WINNERS_HASH = "the hash the winning first start stored"
 _TYPED_WORDS = "the words only this test types"
 _WRONG_WORDS = "guessed"
 _TEXT: LobbyText = load_lobby_text(ENGLISH_CATALOG)
@@ -45,6 +48,7 @@ class Lobby:
         *,
         password: str = _TYPED_WORDS,
         repeated: str = _TYPED_WORDS,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         return self.client.post(
             "/setup",
@@ -53,6 +57,7 @@ class Lobby:
                 "password": password,
                 "repeated_password": repeated,
             },
+            headers=headers,
         )
 
     def log_in(
@@ -60,17 +65,26 @@ class Lobby:
         *,
         username: str = _USERNAME,
         password: str = _TYPED_WORDS,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         return self.client.post(
             "/login",
             data={"username": username, "password": password},
+            headers=headers,
         )
 
+    def own_origin(self) -> str:
+        return str(self.client.base_url).rstrip("/")
 
-def a_lobby(*, secure_cookies: bool = False) -> Lobby:
+
+def a_lobby(
+    *,
+    secure_cookies: bool = False,
+    users: FakeUserStore | None = None,
+) -> Lobby:
     clock = FrozenClock(instant=datetime(2026, 1, 15, 9, tzinfo=UTC))
     identity = Identity(
-        users=FakeUserStore(),
+        users=FakeUserStore() if users is None else users,
         sessions=FakeSessionRecordStore(),
         attempts=FakeLoginAttemptStore(),
         hasher=ReversibleHasher(),
@@ -84,6 +98,17 @@ def a_lobby(*, secure_cookies: bool = False) -> Lobby:
         secure_cookies=secure_cookies,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
+
+
+def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
+    store = UserStoreThatLostTheRace()
+    store.add_first_account(
+        Credentials(
+            user=User(id="winner", username="someone-else", role=Role.ADMIN),
+            password_hash=_WINNERS_HASH,
+        ),
+    )
+    return store
 
 
 @pytest.fixture
@@ -127,6 +152,7 @@ def test_an_https_instance_marks_the_session_cookie_secure() -> None:
     lobby = a_lobby(secure_cookies=True)
 
     assert "Secure" in lobby.set_up_admin().headers["set-cookie"]
+    assert "Secure" in lobby.client.post("/logout").headers["set-cookie"]
 
 
 def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> None:
@@ -152,13 +178,15 @@ def test_first_start_is_gone_once_an_account_exists(
     assert answer.headers["location"] == "/login"
 
 
-def test_the_login_page_offers_no_way_to_register_or_to_upload(lobby: Lobby) -> None:
+def test_the_login_page_offers_no_action_but_signing_in(lobby: Lobby) -> None:
     page = lobby.client.get("/login").text
 
-    assert _TEXT.login_submit in page
-    assert "<a " not in page
-    assert "<input" in page
-    assert 'type="file"' not in page
+    offered = {
+        word
+        for word in (_TEXT.login_submit, _TEXT.setup_submit, _TEXT.log_out)
+        if word in page
+    }
+    assert offered == {_TEXT.login_submit}
 
 
 def test_the_right_password_opens_the_lobby(signed_in_lobby: Lobby) -> None:
@@ -254,3 +282,69 @@ def test_the_password_never_reaches_the_log(
         lobby.client.get("/")
 
     assert _TYPED_WORDS not in caplog.text
+
+
+def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
+    lobby: Lobby,
+) -> None:
+    answer = lobby.client.get("/deck/knowledge-fabric")
+
+    assert answer.status_code == HTTPStatus.FOUND
+    assert answer.headers["location"] == "/login"
+
+
+def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
+    lobby = a_lobby(users=a_store_that_lost_the_race())
+
+    answer = lobby.set_up_admin()
+
+    assert answer.status_code == HTTPStatus.FOUND
+    assert answer.headers["location"] == "/login"
+    assert SESSION_COOKIE not in lobby.client.cookies
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({"origin": "https://another.example"}, id="foreign-origin"),
+        pytest.param({"sec-fetch-site": "cross-site"}, id="cross-site-fetch"),
+    ],
+)
+def test_a_first_start_another_site_submitted_is_refused(
+    lobby: Lobby,
+    headers: dict[str, str],
+) -> None:
+    refused = lobby.set_up_admin(headers=headers)
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
+
+
+def test_a_login_another_site_submitted_is_refused(signed_in_lobby: Lobby) -> None:
+    refused = signed_in_lobby.log_in(headers={"origin": "https://another.example"})
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
+    created = lobby.set_up_admin(headers={"origin": lobby.own_origin()})
+
+    assert created.status_code == HTTPStatus.SEE_OTHER
+
+
+def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
+    lobby: Lobby,
+) -> None:
+    created = lobby.set_up_admin(headers={"sec-fetch-site": "same-origin"})
+
+    assert created.status_code == HTTPStatus.SEE_OTHER
+
+
+def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
+    signed_in_lobby: Lobby,
+) -> None:
+    cleared = signed_in_lobby.client.post("/logout").headers["set-cookie"]
+
+    assert "HttpOnly" in cleared
+    assert "SameSite=lax" in cleared
+    assert "Max-Age=0" in cleared
