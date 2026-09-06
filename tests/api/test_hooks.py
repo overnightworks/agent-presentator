@@ -1,0 +1,186 @@
+"""The fetch-now hook as a git host calls it: no session, no page, no payload."""
+
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from functools import partial
+from http import HTTPStatus
+
+import pytest
+from fastapi.testclient import TestClient
+from httpx2 import Response
+
+from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
+from presentator.api.auth import create_lobby
+from presentator.api.hooks import HOOKS_PATH, fetch_hook
+from presentator.application.decks import Decks
+from presentator.application.identity import Identity
+from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
+from presentator.contracts.text import LobbyText
+from tests.application.fakes import (
+    CountingIdentifierFactory,
+    FakeDeckFolders,
+    FakeDeckStore,
+    FakeLoginAttemptStore,
+    FakeSessionRecordStore,
+    FakeSourceStore,
+    FakeUserStore,
+    FrozenClock,
+    MarkingCookieSigner,
+    ReversibleHasher,
+)
+
+_NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_SOURCE_NAME = "talks"
+_WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
+_A_GUESS = "guessed"
+_PUSHED = "kundenfeedback"
+_TEXT: LobbyText = load_lobby_text(ENGLISH_CATALOG)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Hooked:
+    """A lobby carrying a fetch hook, and the store that hook fills."""
+
+    client: TestClient
+    store: FakeDeckStore
+
+    def call_hook(
+        self,
+        *,
+        source: str = _SOURCE_NAME,
+        headers: dict[str, str] | None = None,
+        content: bytes | None = None,
+    ) -> Response:
+        return self.client.post(
+            f"{HOOKS_PATH}/{source}",
+            headers=headers,
+            content=content,
+        )
+
+    def slugs(self) -> list[str]:
+        return [deck.slug for deck in self.store.all()]
+
+
+def a_pushed_folder() -> DeckFolder:
+    return DeckFolder(
+        name=_PUSHED,
+        file_names=frozenset({MANIFEST_FILE, SLIDES_FILE}),
+        title="Kundenfeedback Q3",
+        changed_at=_NOW - timedelta(minutes=2),
+    )
+
+
+def a_lobby_with_a_hook(*, secret: str | None) -> Hooked:
+    """The lobby the host composes: its pages, and the hook beside them."""
+    clock = FrozenClock(instant=_NOW)
+    store = FakeDeckStore()
+    decks = Decks(
+        sources=FakeSourceStore(
+            source=Source(
+                url="git@example.invalid:decks.git",
+                ref="main",
+                credential_reference=None,
+                owner_id="the-admin",
+            ),
+        ),
+        folders=FakeDeckFolders(found=(a_pushed_folder(),)),
+        store=store,
+        clock=clock,
+    )
+    lobby = create_lobby(
+        identity=Identity(
+            users=FakeUserStore(),
+            sessions=FakeSessionRecordStore(),
+            attempts=FakeLoginAttemptStore(),
+            hasher=ReversibleHasher(),
+            clock=clock,
+            identifiers=CountingIdentifierFactory(),
+            cookies=MarkingCookieSigner(),
+        ),
+        decks=decks,
+        text=_TEXT,
+        age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        secure_cookies=False,
+    )
+    lobby.include_router(fetch_hook(decks=decks, source=_SOURCE_NAME, secret=secret))
+    return Hooked(client=TestClient(lobby, follow_redirects=False), store=store)
+
+
+def carrying(words: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {words}"}
+
+
+@pytest.fixture
+def hooked() -> Hooked:
+    return a_lobby_with_a_hook(secret=_WHAT_THE_HOST_CARRIES)
+
+
+def test_a_call_carrying_the_sources_secret_takes_the_push_in(hooked: Hooked) -> None:
+    called = hooked.call_hook(headers=carrying(_WHAT_THE_HOST_CARRIES))
+
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert hooked.slugs() == [_PUSHED]
+
+
+def test_the_hook_answers_a_host_that_has_no_session_and_no_page_here(
+    hooked: Hooked,
+) -> None:
+    called = hooked.call_hook(
+        headers={
+            **carrying(_WHAT_THE_HOST_CARRIES),
+            "origin": "https://git.example",
+        },
+    )
+
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert hooked.slugs() == [_PUSHED]
+
+
+def test_whatever_a_host_posts_in_its_body_changes_nothing(hooked: Hooked) -> None:
+    called = hooked.call_hook(
+        headers={
+            **carrying(_WHAT_THE_HOST_CARRIES),
+            "content-type": "application/json",
+        },
+        content=b'{"repository": {"name": "somebody-elses-repository"}}',
+    )
+
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert hooked.slugs() == [_PUSHED]
+
+
+@pytest.mark.parametrize(
+    ("source", "headers"),
+    [
+        pytest.param(_SOURCE_NAME, None, id="nothing carried"),
+        pytest.param(_SOURCE_NAME, carrying(_A_GUESS), id="wrong words"),
+        pytest.param(
+            _SOURCE_NAME,
+            {"authorization": _WHAT_THE_HOST_CARRIES},
+            id="right words, no bearer",
+        ),
+        pytest.param(
+            "another-source",
+            carrying(_WHAT_THE_HOST_CARRIES),
+            id="unknown source",
+        ),
+    ],
+)
+def test_a_call_that_cannot_name_a_source_and_its_secret_is_refused_alike(
+    hooked: Hooked,
+    source: str,
+    headers: dict[str, str] | None,
+) -> None:
+    refused = hooked.call_hook(source=source, headers=headers)
+
+    assert (refused.status_code, refused.content) == (HTTPStatus.NOT_FOUND, b"")
+    assert hooked.slugs() == []
+
+
+def test_an_instance_with_no_hook_secret_refuses_the_hook_the_same_way() -> None:
+    hooked = a_lobby_with_a_hook(secret=None)
+
+    refused = hooked.call_hook(headers=carrying(_WHAT_THE_HOST_CARRIES))
+
+    assert (refused.status_code, refused.content) == (HTTPStatus.NOT_FOUND, b"")
+    assert hooked.slugs() == []

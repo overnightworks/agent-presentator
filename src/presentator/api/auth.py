@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
+from presentator.api.hooks import HOOKS_PATH
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import FirstStartClosedError, User
@@ -33,10 +34,13 @@ _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
 # Signing in, first start, and signing out are the only addresses that work
-# without a session; logging out ends one rather than using one. The theme
-# stylesheet has to render the login and setup pages themselves, so it is
-# public too.
+# without a session; logging out ends one rather than using one.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
+# Neither the theme stylesheet, which the login page needs before any session
+# exists, nor a source's host, which has none and is another origin by nature,
+# asks from a page of this instance; the hook's own secret is what guards it
+# instead (ADR 0010).
+_OPEN_PREFIXES: Final = (f"{_STATIC_PATH}/", f"{HOOKS_PATH}/")
 _SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
 
@@ -56,9 +60,19 @@ async def _same_origin_only(
     and login are answered without a cookie, so `SameSite=Lax` does not cover
     them, and a foreign page could otherwise create the instance's admin.
     """
-    if request.method == HTTPMethod.POST and _comes_from_elsewhere(request):
+    if _is_a_foreign_form(request):
         return Response(status_code=HTTPStatus.FORBIDDEN)
     return await call_next(request)
+
+
+def _is_a_foreign_form(request: Request) -> bool:
+    if request.method != HTTPMethod.POST or _is_open(request.url.path):
+        return False
+    return _comes_from_elsewhere(request)
+
+
+def _is_open(path: str) -> bool:
+    return path.startswith(_OPEN_PREFIXES)
 
 
 def _comes_from_elsewhere(request: Request) -> bool:
@@ -95,7 +109,7 @@ class _Pages:
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
         path = request.url.path
-        if path in _WITHOUT_A_SESSION or path.startswith(f"{_STATIC_PATH}/"):
+        if path in _WITHOUT_A_SESSION or _is_open(path):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -131,7 +145,7 @@ class _Pages:
                 slug=deck.slug,
                 changed=self.age_in_words(deck.age),
             )
-            for deck in self.decks.refreshed_list()
+            for deck in self.decks.listed()
         )
 
     def login_page(self, request: Request) -> Response:

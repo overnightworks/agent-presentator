@@ -17,10 +17,17 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     mirrors: Path = Path("mirrors")
     source_url: str | None = None
     source_ref: str = "main"
+    # The name the source answers to in its hook address, and the secret a call
+    # there has to carry; a stored source owns both once Settings does.
+    source_name: str = "decks"
+    source_hook_secret: SecretStr | None = None
+    # Polling is what makes a push arrive at all, so it runs whether or not any
+    # host ever calls the hook.
+    source_poll_seconds: float = 300.0
     # The name of the environment variable holding the read-only secret, never
     # the secret itself, so no durable record of this instance carries a value.
     source_credential: str | None = None
-    # A pull happens while someone waits for the deck list, so it is bounded.
+    # A pull that hangs would hold the tick it runs on, so it is bounded.
     source_timeout_seconds: float = 20.0
     https: bool = False
     host: str = "127.0.0.1"

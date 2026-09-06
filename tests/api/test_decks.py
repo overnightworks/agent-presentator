@@ -48,6 +48,15 @@ def a_signed_in_lobby(
     source: Source | None = None,
 ) -> TestClient:
     clock = FrozenClock(instant=_NOW)
+    decks = Decks(
+        sources=FakeSourceStore(source=source),
+        folders=FakeDeckFolders(found=folders),
+        store=FakeDeckStore(),
+        clock=clock,
+    )
+    # The list shows what a refresh stored, so the poller's work is the
+    # arrangement every one of these pages is read against.
+    decks.refresh()
     lobby = create_lobby(
         identity=Identity(
             users=FakeUserStore(),
@@ -58,12 +67,7 @@ def a_signed_in_lobby(
             identifiers=CountingIdentifierFactory(),
             cookies=MarkingCookieSigner(),
         ),
-        decks=Decks(
-            sources=FakeSourceStore(source=source),
-            folders=FakeDeckFolders(found=folders),
-            store=FakeDeckStore(),
-            clock=clock,
-        ),
+        decks=decks,
         text=_TEXT,
         age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
         secure_cookies=False,

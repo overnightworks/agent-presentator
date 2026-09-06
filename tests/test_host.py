@@ -1,29 +1,34 @@
 """The composition root, from the environment to a lobby that answers."""
 
+import asyncio
 import logging
+import shutil
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
+import uvicorn
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from pydantic import ValidationError
 
 from presentator.adapters.decks import SqliteDeckStore
 from presentator.adapters.identity import SqliteUserStore
 from presentator.api.auth import SESSION_COOKIE
+from presentator.api.hooks import HOOKS_PATH
 from presentator.host import main
 from presentator.host.config import load_settings
+from presentator.host.main import Instance
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, GitRemote
-
-if TYPE_CHECKING:
-    from fastapi import FastAPI
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
 _TYPED_WORDS = "the words only this test types"
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_SOURCE_NAME = "talks"
+_WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
 
 
 @pytest.fixture
@@ -43,9 +48,28 @@ def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     return bare_environment
 
 
-def a_real_lobby() -> TestClient:
+def a_real_instance() -> Instance:
     """The whole stack the composition root builds, on the configured database."""
-    return TestClient(main.build_lobby(load_settings()), follow_redirects=False)
+    return main.build_instance(load_settings())
+
+
+def a_real_lobby() -> TestClient:
+    """A browser at that stack."""
+    return TestClient(a_real_instance().lobby, follow_redirects=False)
+
+
+def signed_in(instance: Instance) -> TestClient:
+    """A browser at that stack with the instance's admin created and signed in."""
+    client = TestClient(instance.lobby, follow_redirects=False)
+    client.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+    )
+    return client
 
 
 def test_the_composition_root_serves_a_lobby_that_answers_the_login(
@@ -53,10 +77,15 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 ) -> None:
     served: list[FastAPI] = []
 
-    def serve(app: "FastAPI", **_arguments: object) -> None:
-        served.append(app)
+    class ServerThatOnlyRecordsWhatItGot:
+        def __init__(self, config: uvicorn.Config) -> None:
+            assert isinstance(config.app, FastAPI)
+            self.app = config.app
 
-    environment.setattr(main.uvicorn, "run", serve)
+        async def serve(self) -> None:
+            served.append(self.app)
+
+    environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsWhatItGot)
 
     main.main()
 
@@ -137,29 +166,68 @@ def test_the_instance_key_is_never_shown() -> None:
 
 def a_signed_in_instance() -> TestClient:
     """The real stack with its admin created and its session open."""
-    instance = a_real_lobby()
-    instance.post(
-        "/setup",
-        data={
-            "username": _PERSON,
-            "password": _TYPED_WORDS,
-            "repeated_password": _TYPED_WORDS,
-        },
+    return signed_in(a_real_instance())
+
+
+def a_polled_source(environment: pytest.MonkeyPatch, remote: GitRemote) -> Instance:
+    """A real stack reading that remote, with the hook open under its secret."""
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
+    environment.setenv(
+        "PRESENTATOR_SOURCE_HOOK_SECRET",
+        _WHAT_THE_HOST_CARRIES,
     )
-    return instance
+    return a_real_instance()
 
 
-def test_the_real_stack_lists_a_deck_pushed_into_a_git_source(
+def call_the_hook(lobby: TestClient, *, carrying: str) -> Response:
+    return lobby.post(
+        f"{HOOKS_PATH}/{_SOURCE_NAME}",
+        headers={"authorization": f"Bearer {carrying}"},
+    )
+
+
+def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
 ) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
-    listed = a_signed_in_instance().get("/").text
+    before_the_tick = lobby.get("/").text
+    asyncio.run(instance.poller.tick())
+    after_the_tick = lobby.get("/").text
 
-    assert EXAMPLE_TITLE in listed
-    assert f'href="/deck/{EXAMPLE_SLUG}"' in listed
+    assert EXAMPLE_TITLE not in before_the_tick
+    assert EXAMPLE_TITLE in after_the_tick
+    assert f'href="/deck/{EXAMPLE_SLUG}"' in after_the_tick
+
+
+def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    lobby = signed_in(a_polled_source(environment, remote))
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    called = call_the_hook(lobby, carrying=_WHAT_THE_HOST_CARRIES)
+
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert EXAMPLE_TITLE in lobby.get("/").text
+
+
+def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    lobby = signed_in(a_polled_source(environment, remote))
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    refused = call_the_hook(lobby, carrying="guessed")
+
+    assert (refused.status_code, refused.content) == (HTTPStatus.NOT_FOUND, b"")
+    assert EXAMPLE_TITLE not in lobby.get("/").text
 
 
 def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
@@ -167,11 +235,12 @@ def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    instance = a_polled_source(environment, remote)
+    signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
     database = tmp_path / "presentator.sqlite3"
 
-    a_signed_in_instance().get("/")
+    asyncio.run(instance.poller.tick())
 
     kept = SqliteDeckStore(database=database).all()
     admin = SqliteUserStore(database).first_admin()
@@ -179,19 +248,37 @@ def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
     assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, admin.id)]
 
 
-def test_a_source_slower_than_its_bound_still_answers_the_deck_list(
+def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
 ) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
     environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
-    listed = a_signed_in_instance().get("/")
+    asyncio.run(instance.poller.tick())
+    listed = lobby.get("/")
 
     assert listed.status_code == HTTPStatus.OK
     assert EXAMPLE_TITLE not in listed.text
     assert "<table" not in listed.text
+
+
+def test_a_source_that_has_gone_away_still_leaves_its_decks_listed(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+    asyncio.run(instance.poller.tick())
+
+    shutil.rmtree(remote.bare)
+    listed = lobby.get("/")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE in listed.text
 
 
 @pytest.mark.usefixtures("environment")
