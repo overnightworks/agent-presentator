@@ -36,15 +36,23 @@ host > api | adapters > application > ports > contracts
 | `api` | FastAPI routes, WebSocket wire schemas | application, contracts |
 | `host` | composition root, configuration, startup | everything |
 
-Two rules narrow this further. A third-party library lives only in the adapter
-that owns it: nothing outside `adapters` imports a provider, an auth, a speech,
-or a database library. And neither a wire schema nor a route names a port type,
-so the shape a browser sees is decided by `api`, never leaked from a protocol
-definition.
+A third-party library lives only in the adapter that owns it: nothing outside
+`adapters` imports a provider, an auth, a speech, or a database library. And
+neither a wire schema nor a route names a port type, so the shape a browser sees
+is decided by `api`, never leaked from a protocol definition.
 
-`pyproject.toml` is the executable owner of these contracts;
-`uv run --locked lint-imports` runs them locally and in CI on every pull
-request.
+`pyproject.toml` is the executable owner, and
+`uv run --locked lint-imports` runs it locally and in CI on every pull request.
+What it proves today is the direction: one `layers` contract over `host`,
+`api`, `application`, `ports`, `contracts`, plus three `forbidden` contracts
+that keep `adapters` from reaching up, keep everything but `host` from naming an
+adapter, and keep `ports` out of `api`.
+
+The third-party rule is not yet in that file. Per
+[#3](https://github.com/overnightworks/agent-presentator/issues/3), a
+library's contract is written when that library is first imported, not
+speculatively before it exists. Until then the rule is a review question, and
+this record says so rather than claiming a gate that is not there.
 
 ## Consequences
 

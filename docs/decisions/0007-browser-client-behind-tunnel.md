@@ -48,10 +48,18 @@ co-presenter, never the talk.
 
 Audio streams as raw Int16 PCM over the per-run WebSocket of
 [ADR 0002](0002-server-owned-run.md). There is no second media transport and no
-codec: Media Source Extensions never accepted MP3, WebM/Opus would buy an
-encoder and a muxer for bandwidth this stream does not need, and PCM sidesteps
-the whole codec-support matrix. Ordering "slide changed" against "audio chunk n"
+codec: MP3 in Media Source Extensions is not portable — Firefox refuses it —
+WebM/Opus would buy an encoder and a muxer for bandwidth this stream does not
+need, and PCM sidesteps the whole codec-support matrix. Ordering "slide changed" against "audio chunk n"
 is free, because both arrive on the same socket.
+
+That socket must survive a talk, and an idle one does not survive by itself:
+`cloudflared` reaps an idle WebSocket in about a hundred seconds, and QUIC drops
+idle connections too. Application-level ping and pong on the run socket is
+therefore part of this decision, not later hardening. When the socket dies
+anyway — conference WiFi, a laptop sleeping — the client reconnects and resumes
+the run, which is possible because [ADR 0002](0002-server-owned-run.md) keeps
+the run and the connection as separate objects.
 
 Presenter and projector sync across machines comes from that same socket.
 Slidev exposes `addSyncMethod` as public API, so our addon registers the run
@@ -78,6 +86,11 @@ no view can start a competing voice.
 - The client owns a small amount of real audio machinery: an AudioWorklet
   player with a jitter buffer, gapless chunk scheduling, and an interrupt that
   both stops playback and tells the server to stop emitting.
+- Keepalive and resume are in the first slice that opens the socket. A run that
+  cannot be rejoined is a talk that ends when the network hiccups.
+- Cloudflare's plan limits on streaming through a public hostname are an
+  operations item to check before the first talk. Nothing here has measured
+  them, and a limit found on stage is found too late.
 
 ## Rejected alternatives
 
@@ -95,7 +108,7 @@ no view can start a competing voice.
 - **WebRTC for the audio path.** It is the obvious answer and the tunnel
   forbids it without TURN or an SFU. Its real advantage is loss concealment on
   a lossy link, which a one-way stream to one listener over TCP does not need.
-- **An encoded audio stream over MSE.** MP3 was never supported there, and
+- **An encoded audio stream over MSE.** MP3 there is not portable, and
   WebM/Opus adds an encoder, a muxer, and client state to save bandwidth that
   is not scarce.
 - **Slidev's built-in sync.** It is right for a dev server and degrades to

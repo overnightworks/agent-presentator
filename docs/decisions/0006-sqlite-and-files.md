@@ -56,9 +56,10 @@ replaceable if this decision's assumption ever stops holding.
 - **Postgres.** A second service and a second thing to operate, bought for
   concurrency that one operator does not generate.
 - **Redis.** Nothing here needs a shared in-memory store, and requiring one
-  would make the app un-runnable on a laptop; this is why
-  [ADR 0003](0003-libraries-for-models-and-auth.md) asks the session library for
-  a store without a Redis requirement.
+  would make the app un-runnable on a laptop. This rule survives contact with
+  `webauth`, whose session cache and rate limiter ship Redis implementations:
+  this product supplies SQLite ones behind the library's ports instead, and
+  [ADR 0003](0003-libraries-for-models-and-auth.md) owns which ports those are.
 - **A job queue.** A queue exists to defer work past the caller's patience. Here
   the caller is the operator on stage: nothing may be deferred, and a run that
   is not immediate has already failed.

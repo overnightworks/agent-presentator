@@ -20,6 +20,8 @@ number is never reused and never renumbered.
 - [ADR 0007: The client is the browser alone, reached through a Cloudflare tunnel, with a static build as fallback](0007-browser-client-behind-tunnel.md)
 - [ADR 0008: The lobby is server-rendered HTML with htmx, not an admin framework](0008-lobby-server-rendered.md)
 - [ADR 0009: German sentence boundaries come from a library; the incremental buffer is ours](0009-german-speech-text.md)
+- [ADR 0010: A reusable `gitmirror` package owns deck sources, mirroring them from any git remote](0010-git-sources-mirror.md)
+- [ADR 0011: An instance has accounts an admin creates; the AI subscriptions belong to the host](0011-instance-users.md)
 
 ## How to read a record
 

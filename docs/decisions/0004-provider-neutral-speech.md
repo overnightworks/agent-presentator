@@ -53,25 +53,36 @@ the machine.
 
 Until then, two bootstrap implementations stand in: edge-tts for the voice and
 the browser's own speech recognition for listening. They exist to make phases M1
-and M2 reachable, not because they are good enough.
+and M2 reachable, not because they are good enough. The bootstrap changes what
+the browser sends — transcripts in M2, PCM audio from M3 — which
+[ADR 0002](0002-server-owned-run.md) carries as two wire events.
 
-The first backends behind those ports are named, in order:
+The first backends behind those ports are named as an order to measure in, not
+as a result. Every one of them is unproven for this machine and this language
+until M3 says otherwise:
 
-- Voice: [CosyVoice2](https://github.com/QwenAudio/CosyVoice) (Apache-2.0)
-  behind its own streaming server; then
-  [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (MIT)
-  through a community server; then Piper with the Thorsten voice as the
-  low-latency degraded fallback.
+- Voice: the CosyVoice line behind its own streaming server. Upstream
+  [CosyVoice 2.0](https://github.com/QwenAudio/CosyVoice) documents Chinese,
+  English, Japanese, and Korean — not German — so the German candidate is
+  Fun-CosyVoice 3.0 or the CosyVoice2-EU adaptation, and which of them is
+  usable is part of the measurement. Then
+  [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (MIT,
+  German among its documented languages) through a community server. Then Piper
+  with the Thorsten voice, the one candidate whose German is not in question, as
+  the low-latency degraded fallback.
 - Listening: [RealtimeSTT](https://github.com/KoljaB/RealtimeSTT) (MIT) with the
   faster-whisper engine only. The engine is pinned and CI checks the licences of
   its optional engines, which otherwise pull in Porcupine, Parakeet and
-  `kroko_onnx`. Before M3 freezes, a measured spike puts Voxtral Mini 4B
-  Realtime on vLLM behind the same port.
+  `kroko_onnx`. Pinning faster-whisper is choosing chunked re-decode, which is
+  why the 0.5 s target in [VISION.md](../VISION.md) is flagged there. Before M3
+  freezes, a measured spike puts Voxtral Mini 4B Realtime on vLLM behind the
+  same port.
 
 Which of these wins is decided in M3 by measuring German quality and
 first-chunk latency on this 3090, against the latency targets in
-[VISION.md](../VISION.md). It is not decided by reading a claim, because none of
-the candidates publishes a German number worth trusting.
+[VISION.md](../VISION.md). It is not decided by reading a claim: no candidate
+here publishes a German number for this hardware, and the ones that publish
+German at all do not all publish it for the model the survey first named.
 
 **No wake word.** Listening starts from push-to-talk or an explicit listening
 state, never from a spoken trigger.

@@ -8,12 +8,17 @@ technical choice; those live in [decisions/README.md](decisions/README.md).
 
 The operator gives a talk from his company laptop with nothing but a browser.
 The Slidev deck lives on his home server. Per talk he can switch on an AI
-co-presenter — Claude, Codex, or Grok, through his own subscription — which
-speaks the slides with a streamed voice, navigates on its own, listens to the
-audience, and answers their questions.
+co-presenter — Claude, Codex, or Grok, through the instance host's own
+subscription — which speaks the slides with a streamed voice, navigates on its
+own, listens to the audience, and answers their questions.
 
 Everything works without the AI too. A static build plus a PDF export survives
 a dead tunnel.
+
+The operator is the person this is built for, and the tool is an instance with
+accounts rather than a program for one person: an admin creates users, decks and
+sources have owners, and someone else can host their own instance. What that
+means in detail is [ADR 0011](decisions/0011-instance-users.md).
 
 ## Why now
 
@@ -41,7 +46,11 @@ A target picture, not a status. What exists today is
 
 ## Latency targets
 
-- First audio output after a slide change: under 1 s.
+- First audio output after a slide change: under 1 s, on a prefetch hit. A jump
+  and a cold start are budgeted exceptions, not covered by this number; the
+  budgets are in [ADR 0002](decisions/0002-server-owned-run.md). The head
+  flagged this qualifier to the operator on 06.09.2026 rather than quietly
+  redefining the target.
 - First audio output of an answer: under 3 s.
 - Partial speech-to-text transcript: under 0.5 s.
 

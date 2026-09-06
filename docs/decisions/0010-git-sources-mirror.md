@@ -1,0 +1,122 @@
+# ADR 0010: A reusable `gitmirror` package owns deck sources, mirroring them from any git remote
+
+Audience: humans and agents adding a deck source, or building the second caller
+of this package.
+
+- Status: ACCEPTED 2026-09-06 — nothing built; source mirroring is phase M0 of
+  [VISION.md](../VISION.md)
+- Date: 2026-09-06
+- Decision authority: the operator's ruling of 2026-09-06 recorded on
+  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+- Neighbours: [ADR 0005](0005-deck-folder-and-slidev.md) owns what a deck is and
+  builds it; [ADR 0001](0001-enforced-layers.md) owns the boundary this package
+  sits beside
+
+## Context
+
+A deck is a folder in a git repository ([ADR 0005](0005-deck-folder-and-slidev.md)),
+and where that repository lives is not this product's business: a personal
+remote, a company one, or a bare repository on another machine. Tying the
+mechanism to one hosting product would decide where every future talk has to
+live.
+
+Mirroring a remote is also not a presentation problem. It is credentials,
+polling, a webhook, a fetch log, and an owner per source — the same problem
+atelier-2 has for its own sources. Songmaker already demonstrates the shape this
+should take: `acestep_engine` is an independent package inside its repository
+with an enforced import boundary, which is what let
+[songmaker #825](https://github.com/overnightworks/songmaker/issues/825) lift
+two libraries out later without a rewrite.
+
+## Decision
+
+`gitmirror` is an independent package in this repository, `src/gitmirror`, with
+its own top-level name. An import-linter contract forbids any import from
+`presentator`, so the dependency runs one way only. When a second caller
+arrives, the package moves to its own repository and is consumed by tag, exactly
+as `agent_providers` and `webauth` are ([ADR 0003](0003-libraries-for-models-and-auth.md)).
+
+It owns:
+
+- **A source as configuration** — a git URL plus a reference to one read-only
+  credential. Either a deploy key this server generates, whose private half
+  never leaves the server, or an HTTPS token the operator pastes, stored
+  encrypted and never shown again. Any git remote qualifies; no hosting product
+  is the default.
+- **Pull-based mirroring** — polling on an interval, plus a generic "fetch now"
+  webhook carrying its own per-source secret. That endpoint reads no payload
+  from its caller, which is what makes it host-neutral: the same URL works from
+  a hosted service, a self-hosted one, or a `post-receive` hook on a bare
+  repository. The mirror never writes back.
+- **A "commit arrived" event**, a connection check, secret rotation, a fetch
+  log, and an owner per source from day one.
+
+It does not own building. Turning a mirrored folder into a presentable deck is
+this product's job ([ADR 0005](0005-deck-folder-and-slidev.md)), and the deck
+build's container isolation is stated there.
+
+Credential vocabulary follows atelier-2's
+[ADR 0017](https://github.com/FlexOr2/atelier-2/blob/main/docs/decisions/0017-account-credential-model.md):
+the account holds the credential value, the application holds a reference to it.
+Using the same model from the start is what lets the two trees merge later
+without a translation layer.
+
+### Callers
+
+This product is the first caller. atelier-2 is the second, with two items —
+[#660](https://github.com/FlexOr2/atelier-2/issues/660) for definition sources
+(agents, skills, and workflows referenced from a git repository) and
+[#567](https://github.com/FlexOr2/atelier-2/issues/567) for project sources.
+Their needs are the contract the first cut must already satisfy, because a seam
+that ignores the known second caller is a rewrite:
+
+1. The "commit arrived" event carries the ref and the commit hash.
+2. The tree is readable at exactly that commit, as file bytes, with no
+   working-copy guarantee — so a caller can publish content-addressed revisions.
+3. Every source has an owner.
+4. The connection check returns a typed result — `ready`,
+   `credential-unresolvable`, or `unreachable` — never a string to be parsed.
+5. Secrets appear only as references, per atelier-2 ADR 0017.
+6. A secret rotates without downtime.
+
+Neither caller needs a write path. Pushing and opening pull requests stay
+atelier-2's own git-transport concern, and this product never writes back.
+
+### Deferred, with an owner
+
+For a company-internal git the home server cannot reach, the direction reverses:
+a bare repository exposed over HTTPS through the tunnel, behind `webauth` and
+Cloudflare Access ([ADR 0007](0007-browser-client-behind-tunnel.md)), that the
+operator pushes to from inside. It is owned by
+[#8](https://github.com/overnightworks/agent-presentator/issues/8), line 4a, and
+is not built here.
+
+## Consequences
+
+- The mirror is testable and shippable on its own, against a local bare
+  repository, with no presentation code in the loop.
+- The import boundary costs discipline now and buys the move later. It is the
+  same trade songmaker made, and the evidence there is that it paid.
+- Two callers means the first cut is designed against six external needs rather
+  than one product's convenience. That is more design work up front and less
+  rework than discovering them at the move.
+- Polling means a pushed change appears within minutes, not instantly, wherever
+  a source cannot call the webhook.
+- Holding an encrypted token means this product holds a secret at rest, with a
+  rotation path and a fetch log as the visible controls.
+
+## Rejected alternatives
+
+- **An OAuth or provider app installation.** It carries delegated user tokens
+  through a provider-specific flow, is usually write-capable when read is all
+  that is needed, and simply does not exist for a bare git repository — the case
+  a self-hosted tool has to cover.
+- **A webhook that parses a provider's payload.** It would work in one place. A
+  webhook that reads no payload works everywhere, and the per-source secret does
+  the authenticating either way.
+- **Building the mirror inside `presentator`.** It would be reachable from the
+  presentation layers, and the second caller would then get a rewrite instead of
+  a dependency.
+- **Waiting for the second caller before making it a package.** The boundary is
+  cheap to hold from the first line and expensive to retrofit; atelier-2's two
+  items are named callers today, not speculation.

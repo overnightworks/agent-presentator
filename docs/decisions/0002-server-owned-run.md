@@ -22,7 +22,7 @@ and the narration picks up where it stopped. Whoever holds that sequence holds
 the product.
 
 The version this repository replaces held it in the browser.
-`components/AiPresenter.vue` was 1,839 lines carrying 17 reactive refs and 21
+`components/AiPresenter.vue` was 1,839 lines carrying 19 reactive refs and 21
 module-level mutable variables — narration flags, echo timestamps, abort
 controllers, watchdog timers, a session counter to detect stale callback
 chains — each of which existed to keep two flags from disagreeing. A page reload
@@ -35,17 +35,46 @@ The run is a state machine in `application` on the server, with five states:
 `idle → narrating → listening → answering → resuming`
 
 The server decides every transition. The browser does two things: it renders the
-events the server sends, and it delivers microphone audio. It holds no
+events the server sends, and it delivers what the audience said. It holds no
 presentation state of its own and makes no decision about what happens next.
 
 One WebSocket carries one run, with typed events in both directions. A message
 is a named event with a payload, never an ad-hoc JSON shape agreed between two
 call sites.
 
-Narration for slide n+1 is generated while slide n is still being spoken. This
-is what buys the latency target in [VISION.md](../VISION.md) — first audio after
-a slide change under 1 s — because the next clip is already waiting when the
-slide turns.
+### What the browser sends, by phase
+
+The browser's input is not one thing. Until the local speech-to-text adapter of
+[ADR 0004](0004-provider-neutral-speech.md) exists, the M2 bootstrap uses the
+browser's own speech recognition and sends **transcripts**. From M3 it sends
+**PCM audio** and the server transcribes. These are two different wire events on
+the same socket, not one event whose payload changes meaning, and the run knows
+which one it is listening for.
+
+### The latency budget
+
+Narration for slide n+1 is generated while slide n is still being spoken, so on
+a prefetch hit the next clip is already waiting when the slide turns and first
+audio is bounded by playback start alone. That is the path the 1 s target in
+[VISION.md](../VISION.md) describes.
+
+Three paths miss that prefetch, and each is budgeted rather than assumed away:
+
+- **Cold start.** Slide 1 has no predecessor, so its narration is prefetched
+  when the run starts — while the operator is still opening the projector
+  window — not when he presses next.
+- **Skip or jump.** A named miss. Its cost is the model's first token, plus one
+  trailing token for the sentence splitter of
+  [ADR 0009](0009-german-speech-text.md), plus the first chunk from the voice,
+  plus the tunnel, plus the client's jitter buffer
+  ([ADR 0007](0007-browser-client-behind-tunnel.md)). It is not covered by the
+  1 s target, and the operator sees a thinking state rather than silence.
+- **An answer.** No prefetch is possible: the question is not known in advance.
+  The same chain runs, which is why the answer target is 3 s and not 1 s.
+
+Until M3 the voice is edge-tts, a network call from the home server
+([ADR 0004](0004-provider-neutral-speech.md)), so every one of these budgets is
+provisional until measured on the real machine.
 
 Owning the loop does not mean owning what the loop is made of. Two pieces are
 taken from [Pipecat](https://github.com/pipecat-ai/pipecat) (BSD-2-Clause) as
@@ -63,6 +92,9 @@ interruption as "drop the queued speech frames" rather than as a flag.
   lived in the page.
 - Prefetching spends model tokens and time on a slide that the operator may skip
   past. That is the accepted cost of the latency target.
+- The browser has two input modes across the phases, so the wire schema carries
+  both events from the start and the M3 work is an adapter, not a protocol
+  change.
 - The server holds a live session per run. The WebSocket connection and the run
   state must not be the same object, or a dropped connection kills the talk.
 - Turn-taking, interruption, and endpointing are ours to get right. That is real
