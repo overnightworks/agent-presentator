@@ -174,15 +174,18 @@ header {
   border-bottom: 1px solid var(--line-soft);
 }
 
-/* The picture's login form is a fixed 320px column
+/* The picture's sign-in form is a fixed 320px column
  * (docs/mockups/m0-lobby.html, `.login-card { width: 320px; }`), not the
  * wider illustrative frame drawn around it for the annotation sheet. Pico's
  * own `body>main` breakpoints would otherwise widen toward the viewport, so
- * this repeats the same selector Pico grows `main` through, at every
- * breakpoint, to hold it at that width instead; the page background stays
- * full width because only `main` is targeted, not `body`.
+ * this holds it at that width instead; the page background stays full width
+ * because only `main` is targeted, not `body`.
+ *
+ * A page asks for the column, rather than every page getting it: the picture
+ * gives that width to the sign-in card alone, and a deck list squeezed into it
+ * would read as a card floating in an empty page.
  */
-body > main {
+body > main[data-column] {
   max-width: 20rem;
 }
 
@@ -197,6 +200,35 @@ header [type="submit"],
 header [type="submit"]:is(:hover, :active, :focus) {
   background-color: transparent;
   border: none;
+  margin: 0;
   padding: 0;
   color: var(--ink-soft);
+}
+
+/* Pico's spacing below a form and below a button is meant for a page's flow.
+ * In the header's single centred row it only lifts the log-out control off the
+ * baseline of the person's name it stands beside.
+ */
+header nav form {
+  margin-bottom: 0;
+}
+
+/* The picture writes a deck's folder under its title in plain monospace: it is
+ * the address to recognise, not a code sample lifted out of the page. The
+ * chip Pico draws around `code` stays wherever a fragment is quoted on its own,
+ * as the empty list quotes the git address.
+ */
+td code {
+  background: none;
+  color: var(--ink-soft);
+  display: block;
+  font-size: 0.875em;
+  padding: 0;
+}
+
+/* A git address has no spaces to break at, so it must break anywhere rather
+ * than run out of the page on a phone.
+ */
+main code {
+  overflow-wrap: anywhere;
 }
