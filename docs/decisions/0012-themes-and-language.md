@@ -8,6 +8,8 @@ Audience: humans and agents writing any user-facing string or any colour.
   Amended again 2026-09-06: theme lives in the person menu; there is no
   standalone header-bar toggle
   ([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22).
+  Amended 2026-09-07: the lobby's one token file is the vendored
+  `overnightworks/ui-tokens` pin; leftover Pico chrome is not a second theme.
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06, including
   [#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22
@@ -37,6 +39,16 @@ named below rather than papered over with a promise.
 The lobby is styled only through design tokens — colour, type, spacing, and
 state colours — defined once. A theme is one token file. Switching a theme or
 adding one is configuration, not code, and no template names a colour.
+
+That token file is the vendored pin of
+[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
+(`src/presentator/api/static/ui-tokens.css`, currently v0.1.0). `lobby.css`
+is this product's Pico bridge and leftover chrome — page layout, Pico
+theming, `[data-state]` and the rest of the first theme's overlays — not a
+second theme. The settings grammar classes in the package have no markup
+caller here yet; Settings Users
+([#61](https://github.com/overnightworks/agent-presentator/issues/61))
+adopts `.list-head` / `nav.tabs` / `.rows` on Settings and Account.
 
 The co-presenter overlay in the Slidev addon reads the same token file. Lobby
 and overlay share the same active theme — one token file on both surfaces —
