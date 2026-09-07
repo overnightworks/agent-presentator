@@ -57,7 +57,8 @@ mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech servic
 The overlay is off until the Presenter switch is turned on. Off, it neither
 listens nor speaks and the microphone is released. Off during activation
 releases anything that activation later obtains. Off during playback stops the
-audio at once.
+audio at once. A closed hearing socket falls back to the browser's own
+recognition and releases a microphone that arrives after that.
 
 ## How to run it with the speech service
 

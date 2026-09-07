@@ -190,6 +190,82 @@ def _drive_socket_close(page) -> dict[str, object]:
     }
 
 
+def _drive_late_microphone_after_fallback(page) -> dict[str, object]:
+    page.evaluate(
+        """() => {
+            const devices = navigator.mediaDevices
+            const original = devices.getUserMedia.bind(devices)
+            let release
+            let pendingFirst = true
+            const gate = new Promise((resolve) => { release = resolve })
+            window.__releaseDelayedMic = () => release()
+            window.__delayedMicStream = null
+            devices.getUserMedia = async (constraints) => {
+                if (!pendingFirst) return original(constraints)
+                pendingFirst = false
+                await gate
+                const stream = await original(constraints)
+                window.__delayedMicStream = stream
+                return stream
+            }
+            window.__restoreGetUserMedia = () => {
+                devices.getUserMedia = original
+            }
+        }"""
+    )
+    try:
+        page.evaluate("() => window.__copresenter.setOn(true)")
+        page.wait_for_function(
+            "() => window.__copresenter.snapshot().on === true"
+            " && window.__copresenter.snapshot().hearing === 'local'"
+            " && window.__copresenter.snapshot().hearOpen === true"
+        )
+        page.evaluate("() => window.__copresenter.closeHear()")
+        page.wait_for_function(
+            """() => {
+                const snap = window.__copresenter.snapshot()
+                return snap.on === true && snap.hearing !== 'local' && Boolean(snap.error)
+            }""",
+            timeout=10000,
+        )
+        page.evaluate("() => window.__releaseDelayedMic()")
+        page.wait_for_function(
+            """() => {
+                const stream = window.__delayedMicStream
+                return Boolean(stream)
+                    && stream.getTracks().length > 0
+                    && stream.getTracks().every((track) => track.readyState === 'ended')
+            }""",
+            timeout=10000,
+        )
+        snap = page.evaluate(
+            """() => {
+                const stream = window.__delayedMicStream
+                const tracks = stream ? stream.getTracks() : []
+                const current = window.__copresenter.snapshot()
+                return {
+                    on: current.on,
+                    hearing: current.hearing,
+                    hearOpen: current.hearOpen,
+                    micLive: current.micLive,
+                    workletLive: current.workletLive,
+                    error: current.error,
+                    lateTracksEnded: tracks.length > 0
+                        && tracks.every((track) => track.readyState === 'ended'),
+                }
+            }"""
+        )
+        page.evaluate("() => window.__copresenter.setOn(false)")
+        return snap
+    finally:
+        page.evaluate(
+            """() => {
+                if (window.__releaseDelayedMic) window.__releaseDelayedMic()
+                if (window.__restoreGetUserMedia) window.__restoreGetUserMedia()
+            }"""
+        )
+
+
 def _drive_against_speech(page, talk_url: str) -> dict[str, object]:
     page.goto(talk_url, wait_until="networkidle")
     _wait_ready(page)
@@ -197,11 +273,13 @@ def _drive_against_speech(page, talk_url: str) -> dict[str, object]:
     off_activation = _drive_off_during_activation(page)
     off_playback = _drive_off_during_playback(page)
     closed = _drive_socket_close(page)
+    late_microphone = _drive_late_microphone_after_fallback(page)
     return {
         "loop": loop,
         "off_during_activation": off_activation,
         "off_during_playback": off_playback,
         "socket_close": closed,
+        "late_microphone": late_microphone,
     }
 
 
@@ -277,15 +355,23 @@ def _ok_standin(result: dict[str, object]) -> bool:
     off_act = result["off_during_activation"]
     off_play = result["off_during_playback"]
     closed = result["socket_close"]
-    if not loop.get("heard") or not loop.get("answer") or not loop.get("audioSeconds"):
-        return False
-    if loop.get("off", {}).get("on") is not False:
-        return False
-    if off_act.get("on") or off_act.get("hearOpen") or off_act.get("micLive"):
-        return False
-    if off_play.get("on") or off_play.get("audioPlaying") or off_play.get("speaking"):
-        return False
-    return bool(closed.get("error"))
+    late = result["late_microphone"]
+    loop_ok = bool(loop.get("heard") and loop.get("answer") and loop.get("audioSeconds"))
+    off_ok = loop.get("off", {}).get("on") is False
+    activation_ok = not (off_act.get("on") or off_act.get("hearOpen") or off_act.get("micLive"))
+    playback_ok = not (
+        off_play.get("on") or off_play.get("audioPlaying") or off_play.get("speaking")
+    )
+    closed_ok = bool(closed.get("error"))
+    late_ok = (
+        late.get("on") is True
+        and late.get("hearing") == "browser"
+        and not late.get("micLive")
+        and not late.get("workletLive")
+        and not late.get("hearOpen")
+        and bool(late.get("lateTracksEnded"))
+    )
+    return loop_ok and off_ok and activation_ok and playback_ok and closed_ok and late_ok
 
 
 def _browser_proof(talk_url: str, present_url: str) -> tuple[dict[str, object], bool]:
@@ -322,6 +408,7 @@ def _browser_proof(talk_url: str, present_url: str) -> tuple[dict[str, object], 
         "off_during_activation": result["off_during_activation"],
         "off_during_playback": result["off_during_playback"],
         "socket_close": result["socket_close"],
+        "late_microphone": result["late_microphone"],
         "speech_8090": speech_8090,
         "who": who,
         "answerer": "canned",

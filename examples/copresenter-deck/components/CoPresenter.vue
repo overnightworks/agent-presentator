@@ -54,6 +54,7 @@ function snapshot() {
     hearOpen: Boolean(hearSocket && hearSocket.readyState === WebSocket.OPEN),
     speaking: speaking.value,
     micLive: tracks.some((track) => track.readyState === 'live'),
+    workletLive: Boolean(workletNode),
     audioPlaying: Boolean(activeAudio && !activeAudio.paused && !activeAudio.ended),
   }
 }
@@ -218,6 +219,7 @@ function bindHearSocket(socket, generation) {
 }
 
 function fallbackHear(message) {
+  activationGeneration += 1
   releaseCapture()
   if (!on.value) return
   error.value = message
