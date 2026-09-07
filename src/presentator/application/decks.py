@@ -18,9 +18,17 @@ from presentator.contracts.decks import (
     DeckPage,
     ListedDeck,
     Source,
+    SourceRun,
+    SourceRunOutcome,
 )
 from presentator.ports.clock import Clock
-from presentator.ports.decks import BuildRunner, DeckFolders, DeckStore, SourceStore
+from presentator.ports.decks import (
+    BuildRunner,
+    DeckFolders,
+    DeckStore,
+    SourceRuns,
+    SourceStore,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -54,6 +62,7 @@ class Decks:
     folders: DeckFolders
     store: DeckStore
     builder: BuildRunner
+    source_runs: SourceRuns
     clock: Clock
     _one_at_a_time: Lock = field(default_factory=Lock)
 
@@ -179,12 +188,28 @@ class Decks:
         deck it was. A source nobody could read carries no such news, and leaves
         every deck where it is. A folder whose name another source already
         carries is skipped too: the slug is the address of one deck on this
-        instance, and the source that carried it first keeps it.
+        instance, and the source that carried it first keeps it. Whatever the
+        poll found or failed to is recorded as this source's newest run, so a
+        board can show that the mechanism ran and what it saw.
         """
-        carried = self.folders.folders(source)
-        if carried is None:
+        at = self.clock.now()
+        poll = self.folders.folders(source)
+        self.source_runs.record(
+            SourceRun(
+                source_id=source.id,
+                at=at,
+                outcome=(
+                    SourceRunOutcome.FAILURE
+                    if poll.folders is None
+                    else SourceRunOutcome.SUCCESS
+                ),
+                commit=poll.commit,
+                reason=poll.failure,
+            ),
+        )
+        if poll.folders is None:
             return
-        for folder in carried:
+        for folder in poll.folders:
             if not _is_a_plain_folder_name(folder.name):
                 _log.warning(_NOT_A_FOLDERS_OWN_NAME, folder.name)
                 continue
@@ -204,9 +229,9 @@ class Decks:
             if not taken_in:
                 _log.warning(_NAME_BELONGS_TO_ANOTHER_SOURCE, folder.name, source.name)
         self.store.mark_removed_except(
-            present=frozenset(folder.name for folder in carried),
+            present=frozenset(folder.name for folder in poll.folders),
             source_id=source.id,
-            at=self.clock.now(),
+            at=at,
         )
 
     def _build_what_changed(self, source: Source) -> None:

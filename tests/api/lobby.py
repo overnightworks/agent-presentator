@@ -33,6 +33,7 @@ from tests.application.fakes import (
     FakeLoginAttemptStore,
     FakePersonPreferencesStore,
     FakeSessionRecordStore,
+    FakeSourceRunStore,
     FakeSourceStore,
     FakeUserStore,
     FrozenClock,
@@ -159,6 +160,7 @@ def a_lobby(
         # Nothing builds at this layer: a test arranges the build its deck
         # delivers from, the way it arranges the row.
         builder=FakeBuildRunner(fails=True),
+        source_runs=FakeSourceRunStore(),
         clock=clock,
     )
     # The list and the deck page read the store only; a test arranges what a

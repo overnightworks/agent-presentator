@@ -8,7 +8,14 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Protocol
 
-from presentator.contracts.decks import Artefacts, Build, Deck, DeckFolder, Source
+from presentator.contracts.decks import (
+    Artefacts,
+    Build,
+    Deck,
+    Source,
+    SourcePoll,
+    SourceRun,
+)
 
 
 class SourceStore(Protocol):
@@ -32,13 +39,30 @@ class DeckFolders(Protocol):
     """Reads the folders a source carries, without deciding what a deck is."""
 
     @abstractmethod
-    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
-        """Every folder at the source's newest commit, or nothing when it is unreadable.
+    def folders(self, source: Source) -> SourcePoll:
+        """Poll the source for its newest folders, and the commit reached.
 
-        Nothing is not emptiness: a source nobody could read says nothing about
-        what it carries, while a read that found no folder says every deck is
-        gone.
+        No folder is not emptiness: a source nobody could read carries no
+        folders and names why, while a read that found no folder carries an
+        empty tuple and says every deck is gone.
         """
+
+
+class SourceRuns(Protocol):
+    """Every source's history of polls, one row per attempt, kept forever.
+
+    Named here only what a caller needs today: recording every run, and
+    reading the newest one for a board to show whether a source is working.
+    Reading the fuller history is added once something asks for it.
+    """
+
+    @abstractmethod
+    def record(self, run: SourceRun) -> None:
+        """Add this run to that source's history, without replacing an older one."""
+
+    @abstractmethod
+    def newest(self, source_id: str) -> SourceRun | None:
+        """That source's newest run, or nothing while it has never been polled."""
 
 
 class DeckStore(Protocol):

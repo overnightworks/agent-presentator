@@ -113,7 +113,12 @@ an unknown source, and any other path there answer alike. That address exists
 only while a secret of at least 32 characters arms it, and only that one POST
 is open — everything else under it stays behind the login, as does every
 address on an instance that carries no hook secret. A flood of calls collapses
-into the one refresh that runs at a time. Opening the deck list only reads the
+into the one refresh that runs at a time. Every poll of a source, reachable or
+not, records one run: the moment, whether it reached the source, and either the
+commit it found or a typed reason it did not — never the raw error a git
+command left behind. A source's newest run is what a future board reads to show
+whether it is working; every run before that stays in the table too, with
+nothing yet trimming it. Opening the deck list only reads the
 database. A source that cannot be read is logged and says nothing about what it
 carries, so every deck stays listed; a folder whose manifest cannot be read is
 logged too and counts as a folder without a title, so the deck row it belongs to
@@ -136,9 +141,10 @@ there is no upload, no editing, and no way to add a source in the lobby
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
 There is no Sources page yet, a source's secret is still the environment
-variable its row names, and removing a source, the fetch log and build states
-are open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8).
+variable its row names, and removing a source and build states are open on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8). Nothing
+prunes a source's older runs yet, so the table grows without bound; that is
+open on #8 (slice 12.6).
 
 ### A deck's page, and the talk behind it
 

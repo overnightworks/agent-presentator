@@ -14,6 +14,8 @@ from presentator.contracts.decks import (
     DeckPage,
     ListedDeck,
     Source,
+    SourceRunFailure,
+    SourceRunOutcome,
 )
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
@@ -22,6 +24,7 @@ from tests.application.fakes import (
     FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeSourceRunStore,
     FakeSourceStore,
     FrozenClock,
     HeldDeckFolders,
@@ -90,7 +93,25 @@ def decks_over(
         folders=carrying(*folders) if mirror is None else mirror,
         store=FakeDeckStore() if store is None else store,
         builder=FakeBuildRunner() if builder is None else builder,
+        source_runs=FakeSourceRunStore(),
         clock=FrozenClock(instant=_NOW) if clock is None else clock,
+    )
+
+
+def decks_recording_into(
+    run_store: FakeSourceRunStore,
+    *,
+    mirror: FakeDeckFolders,
+    sources: FakeSourceStore | None = None,
+) -> Decks:
+    """A use case whose recorded runs a test can read back after a refresh."""
+    return Decks(
+        sources=having(_SOURCE) if sources is None else sources,
+        folders=mirror,
+        store=FakeDeckStore(),
+        builder=FakeBuildRunner(),
+        source_runs=run_store,
+        clock=FrozenClock(instant=_NOW),
     )
 
 
@@ -543,3 +564,62 @@ def test_a_source_that_cannot_be_read_stops_no_other_sources_refresh() -> None:
         "kundenfeedback",
         "pushed-while-the-other-was-unreadable",
     ]
+
+
+def test_a_poll_that_reaches_a_source_records_a_run_carrying_its_commit() -> None:
+    run_store = FakeSourceRunStore()
+    mirror = FakeDeckFolders(
+        carried={_SOURCE.id: (a_folder("kundenfeedback"),)},
+        commits={_SOURCE.id: _COMMIT},
+    )
+    decks = decks_recording_into(run_store, mirror=mirror)
+
+    decks.refresh()
+
+    run = run_store.newest(_SOURCE.id)
+    assert run is not None
+    assert run.source_id == _SOURCE.id
+    assert run.outcome is SourceRunOutcome.SUCCESS
+    assert run.commit == _COMMIT
+    assert run.reason is None
+
+
+def test_an_unreachable_source_records_a_failed_run_naming_why() -> None:
+    run_store = FakeSourceRunStore()
+    mirror = FakeDeckFolders(
+        carried={_SOURCE.id: None},
+        failures={_SOURCE.id: SourceRunFailure.CREDENTIAL_UNRESOLVABLE},
+    )
+    decks = decks_recording_into(run_store, mirror=mirror)
+
+    decks.refresh()
+
+    run = run_store.newest(_SOURCE.id)
+    assert run is not None
+    assert run.outcome is SourceRunOutcome.FAILURE
+    assert run.commit is None
+    assert run.reason is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
+
+
+def test_each_sources_run_is_recorded_under_its_own_id() -> None:
+    run_store = FakeSourceRunStore()
+    mirror = FakeDeckFolders(
+        carried={
+            _SOURCE.id: (a_folder("kundenfeedback"),),
+            _ANOTHER_SOURCE.id: None,
+        },
+    )
+    decks = decks_recording_into(
+        run_store,
+        mirror=mirror,
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+    )
+
+    decks.refresh()
+
+    first_run = run_store.newest(_SOURCE.id)
+    second_run = run_store.newest(_ANOTHER_SOURCE.id)
+    assert first_run is not None
+    assert second_run is not None
+    assert first_run.outcome is SourceRunOutcome.SUCCESS
+    assert second_run.outcome is SourceRunOutcome.FAILURE

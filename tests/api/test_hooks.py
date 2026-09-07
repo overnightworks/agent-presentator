@@ -26,6 +26,7 @@ from tests.application.fakes import (
     FakeLoginAttemptStore,
     FakePersonPreferencesStore,
     FakeSessionRecordStore,
+    FakeSourceRunStore,
     FakeSourceStore,
     FakeUserStore,
     FrozenClock,
@@ -85,6 +86,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
         folders=FakeDeckFolders(carried={source.id: (a_pushed_folder(),)}),
         store=store,
         builder=FakeBuildRunner(),
+        source_runs=FakeSourceRunStore(),
         clock=clock,
     )
     lobby = create_lobby(
