@@ -1,0 +1,8 @@
+claim_id = "f909be95e40e4395a6bec690742b7146"
+agent = "Claude head"
+role = "coordinator"
+base = "b77951fe2da83a994865cf310b82a4c570b4387f"
+branch = "claude/issue-40-build"
+scope = ["src/presentator", "src/gitmirror", "tests", "docs/PRODUCT.md", "docs/OPERATIONS.md"]
+opened_commit = "bea7c7439b839f9250cfc495472683576a50606a"
+whole_reason = "The build, the export, the atomic switch and the change check are one promise of line 2."
