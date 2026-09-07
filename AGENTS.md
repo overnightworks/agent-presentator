@@ -11,7 +11,7 @@ operator wants from it; `docs/PRODUCT.md` owns implementation status;
 `docs/decisions/README.md` owns technical decision records; `README.md` is the
 human entry point to those owners.
 
-Repository edits use the globally installed `agent-claim` CLI. A subagent stays
+Repository edits use the globally installed `aco` (`agent-coordination`) CLI. A subagent stays
 within its parent head's current claimed scope; the CLI owns the protocol.
 
 Never run `git stash` in a worktree: one stash stack is shared by every worktree
