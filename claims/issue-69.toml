@@ -1,0 +1,8 @@
+claim_id = "61b08821c7ff44c182b88f375412060c"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "c78dbbab7e9202047ce92b15f2c29ba2da80ebeb"
+branch = "claude/issue-69-sandbox"
+scope = ["src/presentator/adapters/builds.py", "Dockerfile", "compose.yaml", "docs", "tests/adapters/test_builds.py"]
+opened_commit = "9fb08fc315d6779ee0ce73a533b5452b5e6f337f"
+whole_reason = "The build container, the adapter that drives it and the documents that stop calling it a gap are one landing."
