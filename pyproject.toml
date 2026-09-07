@@ -69,6 +69,11 @@ ignore = [
     "CPY001",
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"webauth.passwords".msg = "Hashing is the adapter's; the host names the hasher."
+"webauth.middleware".msg = "This lobby's CSRF and session guards stay in presentator.api.auth."
+"webauth.dependencies".msg = "The 401 dependency is not this lobby's session guard."
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
@@ -243,8 +248,8 @@ type = "forbidden"
 # routes call judge_credentials and login_attempt_budget and must read the
 # installed config and client identity those helpers need (webauth.login,
 # webauth.config, webauth.proxies). Import Linter cannot forbid a subset of
-# an external package's modules, so the host and a review keep hashing,
-# middleware, liveness, and the ports out of the api.
+# an external package's modules; ruff's banned-api holds hashing,
+# middleware, and the 401 dependency.
 source_modules = [
     "presentator.application",
     "presentator.ports",

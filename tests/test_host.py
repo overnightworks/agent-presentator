@@ -18,6 +18,7 @@ from presentator.adapters.decks import SqliteDeckStore
 from presentator.adapters.identity import SqliteUserStore
 from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import HOOKS_PATH
+from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.host import main
 from presentator.host.config import (
     SECRET_LENGTH,
@@ -37,6 +38,10 @@ _ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
 _ANOTHER_SOURCE_NAME = "more-talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
+_PEER = "127.0.0.1"
+_FORWARDED_CLIENT = "203.0.113.10"
+_ANOTHER_CLIENT = "198.51.100.20"
+_WRONG_WORDS = "guessed"
 
 
 @pytest.fixture
@@ -99,6 +104,101 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
     assert len(served) == 1
     assert TestClient(served[0]).get("/login").is_success
+
+
+def test_the_server_does_not_rewrite_the_client_from_forwarded_headers(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[uvicorn.Config] = []
+
+    class ServerThatOnlyRecordsWhatItGot:
+        def __init__(self, config: uvicorn.Config) -> None:
+            recorded.append(config)
+
+        async def serve(self) -> None:
+            return
+
+    environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsWhatItGot)
+
+    main.main()
+
+    assert recorded[0].proxy_headers is False
+
+
+def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
+    """A browser whose ASGI peer is an address, so a proxy list can trust it."""
+    return TestClient(instance.lobby, follow_redirects=False, client=(peer, 50000))
+
+
+def an_admin_signed_out(instance: Instance) -> TestClient:
+    """The real stack with its admin created and its session ended."""
+    lobby = a_browser(instance)
+    lobby.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+    )
+    lobby.post("/logout")
+    return lobby
+
+
+def spend_the_address_budget(lobby: TestClient, *, forwarded: str) -> None:
+    """Refuse under distinct names, so only this address is spent."""
+    for index in range(FAILURES_BEFORE_THROTTLE):
+        lobby.post(
+            "/login",
+            data={"username": f"nobody-{index}", "password": _WRONG_WORDS},
+            headers={"x-forwarded-for": forwarded},
+        )
+
+
+@pytest.mark.usefixtures("environment")
+def test_without_trusted_proxies_the_login_budget_keys_on_the_peer() -> None:
+    lobby = an_admin_signed_out(a_real_instance())
+    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
+
+    still_the_peer = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _ANOTHER_CLIENT},
+    )
+
+    assert still_the_peer.status_code == HTTPStatus.OK
+    assert SESSION_COOKIE not in still_the_peer.cookies
+
+
+def test_a_trusted_proxy_makes_the_forwarded_client_the_one_the_budget_counts(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
+    lobby = an_admin_signed_out(a_real_instance())
+    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
+
+    same_client = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _FORWARDED_CLIENT},
+    )
+    other_client = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _ANOTHER_CLIENT},
+    )
+
+    assert same_client.status_code == HTTPStatus.OK
+    assert other_client.status_code == HTTPStatus.SEE_OTHER
+
+
+def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", "not-an-address")
+
+    with pytest.raises(ConfigurationError, match="trusted_proxies"):
+        load_settings()
 
 
 @pytest.mark.usefixtures("environment")

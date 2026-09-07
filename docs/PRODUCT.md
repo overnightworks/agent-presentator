@@ -37,19 +37,19 @@ yet. `/login` opens a session that SQLite holds, carried by a signed cookie
 that expires after twelve idle hours and slides forward on every request.
 `webauth` v0.2.0 owns that mechanism: it judges credentials, counts the
 throttle, signs the cookie, and decides whether the idle window still holds.
-Wrong name, wrong password, a deactivated account, and too many attempts
-answer with one sentence — never a per-outcome status or message. Logging out
-is a POST that deletes the session row. Every other address, known or not,
-answers a redirect to the login until someone is signed in, and no answer may
-be replayed from the browser cache. A form another site submitted is refused
+Wrong name, wrong password, and too many attempts answer with one sentence —
+never a per-outcome status or message. Logging out is a POST that deletes the
+session row. Every other address, known or not, answers a redirect to the
+login until someone is signed in, and no answer may be replayed from the
+browser cache. A form another site submitted is refused
 by Origin and `Sec-Fetch-Site` against this instance's own origin; first start
 and login are answered without a cookie, so `SameSite` does not cover them.
 
 The SQLite stores, the Argon2id hasher, first start, and the 302 to `/login`
 stay this repository's
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),
-[ADR 0011](decisions/0011-instance-users.md)). User management waits on
-`webauth` v0.3.0 and
+[ADR 0011](decisions/0011-instance-users.md)). User management, including
+deactivation, waits on `webauth` v0.3.0 and
 [#61](https://github.com/overnightworks/agent-presentator/issues/61). How an
 instance is started is [OPERATIONS.md](OPERATIONS.md).
 

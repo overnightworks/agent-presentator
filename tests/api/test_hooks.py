@@ -111,7 +111,10 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
             ),
             age_in_words=age_in_words,
         ),
-        auth=InstalledAuth(config=a_web_auth(hasher=hasher)),
+        auth=InstalledAuth(
+            config=a_web_auth(hasher=hasher),
+            secure_cookies=False,
+        ),
         fetch_hook=(
             fetch_hook(
                 decks=decks,

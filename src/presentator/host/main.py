@@ -81,7 +81,12 @@ def build_instance(settings: Settings) -> Instance:
     clock = SystemClock()
     hasher = Argon2PasswordHasher()
     liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
-    web_auth = _web_auth_config(settings.secret_key, hasher=hasher, liveness=liveness)
+    web_auth = _web_auth_config(
+        settings.secret_key,
+        hasher=hasher,
+        liveness=liveness,
+        trusted_proxies=settings.trusted_proxies,
+    )
     identity = Identity(
         users=accounts,
         sessions=SqliteSessionRecordStore(settings.database, clock=clock),
@@ -159,13 +164,14 @@ def _web_auth_config(
     *,
     hasher: Argon2PasswordHasher,
     liveness: IdleWindowLiveness,
+    trusted_proxies: str,
 ) -> WebAuthConfig:
     """The library configuration this host runs: Argon2id, no Redis, last_seen."""
     idle_seconds = int(IDLE_WINDOW.total_seconds())
     failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
         session_secret=secret,
-        trusted_proxies=TrustedProxies(),
+        trusted_proxies=TrustedProxies.parse(trusted_proxies),
         password_hasher=hasher,
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset(),
@@ -202,7 +208,12 @@ def main() -> None:
 async def _serve(instance: Instance, settings: Settings) -> None:
     """Poll for as long as the server answers, and stop with it."""
     server = uvicorn.Server(
-        uvicorn.Config(instance.lobby, host=settings.host, port=settings.port),
+        uvicorn.Config(
+            instance.lobby,
+            host=settings.host,
+            port=settings.port,
+            proxy_headers=False,
+        ),
     )
     async with instance.poller.polling():
         await server.serve()

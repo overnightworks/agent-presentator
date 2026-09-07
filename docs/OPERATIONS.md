@@ -10,7 +10,8 @@ In development it lives in a gitignored `.env` at the repository root; on the
 server it comes from the process environment. A refusal names the setting and
 what is wrong with it, never the value it was given, so a mistyped secret does
 not land in the startup output. Five refused logins for one name inside five
-minutes are throttled; the page says the same sentence it says for a wrong
+minutes, and five failures from one address inside five minutes regardless of
+name, are throttled; the page says the same sentence it says for a wrong
 password. A session lasts twelve idle hours and slides forward on every
 request; logging out deletes the row.
 
@@ -22,9 +23,18 @@ uv run agent-presentator
 The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
 SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
 mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HTTPS` (marks the
-session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
-`PRESENTATOR_PORT` (`8000`). An empty instance offers `/setup` once, to create
-the admin; from then on that page is closed.
+session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`),
+`PRESENTATOR_PORT` (`8000`), and `PRESENTATOR_TRUSTED_PROXIES` (empty: a
+comma-separated list of addresses or networks). An empty instance offers
+`/setup` once, to create the admin; from then on that page is closed.
+
+The address budget keys on the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
+is correct for a direct run. Behind the tunnel of
+[ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
+connects from localhost, so that peer is `127.0.0.1` and every login through
+the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
+(`127.0.0.1`) so the library reads `X-Forwarded-For` and the budget keys on
+the browser's address.
 
 Starting an instance creates the tables it needs, and changes in place what it
 finds: a file written before a source was a row of its own keeps its decks and

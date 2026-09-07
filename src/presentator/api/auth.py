@@ -97,7 +97,7 @@ class InstalledAuth:
     """The library configuration and the cookie flags this host chose."""
 
     config: WebAuthConfig
-    secure_cookies: bool = False
+    secure_cookies: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
