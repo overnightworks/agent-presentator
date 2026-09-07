@@ -25,6 +25,8 @@ _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
+_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+_A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
 
 def a_source(url: str, *, credential: str | None = None) -> Source:
@@ -45,6 +47,17 @@ def folders_under(
         mirrors=tmp_path / "mirrors",
         credentials=EnvironmentCredentials(),
         pull_timeout=pull_timeout,
+    )
+
+
+def a_deck(*, title: str, commit: str = _COMMIT) -> Deck:
+    return Deck(
+        slug="kundenfeedback",
+        title=title,
+        changed_at=_PUSHED_AT,
+        owner_id=_OWNER.id,
+        commit=commit,
+        active_build=None,
     )
 
 
@@ -69,6 +82,7 @@ def test_a_pushed_deck_folder_is_read_with_its_title_and_its_change_time(
     assert read.title == EXAMPLE_TITLE
     assert {MANIFEST_FILE, SLIDES_FILE} <= read.file_names
     assert read.changed_at == _PUSHED_AT
+    assert read.commit == remote.head
 
 
 def test_a_folder_without_a_manifest_is_read_without_a_title(
@@ -168,32 +182,43 @@ def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
     tmp_path: Path,
 ) -> None:
     store = a_deck_store(tmp_path)
-    store.put(
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
-    )
+    store.put(a_deck(title="Kundenfeedback"))
 
-    store.put(
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback Q3",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
-    )
+    store.put(a_deck(title="Kundenfeedback Q3", commit=_A_LATER_COMMIT))
 
-    assert store.all() == (
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback Q3",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
-    )
+    kept = a_deck(title="Kundenfeedback Q3", commit=_A_LATER_COMMIT)
+    assert store.all() == (kept,)
+    assert store.get(kept.slug) == kept
+    assert store.get("never-pushed") is None
+
+
+def test_the_talk_a_deck_delivers_is_the_directory_that_was_put_last(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="Kundenfeedback"))
+    built = tmp_path / "builds" / "kundenfeedback"
+
+    store.put_active_build("kundenfeedback", directory=built)
+    kept = store.get("kundenfeedback")
+
+    assert kept is not None
+    assert kept.active_build == built
+
+
+def test_taking_a_deck_in_again_leaves_the_talk_it_delivers_standing(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="Kundenfeedback"))
+    built = tmp_path / "builds" / "kundenfeedback"
+    store.put_active_build("kundenfeedback", directory=built)
+
+    store.put(a_deck(title="Kundenfeedback Q3"))
+    kept = store.get("kundenfeedback")
+
+    assert kept is not None
+    assert kept.active_build == built
 
 
 def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(

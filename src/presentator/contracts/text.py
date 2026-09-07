@@ -29,3 +29,12 @@ class LobbyText:
     decks_column_changed: str
     decks_empty_title: str
     decks_empty_explanation: str
+    deck_back: str
+    deck_status: str
+    deck_state_ready: str
+    deck_state_not_built: str
+    deck_not_built_explanation: str
+    deck_presenter_view: str
+    deck_projector_view: str
+    deck_unknown_title: str
+    deck_unknown_explanation: str

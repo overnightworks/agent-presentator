@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+{% include "header.html" %}
+<main>
+  <p><a href="/">{{ back }}</a></p>
+  <h1>{{ title }}</h1>
+  <p data-meta>
+    <code>{{ slug }}</code>
+    <span data-state="{{ 'ready' if built else 'not-built' }}">{{ state }}</span>
+    <span>
+      <small>{{ status_label }}</small>
+      {% if source %}<code>{{ source }}</code>{% endif %}
+      <samp>{{ commit }}</samp>
+    </span>
+  </p>
+  {% if built %}
+  <p data-actions>
+    <a href="/deck/{{ slug }}/presenter/" data-action>{{ presenter_view }}</a>
+    <a href="/deck/{{ slug }}/" data-action data-quiet>{{ projector_view }}</a>
+  </p>
+  {% else %}
+  <p>{{ not_built }}</p>
+  {% endif %}
+</main>
+{% endblock %}

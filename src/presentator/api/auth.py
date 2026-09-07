@@ -5,6 +5,7 @@ redirect while nobody is signed in, a form another site submitted is refused,
 and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+import posixpath
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -14,21 +15,22 @@ from typing import Annotated, Final
 
 from fastapi import APIRouter, FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
+from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
+from presentator.api.pages import PageRenderer
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
-from presentator.contracts.models import FirstStartClosedError, User
+from presentator.contracts.models import FirstStartClosedError
 from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
 
-_TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
+_INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
@@ -38,7 +40,6 @@ _SETUP: Final = "/setup"
 # stylesheet has to render the login and setup pages themselves, so it is
 # public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
-_STATIC_FILES: Final = f"{_STATIC_PATH}/"
 _SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
 
 
@@ -46,6 +47,18 @@ async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Res
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _is_a_stylesheet(path: str) -> bool:
+    """Whether the address really stands inside the public stylesheet mount.
+
+    The written address and its normalised form both have to: `/static/../…`
+    carries the mount's prefix without standing inside it, and the guard must
+    not let the way an address is written widen what it lets past.
+    """
+    return path.startswith(_INSIDE_STATIC) and posixpath.normpath(path).startswith(
+        _INSIDE_STATIC,
+    )
 
 
 def _comes_from_elsewhere(request: Request) -> bool:
@@ -79,6 +92,7 @@ class _Pages:
 
     identity: Identity
     decks: Decks
+    renderer: PageRenderer
     text: LobbyText
     age_in_words: Callable[[timedelta], str]
     secure_cookies: bool
@@ -109,7 +123,7 @@ class _Pages:
         path = request.url.path
         if (
             path in _WITHOUT_A_SESSION
-            or path.startswith(_STATIC_FILES)
+            or _is_a_stylesheet(path)
             or self._is_a_call_from_a_source_host(request)
         ):
             return await call_next(request)
@@ -144,13 +158,9 @@ class _Pages:
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
-        person: User = request.state.signed_in_person
-        return self._page(
+        return self.renderer.signed_in_page(
             request,
             "home.html",
-            person=person.username,
-            log_out=self.text.log_out,
-            section_decks=self.text.section_decks,
             title=self.text.decks_title,
             column_deck=self.text.decks_column_deck,
             column_changed=self.text.decks_column_changed,
@@ -227,7 +237,7 @@ class _Pages:
         return self._signed_in(cookie_value)
 
     def _login(self, request: Request, *, refusal: str | None) -> Response:
-        return self._page(
+        return self.renderer.page(
             request,
             "login.html",
             title=self.text.login_title,
@@ -238,7 +248,7 @@ class _Pages:
         )
 
     def _setup(self, request: Request, *, mismatch: str | None) -> Response:
-        return self._page(
+        return self.renderer.page(
             request,
             "setup.html",
             title=self.text.setup_title,
@@ -249,17 +259,6 @@ class _Pages:
             repeated_password=self.text.setup_repeat_password,
             submit=self.text.setup_submit,
             mismatch=mismatch,
-        )
-
-    def _page(self, request: Request, name: str, **words: object) -> Response:
-        return _TEMPLATES.TemplateResponse(
-            request,
-            name,
-            {
-                "language": self.text.language_tag,
-                "wordmark": self.text.wordmark,
-                **words,
-            },
         )
 
     def _signed_in(self, cookie_value: str) -> Response:
@@ -291,9 +290,11 @@ def create_lobby(
     Without a fetch hook the instance has no address a source's host may call,
     and nothing below `/hooks/` leaves the session guard.
     """
+    renderer = PageRenderer(text=wording.text)
     pages = _Pages(
         identity=identity,
         decks=decks,
+        renderer=renderer,
         text=wording.text,
         age_in_words=wording.age_in_words,
         secure_cookies=secure_cookies,
@@ -311,6 +312,7 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
+    add_deck_pages(lobby, decks=decks, renderer=renderer, text=wording.text)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     if fetch_hook is not None:
         lobby.include_router(fetch_hook)

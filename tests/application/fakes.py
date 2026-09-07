@@ -1,8 +1,9 @@
 """In-memory stands-in for the ports, so the use cases run pure."""
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Final
 
 from presentator.contracts.decks import Deck, DeckFolder, Source
@@ -171,7 +172,17 @@ class FakeDeckStore:
     kept: dict[str, Deck] = field(default_factory=dict[str, Deck])
 
     def put(self, deck: Deck) -> None:
-        self.kept[deck.slug] = deck
+        standing = self.kept.get(deck.slug)
+        self.kept[deck.slug] = replace(
+            deck,
+            active_build=None if standing is None else standing.active_build,
+        )
+
+    def put_active_build(self, slug: str, *, directory: Path) -> None:
+        self.kept[slug] = replace(self.kept[slug], active_build=directory)
+
+    def get(self, slug: str) -> Deck | None:
+        return self.kept.get(slug)
 
     def all(self) -> tuple[Deck, ...]:
         return tuple(self.kept.values())

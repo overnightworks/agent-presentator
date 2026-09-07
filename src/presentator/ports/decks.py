@@ -5,6 +5,7 @@ Named for decks rather than for a catalogue, because the message catalog
 """
 
 from abc import abstractmethod
+from pathlib import Path
 from typing import Protocol
 
 from presentator.contracts.decks import Deck, DeckFolder, Source
@@ -31,7 +32,19 @@ class DeckStore(Protocol):
 
     @abstractmethod
     def put(self, deck: Deck) -> None:
-        """Write the deck under its slug, replacing what that slug held."""
+        """Write what a source carries under this slug, keeping its built talk.
+
+        Taking a deck in must not unpresent it, so the active build is moved
+        only by putting one.
+        """
+
+    @abstractmethod
+    def put_active_build(self, slug: str, *, directory: Path) -> None:
+        """Make that directory the talk this deck delivers from now on."""
+
+    @abstractmethod
+    def get(self, slug: str) -> Deck | None:
+        """The deck under that slug, or nothing while no folder carries it."""
 
     @abstractmethod
     def all(self) -> tuple[Deck, ...]:

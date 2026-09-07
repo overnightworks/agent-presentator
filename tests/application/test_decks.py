@@ -1,6 +1,7 @@
 """What the lobby calls a deck, and the order it hands the list over in."""
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from threading import Thread
 
 import pytest
@@ -32,6 +33,9 @@ _SOURCE = Source(
     owner_id=_OWNER,
 )
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
+_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+_SHORT_COMMIT = "a3f19c2"
+_BUILT_TALK = Path("/var/lib/presentator/builds/kundenfeedback/a3f19c2")
 
 
 def a_folder(
@@ -40,12 +44,14 @@ def a_folder(
     title: str | None = "A talk",
     file_names: frozenset[str] = _A_DECK,
     changed_ago: timedelta = timedelta(minutes=2),
+    commit: str = _COMMIT,
 ) -> DeckFolder:
     return DeckFolder(
         name=name,
         file_names=file_names,
         title=title,
         changed_at=_NOW - changed_ago,
+        commit=commit,
     )
 
 
@@ -124,6 +130,62 @@ def test_without_a_configured_source_there_is_no_list_and_no_address() -> None:
 
 def test_the_empty_list_can_name_the_configured_address() -> None:
     assert decks_over().source_address() == _SOURCE.url
+
+
+def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
+    decks = decks_over(a_folder("kundenfeedback", title="Kundenfeedback Q3"))
+    decks.refresh()
+
+    page = decks.page("kundenfeedback")
+
+    assert page is not None
+    assert (page.slug, page.title) == ("kundenfeedback", "Kundenfeedback Q3")
+    assert page.source == _SOURCE.url
+    assert page.commit == _SHORT_COMMIT
+    assert not page.built
+
+
+def test_a_slug_no_folder_carries_has_no_page_and_no_talk() -> None:
+    decks = decks_over(a_folder("kundenfeedback"))
+    decks.refresh()
+
+    assert decks.page("never-pushed") is None
+    assert decks.built_talk("never-pushed") is None
+
+
+def test_a_built_deck_offers_its_talk_and_says_it_is_ready() -> None:
+    store = FakeDeckStore()
+    decks = decks_over(a_folder("kundenfeedback"), store=store)
+    decks.refresh()
+
+    store.put_active_build("kundenfeedback", directory=_BUILT_TALK)
+    page = decks.page("kundenfeedback")
+
+    assert page is not None
+    assert page.built
+    assert decks.built_talk("kundenfeedback") == _BUILT_TALK
+
+
+def test_taking_a_pushed_deck_in_again_leaves_its_built_talk_standing() -> None:
+    store = FakeDeckStore()
+    decks = decks_over(a_folder("kundenfeedback"), store=store)
+    decks.refresh()
+    store.put_active_build("kundenfeedback", directory=_BUILT_TALK)
+
+    decks.refresh()
+
+    assert decks.built_talk("kundenfeedback") == _BUILT_TALK
+
+
+def test_a_deck_page_names_no_source_while_none_is_configured() -> None:
+    store = FakeDeckStore()
+    decks_over(a_folder("kundenfeedback"), store=store).refresh()
+
+    page = decks_over(source=None, store=store).page("kundenfeedback")
+
+    assert page is not None
+    assert page.source is None
+    assert page.commit == _SHORT_COMMIT
 
 
 def test_the_list_shows_the_last_refresh_and_reads_no_source() -> None:
