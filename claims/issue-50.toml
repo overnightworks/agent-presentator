@@ -1,8 +1,0 @@
-claim_id = "e7598d90155e40ab817a201d47f6e85a"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "9bb443e16c38c2e50d662a941835b78c84b00561"
-branch = "claude/issue-50-webauth"
-scope = ["src/presentator", "tests", "pyproject.toml", "uv.lock", "docs"]
-opened_commit = "efb4c45b34d9d35cdb940d2a4ecae2a072a2275b"
-whole_reason = "The library, its stores, the routes it replaces and the composition arrive together or the login is half in two places."
