@@ -3,18 +3,21 @@
 The address names a deck; what that deck's row points at is what the talk is
 served from and what the download hands over. Nothing a request carries ever
 becomes part of a path: Starlette's static files resolve every asset below the
-build directory and refuse whatever would leave it, the export is the file the
-row names, and the session guard in front of the whole lobby covers every
-address here, the two views and the download included.
+build directory and refuse whatever would leave it, a path that is not a file
+is the application's `index.html`, the export is the file the row names, and
+the session guard in front of the whole lobby covers every address here, the
+two views and the download included.
 """
 
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
+from pathlib import Path
 from typing import Final
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
 
@@ -29,6 +32,7 @@ _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = "{slug}.pdf"
+_APPLICATION: Final = "index.html"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -165,14 +169,60 @@ class _BuiltTalk:
     decks: Decks
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Serve the asset below the deck's build directory that the path names."""
+        """Serve the asset below the deck's build directory that the path names.
+
+        A Slidev build is one single-page application: the presenter is a
+        client-side route of the same `index.html` as the projector, not a
+        second file. A path that is not a file under the talk is that
+        application, so a wrong address under a deck is not an inventory of
+        what the build wrote.
+        """
         directory = self.decks.built_talk(scope["path_params"]["slug"])
-        if directory is None:
+        # A row can still name a directory that was since removed from disk
+        # (the build adapter does not yet clean those up); Starlette's own
+        # `StaticFiles` answers a missing root with a raised `RuntimeError`,
+        # not a 404, so that state is caught here rather than left to it.
+        if directory is None or not directory.is_dir():
             await Response(status_code=HTTPStatus.NOT_FOUND)(scope, receive, send)
             return
         # Which directory a deck delivers from is a row, not a setting, so the
         # files are rooted per request rather than once at startup.
-        await StaticFiles(directory=directory, html=True)(scope, receive, send)
+        await _TalkFiles(directory)(scope, receive, send)
+
+
+class _TalkFiles(StaticFiles):
+    """A Slidev single-page application: its files, then its `index.html`."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory=directory, html=True)
+        self._root = directory
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        """Serve a real file, or the application for any path still inside the talk."""
+        if _leaves_the_talk(self._root, path):
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as missing:
+            if missing.status_code != HTTPStatus.NOT_FOUND:
+                raise
+            return self._the_application()
+        if response.status_code != HTTPStatus.NOT_FOUND:
+            return response
+        return self._the_application()
+
+    def _the_application(self) -> Response:
+        """The built talk's own `index.html`, or nothing if that file is gone."""
+        index = self._root / _APPLICATION
+        if not index.is_file():
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
+        return FileResponse(index)
+
+
+def _leaves_the_talk(directory: Path, path: str) -> bool:
+    """Whether resolving this path would step outside the talk's directory."""
+    root = directory.resolve()
+    return not (directory / path).resolve().is_relative_to(root)
 
 
 def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:

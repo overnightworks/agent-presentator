@@ -191,10 +191,18 @@ A deck no build has switched over yet says so and offers no view rather than a
 dead link.
 
 While a build is pointed at, the projector view is `/deck/<folder>/` and the
-presenter view `/deck/<folder>/presenter/`, both delivered out of that
-directory as static files, with the slide in the address so a closed window
-comes back to the same slide. Both stand behind the same session as every other
-address of the instance ([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)):
+presenter view `/deck/<folder>/presenter/`, both the same Slidev single-page
+application: the presenter is a client-side route of that application, not a
+second file the toolchain writes. A path under the deck that is not a real
+file is answered with the application's `index.html`, so a wrong address
+under a built deck looks like the talk rather than an inventory of what the
+build wrote; a projector or presenter address under a deck that is unknown or
+not built — including one whose build directory has since gone from disk —
+answers a bare empty 404, with no templated page and no content type: only the
+deck's own page route renders the lobby's not-found page. The slide is in the
+address so a closed window comes back to the same slide. Both stand behind the
+same session as every other address of
+the instance ([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)):
 a signed-out request answers the login redirect, never a file and never a hint
 that a folder exists. The address only chooses a row; the directory comes from
 that row, so no part of a request becomes part of a path, and a path that would
