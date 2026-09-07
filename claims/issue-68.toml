@@ -1,0 +1,8 @@
+claim_id = "351477bb594d4ee3ba04dea471db53c0"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "370e452c3597733d6c70babb1dbb664753653111"
+branch = "claude/issue-68-add-source"
+scope = ["src/presentator", "tests", "docs"]
+opened_commit = "164f0280c50aa5d90d375cc555f9393532d035f8"
+whole_reason = "A screen that shows a webhook address and its secret exactly once is a lie unless that address already answers."
