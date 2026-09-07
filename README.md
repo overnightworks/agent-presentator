@@ -52,6 +52,12 @@ pnpm test
 pnpm build:example
 ```
 
+And the image CI builds, from the repository root:
+
+```sh
+docker build .
+```
+
 Which layer's test is the proof, and how to target a local run, is
 [docs/TESTING.md](docs/TESTING.md). CI on the pull request is the gate, and
 `main` takes nothing that has not passed it — how that is enforced is

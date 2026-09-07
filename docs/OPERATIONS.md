@@ -98,6 +98,63 @@ environment of the running process, so today it takes a restart. A rotation
 path without one is open work on
 [ADR 0010](decisions/0010-git-sources-mirror.md), together with the fetch log.
 
+## Running it as a container
+
+`Dockerfile` builds one image: the packaged server, the Slidev toolchain it
+spawns, and the Chromium that toolchain exports a PDF with. `compose.yaml`
+starts it. The image owns the paths of its own filesystem — the database under
+`/data/database`, the mirrors and the builds beside it, the toolchain at
+`/app/frontend` — and binds every interface inside the container, while compose
+offers the address to this machine alone, because the tunnel of
+[ADR 0007](decisions/0007-browser-client-behind-tunnel.md) connects from here.
+
+`PRESENTATOR_SECRET_KEY` is the only value a fresh instance must be given, and
+compose refuses to start the service without it, naming it. Everything else is
+optional and reaches the container through `.env` beside `compose.yaml` — a
+file this repository never writes and git never sees, and the only channel that
+carries the variable `PRESENTATOR_SOURCE_CREDENTIAL` names, because only the
+operator knows what it is called. A value exported in the shell reaches compose
+itself, but the container is handed nothing but that file and the key.
+
+```sh
+printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
+printf 'PRESENTATOR_SOURCE_URL=%s\n' "https://git.example/decks.git" >> .env
+docker compose up -d
+```
+
+An instance without a source runs and lists nothing; the settings above say
+what each further variable does and what a refused one costs. The first start
+offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
+
+Three named volumes hold what has to survive the container: `database`,
+`mirrors` and `builds`, under the name of the directory compose runs in.
+`docker compose down` keeps them, and the next `up` finds the accounts, the
+sources, the decks and the talks that were built, with nothing built again.
+`docker compose down -v` deletes them, which is the one command that loses an
+instance.
+
+An upgrade is the new tree, the image again, and the service again; a start
+changes the tables it finds in place, as above:
+
+```sh
+git pull && docker compose build && docker compose up -d
+```
+
+A backup is the database volume together with `PRESENTATOR_SECRET_KEY` — the
+file alone restores no working source — and the builds volume beside it, since
+a deck standing at the commit its talk was built from is never built again: a
+database restored without those files names talks that are no longer there,
+until every deck is pushed anew. The mirrors are clones and cost a first pull.
+
+```sh
+docker compose stop
+for volume in database builds; do
+  docker run --rm -v "agent-presentator_${volume}:/volume:ro" \
+    agent-presentator tar cz -C /volume . > "${volume}.tar.gz"
+done
+docker compose start
+```
+
 ## Building the decks
 
 Every refresh builds the decks whose commit moved. That needs a Node toolchain
@@ -107,9 +164,12 @@ installed carrying Slidev — this repository's `frontend/`, installed with
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
-(`300`). The PDF export drives a browser, so the toolchain also needs
-`playwright-chromium` installed beside Slidev; without it a deck builds and its
-export fails, which leaves the previously delivered talk standing.
+(`300`). The PDF export drives a browser: `playwright-chromium` is one of that
+project's dependencies, and the browser itself is fetched once with `pnpm exec
+playwright install chromium`, which keeps it under the home directory of the
+user the server runs as — the two things the container image does for itself.
+Without that browser a deck builds and its export fails, which leaves the
+previously delivered talk standing.
 
 Without a toolchain the instance still runs: every build fails, the deck pages
 say no talk has been built, and the failure is in the server log.

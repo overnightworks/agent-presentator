@@ -156,6 +156,19 @@ jobs:
           retention-days: 7
           overwrite: true
 
+  image:
+    name: "Container image"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build --tag agent-presentator:${{ github.sha }} .
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04

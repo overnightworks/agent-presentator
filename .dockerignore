@@ -1,0 +1,10 @@
+# The image carries the application and the toolchain project, never this
+# machine's own state: an installed tree, a built talk, or a local secret.
+.git
+.env
+.venv
+**/node_modules
+**/__pycache__
+**/dist
+**/.slidev
+reports

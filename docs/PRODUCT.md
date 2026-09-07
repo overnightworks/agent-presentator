@@ -29,6 +29,19 @@ A decision record is a technical choice, not a claim that its slice exists.
 This index gains a section per subject once that subject has landed behavior to
 report.
 
+### Running an instance
+
+One image carries the packaged server, the Slidev toolchain it spawns and the
+Chromium the PDF export drives, and one compose file starts it with the
+database, the mirrors and the built talks in named volumes: a `docker compose
+down` and the next `up` find the accounts, the sources, the decks and the talks
+that were built, and build nothing again. Nothing is reachable from beyond this
+machine yet — the tunnel, the service that survives a reboot, and the first
+login from the laptop are
+[#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
+instance is started, upgraded and backed up, and what a fresh one must be
+given, is [OPERATIONS.md](OPERATIONS.md).
+
 ### Signing in
 
 The first start of an empty instance creates the admin at `/setup`, and that
