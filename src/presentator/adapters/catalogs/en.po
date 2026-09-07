@@ -101,10 +101,7 @@ msgstr "No deck yet"
 msgid "decks_empty_explanation"
 msgstr ""
 "Decks come only from Git. Push a folder holding deck.toml and slides.md into "
-"one of your"
-
-msgid "decks_empty_sources"
-msgstr "sources"
+"one of your sources."
 
 msgid "deck_back"
 msgstr "← Decks"

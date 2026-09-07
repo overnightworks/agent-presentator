@@ -43,7 +43,6 @@ class LobbyText:
     decks_column_changed: str
     decks_empty_title: str
     decks_empty_explanation: str
-    decks_empty_sources: str
     deck_back: str
     deck_status: str
     deck_state_ready: str
