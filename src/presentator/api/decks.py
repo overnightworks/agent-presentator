@@ -178,7 +178,11 @@ class _BuiltTalk:
         what the build wrote.
         """
         directory = self.decks.built_talk(scope["path_params"]["slug"])
-        if directory is None:
+        # A row can still name a directory that was since removed from disk
+        # (the build adapter does not yet clean those up); Starlette's own
+        # `StaticFiles` answers a missing root with a raised `RuntimeError`,
+        # not a 404, so that state is caught here rather than left to it.
+        if directory is None or not directory.is_dir():
             await Response(status_code=HTTPStatus.NOT_FOUND)(scope, receive, send)
             return
         # Which directory a deck delivers from is a row, not a setting, so the

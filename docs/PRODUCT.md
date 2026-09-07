@@ -191,9 +191,12 @@ application: the presenter is a client-side route of that application, not a
 second file the toolchain writes. A path under the deck that is not a real
 file is answered with the application's `index.html`, so a wrong address
 under a built deck looks like the talk rather than an inventory of what the
-build wrote; an address no deck stands under still answers the lobby's
-not-found page. The slide is in the address so a closed window comes back to
-the same slide. Both stand behind the same session as every other address of
+build wrote; a projector or presenter address under a deck that is unknown or
+not built — including one whose build directory has since gone from disk —
+answers a bare empty 404, with no templated page and no content type: only the
+deck's own page route renders the lobby's not-found page. The slide is in the
+address so a closed window comes back to the same slide. Both stand behind the
+same session as every other address of
 the instance ([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)):
 a signed-out request answers the login redirect, never a file and never a hint
 that a folder exists. The address only chooses a row; the directory comes from

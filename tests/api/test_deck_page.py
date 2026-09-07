@@ -1,5 +1,6 @@
 """One deck's page, the talk it leads into, and its PDF, as a browser gets them."""
 
+import shutil
 from datetime import timedelta
 from http import HTTPStatus
 from pathlib import Path
@@ -293,6 +294,39 @@ def test_a_view_of_a_deck_nothing_has_been_built_from_answers_nothing(
     address: str,
 ) -> None:
     assert unbuilt_lobby.get(address).status_code == HTTPStatus.NOT_FOUND
+
+
+@pytest.fixture
+def lobby_with_a_removed_build(tmp_path: Path) -> TestClient:
+    """A deck whose row still names a build directory that is gone from disk.
+
+    Switching a deck to a newer build does not yet delete the directory an
+    older one pointed at, so a row can outlive its directory; the talk it
+    would deliver must still answer not-found, never a traceback.
+    """
+    talk = tmp_path / "talk"
+    talk.mkdir()
+    (talk / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
+    client = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk)),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+    shutil.rmtree(talk)
+    return client
+
+
+@pytest.mark.parametrize(
+    "address",
+    [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}index.html"],
+    ids=["projector", "presenter", "an asset"],
+)
+def test_a_deck_whose_build_directory_was_removed_answers_nothing(
+    lobby_with_a_removed_build: TestClient,
+    address: str,
+) -> None:
+    assert lobby_with_a_removed_build.get(address).status_code == HTTPStatus.NOT_FOUND
 
 
 @pytest.mark.parametrize(
