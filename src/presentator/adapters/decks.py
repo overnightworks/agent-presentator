@@ -4,6 +4,7 @@
 between its vocabulary and the product's, and holds the deck table (ADR 0006).
 """
 
+import json
 import logging
 import os
 import tomllib
@@ -36,11 +37,14 @@ CREATE TABLE IF NOT EXISTS decks (
     changed_at TEXT NOT NULL,
     owner_id TEXT NOT NULL REFERENCES users(id),
     commit_sha TEXT NOT NULL,
-    active_build TEXT
+    active_build TEXT,
+    removed_at TEXT
 );
 """
 # The build pointer is left out of the insert's update list on purpose: taking
 # a deck in again must not unpresent the talk that already stands (line 16).
+# Whether the row is marked removed is left out too: that mark is
+# `mark_removed_except`'s alone, cleared there when the folder is carried again.
 _PUT_DECK: Final = """
 INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha, active_build)
 VALUES (?, ?, ?, ?, ?, NULL)
@@ -53,14 +57,15 @@ ON CONFLICT(slug) DO UPDATE SET
 _PUT_ACTIVE_BUILD: Final = "UPDATE decks SET active_build = ? WHERE slug = ?"
 _ALL_DECKS: Final = """
 SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
+WHERE removed_at IS NULL
 """
 _ONE_DECK: Final = """
 SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
-WHERE slug = ?
+WHERE slug = ? AND removed_at IS NULL
 """
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
-_UNREADABLE_MANIFEST: Final = "folder %s is not listed: %s"
+_UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
 
 _log = logging.getLogger(__name__)
 
@@ -121,53 +126,60 @@ class MirroredDeckFolders:
     credentials: CredentialResolver
     pull_timeout: timedelta
 
-    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
-        """Every top-level folder at the source's newest commit."""
+    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
+        """Every top-level folder at the newest commit, or nothing when unreadable."""
         mirror = self._mirror(source)
         connection = mirror.connect()
         revision = connection.revision
         if revision is None:
             _log.warning(_UNREADABLE_SOURCE, source.url, connection.state)
-            return ()
-        read = (
+            return None
+        return tuple(
             self._folder(mirror, revision, entry.name)
             for entry in mirror.entries(revision)
             if entry.is_directory
         )
-        return tuple(folder for folder in read if folder is not None)
 
     def _folder(
         self,
         mirror: GitMirror,
         revision: Revision,
         name: str,
-    ) -> DeckFolder | None:
-        """The folder, or nothing when its manifest is the one thing unreadable.
+    ) -> DeckFolder:
+        """The folder as it stands, without a title when its manifest is unreadable.
 
-        One folder nobody can read must not take the whole list with it; the
-        row that says so belongs to the build states.
+        A folder nobody can read a title from is still a folder that is there,
+        so it must not be reported as gone; the row that says why it carries no
+        title belongs to the build states.
         """
         file_names = frozenset(
             entry.name
             for entry in mirror.entries(revision, inside=name)
             if not entry.is_directory
         )
-        try:
-            title = (
-                _title(mirror.read(revision, f"{name}/{MANIFEST_FILE}"), folder=name)
-                if MANIFEST_FILE in file_names
-                else None
-            )
-        except MalformedManifestError as unreadable:
-            _log.warning(_UNREADABLE_MANIFEST, name, unreadable)
-            return None
         return DeckFolder(
             name=name,
             file_names=file_names,
-            title=title,
+            title=self._read_title(mirror, revision, name, file_names),
             changed_at=mirror.last_changed_at(revision, name),
             commit=revision.commit,
         )
+
+    def _read_title(
+        self,
+        mirror: GitMirror,
+        revision: Revision,
+        name: str,
+        file_names: frozenset[str],
+    ) -> str | None:
+        """What the folder's manifest names, or nothing when it names nothing."""
+        if MANIFEST_FILE not in file_names:
+            return None
+        try:
+            return _title(mirror.read(revision, f"{name}/{MANIFEST_FILE}"), folder=name)
+        except MalformedManifestError as unreadable:
+            _log.warning(_UNREADABLE_MANIFEST, name, unreadable)
+            return None
 
     def _mirror(self, source: Source) -> GitMirror:
         reference = source.credential_reference
@@ -211,13 +223,30 @@ class SqliteDeckStore:
             cursor.execute(_PUT_ACTIVE_BUILD, (str(directory), slug))
 
     def get(self, slug: str) -> Deck | None:
-        """Read the one deck row that slug names."""
+        """Read the one deck row that slug names, while its folder is still there."""
         with rows(self.database) as cursor:
             found = cursor.execute(_ONE_DECK, (slug,)).fetchone()
         return None if found is None else _deck(found)
 
+    def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
+        """Mark the decks outside `present` removed, and clear the mark inside it."""
+        # A set is no bind parameter, so the folders the source carries travel
+        # as one JSON value rather than as SQL built per call.
+        carried = json.dumps(sorted(present))
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "UPDATE decks SET removed_at = ? WHERE removed_at IS NULL"
+                " AND slug NOT IN (SELECT value FROM json_each(?))",
+                (at.isoformat(), carried),
+            )
+            cursor.execute(
+                "UPDATE decks SET removed_at = NULL WHERE removed_at IS NOT NULL"
+                " AND slug IN (SELECT value FROM json_each(?))",
+                (carried,),
+            )
+
     def all(self) -> tuple[Deck, ...]:
-        """Read every deck row."""
+        """Read every deck row whose folder is still at its source."""
         with rows(self.database) as cursor:
             found = cursor.execute(_ALL_DECKS).fetchall()
         return tuple(_deck(row) for row in found)

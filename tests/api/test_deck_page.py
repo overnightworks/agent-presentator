@@ -237,3 +237,22 @@ def test_a_deck_page_carries_the_header_and_its_person_menu(
 
 def test_a_deck_page_marks_no_section_as_the_current_one(lobby: TestClient) -> None:
     assert "aria-current" not in lobby.get(_PAGE).text
+
+
+def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None:
+    store = a_deck_store(built_talk=_BUILT_TALK)
+    signed_in = a_signed_in_lobby(
+        GivenDecks(store=store, source=a_configured_source(_ADDRESS)),
+    )
+
+    store.mark_removed_except(present=frozenset(), at=NOW)
+    removed = signed_in.get(_PAGE)
+
+    store.mark_removed_except(present=frozenset({_SLUG}), at=NOW)
+    returned = signed_in.get(_PAGE)
+
+    assert removed.status_code == HTTPStatus.NOT_FOUND
+    assert ENGLISH.deck_unknown_title in removed.text
+    assert returned.status_code == HTTPStatus.OK
+    assert ENGLISH.deck_state_ready in returned.text
+    assert signed_in.get(_PRESENTER).status_code == HTTPStatus.OK

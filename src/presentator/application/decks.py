@@ -87,11 +87,18 @@ class Decks:
         """Store every folder that carries both a manifest and slides.
 
         The folder name becomes the slug, so a changed title reaches no address.
+        A folder the source has stopped carrying is marked as removed rather
+        than deleted, and a folder that comes back under its old name loses that
+        mark, so it is the deck it was. A source nobody could read carries no
+        such news, and leaves every deck where it is.
         """
         source = self.sources.configured()
         if source is None:
             return
-        for folder in self.folders.folders(source):
+        carried = self.folders.folders(source)
+        if carried is None:
+            return
+        for folder in carried:
             if folder.title is None or SLIDES_FILE not in folder.file_names:
                 continue
             self.store.put(
@@ -104,3 +111,7 @@ class Decks:
                     active_build=None,
                 ),
             )
+        self.store.mark_removed_except(
+            present=frozenset(folder.name for folder in carried),
+            at=self.clock.now(),
+        )

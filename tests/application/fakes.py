@@ -187,11 +187,11 @@ class FakeSourceStore:
 
 @dataclass
 class FakeDeckFolders:
-    """The folders a source carries, handed straight to the use cases."""
+    """The folders a source carries, or nothing when it cannot be read."""
 
-    found: tuple[DeckFolder, ...] = ()
+    found: tuple[DeckFolder, ...] | None = ()
 
-    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
+    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
         return self.found
 
 
@@ -200,6 +200,7 @@ class FakeDeckStore:
     """Deck rows in a dictionary, keyed by slug the way the table is."""
 
     kept: dict[str, Deck] = field(default_factory=dict[str, Deck])
+    removed: set[str] = field(default_factory=set[str])
 
     def put(self, deck: Deck) -> None:
         standing = self.kept.get(deck.slug)
@@ -212,10 +213,15 @@ class FakeDeckStore:
         self.kept[slug] = replace(self.kept[slug], active_build=directory)
 
     def get(self, slug: str) -> Deck | None:
-        return self.kept.get(slug)
+        return None if slug in self.removed else self.kept.get(slug)
 
     def all(self) -> tuple[Deck, ...]:
-        return tuple(self.kept.values())
+        return tuple(
+            deck for slug, deck in self.kept.items() if slug not in self.removed
+        )
+
+    def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
+        self.removed = {slug for slug in self.kept if slug not in present}
 
 
 @dataclass
