@@ -1,0 +1,7 @@
+claim_id = "c705bb0c678547a0b02d41578ef418e3"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "9e013dadfee30e209fce06236df69bbd3bf400ee"
+branch = "claude/issue-79-flake"
+scope = ["tests/adapters/test_secrets.py"]
+opened_commit = "43f93cfcdfa7e4fd6f51f9f6bdeeb9c77e23cb84"
