@@ -274,3 +274,12 @@ no network and nothing of the server mounted
 [#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
 lands, a deck source is as trusted as the machine.
 
+### Local speech
+
+A sibling process under [`speech/`](../speech/README.md) holds a local speaking
+model and a local hearing model and offers them over HTTP. It is not wired into
+the instance; the co-presenter that will call it is
+[#73](https://github.com/overnightworks/agent-presentator/issues/73), and
+productising it is the speech milestone. Which models, what they cost on the
+card, and how to start it are owned by that README.
+

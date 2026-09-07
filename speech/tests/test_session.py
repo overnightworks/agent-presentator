@@ -1,0 +1,33 @@
+"""A hearing session emits partials and a second utterance without a new model."""
+
+from speech.config import HEAR_SAMPLE_RATE
+from speech.hearing import HearingSession
+from speech.pcm import BYTES_PER_SAMPLE
+from tests.conftest import sine_pcm
+
+
+def _silence(seconds: float) -> bytes:
+    return bytes(int(seconds * HEAR_SAMPLE_RATE * BYTES_PER_SAMPLE))
+
+
+def test_session_partial_then_final_then_a_second_utterance() -> None:
+    def transcribe(pcm: bytes) -> str:
+        duration = len(pcm) / (HEAR_SAMPLE_RATE * BYTES_PER_SAMPLE)
+        if duration < 0.2:
+            return ""
+        if duration < 0.9:
+            return "eins"
+        return "eins zwei"
+
+    session = HearingSession(transcribe, HEAR_SAMPLE_RATE)
+    session.add_pcm(sine_pcm(0.5))
+    partial = session.poll()
+    assert partial == {"text": "eins", "final": False}
+
+    session.add_pcm(_silence(0.8))
+    final = session.poll()
+    assert final == {"text": "eins zwei", "final": True}
+
+    session.add_pcm(sine_pcm(0.5))
+    second = session.poll()
+    assert second == {"text": "eins", "final": False}

@@ -34,6 +34,7 @@ ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
         "examples",
         "frontend",
         "scripts",
+        "speech",
         "src",
         "tests",
     }
