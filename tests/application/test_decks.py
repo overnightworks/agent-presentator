@@ -1,6 +1,7 @@
 """What the lobby calls a deck, which deck it builds, and what it then shows."""
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 
@@ -80,38 +81,35 @@ def having(*sources: Source, seeds: Source | None = None) -> FakeSourceStore:
     return FakeSourceStore(sources=list(sources), seeds=seeds)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DecksFakes:
+    """The fakes a `decks_over` scenario runs against, besides source and mirror.
+
+    Grouped into one value so `decks_over` keeps five parameters; a test names
+    only the fake it cares about, and every field it leaves unnamed gets its
+    own fresh instance rather than one every other test would share.
+    """
+
+    store: FakeDeckStore = field(default_factory=FakeDeckStore)
+    builder: FakeBuildRunner = field(default_factory=FakeBuildRunner)
+    source_runs: FakeSourceRunStore = field(default_factory=FakeSourceRunStore)
+    clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
+
+
 def decks_over(
     *folders: DeckFolder,
     sources: FakeSourceStore | None = None,
     mirror: DeckFolders | None = None,
-    store: FakeDeckStore | None = None,
-    builder: FakeBuildRunner | None = None,
-    clock: FrozenClock | None = None,
+    fakes: DecksFakes | None = None,
 ) -> Decks:
+    resolved = DecksFakes() if fakes is None else fakes
     return Decks(
         sources=having(_SOURCE) if sources is None else sources,
         folders=carrying(*folders) if mirror is None else mirror,
-        store=FakeDeckStore() if store is None else store,
-        builder=FakeBuildRunner() if builder is None else builder,
-        source_runs=FakeSourceRunStore(),
-        clock=FrozenClock(instant=_NOW) if clock is None else clock,
-    )
-
-
-def decks_recording_into(
-    run_store: FakeSourceRunStore,
-    *,
-    mirror: FakeDeckFolders,
-    sources: FakeSourceStore | None = None,
-) -> Decks:
-    """A use case whose recorded runs a test can read back after a refresh."""
-    return Decks(
-        sources=having(_SOURCE) if sources is None else sources,
-        folders=mirror,
-        store=FakeDeckStore(),
-        builder=FakeBuildRunner(),
-        source_runs=run_store,
-        clock=FrozenClock(instant=_NOW),
+        store=resolved.store,
+        builder=resolved.builder,
+        source_runs=resolved.source_runs,
+        clock=resolved.clock,
     )
 
 
@@ -161,7 +159,7 @@ def test_a_folder_that_is_no_folders_own_name_is_neither_listed_nor_built(
     name: str,
 ) -> None:
     builder = FakeBuildRunner()
-    decks = decks_over(a_folder(name), builder=builder)
+    decks = decks_over(a_folder(name), fakes=DecksFakes(builder=builder))
 
     decks.refresh()
 
@@ -186,7 +184,7 @@ def test_the_folder_name_stays_the_address_when_the_title_changes() -> None:
 def test_a_deck_belongs_to_the_owner_of_the_source_it_came_from() -> None:
     store = FakeDeckStore()
 
-    decks_over(a_folder("kundenfeedback"), store=store).refresh()
+    decks_over(a_folder("kundenfeedback"), fakes=DecksFakes(store=store)).refresh()
 
     assert [deck.owner_id for deck in store.all()] == [_OWNER]
 
@@ -224,7 +222,7 @@ def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
 
 def test_a_deck_whose_commit_was_never_built_is_built_and_then_delivered() -> None:
     clock = FrozenClock(instant=_NOW)
-    decks = decks_over(a_folder("kundenfeedback"), clock=clock)
+    decks = decks_over(a_folder("kundenfeedback"), fakes=DecksFakes(clock=clock))
 
     decks.refresh()
     clock.advance(by=timedelta(minutes=12))
@@ -240,7 +238,7 @@ def test_a_deck_whose_commit_was_never_built_is_built_and_then_delivered() -> No
 
 def test_a_deck_already_built_at_its_commit_is_not_built_again() -> None:
     builder = FakeBuildRunner()
-    decks = decks_over(a_folder("kundenfeedback"), builder=builder)
+    decks = decks_over(a_folder("kundenfeedback"), fakes=DecksFakes(builder=builder))
 
     decks.refresh()
     decks.refresh()
@@ -251,7 +249,7 @@ def test_a_deck_already_built_at_its_commit_is_not_built_again() -> None:
 def test_a_push_builds_the_deck_it_changed_and_leaves_the_others_alone() -> None:
     builder = FakeBuildRunner()
     mirror = carrying(a_folder("kundenfeedback"), a_folder("knowledge-fabric"))
-    decks = decks_over(mirror=mirror, builder=builder)
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
     decks.refresh()
 
     mirror.carried[_SOURCE.id] = (
@@ -266,7 +264,7 @@ def test_a_push_builds_the_deck_it_changed_and_leaves_the_others_alone() -> None
 def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
     builder = FakeBuildRunner()
     mirror = carrying(a_folder("kundenfeedback"))
-    decks = decks_over(mirror=mirror, builder=builder)
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
     decks.refresh()
     standing = decks.built_talk("kundenfeedback")
     exported = decks.exported_pdf("kundenfeedback")
@@ -284,7 +282,10 @@ def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
 
 
 def test_a_deck_nothing_could_build_delivers_nothing_and_says_so() -> None:
-    decks = decks_over(a_folder("kundenfeedback"), builder=FakeBuildRunner(fails=True))
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(builder=FakeBuildRunner(fails=True)),
+    )
 
     decks.refresh()
 
@@ -295,7 +296,7 @@ def test_a_deck_nothing_could_build_delivers_nothing_and_says_so() -> None:
 
 def test_a_build_that_wrote_outside_the_builds_root_becomes_no_address() -> None:
     builder = FakeBuildRunner(writes_outside_the_root=True)
-    decks = decks_over(a_folder("kundenfeedback"), builder=builder)
+    decks = decks_over(a_folder("kundenfeedback"), fakes=DecksFakes(builder=builder))
 
     decks.refresh()
 
@@ -338,9 +339,12 @@ def test_taking_a_pushed_deck_in_again_leaves_what_it_delivers_standing() -> Non
 
 def test_a_deck_page_names_no_source_while_none_is_configured() -> None:
     store = FakeDeckStore()
-    decks_over(a_folder("kundenfeedback"), store=store).refresh()
+    decks_over(a_folder("kundenfeedback"), fakes=DecksFakes(store=store)).refresh()
 
-    page = page_of(decks_over(sources=having(), store=store), "kundenfeedback")
+    page = page_of(
+        decks_over(sources=having(), fakes=DecksFakes(store=store)),
+        "kundenfeedback",
+    )
 
     assert page.source is None
     assert page.commit == _SHORT_COMMIT
@@ -396,7 +400,7 @@ def test_a_folder_the_source_no_longer_carries_leaves_the_list() -> None:
 def test_a_folder_pushed_again_is_the_same_deck_with_the_same_owner() -> None:
     mirror = carrying(a_folder("kundenfeedback", title="Feedback"))
     store = FakeDeckStore()
-    decks = decks_over(mirror=mirror, store=store)
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(store=store))
     refreshed(decks)
 
     mirror.carried[_SOURCE.id] = ()
@@ -441,7 +445,7 @@ def test_two_sources_each_list_their_own_decks() -> None:
                 _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
             },
         ),
-        store=store,
+        fakes=DecksFakes(store=store),
     )
 
     listed = refreshed(decks)
@@ -484,7 +488,7 @@ def test_a_folder_name_another_source_carries_stays_with_the_source_that_had_it(
                 _ANOTHER_SOURCE.id: (a_folder("kundenfeedback", title="The second"),),
             },
         ),
-        store=store,
+        fakes=DecksFakes(store=store),
     )
 
     with caplog.at_level(logging.WARNING):
@@ -508,7 +512,7 @@ def test_a_deck_is_built_out_of_the_source_that_carried_it() -> None:
                 _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
             },
         ),
-        builder=builder,
+        fakes=DecksFakes(builder=builder),
     )
 
     decks.refresh()
@@ -572,13 +576,14 @@ def test_a_poll_that_reaches_a_source_records_a_run_carrying_its_commit() -> Non
         carried={_SOURCE.id: (a_folder("kundenfeedback"),)},
         commits={_SOURCE.id: _COMMIT},
     )
-    decks = decks_recording_into(run_store, mirror=mirror)
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(source_runs=run_store))
 
     decks.refresh()
 
     run = run_store.newest(_SOURCE.id)
     assert run is not None
     assert run.source_id == _SOURCE.id
+    assert run.at == _NOW
     assert run.outcome is SourceRunOutcome.SUCCESS
     assert run.commit == _COMMIT
     assert run.reason is None
@@ -590,12 +595,13 @@ def test_an_unreachable_source_records_a_failed_run_naming_why() -> None:
         carried={_SOURCE.id: None},
         failures={_SOURCE.id: SourceRunFailure.CREDENTIAL_UNRESOLVABLE},
     )
-    decks = decks_recording_into(run_store, mirror=mirror)
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(source_runs=run_store))
 
     decks.refresh()
 
     run = run_store.newest(_SOURCE.id)
     assert run is not None
+    assert run.at == _NOW
     assert run.outcome is SourceRunOutcome.FAILURE
     assert run.commit is None
     assert run.reason is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
@@ -609,10 +615,10 @@ def test_each_sources_run_is_recorded_under_its_own_id() -> None:
             _ANOTHER_SOURCE.id: None,
         },
     )
-    decks = decks_recording_into(
-        run_store,
-        mirror=mirror,
+    decks = decks_over(
         sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=mirror,
+        fakes=DecksFakes(source_runs=run_store),
     )
 
     decks.refresh()
