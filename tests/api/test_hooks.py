@@ -2,25 +2,28 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from functools import partial
 from http import HTTPStatus
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import Wording, create_lobby
+from presentator.adapters.catalog import age_in_words
+from presentator.api.auth import create_lobby
 from presentator.api.hooks import HOOKS_PATH, fetch_hook
+from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
+from presentator.application.preferences import Preferences
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
-from presentator.contracts.text import LobbyText
+from tests.api.lobby import CATALOGS
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeInstanceSettingsStore,
     FakeLoginAttemptStore,
+    FakePersonPreferencesStore,
     FakeSessionRecordStore,
     FakeSourceStore,
     FakeUserStore,
@@ -35,7 +38,6 @@ _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
 _A_GUESS = "guessed"
 _PUSHED = "kundenfeedback"
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
-_TEXT: LobbyText = load_lobby_text(ENGLISH_CATALOG)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -100,9 +102,13 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
             cookies=MarkingCookieSigner(),
         ),
         decks=decks,
-        wording=Wording(
-            text=_TEXT,
-            age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
+        pages=Pages(
+            preferences=Preferences(
+                instance=FakeInstanceSettingsStore(),
+                people=FakePersonPreferencesStore(),
+                catalogs=CATALOGS,
+            ),
+            age_in_words=age_in_words,
         ),
         secure_cookies=False,
         fetch_hook=(

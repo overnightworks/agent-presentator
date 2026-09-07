@@ -6,9 +6,7 @@ and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
 import posixpath
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
@@ -20,11 +18,11 @@ from starlette.responses import RedirectResponse
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
-from presentator.api.pages import PageRenderer
+from presentator.api.pages import Pages
+from presentator.api.preferences import preference_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import FirstStartClosedError
-from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
 
@@ -70,14 +68,6 @@ def _comes_from_elsewhere(request: Request) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Wording:
-    """The words a page shows, and how this language words an age."""
-
-    text: LobbyText
-    age_in_words: Callable[[timedelta], str]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class DeckRow:
     """One deck as the list renders it: a name, its folder, and its age."""
 
@@ -87,14 +77,12 @@ class DeckRow:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _Pages:
+class _Surfaces:
     """The lobby's HTML answers, each one asking the use cases what is true."""
 
     identity: Identity
     decks: Decks
-    renderer: PageRenderer
-    text: LobbyText
-    age_in_words: Callable[[timedelta], str]
+    pages: Pages
     secure_cookies: bool
     hook_is_armed: bool
 
@@ -126,6 +114,7 @@ class _Pages:
             or _is_a_stylesheet(path)
             or self._is_a_call_from_a_source_host(request)
         ):
+            request.state.signed_in_person = None
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -158,31 +147,26 @@ class _Pages:
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
-        return self.renderer.signed_in_page(
+        return self.pages.page(
             request,
             "home.html",
-            title=self.text.decks_title,
-            column_deck=self.text.decks_column_deck,
-            column_changed=self.text.decks_column_changed,
-            empty_title=self.text.decks_empty_title,
-            empty_explanation=self.text.decks_empty_explanation,
             source_address=self.decks.source_address(),
-            decks=self._rows(),
+            decks=self._rows(self.pages.appearance(request).text.language_tag),
         )
 
-    def _rows(self) -> tuple[DeckRow, ...]:
+    def _rows(self, language_tag: str) -> tuple[DeckRow, ...]:
         return tuple(
             DeckRow(
                 title=deck.title,
                 slug=deck.slug,
-                changed=self.age_in_words(deck.age),
+                changed=self.pages.age_in_words(deck.age, language_tag),
             )
             for deck in self.decks.listed()
         )
 
     def login_page(self, request: Request) -> Response:
         """Ask for a username and a password, and offer nothing else."""
-        return self._login(request, refusal=None)
+        return self._login(request, refused=False)
 
     def log_in(
         self,
@@ -193,7 +177,7 @@ class _Pages:
         """Open a session, or say the one sentence that tells nothing apart."""
         cookie_value = self.identity.log_in(username=username, password=password)
         if cookie_value is None:
-            return self._login(request, refusal=self.text.login_refused)
+            return self._login(request, refused=True)
         return self._signed_in(cookie_value)
 
     def log_out(self, request: Request) -> Response:
@@ -212,7 +196,7 @@ class _Pages:
         """Offer the first admin while the instance has no account."""
         if not self.identity.first_start_is_open():
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._setup(request, mismatch=None)
+        return self._setup(request, mismatch=False)
 
     def set_up_admin(
         self,
@@ -225,7 +209,7 @@ class _Pages:
         if not self.identity.first_start_is_open():
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         if password != repeated_password:
-            return self._setup(request, mismatch=self.text.setup_passwords_differ)
+            return self._setup(request, mismatch=True)
         try:
             cookie_value = self.identity.create_first_admin(
                 username=username,
@@ -236,30 +220,11 @@ class _Pages:
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         return self._signed_in(cookie_value)
 
-    def _login(self, request: Request, *, refusal: str | None) -> Response:
-        return self.renderer.page(
-            request,
-            "login.html",
-            title=self.text.login_title,
-            username=self.text.login_username,
-            password=self.text.login_password,
-            submit=self.text.login_submit,
-            refusal=refusal,
-        )
+    def _login(self, request: Request, *, refused: bool) -> Response:
+        return self.pages.page(request, "login.html", refused=refused)
 
-    def _setup(self, request: Request, *, mismatch: str | None) -> Response:
-        return self.renderer.page(
-            request,
-            "setup.html",
-            title=self.text.setup_title,
-            once=self.text.setup_once,
-            explanation=self.text.setup_explanation,
-            username=self.text.setup_username,
-            password=self.text.setup_password,
-            repeated_password=self.text.setup_repeat_password,
-            submit=self.text.setup_submit,
-            mismatch=mismatch,
-        )
+    def _setup(self, request: Request, *, mismatch: bool) -> Response:
+        return self.pages.page(request, "setup.html", mismatch=mismatch)
 
     def _signed_in(self, cookie_value: str) -> Response:
         answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
@@ -281,38 +246,36 @@ def create_lobby(
     *,
     identity: Identity,
     decks: Decks,
-    wording: Wording,
+    pages: Pages,
     secure_cookies: bool,
     fetch_hook: APIRouter | None,
 ) -> FastAPI:
-    """Build the lobby around the use cases and the words the host chose.
+    """Build the lobby around the use cases and the adapters the host chose.
 
     Without a fetch hook the instance has no address a source's host may call,
     and nothing below `/hooks/` leaves the session guard.
     """
-    renderer = PageRenderer(text=wording.text)
-    pages = _Pages(
+    surfaces = _Surfaces(
         identity=identity,
         decks=decks,
-        renderer=renderer,
-        text=wording.text,
-        age_in_words=wording.age_in_words,
+        pages=pages,
         secure_cookies=secure_cookies,
         hook_is_armed=fetch_hook is not None,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.only_signed_in)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.same_origin_only)
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.same_origin_only)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
-    lobby.add_api_route(_LOBBY, pages.home, methods=["GET"])
-    lobby.add_api_route(_LOGIN, pages.login_page, methods=["GET"])
-    lobby.add_api_route(_LOGIN, pages.log_in, methods=["POST"])
-    lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
-    lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
-    lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
-    add_deck_pages(lobby, decks=decks, renderer=renderer, text=wording.text)
+    lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
+    lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
+    lobby.add_api_route(_LOGIN, surfaces.log_in, methods=["POST"])
+    lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
+    lobby.add_api_route(_SETUP, surfaces.setup_page, methods=["GET"])
+    lobby.add_api_route(_SETUP, surfaces.set_up_admin, methods=["POST"])
+    lobby.include_router(preference_routes(pages=pages))
+    add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     if fetch_hook is not None:
         lobby.include_router(fetch_hook)

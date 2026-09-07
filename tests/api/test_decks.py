@@ -8,7 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder
-from tests.api.lobby import NOW, TEXT, a_configured_source, a_signed_in_lobby
+from tests.api.lobby import (
+    ENGLISH,
+    NOW,
+    GivenDecks,
+    a_configured_source,
+    a_signed_in_lobby,
+)
 
 _ADDRESS: Final = "git@heimserver:decks.git"
 _A_DECK: Final = frozenset({MANIFEST_FILE, SLIDES_FILE})
@@ -25,9 +31,14 @@ def a_folder(name: str, *, title: str, changed_ago: timedelta) -> DeckFolder:
     )
 
 
+def the_page_itself(page: str) -> str:
+    """What the page shows below the header every signed-in page carries."""
+    return page[page.index("<main") :]
+
+
 @pytest.fixture
 def empty_lobby() -> TestClient:
-    return a_signed_in_lobby(source=a_configured_source(_ADDRESS))
+    return a_signed_in_lobby(GivenDecks(source=a_configured_source(_ADDRESS)))
 
 
 def test_a_source_without_a_deck_names_the_git_address_instead_of_a_table(
@@ -36,8 +47,8 @@ def test_a_source_without_a_deck_names_the_git_address_instead_of_a_table(
     listed = empty_lobby.get("/")
 
     assert listed.status_code == HTTPStatus.OK
-    assert TEXT.decks_empty_title in listed.text
-    assert TEXT.decks_empty_explanation in listed.text
+    assert ENGLISH.decks_empty_title in listed.text
+    assert ENGLISH.decks_empty_explanation in listed.text
     assert _ADDRESS in listed.text
     assert "<table" not in listed.text
 
@@ -45,22 +56,24 @@ def test_a_source_without_a_deck_names_the_git_address_instead_of_a_table(
 def test_an_empty_list_offers_no_way_to_add_a_deck_or_a_source(
     empty_lobby: TestClient,
 ) -> None:
-    listed = empty_lobby.get("/")
+    listed = the_page_itself(empty_lobby.get("/").text)
 
-    assert "<input" not in listed.text
-    assert "Add source" not in listed.text
+    assert "<input" not in listed
+    assert "Add source" not in listed
 
 
 def test_a_pushed_deck_is_listed_with_its_title_its_folder_and_its_age() -> None:
     lobby = a_signed_in_lobby(
-        folders=(
-            a_folder(
-                "kundenfeedback",
-                title="Kundenfeedback Q3",
-                changed_ago=timedelta(minutes=2),
+        GivenDecks(
+            folders=(
+                a_folder(
+                    "kundenfeedback",
+                    title="Kundenfeedback Q3",
+                    changed_ago=timedelta(minutes=2),
+                ),
             ),
+            source=a_configured_source(_ADDRESS),
         ),
-        source=a_configured_source(_ADDRESS),
     )
 
     listed = lobby.get("/").text
@@ -68,16 +81,18 @@ def test_a_pushed_deck_is_listed_with_its_title_its_folder_and_its_age() -> None
     assert 'href="/deck/kundenfeedback"' in listed
     assert "Kundenfeedback Q3" in listed
     assert "2 minutes ago" in listed
-    assert TEXT.decks_column_changed in listed
+    assert ENGLISH.decks_column_changed in listed
 
 
 def test_the_most_recently_changed_deck_stands_at_the_top_of_the_list() -> None:
     lobby = a_signed_in_lobby(
-        folders=(
-            a_folder("older", title="Older talk", changed_ago=timedelta(days=6)),
-            a_folder("newer", title="Newer talk", changed_ago=timedelta(minutes=2)),
+        GivenDecks(
+            folders=(
+                a_folder("older", title="Older talk", changed_ago=timedelta(days=6)),
+                a_folder("newer", title="Newer talk", changed_ago=timedelta(minutes=2)),
+            ),
+            source=a_configured_source(_ADDRESS),
         ),
-        source=a_configured_source(_ADDRESS),
     )
 
     listed = lobby.get("/").text
@@ -91,7 +106,7 @@ def test_the_list_page_marks_the_decks_section_as_the_current_one(
 ) -> None:
     listed = empty_lobby.get("/").text
 
-    assert f'aria-current="page">{TEXT.section_decks}<' in listed
+    assert f'aria-current="page">{ENGLISH.section_decks}<' in listed
 
 
 def test_an_instance_without_a_source_still_says_where_decks_belong() -> None:
@@ -99,5 +114,5 @@ def test_an_instance_without_a_source_still_says_where_decks_belong() -> None:
 
     listed = lobby.get("/").text
 
-    assert TEXT.decks_empty_explanation in listed
+    assert ENGLISH.decks_empty_explanation in listed
     assert "<code>" not in listed

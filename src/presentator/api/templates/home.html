@@ -1,15 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ wordmark }}{% endblock %}
+{% block title %}{{ text.decks_title }}{% endblock %}
 {% block body %}
-{% include "header.html" %}
 <main>
-  <h1>{{ title }}</h1>
+  <header>
+    <h1>{{ text.decks_title }}</h1>
+  </header>
   {% if decks %}
   <table>
     <thead>
       <tr>
-        <th scope="col">{{ column_deck }}</th>
-        <th scope="col">{{ column_changed }}</th>
+        <th scope="col">{{ text.decks_column_deck }}</th>
+        <th scope="col">{{ text.decks_column_changed }}</th>
       </tr>
     </thead>
     <tbody>
@@ -26,8 +27,8 @@
   </table>
   {% else %}
   <section>
-    <h2>{{ empty_title }}</h2>
-    <p>{{ empty_explanation }}</p>
+    <h2>{{ text.decks_empty_title }}</h2>
+    <p>{{ text.decks_empty_explanation }}</p>
     {% if source_address %}<p><code>{{ source_address }}</code></p>{% endif %}
   </section>
   {% endif %}
