@@ -38,6 +38,13 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     secret_key: SecretStr = Field(min_length=SECRET_LENGTH)
     database: Path = Path("presentator.sqlite3")
     mirrors: Path = Path("mirrors")
+    # Where built talks are kept, and the Node project whose Slidev builds
+    # them; both are places on the machine the instance runs on.
+    builds: Path = Path("builds")
+    toolchain: Path = Path("frontend")
+    # A build that hangs would hold every later build behind it, so each step
+    # of the toolchain is bounded.
+    build_timeout_seconds: float = 300.0
     source_url: str | None = None
     source_ref: str = "main"
     # The name the source answers to in its hook address, and the secret a call

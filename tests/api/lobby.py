@@ -18,6 +18,7 @@ from presentator.contracts.decks import DeckFolder, Source
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
+    FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
     FakeLoginAttemptStore,
@@ -54,6 +55,9 @@ def a_lobby(
         sources=FakeSourceStore(source=source),
         folders=FakeDeckFolders(found=folders),
         store=FakeDeckStore() if store is None else store,
+        # Nothing builds at this layer: a test arranges the build its deck
+        # delivers from, the way it arranges the row.
+        builder=FakeBuildRunner(fails=True),
         clock=clock,
     )
     # The list and the deck page read the store only; a test arranges what a

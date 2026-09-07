@@ -1,5 +1,6 @@
 """One deck's page, the talk it leads into, and its PDF, as a browser gets them."""
 
+from datetime import timedelta
 from http import HTTPStatus
 from pathlib import Path
 from typing import Final
@@ -8,7 +9,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from presentator.contracts.decks import Deck
+from presentator.contracts.decks import Build, Deck
 from tests.api.lobby import (
     ADMIN,
     NOW,
@@ -34,13 +35,19 @@ _LOGIN: Final = "/login"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = f'attachment; filename="{_SLUG}.pdf"'
 _ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
+_BUILT_AGO: Final = timedelta(minutes=12)
+_HOW_LONG_AGO: Final = "12 minutes ago"
+
+
+def a_build(*, talk: Path = _BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
+    """A build that switched over a while ago, as the picture's board shows it."""
+    return Build(directory=talk, pdf=pdf, commit=_COMMIT, built_at=NOW - _BUILT_AGO)
 
 
 def a_deck_store(
     *,
     slug: str = _SLUG,
-    built_talk: Path | None = None,
-    exported_pdf: Path | None = None,
+    built: Build | None = None,
     owner: str = ADMIN,
 ) -> FakeDeckStore:
     store = FakeDeckStore()
@@ -51,21 +58,18 @@ def a_deck_store(
             changed_at=NOW,
             owner_id=owner,
             commit=_COMMIT,
-            active_build=None,
-            pdf_export=None,
+            build=None,
         ),
     )
-    if built_talk is not None:
-        store.put_active_build(slug, directory=built_talk)
-    if exported_pdf is not None:
-        store.put_pdf_export(slug, file=exported_pdf)
+    if built is not None:
+        store.put_build(slug, built)
     return store
 
 
 @pytest.fixture
 def lobby() -> TestClient:
     return a_signed_in_lobby(
-        store=a_deck_store(built_talk=_BUILT_TALK, exported_pdf=_EXPORTED_PDF),
+        store=a_deck_store(built=a_build()),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -144,29 +148,28 @@ def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
     assert download.content == _EXPORTED_PDF.read_bytes()
 
 
-def test_a_deck_nothing_was_exported_from_offers_no_download() -> None:
+def test_a_built_decks_page_says_how_long_ago_its_talk_was_built() -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built_talk=_BUILT_TALK),
+        store=a_deck_store(built=a_build()),
         source=a_configured_source(_ADDRESS),
     )
 
     page = signed_in.get(_PAGE).text
 
-    assert f'href="{_PRESENTER}"' in page
-    assert _PDF not in page
-    assert TEXT.deck_pdf not in page
+    assert TEXT.deck_built.format(age=_HOW_LONG_AGO) in page
+    assert _SHORT_COMMIT in page
 
 
 @pytest.mark.parametrize(
-    "exported_pdf",
-    [None, Path("/var/lib/presentator/exports/nothing-was-written-here.pdf")],
-    ids=["no pdf at all", "a file that is gone"],
+    "built",
+    [None, a_build(pdf=Path("/var/lib/presentator/builds/nothing-was-written.pdf"))],
+    ids=["nothing built", "a file that is gone"],
 )
 def test_a_download_with_nothing_behind_it_answers_the_lobbys_own_page(
-    exported_pdf: Path | None,
+    built: Build | None,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built_talk=_BUILT_TALK, exported_pdf=exported_pdf),
+        store=a_deck_store(built=built),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -186,7 +189,7 @@ def test_a_slug_that_could_reach_a_header_is_refused_before_one_is_built(
     slug: str,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(slug=slug, exported_pdf=_EXPORTED_PDF),
+        store=a_deck_store(slug=slug, built=a_build()),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -207,6 +210,7 @@ def test_a_deck_nothing_has_been_built_from_says_so_and_offers_no_view(
     assert TEXT.deck_state_not_built in page.text
     assert _PRESENTER not in page.text
     assert _PROJECTOR not in page.text
+    assert TEXT.deck_pdf not in page.text
 
 
 @pytest.mark.parametrize(
@@ -226,7 +230,7 @@ def test_a_view_of_a_deck_nothing_has_been_built_from_answers_nothing(
 )
 def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(address: str) -> None:
     signed_out = a_lobby(
-        store=a_deck_store(built_talk=_BUILT_TALK),
+        store=a_deck_store(built=a_build()),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -252,7 +256,7 @@ def test_a_path_that_would_leave_the_build_directory_is_refused(
     crafted: str,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built_talk=a_build_next_to_a_secret(tmp_path)),
+        store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -266,7 +270,7 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
     tmp_path: Path,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built_talk=a_build_next_to_a_secret(tmp_path)),
+        store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -275,7 +279,7 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
 
 def test_a_deck_another_person_owns_is_held_by_anyone_signed_in() -> None:
     lobby = a_signed_in_lobby(
-        store=a_deck_store(built_talk=_BUILT_TALK, owner="someone-else"),
+        store=a_deck_store(built=a_build(), owner="someone-else"),
         source=a_configured_source(_ADDRESS),
     )
 
@@ -301,7 +305,7 @@ def test_a_deck_page_stands_behind_the_lobbys_header(lobby: TestClient) -> None:
 
 
 def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None:
-    store = a_deck_store(built_talk=_BUILT_TALK)
+    store = a_deck_store(built=a_build())
     signed_in = a_signed_in_lobby(store=store, source=a_configured_source(_ADDRESS))
 
     store.mark_removed_except(present=frozenset(), at=NOW)

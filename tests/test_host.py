@@ -316,6 +316,24 @@ def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
     assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, admin.id)]
 
 
+def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    environment.setenv("PRESENTATOR_TOOLCHAIN", str(tmp_path / "no-toolchain-here"))
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    asyncio.run(instance.poller.tick())
+    page = lobby.get(f"/deck/{EXAMPLE_SLUG}")
+
+    assert page.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE in page.text
+    assert f"/deck/{EXAMPLE_SLUG}/presenter/" not in page.text
+
+
 def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,

@@ -6,10 +6,9 @@ Named for decks rather than for a catalogue, because the message catalog
 
 from abc import abstractmethod
 from datetime import datetime
-from pathlib import Path
 from typing import Protocol
 
-from presentator.contracts.decks import Deck, DeckFolder, Source
+from presentator.contracts.decks import Artefacts, Build, Deck, DeckFolder, Source
 
 
 class SourceStore(Protocol):
@@ -40,17 +39,18 @@ class DeckStore(Protocol):
     def put(self, deck: Deck) -> None:
         """Write what a source carries under this slug, keeping its built talk.
 
-        Taking a deck in must not unpresent it, so the active build and the
-        PDF export are moved only by putting one.
+        Taking a deck in must not unpresent it and must not take away its
+        downloadable PDF, so what a build wrote moves only by putting a build.
         """
 
     @abstractmethod
-    def put_active_build(self, slug: str, *, directory: Path) -> None:
-        """Make that directory the talk this deck delivers from now on."""
+    def put_build(self, slug: str, build: Build) -> None:
+        """Make that build the talk this deck delivers, in one write.
 
-    @abstractmethod
-    def put_pdf_export(self, slug: str, *, file: Path) -> None:
-        """Make that file the PDF this deck is downloaded as from now on."""
+        Everything the build is switches at once, so nothing can read half a
+        switch: an address that answered from the previous build answers from
+        the new one, and never from a mixture of the two.
+        """
 
     @abstractmethod
     def get(self, slug: str) -> Deck | None:
@@ -66,4 +66,29 @@ class DeckStore(Protocol):
 
         A mark is not a delete: the row keeps its identity and its owner, so a
         folder pushed again is the deck it was.
+        """
+
+
+class BuildRunner(Protocol):
+    """Builds one deck's folder into the talk that deck delivers.
+
+    Where the folder comes from and which toolchain turns it into a talk is the
+    adapter's business; the use case only says which deck is to be built.
+    """
+
+    @abstractmethod
+    def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
+        """What this deck's commit built into, or nothing when the build failed.
+
+        Nothing is what a broken deck yields, so the talk that already stands
+        keeps standing until a build really produced a new one.
+        """
+
+    @abstractmethod
+    def holds(self, artefacts: Artefacts) -> bool:
+        """Whether both artefacts really stand under the root builds are kept in.
+
+        A deck is code that runs on this host until it is sandboxed
+        (ADR 0005), so where a build says it wrote is checked rather than
+        trusted before that place becomes an address.
         """

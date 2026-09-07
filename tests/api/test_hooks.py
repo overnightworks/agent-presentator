@@ -18,6 +18,7 @@ from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, 
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
+    FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
     FakeLoginAttemptStore,
@@ -87,6 +88,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
         ),
         folders=FakeDeckFolders(found=(a_pushed_folder(),)),
         store=store,
+        builder=FakeBuildRunner(),
         clock=clock,
     )
     lobby = create_lobby(

@@ -312,7 +312,13 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
-    add_deck_pages(lobby, decks=decks, renderer=renderer, text=wording.text)
+    add_deck_pages(
+        lobby,
+        decks=decks,
+        renderer=renderer,
+        text=wording.text,
+        age_in_words=wording.age_in_words,
+    )
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     if fetch_hook is not None:
         lobby.include_router(fetch_hook)

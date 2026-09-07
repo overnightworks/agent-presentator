@@ -11,6 +11,7 @@ from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
     MirroredDeckFolders,
+    SourceMirrors,
     SqliteDeckStore,
     create_deck_tables,
 )
@@ -18,6 +19,7 @@ from presentator.adapters.identity import SqliteUserStore, create_identity_table
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    Build,
     Deck,
     DeckFolder,
     Source,
@@ -32,6 +34,7 @@ _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
+_BUILT_AT = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
@@ -50,10 +53,18 @@ def folders_under(
     *,
     pull_timeout: timedelta = _A_GENEROUS_BOUND,
 ) -> MirroredDeckFolders:
-    return MirroredDeckFolders(
-        mirrors=tmp_path / "mirrors",
+    return MirroredDeckFolders(mirrors=mirrors_under(tmp_path, timeout=pull_timeout))
+
+
+def mirrors_under(
+    tmp_path: Path,
+    *,
+    timeout: timedelta = _A_GENEROUS_BOUND,
+) -> SourceMirrors:
+    return SourceMirrors(
+        directory=tmp_path / "mirrors",
         credentials=EnvironmentCredentials(),
-        pull_timeout=pull_timeout,
+        pull_timeout=timeout,
     )
 
 
@@ -76,8 +87,16 @@ def a_deck(
         changed_at=_PUSHED_AT,
         owner_id=_OWNER.id,
         commit=commit,
-        active_build=None,
-        pdf_export=None,
+        build=None,
+    )
+
+
+def a_build(tmp_path: Path, *, commit: str = _COMMIT) -> Build:
+    return Build(
+        directory=tmp_path / "builds" / "kundenfeedback" / commit / "talk",
+        pdf=tmp_path / "builds" / "kundenfeedback" / commit / "deck.pdf",
+        commit=commit,
+        built_at=_BUILT_AT,
     )
 
 
@@ -103,6 +122,22 @@ def test_a_pushed_deck_folder_is_read_with_its_title_and_its_change_time(
     assert {MANIFEST_FILE, SLIDES_FILE} <= read.file_names
     assert read.changed_at == _PUSHED_AT
     assert read.commit == remote.head
+
+
+def test_a_push_that_touched_another_folder_leaves_this_decks_commit_alone(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+    pushed_first = remote.head
+
+    remote.commit({"another-deck/slides.md": "# Elsewhere\n"}, at=_PUSHED_AT)
+    read = {
+        folder.name: folder for folder in folders_read(tmp_path, a_source(remote.url))
+    }
+
+    assert read[EXAMPLE_SLUG].commit == pushed_first
+    assert read["another-deck"].commit == remote.head
 
 
 def test_a_folder_without_a_manifest_is_read_without_a_title(
@@ -263,32 +298,20 @@ def test_a_slug_carrying_an_apostrophe_and_a_non_ascii_letter_survives_reconcili
     assert store.get("gone") is None
 
 
-def test_the_talk_a_deck_delivers_is_the_directory_that_was_put_last(
-    tmp_path: Path,
-) -> None:
+def test_everything_a_build_wrote_switches_over_together(tmp_path: Path) -> None:
     store = a_deck_store(tmp_path)
     store.put(a_deck(title="Kundenfeedback"))
-    built = tmp_path / "builds" / "kundenfeedback"
+    first = a_build(tmp_path)
 
-    store.put_active_build("kundenfeedback", directory=built)
-    kept = store.get("kundenfeedback")
+    store.put_build("kundenfeedback", first)
+    after_the_first = store.get("kundenfeedback")
+    store.put_build("kundenfeedback", a_build(tmp_path, commit=_A_LATER_COMMIT))
+    after_the_second = store.get("kundenfeedback")
 
-    assert kept is not None
-    assert kept.active_build == built
-
-
-def test_the_pdf_a_deck_hands_over_is_the_file_that_was_put_last(
-    tmp_path: Path,
-) -> None:
-    store = a_deck_store(tmp_path)
-    store.put(a_deck(title="Kundenfeedback"))
-    exported = tmp_path / "exports" / "kundenfeedback.pdf"
-
-    store.put_pdf_export("kundenfeedback", file=exported)
-    kept = store.get("kundenfeedback")
-
-    assert kept is not None
-    assert kept.pdf_export == exported
+    assert after_the_first is not None
+    assert after_the_first.build == first
+    assert after_the_second is not None
+    assert after_the_second.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
 
 
 def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
@@ -296,17 +319,14 @@ def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
 ) -> None:
     store = a_deck_store(tmp_path)
     store.put(a_deck(title="Kundenfeedback"))
-    built = tmp_path / "builds" / "kundenfeedback"
-    exported = tmp_path / "exports" / "kundenfeedback.pdf"
-    store.put_active_build("kundenfeedback", directory=built)
-    store.put_pdf_export("kundenfeedback", file=exported)
+    built = a_build(tmp_path)
+    store.put_build("kundenfeedback", built)
 
     store.put(a_deck(title="Kundenfeedback Q3"))
     kept = store.get("kundenfeedback")
 
     assert kept is not None
-    assert kept.active_build == built
-    assert kept.pdf_export == exported
+    assert kept.build == built
 
 
 def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(

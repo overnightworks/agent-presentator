@@ -12,6 +12,7 @@ from functools import partial
 import uvicorn
 from fastapi import APIRouter, FastAPI
 
+from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.catalog import (
     ENGLISH_CATALOG,
     age_in_words,
@@ -21,6 +22,7 @@ from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
     MirroredDeckFolders,
+    SourceMirrors,
     SqliteDeckStore,
     create_deck_tables,
 )
@@ -65,6 +67,11 @@ def build_instance(settings: Settings) -> Instance:
             settings.secret_key.get_secret_value().encode(),
         ),
     )
+    mirrors = SourceMirrors(
+        directory=settings.mirrors,
+        credentials=EnvironmentCredentials(),
+        pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
+    )
     decks = Decks(
         sources=ConfiguredSource(
             url=settings.source_url,
@@ -72,12 +79,14 @@ def build_instance(settings: Settings) -> Instance:
             credential_reference=settings.source_credential,
             accounts=SqliteUserStore(settings.database),
         ),
-        folders=MirroredDeckFolders(
-            mirrors=settings.mirrors,
-            credentials=EnvironmentCredentials(),
-            pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
-        ),
+        folders=MirroredDeckFolders(mirrors=mirrors),
         store=SqliteDeckStore(database=settings.database),
+        builder=SlidevBuilds(
+            builds=settings.builds,
+            toolchain=settings.toolchain,
+            mirrors=mirrors,
+            build_timeout=timedelta(seconds=settings.build_timeout_seconds),
+        ),
         clock=SystemClock(),
     )
     text = load_lobby_text(ENGLISH_CATALOG)

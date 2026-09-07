@@ -33,6 +33,7 @@ class LobbyText:
     deck_status: str
     deck_state_ready: str
     deck_state_not_built: str
+    deck_built: str
     deck_not_built_explanation: str
     deck_presenter_view: str
     deck_projector_view: str

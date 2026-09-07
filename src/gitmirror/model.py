@@ -2,6 +2,7 @@
 
 from abc import abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
@@ -48,6 +49,14 @@ class Connection:
 
     state: ConnectionState
     revision: Revision | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Change:
+    """The commit that last touched one path, and when it did."""
+
+    commit: str
+    at: datetime
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

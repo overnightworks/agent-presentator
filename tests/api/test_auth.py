@@ -23,6 +23,7 @@ from presentator.contracts.models import Credentials, Role, User
 from presentator.contracts.text import LobbyText
 from tests.application.fakes import (
     CountingIdentifierFactory,
+    FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
     FakeLoginAttemptStore,
@@ -105,6 +106,7 @@ def a_lobby(
             sources=FakeSourceStore(),
             folders=FakeDeckFolders(),
             store=FakeDeckStore(),
+            builder=FakeBuildRunner(),
             clock=clock,
         ),
         wording=Wording(

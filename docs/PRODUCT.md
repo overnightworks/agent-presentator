@@ -8,8 +8,8 @@ describes something this file does not list, that thing is not built.
 
 An instance signs a person in, lists the decks a configured Git source
 carries while keeping that list current by itself, gives each deck a page,
-and delivers a deck's built talk from that page. Nothing builds that talk
-yet, and nothing is deployed, so no phase of [VISION.md](VISION.md) is
+builds the deck a push changed, and delivers that talk and its PDF from the
+page. Nothing is deployed, so no phase of [VISION.md](VISION.md) is
 reached. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
@@ -96,18 +96,19 @@ on
 ### A deck's page, and the talk behind it
 
 `/deck/<folder>` shows the deck's title, its folder, the address it was
-mirrored from, and the short commit that folder was read at, so before speaking
-a person sees which state the delivered talk stands at. The build time joins
-them with the slice that builds.
+mirrored from, the short commit the talk it delivers was built from, and how
+long ago that build ran, so before speaking a person sees whether their push is
+in what will be on the screen. Until a build has switched anything over, the
+commit shown is the one the source last carried under that folder.
 
-Where a deck's built talk stands, and which file its PDF is handed over as, are
-two columns on the deck's row. Only putting one of them moves it, and taking the
-deck in from Git again leaves both standing, so a new push never unpresents the
+Where a deck's built talk stands, which file its PDF is handed over as, which
+commit both were built from, and when, are four columns on the deck's row that
+one statement writes together: a reader can find the talk of one commit beside
+the PDF and the build time of that same commit, never a mixture. Taking the
+deck in from Git again moves none of them, so a new push never unpresents the
 talk that already works and never takes away the PDF that already downloads.
-Nothing writes those columns yet — the build itself, its states, and the export
-are open on [#8](https://github.com/overnightworks/agent-presentator/issues/8) —
-so a deck page says no talk has been built from it yet and offers no view rather
-than a dead link.
+A deck no build has switched over yet says so and offers no view rather than a
+dead link.
 
 While a build is pointed at, the projector view is `/deck/<folder>/` and the
 presenter view `/deck/<folder>/presenter/`, both delivered out of that
@@ -131,3 +132,46 @@ other address. The saved name is derived from the folder name alone, and a slug
 that is no folder's own name — carrying a separator, a quote, or a line break —
 hands over nothing at all, so nothing an address carries reaches a response
 header.
+
+### Building a deck
+
+A refresh takes the source in and then builds every deck whose commit is not
+the commit its talk was built from, so a push builds the deck it changed and
+leaves the other talks alone. Builds run inside that refresh, which runs one at
+a time beside the routes, so they follow one another and no page view waits for
+one.
+
+A build writes the deck's tree at its commit out of the bare mirror into a
+temporary working directory — nothing is ever checked out into the mirror —
+and runs the Slidev toolchain over it from `PRESENTATOR_TOOLCHAIN` as a
+subprocess: `slidev build` against the address the talk is delivered under,
+then `slidev export` for the PDF. Both write into a directory of that run's own
+under `PRESENTATOR_BUILDS`, which nothing points at while it is being written.
+Each step runs inside `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and with an
+environment holding nothing but `PATH` and `HOME`, so neither a source's
+read-only secret nor this instance's key is in reach of what a deck's build
+runs.
+
+Only when both artefacts exist, and only after they are resolved and found to
+stand under the builds root, does one statement switch the four columns over.
+A build that failed, one that ran past its bound, one whose toolchain is not on
+the machine, and one whose result stands anywhere else write no pointer at all:
+the talk that already stands keeps standing and keeps its build time. What a
+build that did not finish left behind is taken away again, and the directory a
+deck delivers from is never removed, so a request that read the previous
+pointer still finds a directory. Cleaning up the builds that were pointed at is
+open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
+
+**A deck is code, and it is not sandboxed yet.** The Vue components a deck
+carries execute on this host during the build, with this process's rights over
+the filesystem and the network. Bounded today are the environment the child is
+given, the time it may take, and where its result may stand; the container with
+no network and nothing of the server mounted
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a) is open on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
+lands, a deck source is as trusted as the machine.
+
+Which state a build is in — building, failed, and the error text on the deck's
+page — is open on
+[#8](https://github.com/overnightworks/agent-presentator/issues/8) too; today a
+deck either delivers a talk or says it delivers none.

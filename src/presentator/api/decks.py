@@ -8,7 +8,9 @@ row names, and the session guard in front of the whole lobby covers every
 address here, the two views and the download included.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPStatus
 from typing import Final
 
@@ -19,10 +21,11 @@ from starlette.types import Receive, Scope, Send
 
 from presentator.api.pages import PageRenderer
 from presentator.application.decks import Decks
+from presentator.contracts.decks import DECK_PATH
 from presentator.contracts.text import LobbyText
 
-_DECK_PAGE: Final = "/deck/{slug}"
-_DECK_PDF: Final = "/deck/{slug}/pdf"
+_DECK_PAGE: Final = f"{DECK_PATH}/{{slug}}"
+_DECK_PDF: Final = f"{_DECK_PAGE}/pdf"
 _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
@@ -36,24 +39,23 @@ class _DeckPage:
     decks: Decks
     renderer: PageRenderer
     text: LobbyText
+    age_in_words: Callable[[timedelta], str]
 
     def deck(self, request: Request, slug: str) -> Response:
         """Show the deck's title, where it came from, and the ways into it."""
         page = self.decks.page(slug)
         if page is None:
             return self._no_such_deck(request)
+        built = self._when_it_was_built(page.built_ago)
         return self.renderer.signed_in_page(
             request,
             _DECK_TEMPLATE,
             back=self.text.deck_back,
             title=page.title,
             slug=page.slug,
-            built=page.built,
-            exported=page.exported,
+            built=built,
             state=(
-                self.text.deck_state_ready
-                if page.built
-                else self.text.deck_state_not_built
+                self.text.deck_state_ready if built else self.text.deck_state_not_built
             ),
             status_label=self.text.deck_status,
             source=page.source,
@@ -91,6 +93,16 @@ class _DeckPage:
             explanation=self.text.deck_unknown_explanation,
         )
 
+    def _when_it_was_built(self, built_ago: timedelta | None) -> str | None:
+        """How long ago the delivered talk was built, once one is delivered.
+
+        The one value says both that a talk stands and how old it is, so the
+        page cannot offer a view of a build whose time it cannot name.
+        """
+        if built_ago is None:
+            return None
+        return self.text.deck_built.format(age=self.age_in_words(built_ago))
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _BuiltTalk:
@@ -115,9 +127,15 @@ def add_deck_pages(
     decks: Decks,
     renderer: PageRenderer,
     text: LobbyText,
+    age_in_words: Callable[[timedelta], str],
 ) -> None:
     """Give the lobby the deck page, and the talk that stands under it."""
-    page = _DeckPage(decks=decks, renderer=renderer, text=text)
+    page = _DeckPage(
+        decks=decks,
+        renderer=renderer,
+        text=text,
+        age_in_words=age_in_words,
+    )
     # The page and the download answer their own addresses; everything else
     # below the deck is the talk, so the routes are registered first and the
     # mount catches the rest.
