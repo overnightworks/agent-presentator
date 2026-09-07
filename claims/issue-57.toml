@@ -1,0 +1,8 @@
+claim_id = "86f53a481d30454ca0c77be179d85a6f"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "25913950980f2453c8f3099f2bb2b9acc03ad3c8"
+branch = "claude/issue-57-ui-tokens"
+scope = ["src/presentator/api/static", "src/presentator/api/templates", "tests"]
+opened_commit = "41d38b64fbc07cb4a740e3b2ab9d43186827b17f"
+whole_reason = "The package, the vendored asset and the deletion of the stylesheet it replaces are one landing or the lobby renders from two owners."
