@@ -1,8 +1,0 @@
-claim_id = "56c1b1e1b4614898b122153473b13d02"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "092a0350e7a2f38ca334a60476bdd53cfd6c4188"
-branch = "claude/issue-45-build-states"
-scope = ["src/presentator", "tests", "docs/PRODUCT.md"]
-opened_commit = "35ccd777dd1f008ca39f241cc5b1faf605c2add4"
-whole_reason = "The attempt record, its writer in the refresh, the change check and the two surfaces are one sentence (line 9)."
