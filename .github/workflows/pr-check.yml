@@ -26,6 +26,13 @@ jobs:
       issues: read
       pull-requests: read
     steps:
+      - name: Check out the event commit
+        # A checkout is required: agent-claim reads .agent-claim/board.toml
+        # from the working tree and fetches refs/aco/state with the
+        # checkout's own credentials. A shallow checkout is enough.
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
       - name: Install uv
         # No Python pin here: this job runs agent-claim's own tool environment
         # through uvx, not this repository's interpreter.
@@ -39,7 +46,10 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v0.12.2 agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}
+        # Pinned to a commit because the ledger moved to refs/aco/state and no
+        # tagged release resolves it yet; re-pin to a tag once agent-claim
+        # 1.0.0 ships the state-ref build.
+        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@24598455006880fbb96bfead4de02339cd7f8a4f agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}
 
       - name: Hold the required check name for the merge queue
         if: ${{ github.event_name == 'merge_group' }}
