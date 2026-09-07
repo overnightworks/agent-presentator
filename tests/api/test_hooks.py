@@ -34,6 +34,7 @@ _SOURCE_NAME = "talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
 _A_GUESS = "guessed"
 _PUSHED = "kundenfeedback"
+_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _TEXT: LobbyText = load_lobby_text(ENGLISH_CATALOG)
 
 
@@ -67,6 +68,7 @@ def a_pushed_folder() -> DeckFolder:
         file_names=frozenset({MANIFEST_FILE, SLIDES_FILE}),
         title="Kundenfeedback Q3",
         changed_at=_NOW - timedelta(minutes=2),
+        commit=_COMMIT,
     )
 
 

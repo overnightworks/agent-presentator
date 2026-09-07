@@ -397,6 +397,15 @@ def test_both_theme_files_are_served_without_signing_in(lobby: Lobby) -> None:
     assert "Pico CSS" in pico.text
 
 
+def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
+    lobby: Lobby,
+) -> None:
+    walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
+
+    assert walked_out.status_code == HTTPStatus.FOUND
+    assert walked_out.headers["location"] == "/login"
+
+
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
     signed_in_lobby: Lobby,
 ) -> None:

@@ -23,6 +23,10 @@ session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
 `PRESENTATOR_PORT` (`8000`). An empty instance offers `/setup` once, to create
 the admin; from then on that page is closed.
 
+Starting an instance creates the tables it needs. There is no migration path
+yet, so a database file written by an older version of the code is deleted and
+the instance set up again rather than upgraded.
+
 The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
 (`main`), `PRESENTATOR_SOURCE_NAME` (`decks`, the name in its hook address),
 `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`) and

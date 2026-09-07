@@ -36,12 +36,36 @@ CREATE TABLE IF NOT EXISTS decks (
     title TEXT NOT NULL,
     changed_at TEXT NOT NULL,
     owner_id TEXT NOT NULL REFERENCES users(id),
+    commit_sha TEXT NOT NULL,
+    active_build TEXT,
     removed_at TEXT
 );
 """
+# The build pointer is left out of the insert's update list on purpose: taking
+# a deck in again must not unpresent the talk that already stands (line 16).
+# Whether the row is marked removed is left out too: that mark is
+# `mark_removed_except`'s alone, cleared there when the folder is carried again.
+_PUT_DECK: Final = """
+INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha, active_build)
+VALUES (?, ?, ?, ?, ?, NULL)
+ON CONFLICT(slug) DO UPDATE SET
+    title = excluded.title,
+    changed_at = excluded.changed_at,
+    owner_id = excluded.owner_id,
+    commit_sha = excluded.commit_sha
+"""
+_PUT_ACTIVE_BUILD: Final = "UPDATE decks SET active_build = ? WHERE slug = ?"
+_ALL_DECKS: Final = """
+SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
+WHERE removed_at IS NULL
+"""
+_ONE_DECK: Final = """
+SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
+WHERE slug = ? AND removed_at IS NULL
+"""
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
-_UNREADABLE_MANIFEST: Final = "folder %s is not listed: %s"
+_UNREADABLE_MANIFEST: Final = "folder %s carries no readable title and keeps its current listing: %s"
 
 _log = logging.getLogger(__name__)
 
@@ -138,6 +162,7 @@ class MirroredDeckFolders:
             file_names=file_names,
             title=self._read_title(mirror, revision, name, file_names),
             changed_at=mirror.last_changed_at(revision, name),
+            commit=revision.commit,
         )
 
     def _read_title(
@@ -182,18 +207,26 @@ class SqliteDeckStore:
         """Write the deck under its slug, so a re-pushed folder stays one deck."""
         with rows(self.database) as cursor:
             cursor.execute(
-                "INSERT INTO decks (slug, title, changed_at, owner_id)"
-                " VALUES (?, ?, ?, ?)"
-                " ON CONFLICT(slug) DO UPDATE SET"
-                " title = excluded.title, changed_at = excluded.changed_at,"
-                " owner_id = excluded.owner_id",
+                _PUT_DECK,
                 (
                     deck.slug,
                     deck.title,
                     deck.changed_at.isoformat(),
                     deck.owner_id,
+                    deck.commit,
                 ),
             )
+
+    def put_active_build(self, slug: str, *, directory: Path) -> None:
+        """Point the deck at the directory its talk is delivered from."""
+        with rows(self.database) as cursor:
+            cursor.execute(_PUT_ACTIVE_BUILD, (str(directory), slug))
+
+    def get(self, slug: str) -> Deck | None:
+        """Read the one deck row that slug names, while its folder is still there."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(_ONE_DECK, (slug,)).fetchone()
+        return None if found is None else _deck(found)
 
     def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
         """Mark the decks outside `present` removed, and clear the mark inside it."""
@@ -215,19 +248,20 @@ class SqliteDeckStore:
     def all(self) -> tuple[Deck, ...]:
         """Read every deck row whose folder is still at its source."""
         with rows(self.database) as cursor:
-            found = cursor.execute(
-                "SELECT slug, title, changed_at, owner_id FROM decks"
-                " WHERE removed_at IS NULL",
-            ).fetchall()
-        return tuple(
-            Deck(
-                slug=slug,
-                title=title,
-                changed_at=datetime.fromisoformat(changed_at),
-                owner_id=owner_id,
-            )
-            for slug, title, changed_at, owner_id in found
-        )
+            found = cursor.execute(_ALL_DECKS).fetchall()
+        return tuple(_deck(row) for row in found)
+
+
+def _deck(row: tuple[str, str, str, str, str, str | None]) -> Deck:
+    slug, title, changed_at, owner_id, commit, active_build = row
+    return Deck(
+        slug=slug,
+        title=title,
+        changed_at=datetime.fromisoformat(changed_at),
+        owner_id=owner_id,
+        commit=commit,
+        active_build=None if active_build is None else Path(active_build),
+    )
 
 
 def _title(manifest: bytes, *, folder: str) -> str:

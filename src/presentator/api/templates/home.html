@@ -1,22 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ wordmark }}{% endblock %}
 {% block body %}
-<header>
-  <nav>
-    <ul>
-      <li><strong>{{ wordmark }}</strong></li>
-      <li><a href="/" aria-current="page">{{ section_decks }}</a></li>
-    </ul>
-    <ul>
-      <li>{{ person }}</li>
-      <li>
-        <form method="post" action="/logout">
-          <button type="submit">{{ log_out }}</button>
-        </form>
-      </li>
-    </ul>
-  </nav>
-</header>
+{% include "header.html" %}
 <main>
   <h1>{{ title }}</h1>
   {% if decks %}

@@ -32,6 +32,8 @@ _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
+_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+_A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
 
 def a_source(url: str, *, credential: str | None = None) -> Source:
@@ -62,8 +64,20 @@ def folders_read(tmp_path: Path, source: Source) -> tuple[DeckFolder, ...]:
     return read
 
 
-def a_deck(slug: str, *, title: str = "Kundenfeedback") -> Deck:
-    return Deck(slug=slug, title=title, changed_at=_PUSHED_AT, owner_id=_OWNER.id)
+def a_deck(
+    slug: str = "kundenfeedback",
+    *,
+    title: str = "Kundenfeedback",
+    commit: str = _COMMIT,
+) -> Deck:
+    return Deck(
+        slug=slug,
+        title=title,
+        changed_at=_PUSHED_AT,
+        owner_id=_OWNER.id,
+        commit=commit,
+        active_build=None,
+    )
 
 
 def a_deck_store(tmp_path: Path) -> SqliteDeckStore:
@@ -87,6 +101,7 @@ def test_a_pushed_deck_folder_is_read_with_its_title_and_its_change_time(
     assert read.title == EXAMPLE_TITLE
     assert {MANIFEST_FILE, SLIDES_FILE} <= read.file_names
     assert read.changed_at == _PUSHED_AT
+    assert read.commit == remote.head
 
 
 def test_a_folder_without_a_manifest_is_read_without_a_title(
@@ -189,11 +204,14 @@ def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
     tmp_path: Path,
 ) -> None:
     store = a_deck_store(tmp_path)
-    store.put(a_deck("kundenfeedback"))
+    store.put(a_deck(title="Kundenfeedback"))
 
-    store.put(a_deck("kundenfeedback", title="Kundenfeedback Q3"))
+    store.put(a_deck(title="Kundenfeedback Q3", commit=_A_LATER_COMMIT))
 
-    assert store.all() == (a_deck("kundenfeedback", title="Kundenfeedback Q3"),)
+    kept = a_deck(title="Kundenfeedback Q3", commit=_A_LATER_COMMIT)
+    assert store.all() == (kept,)
+    assert store.get(kept.slug) == kept
+    assert store.get("never-pushed") is None
 
 
 def test_a_deck_whose_folder_vanished_is_gone_from_the_list_until_it_returns(
@@ -219,6 +237,58 @@ def test_a_deck_whose_folder_vanished_is_gone_from_the_list_until_it_returns(
         a_deck("knowledge-fabric"),
         a_deck("kundenfeedback", title="Kundenfeedback Q4"),
     ]
+
+
+def test_a_removed_decks_own_page_is_unreachable_by_slug(tmp_path: Path) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck("kundenfeedback"))
+
+    store.mark_removed_except(present=frozenset(), at=_NOTICED_GONE_AT)
+
+    assert store.get("kundenfeedback") is None
+
+
+def test_a_slug_carrying_an_apostrophe_and_a_non_ascii_letter_survives_reconciliation(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    kept_slug = "l'équipe"
+    store.put(a_deck(kept_slug))
+    store.put(a_deck("gone"))
+
+    store.mark_removed_except(present=frozenset({kept_slug}), at=_NOTICED_GONE_AT)
+
+    assert store.get(kept_slug) == a_deck(kept_slug)
+    assert store.get("gone") is None
+
+
+def test_the_talk_a_deck_delivers_is_the_directory_that_was_put_last(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="Kundenfeedback"))
+    built = tmp_path / "builds" / "kundenfeedback"
+
+    store.put_active_build("kundenfeedback", directory=built)
+    kept = store.get("kundenfeedback")
+
+    assert kept is not None
+    assert kept.active_build == built
+
+
+def test_taking_a_deck_in_again_leaves_the_talk_it_delivers_standing(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="Kundenfeedback"))
+    built = tmp_path / "builds" / "kundenfeedback"
+    store.put_active_build("kundenfeedback", directory=built)
+
+    store.put(a_deck(title="Kundenfeedback Q3"))
+    kept = store.get("kundenfeedback")
+
+    assert kept is not None
+    assert kept.active_build == built
 
 
 def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(
