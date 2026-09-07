@@ -5,6 +5,11 @@
  * Type stacks keep the picture's IBM Plex names so a machine that has
  * those files installed still matches the first theme; the package
  * itself ships system stacks.
+ *
+ * ui-tokens.css is vendored byte-for-byte from package overnightworks/ui-tokens,
+ * tag v0.1.0, asset
+ * https://github.com/overnightworks/ui-tokens/releases/download/v0.1.0/ui-tokens.css,
+ * sha256 c4992e386cb53e997eb110fae8513bc4b452774eca99e5198030c77cf2bd7c7a.
  */
 :root {
   --sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
