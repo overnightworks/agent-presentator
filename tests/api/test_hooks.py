@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.adapters.catalog import age_in_words
+from presentator.adapters.catalog import age_in_words, duration_in_words
 from presentator.api.auth import create_lobby
 from presentator.api.hooks import HOOKS_PATH, fetch_hook
 from presentator.api.pages import Pages
@@ -16,7 +16,7 @@ from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder
-from tests.api.lobby import CATALOGS, a_configured_source
+from tests.api.lobby import BUILD_BOUND, CATALOGS, a_configured_source
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeBuildRunner,
@@ -87,6 +87,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
         store=store,
         builder=FakeBuildRunner(),
         source_runs=FakeSourceRunStore(),
+        build_bound=BUILD_BOUND,
         clock=clock,
     )
     lobby = create_lobby(
@@ -107,6 +108,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
                 catalogs=CATALOGS,
             ),
             age_in_words=age_in_words,
+            duration_in_words=duration_in_words,
         ),
         secure_cookies=False,
         fetch_hook=(

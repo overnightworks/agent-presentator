@@ -315,9 +315,16 @@ main code {
   text-transform: uppercase;
 }
 
-/* The picture marks the state with a filled dot before its word. The word is
- * what says which state it is; the dot and its colour only make it findable.
+/* The picture marks the state with a shape of its own before its word: a
+ * filled dot for a talk that stands, a ring turning while one builds, a
+ * triangle where one broke, and a dashed square where none has ever run. The
+ * word says which state it is; shape and colour only make it findable, and
+ * neither carries it alone.
  */
+[data-state] {
+  white-space: nowrap;
+}
+
 [data-state]::before {
   background: currentColor;
   border-radius: 50%;
@@ -332,8 +339,96 @@ main code {
   color: var(--ok);
 }
 
-[data-state="not-built"] {
+[data-state="building"] {
+  color: var(--busy);
+}
+
+[data-state="building"]::before {
+  animation: turning 1.1s linear infinite;
+  background: none;
+  border: 0.15em solid currentColor;
+  border-top-color: transparent;
+}
+
+@keyframes turning {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* The ring turns because something really is running; for a reader who asked
+ * for less motion the ring alone says it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-state="building"]::before {
+    animation: none;
+  }
+}
+
+[data-state="failed"] {
+  color: var(--fail);
+}
+
+[data-state="failed"]::before {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+[data-state="never-built"] {
   color: var(--ink-faint);
+}
+
+[data-state="never-built"]::before {
+  background: none;
+  border: 1px dashed currentColor;
+  border-radius: 0;
+}
+
+/* The picture's build block: the state's own colour down its edge, carrying
+ * the commit that was tried, how long ago, what the toolchain said, and what
+ * still stands. The output keeps the page's own background so it reads as the
+ * quotation it is, and stays inside a height a person can scroll past to the
+ * ways into the talk.
+ */
+[data-banner] {
+  border: 1px solid;
+  border-left-width: 0.25rem;
+  border-radius: var(--pico-border-radius);
+  margin-bottom: var(--pico-spacing);
+  padding: var(--pico-spacing);
+}
+
+[data-banner] > :last-child {
+  margin-bottom: 0;
+}
+
+[data-banner="building"] {
+  background-color: var(--busy-soft);
+  border-color: var(--busy);
+}
+
+[data-banner="failed"] {
+  background-color: var(--fail-soft);
+  border-color: var(--fail);
+}
+
+[data-banner="failed"] [data-lead] {
+  color: var(--fail);
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+[data-banner] pre {
+  background-color: var(--screen);
+  max-height: 20rem;
+  overflow: auto;
+  /* A toolchain's line can be longer than a phone is wide, and a person
+   * reading why their talk did not build must not have to scroll sideways
+   * for the end of the sentence.
+   */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 /* The picture draws the two ways into a deck as buttons, but they navigate, so
@@ -368,6 +463,18 @@ main code {
   background-color: transparent;
   border-color: var(--line);
   color: var(--ink);
+}
+
+/* A way in that is not open while a build runs keeps its shape and loses its
+ * weight, the way the picture draws it. It is no link at all: there is nothing
+ * to click and nothing for the keyboard to stop at.
+ */
+[data-action][data-locked],
+[data-action][data-locked][data-quiet] {
+  background-color: transparent;
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--ink-faint);
 }
 
 /* A link drawn without an underline still has to say where the keyboard

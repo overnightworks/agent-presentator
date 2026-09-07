@@ -9,7 +9,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from presentator.contracts.decks import Build, Deck
+from presentator.contracts.decks import Build, BuildAttempt, BuildOutcome, Deck
 from tests.api.lobby import (
     ADMIN,
     ENGLISH,
@@ -39,6 +39,14 @@ _SAVED_AS: Final = f'attachment; filename="{_SLUG}.pdf"'
 _ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
 _BUILT_AGO: Final = timedelta(minutes=12)
 _HOW_LONG_AGO: Final = "12 minutes ago"
+_ATTEMPT_COMMIT: Final = "e91c5ad4f3b2a1908877665544332211aabbccdd"
+_SHORT_ATTEMPT_COMMIT: Final = "e91c5ad"
+_TRIED_AGO: Final = timedelta(minutes=26)
+_HOW_LONG_SINCE_THE_ATTEMPT: Final = "26 minutes ago"
+_RUNNING_FOR: Final = timedelta(seconds=40)
+_HOW_LONG_IT_HAS_RUN: Final = "40 seconds"
+_WHAT_THE_TOOLCHAIN_SAID: Final = "slides.md:41:3 Unexpected token in frontmatter"
+_A_DECK_THAT_WRITES_MARKUP: Final = "<script>alert('slides')</script>"
 
 
 def a_build(*, talk: Path = _BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
@@ -46,10 +54,31 @@ def a_build(*, talk: Path = _BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
     return Build(directory=talk, pdf=pdf, commit=_COMMIT, built_at=NOW - _BUILT_AGO)
 
 
+def a_running_attempt() -> BuildAttempt:
+    """A build that said it began and has not reported back, as the picture shows."""
+    return BuildAttempt(
+        commit=_ATTEMPT_COMMIT,
+        started_at=NOW - _RUNNING_FOR,
+        outcome=BuildOutcome.RUNNING,
+        failure=None,
+    )
+
+
+def a_failed_attempt(*, said: str | None = _WHAT_THE_TOOLCHAIN_SAID) -> BuildAttempt:
+    """A build that broke a while ago, with or without words of its own."""
+    return BuildAttempt(
+        commit=_ATTEMPT_COMMIT,
+        started_at=NOW - _TRIED_AGO,
+        outcome=BuildOutcome.FAILED,
+        failure=said,
+    )
+
+
 def a_deck_store(
     *,
     slug: str = _SLUG,
     built: Build | None = None,
+    attempt: BuildAttempt | None = None,
     owner: str = ADMIN,
 ) -> FakeDeckStore:
     store = FakeDeckStore()
@@ -62,11 +91,29 @@ def a_deck_store(
             source_id=SOURCE_ID,
             commit=_COMMIT,
             build=None,
+            attempt=None,
         ),
     )
     if built is not None:
         store.put_build(slug, built)
+    if attempt is not None:
+        store.put_attempt(slug, attempt)
     return store
+
+
+def a_page_of_a_deck(
+    *,
+    built: Build | None = None,
+    attempt: BuildAttempt | None = None,
+) -> str:
+    """The deck page as a signed-in person receives it in that state."""
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=built, attempt=attempt),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+    return signed_in.get(_PAGE).text
 
 
 @pytest.fixture
@@ -221,7 +268,7 @@ def test_a_deck_nothing_has_been_built_from_says_so_and_offers_no_view(
 
     assert page.status_code == HTTPStatus.OK
     assert ENGLISH.deck_not_built_explanation in page.text
-    assert ENGLISH.deck_state_not_built in page.text
+    assert ENGLISH.deck_state_never_built in page.text
     assert _PRESENTER not in page.text
     assert _PROJECTOR not in page.text
     assert ENGLISH.deck_pdf not in page.text
@@ -352,3 +399,89 @@ def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None
     assert returned.status_code == HTTPStatus.OK
     assert ENGLISH.deck_state_ready in returned.text
     assert signed_in.get(_PRESENTER).status_code == HTTPStatus.OK
+
+
+def test_a_deck_whose_build_failed_names_the_attempt_and_what_broke() -> None:
+    page = a_page_of_a_deck(built=a_build(), attempt=a_failed_attempt())
+
+    assert ENGLISH.deck_state_failed in page
+    assert ENGLISH.deck_failed_title in page
+    assert ENGLISH.deck_attempt_label in page
+    assert _SHORT_ATTEMPT_COMMIT in page
+    assert _ATTEMPT_COMMIT not in page
+    assert _HOW_LONG_SINCE_THE_ATTEMPT in page
+    assert _WHAT_THE_TOOLCHAIN_SAID in page
+
+
+def test_the_last_good_talk_still_opens_from_a_failed_decks_page() -> None:
+    lobby = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(), attempt=a_failed_attempt()),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    page = lobby.get(_PAGE).text
+
+    assert ENGLISH.deck_failed_last_talk_stands in page
+    assert f'href="{_PRESENTER}"' in page
+    assert f'href="{_PROJECTOR}"' in page
+    assert f'href="{_PDF}"' in page
+    assert lobby.get(_PRESENTER).status_code == HTTPStatus.OK
+    assert lobby.get(_PROJECTOR).status_code == HTTPStatus.OK
+    assert lobby.get(_PDF).status_code == HTTPStatus.OK
+
+
+def test_what_a_failing_deck_printed_reaches_the_page_as_words_not_markup() -> None:
+    page = a_page_of_a_deck(
+        built=a_build(),
+        attempt=a_failed_attempt(said=_A_DECK_THAT_WRITES_MARKUP),
+    )
+
+    assert _A_DECK_THAT_WRITES_MARKUP not in page
+    assert "&lt;script&gt;" in page
+
+
+def test_a_failed_build_that_said_nothing_is_still_explained() -> None:
+    page = a_page_of_a_deck(built=a_build(), attempt=a_failed_attempt(said=None))
+
+    assert ENGLISH.deck_failed_without_a_message in page
+    assert "<pre>" not in page
+
+
+def test_a_deck_that_never_built_and_failed_promises_no_talk_to_open() -> None:
+    page = a_page_of_a_deck(attempt=a_failed_attempt())
+
+    assert ENGLISH.deck_state_failed in page
+    assert ENGLISH.deck_not_built_explanation in page
+    assert ENGLISH.deck_failed_last_talk_stands not in page
+    assert _PRESENTER not in page
+    assert ENGLISH.deck_pdf not in page
+
+
+def test_a_deck_being_built_locks_both_views_and_still_offers_the_pdf() -> None:
+    lobby = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(), attempt=a_running_attempt()),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    page = lobby.get(_PAGE).text
+
+    assert ENGLISH.deck_state_building in page
+    assert ENGLISH.deck_building_explanation in page
+    assert ENGLISH.deck_building_label in page
+    assert _SHORT_ATTEMPT_COMMIT in page
+    assert ENGLISH.deck_building_for.format(age=_HOW_LONG_IT_HAS_RUN) in page
+    assert f'href="{_PRESENTER}"' not in page
+    assert f'href="{_PROJECTOR}"' not in page
+    assert f'href="{_PDF}"' in page
+    assert lobby.get(_PDF).status_code == HTTPStatus.OK
+
+
+def test_a_deck_that_delivers_a_talk_and_ran_nothing_since_carries_no_banner() -> None:
+    page = a_page_of_a_deck(built=a_build())
+
+    assert ENGLISH.deck_state_ready in page
+    assert "data-banner" not in page

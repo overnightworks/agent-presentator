@@ -18,9 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
 
-from presentator.api.pages import Pages
+from presentator.api.pages import Pages, state_word
 from presentator.application.decks import Decks
-from presentator.contracts.decks import DECK_PATH
+from presentator.contracts.decks import DECK_PATH, DeckPage, DeckState, ShownAttempt
 from presentator.contracts.text import LobbyText
 
 _DECK_PAGE: Final = f"{DECK_PATH}/{{slug}}"
@@ -32,6 +32,22 @@ _SAVED_AS: Final = "{slug}.pdf"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Banner:
+    """What a deck page says about the build that ran last, above the ways in.
+
+    Every word of it is already in the reader's language: the template places
+    them, it does not choose them.
+    """
+
+    lead: str
+    label: str
+    commit: str
+    when: str
+    failure: str | None
+    sentences: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _DeckPage:
     """The page that says what a deck is and offers the ways into it."""
 
@@ -39,19 +55,67 @@ class _DeckPage:
     pages: Pages
 
     def deck(self, request: Request, slug: str) -> Response:
-        """Show the deck's title, where it came from, and the ways into it."""
+        """Show the deck's title, its state, where it came from, and the ways in."""
         page = self.decks.page(slug)
         if page is None:
             return self._no_such_deck(request)
-        appearance = self.pages.appearance(request)
+        text = self.pages.appearance(request).text
         return self.pages.page(
             request,
             _DECK_TEMPLATE,
             title=page.title,
             slug=page.slug,
-            built=self._when_it_was_built(page.built_ago, appearance.text),
+            built=self._when_it_was_built(page.built_ago, text),
             source=page.source,
             commit=page.commit,
+            state=page.state.value,
+            state_word=state_word(page.state, text),
+            # A build that is running may deliver a half-written talk at any
+            # moment, so the two views are not offered while one runs; the PDF
+            # beside them is the last good build's file and stays offered.
+            views_open=page.state is not DeckState.BUILDING,
+            banner=self._banner(page, text),
+        )
+
+    def _banner(self, page: DeckPage, text: LobbyText) -> Banner | None:
+        """The building or the failure block, while there is one to show."""
+        attempt = page.attempt
+        if attempt is None:
+            return None
+        if page.state is DeckState.BUILDING:
+            return self._it_is_building(attempt, text)
+        return self._it_failed(page, attempt, text)
+
+    def _it_is_building(self, attempt: ShownAttempt, text: LobbyText) -> Banner:
+        """That a build is running, on which commit, and for how long (line 10)."""
+        running_for = self.pages.duration_in_words(attempt.ago, text.language_tag)
+        return Banner(
+            lead=text.deck_building_explanation,
+            label=text.deck_building_label,
+            commit=attempt.commit,
+            when=text.deck_building_for.format(age=running_for),
+            failure=None,
+            sentences=(),
+        )
+
+    def _it_failed(
+        self,
+        page: DeckPage,
+        attempt: ShownAttempt,
+        text: LobbyText,
+    ) -> Banner:
+        """What broke, when it was tried, and what still stands (lines 9, 16)."""
+        no_words = () if attempt.failure else (text.deck_failed_without_a_message,)
+        still_standing = (
+            (text.deck_failed_last_talk_stands,) if page.built_ago is not None else ()
+        )
+        return Banner(
+            lead=text.deck_failed_title,
+            label=text.deck_attempt_label,
+            commit=attempt.commit,
+            when=self.pages.age_in_words(attempt.ago, text.language_tag),
+            failure=attempt.failure,
+            sentences=(*no_words, *still_standing),
         )
 
     def pdf(self, request: Request, slug: str) -> Response:

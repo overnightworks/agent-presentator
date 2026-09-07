@@ -9,6 +9,7 @@
   <table>
     <thead>
       <tr>
+        <th scope="col">{{ text.decks_column_state }}</th>
         <th scope="col">{{ text.decks_column_deck }}</th>
         <th scope="col">{{ text.decks_column_changed }}</th>
       </tr>
@@ -16,6 +17,7 @@
     <tbody>
       {% for deck in decks %}
       <tr>
+        <td><span data-state="{{ deck.state }}">{{ deck.state_word }}</span></td>
         <td>
           <a href="/deck/{{ deck.slug }}">{{ deck.title }}</a>
           <code>{{ deck.slug }}</code>

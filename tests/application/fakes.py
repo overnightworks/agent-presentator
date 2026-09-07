@@ -1,6 +1,7 @@
 """In-memory stands-in for the ports, so the use cases run pure."""
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Final
 from presentator.contracts.decks import (
     Artefacts,
     Build,
+    BuildAttempt,
+    BuildFailure,
     Deck,
     DeckFolder,
     Source,
@@ -262,14 +265,20 @@ class FakeDeckStore:
         standing = self.kept.get(deck.slug)
         if standing is not None and standing.source_id != deck.source_id:
             return False
+        # What a build wrote is the build's alone, the way the deck table's own
+        # upsert leaves those columns untouched.
         self.kept[deck.slug] = replace(
             deck,
             build=None if standing is None else standing.build,
+            attempt=None if standing is None else standing.attempt,
         )
         return True
 
     def put_build(self, slug: str, build: Build) -> None:
-        self.kept[slug] = replace(self.kept[slug], build=build)
+        self.kept[slug] = replace(self.kept[slug], build=build, attempt=None)
+
+    def put_attempt(self, slug: str, attempt: BuildAttempt) -> None:
+        self.kept[slug] = replace(self.kept[slug], attempt=attempt)
 
     def get(self, slug: str) -> Deck | None:
         return None if slug in self.removed else self.kept.get(slug)
@@ -335,20 +344,25 @@ _SOMEWHERE_ELSE: Final = Path("/var/lib/presentator/mirrors")
 class FakeBuildRunner:
     """A build that answers with paths instead of running a toolchain.
 
-    It can fail the way a broken deck does, and it can answer with a place
-    outside the root the way a deck that wrote its own output path would.
+    It can fail the way a broken deck does, with or without words, and it can
+    answer with a place outside the root the way a deck that wrote its own
+    output path would.
     """
 
     fails: bool = False
+    says: str | None = None
     writes_outside_the_root: bool = False
     built: list[str] = field(default_factory=list[str])
     from_source: dict[str, str] = field(default_factory=dict[str, str])
+    while_building: Callable[[Deck], None] | None = None
 
-    def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
+    def build(self, deck: Deck, *, source: Source) -> Artefacts | BuildFailure:
         self.built.append(deck.slug)
         self.from_source[deck.slug] = source.id
+        if self.while_building is not None:
+            self.while_building(deck)
         if self.fails:
-            return None
+            return BuildFailure(text=self.says)
         root = _SOMEWHERE_ELSE if self.writes_outside_the_root else BUILDS_ROOT
         written = root / deck.slug / deck.commit
         return Artefacts(directory=written / "talk", pdf=written / "deck.pdf")

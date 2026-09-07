@@ -17,7 +17,14 @@ import pytest
 
 from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.decks import EnvironmentCredentials, SourceMirrors
-from presentator.contracts.decks import Artefacts, Deck, Source, talk_address
+from presentator.contracts.decks import (
+    FAILURE_TEXT_LIMIT,
+    Artefacts,
+    BuildFailure,
+    Deck,
+    Source,
+    talk_address,
+)
 from tests.conftest import EXAMPLE_SLUG, MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -32,6 +39,7 @@ _WHAT_THE_SERVER_HOLDS = "the words only this test set in the environment"
 _RECORDED_COMMAND = "command"
 _RECORDED_ENVIRONMENT = "environment"
 _A_BUILT_PAGE = "index.html"
+_TOOLCHAIN_PROGRAM = "pnpm"
 _WHAT_A_TALK_SAYS = "a talk"
 
 _A_TOOLCHAIN_THAT_BUILDS = """#!/bin/sh
@@ -57,6 +65,19 @@ env | sort >> "{recorded}/environment"
 """
 _A_TOOLCHAIN_THAT_FAILS = """#!/bin/sh
 echo "the deck does not build" >&2
+exit 1
+"""
+_WHAT_A_FAILING_TOOLCHAIN_SAID = "the deck does not build"
+# A deck's own toolchain can print without limit; what a page shows is the end
+# of it, where the reason stands.
+_LAST_WORDS = "the last words of the toolchain"
+_A_TOOLCHAIN_THAT_NEVER_STOPS_TALKING = f"""#!/bin/sh
+i=0
+while [ $i -lt 300 ]; do
+    echo "0123456789012345678901234567890123456789" >&2
+    i=$((i+1))
+done
+echo "{_LAST_WORDS}" >&2
 exit 1
 """
 _A_TOOLCHAIN_THAT_NEVER_ENDS = """#!/bin/sh
@@ -98,6 +119,7 @@ def a_deck(remote: GitRemote, *, slug: str = EXAMPLE_SLUG) -> Deck:
         source_id=_SOURCE_ID,
         commit=remote.head,
         build=None,
+        attempt=None,
     )
 
 
@@ -132,6 +154,12 @@ def builds_ready_for(
     return builds
 
 
+def what_it_built(built: Artefacts | BuildFailure) -> Artefacts:
+    """What the build left, for a test that has already said it expects a talk."""
+    assert isinstance(built, Artefacts)
+    return built
+
+
 def a_path_carrying(*directories: Path) -> str:
     """A PATH with git on it, because reading a deck is still spawning git."""
     git = shutil.which("git")
@@ -155,7 +183,7 @@ def with_the_toolchain(
     """Put a `pnpm` this test wrote on PATH, ahead of any real one."""
     somewhere_on_path = tmp_path / "toolchain-on-path"
     somewhere_on_path.mkdir(exist_ok=True)
-    stand_in = somewhere_on_path / "pnpm"
+    stand_in = somewhere_on_path / _TOOLCHAIN_PROGRAM
     stand_in.write_text(script, encoding="utf-8")
     stand_in.chmod(stand_in.stat().st_mode | stat.S_IEXEC)
     machine.setenv("PATH", a_path_carrying(somewhere_on_path))
@@ -182,9 +210,8 @@ def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
     builds = builds_ready_for(tmp_path, source)
 
-    artefacts = builds.build(a_deck(remote), source=source)
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
 
-    assert artefacts is not None
     assert builds.holds(artefacts)
     assert (artefacts.directory / _A_BUILT_PAGE).read_text(
         encoding="utf-8",
@@ -202,11 +229,9 @@ def test_a_second_build_of_the_same_deck_leaves_the_first_one_where_it_stands(
     with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
     builds = builds_ready_for(tmp_path, source)
 
-    first = builds.build(a_deck(remote), source=source)
-    second = builds.build(a_deck(remote), source=source)
+    first = what_it_built(builds.build(a_deck(remote), source=source))
+    second = what_it_built(builds.build(a_deck(remote), source=source))
 
-    assert first is not None
-    assert second is not None
     assert first.directory != second.directory
     assert builds.holds(first)
     assert builds.holds(second)
@@ -247,26 +272,42 @@ def test_a_build_carries_nothing_of_the_environment_this_server_runs_in(
 @pytest.mark.parametrize(
     "toolchain",
     [
-        (_A_TOOLCHAIN_THAT_FAILS, _A_GENEROUS_BOUND),
-        (_A_TOOLCHAIN_THAT_NEVER_ENDS, _NO_BUDGET_AT_ALL),
+        (_A_TOOLCHAIN_THAT_FAILS, _A_GENEROUS_BOUND, _WHAT_A_FAILING_TOOLCHAIN_SAID),
+        (_A_TOOLCHAIN_THAT_NEVER_ENDS, _NO_BUDGET_AT_ALL, None),
     ],
     ids=["a deck that does not build", "a build that runs past its bound"],
 )
-def test_a_build_that_did_not_finish_leaves_nothing_to_point_at(
+def test_a_build_that_did_not_finish_says_why_and_leaves_nothing_to_point_at(
     remote: GitRemote,
     source: Source,
     machine: pytest.MonkeyPatch,
     tmp_path: Path,
-    toolchain: tuple[str, timedelta],
+    toolchain: tuple[str, timedelta, str | None],
 ) -> None:
-    script, build_timeout = toolchain
+    script, build_timeout, said = toolchain
     with_the_toolchain(machine, tmp_path, script)
 
     builds = builds_ready_for(tmp_path, source, build_timeout=build_timeout)
     built = builds.build(a_deck(remote), source=source)
 
-    assert built is None
+    assert built == BuildFailure(text=said)
     assert list((builds.builds / EXAMPLE_SLUG).iterdir()) == []
+
+
+def test_a_toolchain_that_printed_without_end_hands_back_its_last_words(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_NEVER_STOPS_TALKING)
+
+    built = builds_ready_for(tmp_path, source).build(a_deck(remote), source=source)
+
+    assert isinstance(built, BuildFailure)
+    assert built.text is not None
+    assert len(built.text) == FAILURE_TEXT_LIMIT
+    assert built.text.endswith(_LAST_WORDS)
 
 
 def test_a_build_past_its_bound_takes_the_whole_toolchain_tree_down_with_it(
@@ -289,7 +330,7 @@ def test_a_build_past_its_bound_takes_the_whole_toolchain_tree_down_with_it(
 
     built = builds.build(a_deck(remote), source=source)
 
-    assert built is None
+    assert built == BuildFailure(text=None)
     grandchild = int(pid_file.read_text(encoding="utf-8"))
     assert _gone_within(grandchild, deadline=_GRANDCHILD_GONE_WITHIN)
 
@@ -325,7 +366,9 @@ def test_without_a_toolchain_on_the_machine_there_is_no_build(
 
     built = builds.build(deck, source=source)
 
-    assert built is None
+    assert isinstance(built, BuildFailure)
+    assert built.text is not None
+    assert _TOOLCHAIN_PROGRAM in built.text
     assert EXAMPLE_SLUG in caplog.text
 
 
@@ -343,7 +386,9 @@ def test_a_commit_the_mirror_cannot_read_the_deck_at_builds_nothing(
         source=source,
     )
 
-    assert built is None
+    # A tree this host could not read out of its own mirror is nothing a deck's
+    # author could act on, so the page is told nothing and the log holds it.
+    assert built == BuildFailure(text=None)
     assert "never-pushed" in caplog.text
 
 

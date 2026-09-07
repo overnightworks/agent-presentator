@@ -11,8 +11,12 @@ from presentator.application.decks import Decks
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    BuildAttempt,
+    BuildOutcome,
+    Deck,
     DeckFolder,
     DeckPage,
+    DeckState,
     ListedDeck,
     Source,
     SourceRunFailure,
@@ -52,6 +56,11 @@ _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
 _A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
+_SHORT_LATER_COMMIT = "b7c1d9e"
+# Long enough that no test's build reaches it by accident, so an attempt is
+# only ever given up on where a test says so.
+_BUILD_BOUND = timedelta(minutes=5)
+_WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
 
 
 def a_folder(
@@ -109,8 +118,39 @@ def decks_over(
         store=resolved.store,
         builder=resolved.builder,
         source_runs=resolved.source_runs,
+        build_bound=_BUILD_BOUND,
         clock=resolved.clock,
     )
+
+
+def a_store_that_was_left_building(*, started_ago: timedelta) -> FakeDeckStore:
+    """A deck whose build said it began and never reported back.
+
+    What a server that was restarted mid-build leaves behind.
+    """
+    store = FakeDeckStore()
+    store.put(
+        Deck(
+            slug="kundenfeedback",
+            title="A talk",
+            changed_at=_NOW - timedelta(minutes=2),
+            owner_id=_OWNER,
+            source_id=_SOURCE.id,
+            commit=_COMMIT,
+            build=None,
+            attempt=None,
+        ),
+    )
+    store.put_attempt(
+        "kundenfeedback",
+        BuildAttempt(
+            commit=_COMMIT,
+            started_at=_NOW - started_ago,
+            outcome=BuildOutcome.RUNNING,
+            failure=None,
+        ),
+    )
+    return store
 
 
 def refreshed(decks: Decks) -> tuple[ListedDeck, ...]:
@@ -301,9 +341,169 @@ def test_a_build_that_wrote_outside_the_builds_root_becomes_no_address() -> None
     decks.refresh()
 
     assert builder.built == ["kundenfeedback"]
-    assert page_of(decks, "kundenfeedback").built_ago is None
+    page = page_of(decks, "kundenfeedback")
+    assert page.built_ago is None
+    assert page.state is DeckState.FAILED
     assert decks.built_talk("kundenfeedback") is None
     assert decks.exported_pdf("kundenfeedback") is None
+
+
+def test_a_deck_being_built_says_so_with_the_commit_and_how_long_it_has_run() -> None:
+    clock = FrozenClock(instant=_NOW)
+    builder = FakeBuildRunner()
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(builder=builder, clock=clock),
+    )
+    seen: list[DeckPage] = []
+    builder.while_building = lambda deck: seen.append(
+        _after_it_has_run(decks, deck.slug, clock, timedelta(seconds=40)),
+    )
+
+    decks.refresh()
+
+    building = seen[0]
+    assert building.state is DeckState.BUILDING
+    assert building.attempt is not None
+    assert building.attempt.commit == _SHORT_COMMIT
+    assert building.attempt.ago == timedelta(seconds=40)
+    assert building.attempt.failure is None
+
+
+def _after_it_has_run(
+    decks: Decks,
+    slug: str,
+    clock: FrozenClock,
+    so_far: timedelta,
+) -> DeckPage:
+    """That deck's page as a person opens it while the build is under way."""
+    clock.advance(by=so_far)
+    return page_of(decks, slug)
+
+
+def _listed_states(decks: Decks) -> list[DeckState]:
+    return [deck.state for deck in decks.listed()]
+
+
+def test_a_deck_being_built_is_building_in_the_list() -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(
+        a_folder("kundenfeedback", changed_ago=timedelta(minutes=2)),
+        a_folder("knowledge-fabric", changed_ago=timedelta(days=1)),
+        fakes=DecksFakes(builder=builder),
+    )
+    seen: list[list[DeckState]] = []
+    builder.while_building = lambda _: seen.append(_listed_states(decks))
+
+    decks.refresh()
+
+    assert seen[0] == [DeckState.BUILDING, DeckState.NEVER_BUILT]
+
+
+def test_a_build_that_failed_names_its_commit_and_what_the_toolchain_said() -> None:
+    builder = FakeBuildRunner(fails=True, says=_WHAT_THE_TOOLCHAIN_SAID)
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(builder=builder, clock=clock),
+    )
+
+    decks.refresh()
+    clock.advance(by=timedelta(minutes=26))
+
+    page = page_of(decks, "kundenfeedback")
+    assert page.state is DeckState.FAILED
+    assert page.attempt is not None
+    assert page.attempt.commit == _SHORT_COMMIT
+    assert page.attempt.ago == timedelta(minutes=26)
+    assert page.attempt.failure == _WHAT_THE_TOOLCHAIN_SAID
+    assert _listed_states(decks) == [DeckState.FAILED]
+
+
+def test_a_failed_build_leaves_the_standing_talk_where_it_is_and_says_failed() -> None:
+    builder = FakeBuildRunner()
+    mirror = carrying(a_folder("kundenfeedback"))
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
+    decks.refresh()
+    standing = decks.built_talk("kundenfeedback")
+
+    builder.fails = True
+    builder.says = _WHAT_THE_TOOLCHAIN_SAID
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+    assert page.state is DeckState.FAILED
+    assert page.commit == _SHORT_COMMIT
+    assert page.attempt is not None
+    assert page.attempt.commit == _SHORT_LATER_COMMIT
+    assert decks.built_talk("kundenfeedback") == standing
+
+
+def test_a_commit_that_failed_is_not_built_again_until_the_folder_moves() -> None:
+    builder = FakeBuildRunner(fails=True, says=_WHAT_THE_TOOLCHAIN_SAID)
+    mirror = carrying(a_folder("kundenfeedback"))
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
+
+    decks.refresh()
+    decks.refresh()
+    tried_while_nothing_moved = list(builder.built)
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    decks.refresh()
+
+    assert tried_while_nothing_moved == ["kundenfeedback"]
+    assert builder.built == ["kundenfeedback", "kundenfeedback"]
+
+
+def test_a_build_that_works_again_leaves_no_failure_behind() -> None:
+    builder = FakeBuildRunner(fails=True, says=_WHAT_THE_TOOLCHAIN_SAID)
+    mirror = carrying(a_folder("kundenfeedback"))
+    decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
+    decks.refresh()
+
+    builder.fails = False
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+    assert page.state is DeckState.READY
+    assert page.attempt is None
+    assert _listed_states(decks) == [DeckState.READY]
+
+
+def test_a_build_that_died_with_the_server_is_failed_at_the_next_refresh() -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(
+            store=a_store_that_was_left_building(started_ago=_BUILD_BOUND * 2),
+            builder=builder,
+        ),
+    )
+
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+    assert page.state is DeckState.FAILED
+    assert page.attempt is not None
+    assert page.attempt.failure is None
+    assert builder.built == []
+
+
+def test_a_build_still_inside_its_bound_keeps_saying_it_is_building() -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(
+            store=a_store_that_was_left_building(started_ago=_BUILD_BOUND / 2),
+            builder=builder,
+        ),
+    )
+
+    decks.refresh()
+
+    assert page_of(decks, "kundenfeedback").state is DeckState.BUILDING
+    assert builder.built == []
 
 
 @pytest.mark.parametrize(

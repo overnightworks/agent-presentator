@@ -38,6 +38,7 @@ class LobbyText:
     setup_submit: str
     setup_passwords_differ: str
     decks_title: str
+    decks_column_state: str
     decks_column_deck: str
     decks_column_changed: str
     decks_empty_title: str
@@ -45,9 +46,18 @@ class LobbyText:
     deck_back: str
     deck_status: str
     deck_state_ready: str
-    deck_state_not_built: str
+    deck_state_building: str
+    deck_state_failed: str
+    deck_state_never_built: str
     deck_built: str
     deck_not_built_explanation: str
+    deck_building_explanation: str
+    deck_building_label: str
+    deck_building_for: str
+    deck_failed_title: str
+    deck_attempt_label: str
+    deck_failed_without_a_message: str
+    deck_failed_last_talk_stands: str
     deck_presenter_view: str
     deck_projector_view: str
     deck_pdf: str
