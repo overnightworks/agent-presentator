@@ -248,6 +248,23 @@ can read or reach, a deck's build can too. Until the sandbox lands
 ([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 14a),
 configure only deck sources you would run code from.
 
+**A talk authored for another Slidev setup needs work before it builds here.**
+Proven by pushing the operator's own March 2026 talk through a deployed
+instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
+a deck folder carries no dependencies of its own, so a theme, addon, or
+plugin the talk's original `package.json` installed builds only if
+`frontend/` already carries it too — the operator's talk named
+`@slidev/theme-seriph`, which `frontend/` does not, and its build failed
+naming exactly that theme. A slide deck's own Vue components and global
+layers (`global-bottom.vue` and its kind) run again in this build, so a
+component wired to a service the deck does not bring with it — the
+operator's talk carried an AI overlay calling a chat backend from the tool it
+was written for — has to be stripped from the deck folder before pushing,
+because this instance has nowhere for it to call. A remote asset named in the
+frontmatter, such as a background image fetched by URL at build time, is
+outside this list only because the sandbox above is not built yet; it will be
+refused once that lands.
+
 ## The fetch-now hook
 
 Adding a source creates `POST /sources/<name>/fetch` for that source and shows
