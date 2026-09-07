@@ -112,6 +112,9 @@ msgstr "ready"
 msgid "deck_state_not_built"
 msgstr "not built"
 
+msgid "deck_built"
+msgstr "built {age}"
+
 msgid "deck_not_built_explanation"
 msgstr ""
 "No talk has been built from this deck yet, so there is no view to open."

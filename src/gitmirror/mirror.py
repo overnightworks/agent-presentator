@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Final
 
 from gitmirror.model import (
+    Change,
     Connection,
     ConnectionState,
     CredentialResolver,
@@ -45,7 +46,10 @@ _UNATTENDED: Final = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_NOSYSTEM": "1",
 }
-_COMMIT_TIME: Final = "--format=%cI"
+# git prints exactly what the format asks for, so the commit and the time of
+# one change arrive on a single line with this between them.
+_LAST_CHANGE: Final = "--format=%H %cI"
+_BETWEEN_THEM: Final = " "
 _GIT_MISSING: Final = "git is required to mirror a source"
 _UNREACHABLE: Final = Connection(state=ConnectionState.UNREACHABLE, revision=None)
 _CREDENTIAL_UNRESOLVABLE: Final = Connection(
@@ -82,10 +86,36 @@ class GitMirror:
         """The file's bytes at this commit; nothing is ever checked out."""
         return self._run("cat-file", "blob", f"{revision.commit}:{path}")
 
-    def last_changed_at(self, revision: Revision, path: str) -> datetime:
-        """When the last commit up to this one touched that path."""
-        stamped = self._text("log", "-1", _COMMIT_TIME, revision.commit, "--", path)
-        return datetime.fromisoformat(stamped)
+    def export(self, revision: Revision, path: str, *, into: Path) -> None:
+        """Write the tree under that path at this commit into that directory.
+
+        A caller that has to run a tool over the files needs them as files; the
+        mirror stays bare, so the tree is written out beside it rather than
+        checked out into it. Git carries no empty directory, so a path with
+        nothing under it is a path this commit does not carry.
+        """
+        entries = self.entries(revision, inside=path)
+        if not entries:
+            message = f"{revision.commit} carries no {path}"
+            raise MirrorError(message)
+        into.mkdir(parents=True, exist_ok=True)
+        for entry in entries:
+            below = f"{path}/{entry.name}"
+            if entry.is_directory:
+                self.export(revision, below, into=into / entry.name)
+            else:
+                (into / entry.name).write_bytes(self.read(revision, below))
+
+    def last_change(self, revision: Revision, path: str) -> Change:
+        """The last commit up to this one that touched that path, and when.
+
+        A caller that asks per path gets a value that stands still while other
+        paths move, which is what tells one changed folder from an untouched
+        one.
+        """
+        stamped = self._text("log", "-1", _LAST_CHANGE, revision.commit, "--", path)
+        commit, _, at = stamped.partition(_BETWEEN_THEM)
+        return Change(commit=commit, at=datetime.fromisoformat(at))
 
     def _pull(self, *, secret: str | None) -> Connection:
         self.directory.parent.mkdir(parents=True, exist_ok=True)

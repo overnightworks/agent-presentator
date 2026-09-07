@@ -7,6 +7,16 @@ from typing import Final
 
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
+DECK_PATH: Final = "/deck"
+
+
+def talk_address(slug: str) -> str:
+    """Where a deck's built talk stands, and what it is built against.
+
+    A build writes its own asset links against this address, so the string the
+    build is given and the address the lobby delivers it at are the one value.
+    """
+    return f"{DECK_PATH}/{slug}/"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -31,6 +41,29 @@ class DeckFolder:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Artefacts:
+    """What one run of the build left on disk: a talk to serve, and its PDF."""
+
+    directory: Path
+    pdf: Path
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Build:
+    """The talk a deck delivers, the commit it was built from, and when.
+
+    The four travel together because they switch together: a page that named a
+    build time of one commit beside the directory of another would lie about
+    what is on the screen.
+    """
+
+    directory: Path
+    pdf: Path
+    commit: str
+    built_at: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Deck:
     """A talk. The folder name is the identity; the title only shows."""
 
@@ -39,8 +72,7 @@ class Deck:
     changed_at: datetime
     owner_id: str
     commit: str
-    active_build: Path | None
-    pdf_export: Path | None
+    build: Build | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -60,5 +92,4 @@ class DeckPage:
     title: str
     source: str | None
     commit: str
-    built: bool
-    exported: bool
+    built_ago: timedelta | None

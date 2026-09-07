@@ -9,6 +9,7 @@ address here, the two views and the download included.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPStatus
 from typing import Final
 
@@ -19,9 +20,11 @@ from starlette.types import Receive, Scope, Send
 
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
+from presentator.contracts.decks import DECK_PATH
+from presentator.contracts.text import LobbyText
 
-_DECK_PAGE: Final = "/deck/{slug}"
-_DECK_PDF: Final = "/deck/{slug}/pdf"
+_DECK_PAGE: Final = f"{DECK_PATH}/{{slug}}"
+_DECK_PDF: Final = f"{_DECK_PAGE}/pdf"
 _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
@@ -40,13 +43,13 @@ class _DeckPage:
         page = self.decks.page(slug)
         if page is None:
             return self._no_such_deck(request)
+        appearance = self.pages.appearance(request)
         return self.pages.page(
             request,
             _DECK_TEMPLATE,
             title=page.title,
             slug=page.slug,
-            built=page.built,
-            exported=page.exported,
+            built=self._when_it_was_built(page.built_ago, appearance.text),
             source=page.source,
             commit=page.commit,
         )
@@ -74,6 +77,21 @@ class _DeckPage:
             _UNKNOWN_DECK_TEMPLATE,
             status=HTTPStatus.NOT_FOUND,
         )
+
+    def _when_it_was_built(
+        self,
+        built_ago: timedelta | None,
+        text: LobbyText,
+    ) -> str | None:
+        """How long ago the delivered talk was built, once one is delivered.
+
+        The one value says both that a talk stands and how old it is, so the
+        page cannot offer a view of a build whose time it cannot name.
+        """
+        if built_ago is None:
+            return None
+        age = self.pages.age_in_words(built_ago, text.language_tag)
+        return text.deck_built.format(age=age)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

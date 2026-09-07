@@ -12,6 +12,7 @@ from gitmirror.mirror import (
     unattended_environment,
 )
 from gitmirror.model import (
+    Change,
     ConnectionState,
     CredentialReference,
     GitSource,
@@ -22,10 +23,12 @@ from gitmirror.model import (
 from tests.conftest import MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_PUSHED_LATER = datetime(2026, 1, 16, 9, tzinfo=UTC)
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _WHAT_THE_RESOLVER_ANSWERS = "what only this test made up"
 _TOKEN_REFERENCE = CredentialReference(name="A_READ_ONLY_TOKEN")
+_AN_ASSET = "<svg></svg>\n"
 _A_DECK = {
     "hello-deck/deck.toml": 'title = "Hello"\n',
     "hello-deck/slides.md": "# Hello\n",
@@ -87,7 +90,63 @@ def test_pulling_a_source_brings_its_tree_and_names_the_commit(
     }
     assert {entry.name for entry in inside} == {"deck.toml", "slides.md"}
     assert mirror.read(revision, "hello-deck/deck.toml") == b'title = "Hello"\n'
-    assert mirror.last_changed_at(revision, "hello-deck") == _PUSHED_AT
+    assert mirror.last_change(revision, "hello-deck") == Change(
+        commit=revision.commit,
+        at=_PUSHED_AT,
+    )
+
+
+def test_a_folders_tree_is_written_out_as_the_files_it_holds(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit(
+        {**_A_DECK, "hello-deck/images/cover.svg": _AN_ASSET},
+        at=_PUSHED_AT,
+    )
+    mirror = a_mirror(remote.url, directory=tmp_path)
+    revision = mirror.connect().revision
+    assert revision is not None
+    written = tmp_path / "work" / "hello-deck"
+
+    mirror.export(revision, "hello-deck", into=written)
+
+    assert sorted(path.name for path in written.rglob("*")) == [
+        "cover.svg",
+        "deck.toml",
+        "images",
+        "slides.md",
+    ]
+    assert (written / "slides.md").read_bytes() == mirror.read(
+        revision,
+        "hello-deck/slides.md",
+    )
+    assert (written / "images" / "cover.svg").read_text(encoding="utf-8") == _AN_ASSET
+    assert not (written / "README.md").exists()
+
+
+def test_a_tree_is_written_out_as_it_stood_at_the_commit_it_is_asked_for(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    mirror, first = a_ready_mirror(remote, tmp_path)
+    remote.commit({"hello-deck/slides.md": "# Hello again\n"}, at=_PUSHED_AT)
+    assert mirror.connect().revision is not None
+    written = tmp_path / "work" / "hello-deck"
+
+    mirror.export(first, "hello-deck", into=written)
+
+    assert (written / "slides.md").read_text(encoding="utf-8") == "# Hello\n"
+
+
+def test_a_folder_the_commit_does_not_carry_is_refused_rather_than_empty(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    mirror, revision = a_ready_mirror(remote, tmp_path)
+
+    with pytest.raises(MirrorError, match="never-pushed"):
+        mirror.export(revision, "never-pushed", into=tmp_path / "work")
 
 
 def test_pulling_again_brings_what_was_pushed_since(
@@ -102,6 +161,26 @@ def test_pulling_again_brings_what_was_pushed_since(
     assert second is not None
     assert second.commit != first.commit
     assert mirror.read(second, "hello-deck/slides.md") == b"# Hello again\n"
+
+
+def test_a_path_untouched_by_the_newest_commit_keeps_the_change_that_touched_it(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    mirror, first = a_ready_mirror(remote, tmp_path)
+
+    remote.commit({"another-deck/slides.md": "# Elsewhere\n"}, at=_PUSHED_LATER)
+    second = mirror.connect().revision
+
+    assert second is not None
+    assert mirror.last_change(second, "hello-deck") == Change(
+        commit=first.commit,
+        at=_PUSHED_AT,
+    )
+    assert mirror.last_change(second, "another-deck") == Change(
+        commit=second.commit,
+        at=_PUSHED_LATER,
+    )
 
 
 def test_a_source_that_cannot_be_reached_is_named_unreachable(

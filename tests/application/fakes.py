@@ -6,7 +6,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
-from presentator.contracts.decks import Deck, DeckFolder, Source
+from presentator.contracts.decks import (
+    Artefacts,
+    Build,
+    Deck,
+    DeckFolder,
+    Source,
+)
 from presentator.contracts.models import (
     Credentials,
     FirstStartClosedError,
@@ -206,15 +212,11 @@ class FakeDeckStore:
         standing = self.kept.get(deck.slug)
         self.kept[deck.slug] = replace(
             deck,
-            active_build=None if standing is None else standing.active_build,
-            pdf_export=None if standing is None else standing.pdf_export,
+            build=None if standing is None else standing.build,
         )
 
-    def put_active_build(self, slug: str, *, directory: Path) -> None:
-        self.kept[slug] = replace(self.kept[slug], active_build=directory)
-
-    def put_pdf_export(self, slug: str, *, file: Path) -> None:
-        self.kept[slug] = replace(self.kept[slug], pdf_export=file)
+    def put_build(self, slug: str, build: Build) -> None:
+        self.kept[slug] = replace(self.kept[slug], build=build)
 
     def get(self, slug: str) -> Deck | None:
         return None if slug in self.removed else self.kept.get(slug)
@@ -257,6 +259,40 @@ class HeldDeckFolders:
             self.reads += 1
             self.inside += 1
             self.at_once = max(self.at_once, self.inside)
+
+
+# Where a fake build writes, standing in for the root an instance keeps builds
+# under; no test touches these paths, because the runner is the boundary the
+# filesystem lives behind.
+BUILDS_ROOT: Final = Path("/var/lib/presentator/builds")
+_SOMEWHERE_ELSE: Final = Path("/var/lib/presentator/mirrors")
+
+
+@dataclass
+class FakeBuildRunner:
+    """A build that answers with paths instead of running a toolchain.
+
+    It can fail the way a broken deck does, and it can answer with a place
+    outside the root the way a deck that wrote its own output path would.
+    """
+
+    fails: bool = False
+    writes_outside_the_root: bool = False
+    built: list[str] = field(default_factory=list[str])
+
+    def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
+        self.built.append(deck.slug)
+        if self.fails:
+            return None
+        root = _SOMEWHERE_ELSE if self.writes_outside_the_root else BUILDS_ROOT
+        written = root / deck.slug / deck.commit
+        return Artefacts(directory=written / "talk", pdf=written / "deck.pdf")
+
+    def holds(self, artefacts: Artefacts) -> bool:
+        return all(
+            written.is_relative_to(BUILDS_ROOT)
+            for written in (artefacts.directory, artefacts.pdf)
+        )
 
 
 def some_words(*, language_tag: str, language_name: str) -> LobbyText:

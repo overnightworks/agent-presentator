@@ -58,6 +58,34 @@ Replacing the secret means changing the environment of the running process, so
 today it takes a restart. A rotation path without one is open work on
 [ADR 0010](decisions/0010-git-sources-mirror.md), together with the fetch log.
 
+## Building the decks
+
+Every refresh builds the decks whose commit moved. That needs a Node toolchain
+on the machine: `pnpm` on `PATH`, and a project whose dependencies are
+installed carrying Slidev — this repository's `frontend/`, installed with
+`pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
+`PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
+`PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
+Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
+(`300`). The PDF export drives a browser, so the toolchain also needs
+`playwright-chromium` installed beside Slidev; without it a deck builds and its
+export fails, which leaves the previously delivered talk standing.
+
+Without a toolchain the instance still runs: every build fails, the deck pages
+say no talk has been built, and the failure is in the server log.
+
+Builds are kept per deck and per run, and none is ever deleted, so
+`PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
+([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20).
+
+**A deck is code, and the build is not sandboxed yet.** A deck's own Vue
+components run on this machine during the build, as the user the server runs
+as. The build's environment carries nothing but `PATH` and `HOME`, so no secret
+of this instance is in reach through the environment; anything else that user
+can read or reach, a deck's build can too. Until the sandbox lands
+([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 14a),
+configure only deck sources you would run code from.
+
 ## The fetch-now hook
 
 Setting `PRESENTATOR_SOURCE_HOOK_SECRET` opens

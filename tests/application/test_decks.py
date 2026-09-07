@@ -1,7 +1,6 @@
-"""What the lobby calls a deck, and the order it hands the list over in."""
+"""What the lobby calls a deck, which deck it builds, and what it then shows."""
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from threading import Thread
 
 import pytest
@@ -10,14 +9,16 @@ from presentator.application.decks import Decks
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
-    Deck,
     DeckFolder,
+    DeckPage,
     ListedDeck,
     Source,
 )
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
+    BUILDS_ROOT,
     PATIENCE,
+    FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
     FakeSourceStore,
@@ -36,8 +37,7 @@ _SOURCE = Source(
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
-_BUILT_TALK = Path("/var/lib/presentator/builds/kundenfeedback/a3f19c2")
-_EXPORTED_PDF = Path("/var/lib/presentator/exports/kundenfeedback/a3f19c2.pdf")
+_A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
 
 def a_folder(
@@ -62,37 +62,29 @@ def decks_over(
     source: Source | None = _SOURCE,
     mirror: DeckFolders | None = None,
     store: FakeDeckStore | None = None,
+    builder: FakeBuildRunner | None = None,
+    clock: FrozenClock | None = None,
 ) -> Decks:
     return Decks(
         sources=FakeSourceStore(source=source),
         folders=FakeDeckFolders(found=folders) if mirror is None else mirror,
         store=FakeDeckStore() if store is None else store,
-        clock=FrozenClock(instant=_NOW),
+        builder=FakeBuildRunner() if builder is None else builder,
+        clock=FrozenClock(instant=_NOW) if clock is None else clock,
     )
-
-
-def a_store_holding_an_export(slug: str) -> FakeDeckStore:
-    """A store that would hand a PDF over for that slug, however it is written."""
-    store = FakeDeckStore()
-    store.put(
-        Deck(
-            slug=slug,
-            title="Kundenfeedback",
-            changed_at=_NOW,
-            owner_id=_OWNER,
-            commit=_COMMIT,
-            active_build=None,
-            pdf_export=None,
-        ),
-    )
-    store.put_pdf_export(slug, file=_EXPORTED_PDF)
-    return store
 
 
 def refreshed(decks: Decks) -> tuple[ListedDeck, ...]:
     """What the list shows once the source has been taken in."""
     decks.refresh()
     return decks.listed()
+
+
+def page_of(decks: Decks, slug: str) -> DeckPage:
+    """That deck's page, for a test that already knows the deck is there."""
+    page = decks.page(slug)
+    assert page is not None
+    return page
 
 
 def test_the_most_recently_changed_deck_is_listed_first() -> None:
@@ -117,6 +109,23 @@ def test_the_most_recently_changed_deck_is_listed_first() -> None:
 )
 def test_a_folder_without_both_files_is_no_deck(folder: DeckFolder) -> None:
     assert refreshed(decks_over(folder)) == ()
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["..", "a/b"],
+    ids=["one folder up", "a nested path"],
+)
+def test_a_folder_that_is_no_folders_own_name_is_neither_listed_nor_built(
+    name: str,
+) -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(a_folder(name), builder=builder)
+
+    decks.refresh()
+
+    assert decks.listed() == ()
+    assert builder.built == []
 
 
 def test_the_folder_name_stays_the_address_when_the_title_changes() -> None:
@@ -156,14 +165,11 @@ def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
     decks = decks_over(a_folder("kundenfeedback", title="Kundenfeedback Q3"))
     decks.refresh()
 
-    page = decks.page("kundenfeedback")
+    page = page_of(decks, "kundenfeedback")
 
-    assert page is not None
     assert (page.slug, page.title) == ("kundenfeedback", "Kundenfeedback Q3")
     assert page.source == _SOURCE.url
     assert page.commit == _SHORT_COMMIT
-    assert not page.built
-    assert not page.exported
 
 
 def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
@@ -175,30 +181,89 @@ def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
     assert decks.exported_pdf("never-pushed") is None
 
 
-def test_a_built_deck_offers_its_talk_and_says_it_is_ready() -> None:
-    store = FakeDeckStore()
-    decks = decks_over(a_folder("kundenfeedback"), store=store)
+def test_a_deck_whose_commit_was_never_built_is_built_and_then_delivered() -> None:
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(a_folder("kundenfeedback"), clock=clock)
+
+    decks.refresh()
+    clock.advance(by=timedelta(minutes=12))
+
+    assert page_of(decks, "kundenfeedback").built_ago == timedelta(minutes=12)
+    talk = decks.built_talk("kundenfeedback")
+    export = decks.exported_pdf("kundenfeedback")
+    assert talk is not None
+    assert export is not None
+    assert talk.is_relative_to(BUILDS_ROOT)
+    assert export.is_relative_to(BUILDS_ROOT)
+
+
+def test_a_deck_already_built_at_its_commit_is_not_built_again() -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(a_folder("kundenfeedback"), builder=builder)
+
+    decks.refresh()
     decks.refresh()
 
-    store.put_active_build("kundenfeedback", directory=_BUILT_TALK)
-    page = decks.page("kundenfeedback")
-
-    assert page is not None
-    assert page.built
-    assert decks.built_talk("kundenfeedback") == _BUILT_TALK
+    assert builder.built == ["kundenfeedback"]
 
 
-def test_an_exported_deck_hands_its_pdf_over_and_says_so_on_its_page() -> None:
-    store = FakeDeckStore()
-    decks = decks_over(a_folder("kundenfeedback"), store=store)
+def test_a_push_builds_the_deck_it_changed_and_leaves_the_others_alone() -> None:
+    builder = FakeBuildRunner()
+    mirror = FakeDeckFolders(
+        found=(a_folder("kundenfeedback"), a_folder("knowledge-fabric")),
+    )
+    decks = decks_over(mirror=mirror, builder=builder)
     decks.refresh()
 
-    store.put_pdf_export("kundenfeedback", file=_EXPORTED_PDF)
-    page = decks.page("kundenfeedback")
+    mirror.found = (
+        a_folder("kundenfeedback", commit=_A_LATER_COMMIT),
+        a_folder("knowledge-fabric"),
+    )
+    decks.refresh()
 
-    assert page is not None
-    assert page.exported
-    assert decks.exported_pdf("kundenfeedback") == _EXPORTED_PDF
+    assert builder.built == ["kundenfeedback", "knowledge-fabric", "kundenfeedback"]
+
+
+def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
+    builder = FakeBuildRunner()
+    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback"),))
+    decks = decks_over(mirror=mirror, builder=builder)
+    decks.refresh()
+    standing = decks.built_talk("kundenfeedback")
+    exported = decks.exported_pdf("kundenfeedback")
+    built_when = page_of(decks, "kundenfeedback").built_ago
+
+    builder.fails = True
+    mirror.found = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    decks.refresh()
+
+    assert decks.built_talk("kundenfeedback") == standing
+    assert decks.exported_pdf("kundenfeedback") == exported
+    standing_page = page_of(decks, "kundenfeedback")
+    assert standing_page.built_ago == built_when
+    assert standing_page.commit == _SHORT_COMMIT
+
+
+def test_a_deck_nothing_could_build_delivers_nothing_and_says_so() -> None:
+    decks = decks_over(a_folder("kundenfeedback"), builder=FakeBuildRunner(fails=True))
+
+    decks.refresh()
+
+    assert page_of(decks, "kundenfeedback").built_ago is None
+    assert decks.built_talk("kundenfeedback") is None
+    assert decks.exported_pdf("kundenfeedback") is None
+
+
+def test_a_build_that_wrote_outside_the_builds_root_becomes_no_address() -> None:
+    builder = FakeBuildRunner(writes_outside_the_root=True)
+    decks = decks_over(a_folder("kundenfeedback"), builder=builder)
+
+    decks.refresh()
+
+    assert builder.built == ["kundenfeedback"]
+    assert page_of(decks, "kundenfeedback").built_ago is None
+    assert decks.built_talk("kundenfeedback") is None
+    assert decks.exported_pdf("kundenfeedback") is None
 
 
 @pytest.mark.parametrize(
@@ -214,31 +279,30 @@ def test_an_exported_deck_hands_its_pdf_over_and_says_so_on_its_page() -> None:
     ids=["separator", "backslash", "quote", "line break", "one folder up", "nothing"],
 )
 def test_a_slug_that_is_no_folders_own_name_hands_over_no_pdf(slug: str) -> None:
-    decks = decks_over(store=a_store_holding_an_export(slug))
+    decks = decks_over(a_folder(slug))
+    decks.refresh()
 
     assert decks.exported_pdf(slug) is None
 
 
 def test_taking_a_pushed_deck_in_again_leaves_what_it_delivers_standing() -> None:
-    store = FakeDeckStore()
-    decks = decks_over(a_folder("kundenfeedback"), store=store)
+    decks = decks_over(a_folder("kundenfeedback"))
     decks.refresh()
-    store.put_active_build("kundenfeedback", directory=_BUILT_TALK)
-    store.put_pdf_export("kundenfeedback", file=_EXPORTED_PDF)
+    standing = decks.built_talk("kundenfeedback")
+    exported = decks.exported_pdf("kundenfeedback")
 
     decks.refresh()
 
-    assert decks.built_talk("kundenfeedback") == _BUILT_TALK
-    assert decks.exported_pdf("kundenfeedback") == _EXPORTED_PDF
+    assert decks.built_talk("kundenfeedback") == standing
+    assert decks.exported_pdf("kundenfeedback") == exported
 
 
 def test_a_deck_page_names_no_source_while_none_is_configured() -> None:
     store = FakeDeckStore()
     decks_over(a_folder("kundenfeedback"), store=store).refresh()
 
-    page = decks_over(source=None, store=store).page("kundenfeedback")
+    page = page_of(decks_over(source=None, store=store), "kundenfeedback")
 
-    assert page is not None
     assert page.source is None
     assert page.commit == _SHORT_COMMIT
 
