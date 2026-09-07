@@ -34,13 +34,17 @@ class DeckStore(Protocol):
     def put(self, deck: Deck) -> None:
         """Write what a source carries under this slug, keeping its built talk.
 
-        Taking a deck in must not unpresent it, so the active build is moved
-        only by putting one.
+        Taking a deck in must not unpresent it, so the active build and the
+        PDF export are moved only by putting one.
         """
 
     @abstractmethod
     def put_active_build(self, slug: str, *, directory: Path) -> None:
         """Make that directory the talk this deck delivers from now on."""
+
+    @abstractmethod
+    def put_pdf_export(self, slug: str, *, file: Path) -> None:
+        """Make that file the PDF this deck is downloaded as from now on."""
 
     @abstractmethod
     def get(self, slug: str) -> Deck | None:

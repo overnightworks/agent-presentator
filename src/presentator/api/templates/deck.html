@@ -18,6 +18,9 @@
   <p data-actions>
     <a href="/deck/{{ slug }}/presenter/" data-action>{{ presenter_view }}</a>
     <a href="/deck/{{ slug }}/" data-action data-quiet>{{ projector_view }}</a>
+    {% if exported %}
+    <a href="/deck/{{ slug }}/pdf" data-action data-quiet>{{ pdf }}</a>
+    {% endif %}
   </p>
   {% else %}
   <p>{{ not_built }}</p>

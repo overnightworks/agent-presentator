@@ -58,6 +58,7 @@ def a_deck(*, title: str, commit: str = _COMMIT) -> Deck:
         owner_id=_OWNER.id,
         commit=commit,
         active_build=None,
+        pdf_export=None,
     )
 
 
@@ -206,19 +207,36 @@ def test_the_talk_a_deck_delivers_is_the_directory_that_was_put_last(
     assert kept.active_build == built
 
 
-def test_taking_a_deck_in_again_leaves_the_talk_it_delivers_standing(
+def test_the_pdf_a_deck_hands_over_is_the_file_that_was_put_last(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="Kundenfeedback"))
+    exported = tmp_path / "exports" / "kundenfeedback.pdf"
+
+    store.put_pdf_export("kundenfeedback", file=exported)
+    kept = store.get("kundenfeedback")
+
+    assert kept is not None
+    assert kept.pdf_export == exported
+
+
+def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     tmp_path: Path,
 ) -> None:
     store = a_deck_store(tmp_path)
     store.put(a_deck(title="Kundenfeedback"))
     built = tmp_path / "builds" / "kundenfeedback"
+    exported = tmp_path / "exports" / "kundenfeedback.pdf"
     store.put_active_build("kundenfeedback", directory=built)
+    store.put_pdf_export("kundenfeedback", file=exported)
 
     store.put(a_deck(title="Kundenfeedback Q3"))
     kept = store.get("kundenfeedback")
 
     assert kept is not None
     assert kept.active_build == built
+    assert kept.pdf_export == exported
 
 
 def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(

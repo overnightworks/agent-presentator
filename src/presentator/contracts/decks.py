@@ -40,6 +40,7 @@ class Deck:
     owner_id: str
     commit: str
     active_build: Path | None
+    pdf_export: Path | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -60,3 +61,4 @@ class DeckPage:
     source: str | None
     commit: str
     built: bool
+    exported: bool
