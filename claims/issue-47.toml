@@ -1,8 +1,0 @@
-claim_id = "d8e68437930149938d3754a55380dce4"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "092a0350e7a2f38ca334a60476bdd53cfd6c4188"
-branch = "claude/issue-47-fetch-record"
-scope = ["src/presentator", "tests"]
-opened_commit = "b112b9406b11de65a7f546d304e4485429fcec1b"
-whole_reason = "The run record, its port, its writer in the refresh and its table land together or not at all."
