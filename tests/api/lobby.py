@@ -44,7 +44,7 @@ def a_configured_source(url: str) -> Source:
 
 def a_lobby(
     *,
-    folders: tuple[DeckFolder, ...] = (),
+    folders: tuple[DeckFolder, ...] | None = None,
     source: Source | None = None,
     store: FakeDeckStore | None = None,
 ) -> TestClient:
@@ -58,6 +58,9 @@ def a_lobby(
     )
     # The list and the deck page read the store only; a test arranges what a
     # poll or the hook would already have taken in before anyone opened a page.
+    # No folders named is not the source carrying none: it is a test that
+    # populated the store itself, so the one refresh here must read nothing
+    # rather than reconcile away what the test already put there.
     decks.refresh()
     lobby = create_lobby(
         identity=Identity(
@@ -82,7 +85,7 @@ def a_lobby(
 
 def a_signed_in_lobby(
     *,
-    folders: tuple[DeckFolder, ...] = (),
+    folders: tuple[DeckFolder, ...] | None = None,
     source: Source | None = None,
     store: FakeDeckStore | None = None,
 ) -> TestClient:

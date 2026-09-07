@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import shutil
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -30,6 +31,9 @@ _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
 _TYPED_WORDS = "the words only this test types"
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_DELETED_AT = datetime(2026, 1, 16, 9, tzinfo=UTC)
+_PUSHED_AGAIN_AT = datetime(2026, 2, 1, 9, tzinfo=UTC)
+_ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
 
@@ -192,6 +196,17 @@ def a_polled_source(
     return a_real_instance()
 
 
+def listed_addresses(page: str) -> list[str]:
+    """The deck each row of the list links to, in the order they stand."""
+    return re.findall(r'href="/deck/([^"]+)"', page)
+
+
+def owner_of(database: Path, slug: str) -> str:
+    """Who the stored deck belongs to, read straight from the real table."""
+    kept = SqliteDeckStore(database=database).all()
+    return next(deck.owner_id for deck in kept if deck.slug == slug)
+
+
 def call_the_hook(lobby: TestClient, *, carrying: str) -> Response:
     return lobby.post(
         f"{HOOKS_PATH}/{_SOURCE_NAME}",
@@ -340,3 +355,31 @@ def test_an_instance_without_a_source_shows_the_empty_list() -> None:
 
     assert listed.status_code == HTTPStatus.OK
     assert "<table" not in listed.text
+
+
+def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    database = tmp_path / "presentator.sqlite3"
+    remote.commit_example_deck(at=_PUSHED_AT)
+    remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
+    asyncio.run(instance.poller.tick())
+    both_pushed = listed_addresses(lobby.get("/").text)
+    owner_before_the_delete = owner_of(database, EXAMPLE_SLUG)
+
+    remote.remove(EXAMPLE_SLUG, at=_DELETED_AT)
+    asyncio.run(instance.poller.tick())
+    after_the_delete = listed_addresses(lobby.get("/").text)
+
+    remote.commit_example_deck(at=_PUSHED_AGAIN_AT)
+    asyncio.run(instance.poller.tick())
+    after_it_came_back = listed_addresses(lobby.get("/").text)
+
+    assert sorted(both_pushed) == sorted([EXAMPLE_SLUG, _ANOTHER_SLUG])
+    assert after_the_delete == [_ANOTHER_SLUG]
+    assert after_it_came_back == [EXAMPLE_SLUG, _ANOTHER_SLUG]
+    assert owner_of(database, EXAMPLE_SLUG) == owner_before_the_delete

@@ -73,19 +73,24 @@ only while a secret of at least 32 characters arms it, and only that one POST
 is open — everything else under it stays behind the login, as does every
 address on an instance that carries no hook secret. A flood of calls collapses
 into the one refresh that runs at a time. Opening the deck list only reads the
-database. A source that cannot be read, and a folder whose manifest cannot be
-read, are logged and leave the rest of the list standing. A folder counts as a
-deck when it carries both `deck.toml` and `slides.md`; its folder name is the
-slug and therefore its address, so changing `title` in the manifest changes no
-link. The most recently changed deck stands first, and a deck belongs to the
-account that owns the source it came from — for a configured source, the admin
-that first start created. While no deck exists, the list says so and names the
-Git address instead of showing an empty table; there is no upload, no editing,
-and no way to add a source in the lobby
+database. A source that cannot be read is logged and says nothing about what it
+carries, so every deck stays listed; a folder whose manifest cannot be read is
+logged too and counts as a folder without a title, so the deck row it belongs to
+stands as it was. A folder counts as a deck when it carries both `deck.toml` and
+`slides.md`; its folder name is the slug and therefore its address, so changing
+`title` in the manifest changes no link. A folder the source no longer carries
+leaves the list: the refresh marks its deck as removed instead of deleting
+anything, and a folder pushed again under the same name loses that mark and is
+the deck it was, at the same address and with the same owner. Only a refresh
+reconciles, so a page view never does. The most recently changed deck stands
+first, and a deck belongs to the account that owns the source it came from — for
+a configured source, the admin that first start created. While no deck exists,
+the list says so and names the Git address instead of showing an empty table;
+there is no upload, no editing, and no way to add a source in the lobby
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
-Sources and their secrets in the store, the fetch log, reconciling a folder
-deleted in Git, and build states are open on
+Sources and their secrets in the store, the fetch log, and build states are open
+on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
 ### A deck's page, and the talk behind it
