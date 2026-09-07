@@ -9,6 +9,7 @@ proven by driving the real interface, and by the frontend job's example build.
 import os
 import shutil
 import stat
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import pytest
 
 from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.decks import EnvironmentCredentials, SourceMirrors
-from presentator.contracts.decks import Artefacts, Deck, Source
+from presentator.contracts.decks import Artefacts, Deck, Source, talk_address
 from tests.conftest import EXAMPLE_SLUG, MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -60,6 +61,17 @@ exit 1
 _A_TOOLCHAIN_THAT_NEVER_ENDS = """#!/bin/sh
 sleep 60
 """
+# A background child of its own, the way slidev export's own Chromium is a
+# child of slidev rather than of pnpm: only a kill of the whole group reaches
+# it, so the pid it wrote down is this test's proof.
+_A_TOOLCHAIN_THAT_LEAVES_A_CHILD_RUNNING = """#!/bin/sh
+sleep 60 &
+echo $! > "{pid_file}"
+sleep 60
+"""
+_A_BOUND_A_SHELL_STARTS_WELL_WITHIN = timedelta(milliseconds=300)
+_GRANDCHILD_GONE_WITHIN = timedelta(seconds=5)
+_POLL_EVERY = timedelta(milliseconds=10)
 
 
 @pytest.fixture
@@ -208,7 +220,7 @@ def test_the_talk_is_built_against_the_address_it_is_delivered_under(
 
     ran = (recorded / _RECORDED_COMMAND).read_text(encoding="utf-8").splitlines()
     assert ran[0].startswith("exec slidev build ")
-    assert f"--base /deck/{EXAMPLE_SLUG}/" in ran[0]
+    assert f"--base {talk_address(EXAMPLE_SLUG)}" in ran[0]
     assert ran[1].startswith("exec slidev export ")
 
 
@@ -251,6 +263,49 @@ def test_a_build_that_did_not_finish_leaves_nothing_to_point_at(
 
     assert built is None
     assert list((builds.builds / EXAMPLE_SLUG).iterdir()) == []
+
+
+def test_a_build_past_its_bound_takes_the_whole_toolchain_tree_down_with_it(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_LEAVES_A_CHILD_RUNNING.format(pid_file=pid_file),
+    )
+    builds = builds_ready_for(
+        tmp_path,
+        source,
+        build_timeout=_A_BOUND_A_SHELL_STARTS_WELL_WITHIN,
+    )
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert built is None
+    grandchild = int(pid_file.read_text(encoding="utf-8"))
+    assert _gone_within(grandchild, deadline=_GRANDCHILD_GONE_WITHIN)
+
+
+def _gone_within(pid: int, *, deadline: timedelta) -> bool:
+    """Poll for the process to disappear, rather than trust a fixed wait."""
+    ends_by = time.monotonic() + deadline.total_seconds()
+    while time.monotonic() < ends_by:
+        if not _is_alive(pid):
+            return True
+        time.sleep(_POLL_EVERY.total_seconds())
+    return not _is_alive(pid)
+
+
+def _is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def test_without_a_toolchain_on_the_machine_there_is_no_build(

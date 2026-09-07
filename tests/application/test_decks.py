@@ -111,6 +111,23 @@ def test_a_folder_without_both_files_is_no_deck(folder: DeckFolder) -> None:
     assert refreshed(decks_over(folder)) == ()
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["..", "a/b"],
+    ids=["one folder up", "a nested path"],
+)
+def test_a_folder_that_is_no_folders_own_name_is_neither_listed_nor_built(
+    name: str,
+) -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(a_folder(name), builder=builder)
+
+    decks.refresh()
+
+    assert decks.listed() == ()
+    assert builder.built == []
+
+
 def test_the_folder_name_stays_the_address_when_the_title_changes() -> None:
     mirror = FakeDeckFolders(found=(a_folder("knowledge-fabric", title="Fabric"),))
     decks = decks_over(mirror=mirror)

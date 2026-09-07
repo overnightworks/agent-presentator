@@ -5,6 +5,7 @@ become the talk that is delivered, and what a deck page says is decided here;
 git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
@@ -21,12 +22,16 @@ from presentator.contracts.decks import (
 from presentator.ports.clock import Clock
 from presentator.ports.decks import BuildRunner, DeckFolders, DeckStore, SourceStore
 
+_log = logging.getLogger(__name__)
+
 # A person compares the commit on the page with the one their push wrote, and
 # reads it off the screen; the first characters are what git itself shows.
 _SHORT_COMMIT: Final = 7
-# A folder's name is one path element and stays one word of a header value.
+# A folder's name is one path element: it stays one word of a header value and
+# never reaches past the directory it is joined under.
 _NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
 _NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
+_NOT_A_FOLDERS_OWN_NAME: Final = "folder %r is not a folder's own name, skipped"
 
 
 def _is_a_plain_folder_name(candidate: str) -> bool:
@@ -139,15 +144,21 @@ class Decks:
         """Store every folder that carries both a manifest and slides.
 
         The folder name becomes the slug, so a changed title reaches no address.
-        A folder the source has stopped carrying is marked as removed rather
-        than deleted, and a folder that comes back under its old name loses that
-        mark, so it is the deck it was. A source nobody could read carries no
-        such news, and leaves every deck where it is.
+        A folder whose name is not a folder's own name — such as `..`, planted
+        as a git tree entry — is skipped here rather than stored, so it is never
+        used as a path component by this deck or its build. A folder the source
+        has stopped carrying is marked as removed rather than deleted, and a
+        folder that comes back under its old name loses that mark, so it is the
+        deck it was. A source nobody could read carries no such news, and leaves
+        every deck where it is.
         """
         carried = self.folders.folders(source)
         if carried is None:
             return
         for folder in carried:
+            if not _is_a_plain_folder_name(folder.name):
+                _log.warning(_NOT_A_FOLDERS_OWN_NAME, folder.name)
+                continue
             if folder.title is None or SLIDES_FILE not in folder.file_names:
                 continue
             self.store.put(

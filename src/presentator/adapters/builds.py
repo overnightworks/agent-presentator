@@ -13,6 +13,7 @@ result is allowed to stand; isolation itself is the sandbox's job.
 import logging
 import os
 import shutil
+import signal
 import subprocess
 from dataclasses import dataclass
 from datetime import timedelta
@@ -132,22 +133,33 @@ class SlidevBuilds:
     def _ran(self, step: str, *arguments: str, deck: Deck) -> bool:
         """Run one step of the toolchain, and say whether it succeeded."""
         try:
-            finished = subprocess.run(
+            process = subprocess.Popen(
                 [_TOOLCHAIN, "exec", _SLIDEV, step, *arguments],
-                capture_output=True,
-                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 cwd=self.toolchain,
                 env=_toolchain_environment(),
-                timeout=self.build_timeout.total_seconds(),
+                # A deck's own toolchain tree spawns processes of its own —
+                # pnpm runs slidev, and an export runs Chromium under that — so
+                # only a session of its own lets the bound below reach every one
+                # of them, not just the child this call started directly.
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired:
-            _log.warning(_TOOLCHAIN_TIMED_OUT, step, deck.slug, self.build_timeout)
-            return False
         except OSError as unavailable:
             _log.error(_TOOLCHAIN_UNAVAILABLE, step, deck.slug, unavailable)
             return False
-        if finished.returncode != 0:
-            _log.warning(_TOOLCHAIN_FAILED, step, deck.slug, _tail(finished.stderr))
+        with process:
+            try:
+                _, stderr = process.communicate(
+                    timeout=self.build_timeout.total_seconds(),
+                )
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                process.wait()
+                _log.warning(_TOOLCHAIN_TIMED_OUT, step, deck.slug, self.build_timeout)
+                return False
+        if process.returncode != 0:
+            _log.warning(_TOOLCHAIN_FAILED, step, deck.slug, _tail(stderr))
             return False
         return True
 
