@@ -1,8 +1,0 @@
-claim_id = "a8a3ed630ddd4a1db452cf6cb5a4079a"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "41af717431a259e8bba45093129fe69b4058c194"
-branch = "claude/issue-44-example-deck"
-scope = ["examples", "frontend", "docs", "README.md"]
-opened_commit = "b0e5bcfb07814898eea394ab51ab97099aa21b62"
-whole_reason = "The example deck, the toolchain it names and the sentence that says what a deck folder needs are one proof of #8's Done-when."
