@@ -28,6 +28,7 @@ ALLOWED_ROOT_FILES: frozenset[str] = frozenset(
 )
 ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
     {
+        ".agent-claim",
         ".github",
         "docs",
         "examples",
