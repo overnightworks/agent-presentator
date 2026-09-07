@@ -1,8 +1,0 @@
-claim_id = "eecaacdc9c1a4b4ab23601f92edbe882"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "03772010c4cc9c7e764a3aca47adf57f677d999e"
-branch = "claude/issue-60-presenter"
-scope = ["src/presentator", "tests", "frontend"]
-opened_commit = "17f91f2444d43a2c66249b1b881640186b6530b2"
-whole_reason = "The build's output, the mount that serves it and the test that proves it are one sentence."
