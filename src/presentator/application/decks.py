@@ -6,16 +6,23 @@ git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
 import logging
+import re
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from enum import StrEnum
 from functools import partial
+from hashlib import sha256
+from hmac import compare_digest
 from pathlib import Path
 from threading import Lock
 from typing import Final
+from urllib.parse import urlparse
 
 from presentator.contracts.decks import (
     SLIDES_FILE,
+    AccessKind,
     Artefacts,
     Build,
     BuildAttempt,
@@ -30,6 +37,7 @@ from presentator.contracts.decks import (
     SourceRun,
     SourceRunOutcome,
     SourceState,
+    SourceWrite,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
@@ -53,6 +61,83 @@ _NOT_A_FOLDERS_OWN_NAME: Final = "folder %r is not a folder's own name, skipped"
 _NAME_BELONGS_TO_ANOTHER_SOURCE: Final = (
     "folder %r is already carried by another source, skipped for source %s"
 )
+# A source name is one path element of the webhook address, never a path
+# itself: lowercase, digits, hyphens, starting with a letter or digit.
+_SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+# The form lives at this path segment, so a source must not take it.
+_RESERVED_SOURCE_NAME: Final = "new"
+_HTTPS_ACCESS: Final = "https"
+_HTTPS_SCHEMES: Final = frozenset({"http", "https"})
+_SSH_SCHEMES: Final = frozenset({"ssh"})
+# Added sources follow main; the configured source still carries its own ref.
+_ADDED_REF: Final = "main"
+_WEBHOOK_SECRET_BYTES: Final = 32
+_HASH_LENGTH: Final = 32
+_NO_HASH: Final = bytes(_HASH_LENGTH)
+
+
+class SourceRefusal(StrEnum):
+    """Why adding a source did not write a row, in the form's own cases."""
+
+    MALFORMED_NAME = "malformed-name"
+    DUPLICATE_NAME = "duplicate-name"
+    DUPLICATE_URL = "duplicate-url"
+    USERINFO = "password-in-url"
+    ACCESS_MISMATCH = "access-mismatch"
+    BLANK_ACCESS = "missing-secret"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AddedSource:
+    """A source that was just written, carrying the webhook secret shown once."""
+
+    source: Source
+    webhook_secret: str
+
+
+def access_kind_of(url: str) -> AccessKind | None:
+    """The access the URL's scheme names, or nothing when it names none.
+
+    HTTPS and HTTP are a token; SSH and the scp form (`git@host:path`) are a
+    deploy key. Anything else is not an access this product has.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme in _HTTPS_SCHEMES:
+        return AccessKind.HTTPS
+    if parsed.scheme in _SSH_SCHEMES or (not parsed.scheme and "@" in url):
+        return AccessKind.SSH
+    return None
+
+
+def hash_webhook_secret(secret: str) -> bytes:
+    """The only form a webhook secret is stored in: SHA-256, never the value."""
+    return sha256(secret.encode()).digest()
+
+
+def _refusal_for(
+    *,
+    name: str,
+    url: str,
+    access: str,
+    secret: str,
+    existing: tuple[Source, ...],
+) -> SourceRefusal | None:
+    """The reason this draft cannot be stored, or nothing when it can."""
+    checks = (
+        (
+            name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
+            SourceRefusal.MALFORMED_NAME,
+        ),
+        (not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (urlparse(url).password is not None, SourceRefusal.USERINFO),
+        (
+            access != _HTTPS_ACCESS or access_kind_of(url) is not AccessKind.HTTPS,
+            SourceRefusal.ACCESS_MISMATCH,
+        ),
+        (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
+        (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
+    )
+    return next((reason for matched, reason in checks if matched), None)
 
 
 def _is_a_plain_folder_name(candidate: str) -> bool:
@@ -119,6 +204,64 @@ class Decks:
         if source is None:
             return False
         self._run_one_at_a_time(partial(self._take_in_and_build_one, source))
+        return True
+
+    def add_source(
+        self,
+        *,
+        name: str,
+        url: str,
+        access: str,
+        secret: str,
+        owner_id: str,
+    ) -> AddedSource | SourceRefusal:
+        """Store a source with its secrets, fetch it once, return the webhook secret.
+
+        The webhook secret is generated here and returned in the clear so the
+        created screen can show it once; only its hash is stored. The access
+        secret is handed to the store and never returned.
+        """
+        named = name.strip()
+        address = url.strip()
+        refused = _refusal_for(
+            name=named,
+            url=address,
+            access=access,
+            secret=secret,
+            existing=self.sources.all(),
+        )
+        if refused is not None:
+            return refused
+        webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
+        stored = self.sources.add(
+            SourceWrite(
+                name=named,
+                url=address,
+                ref=_ADDED_REF,
+                owner_id=owner_id,
+                access_secret=secret,
+                hook_secret_hash=hash_webhook_secret(webhook_secret),
+            ),
+        )
+        if stored is None:
+            return SourceRefusal.DUPLICATE_NAME
+        self.refresh_named(stored.name)
+        return AddedSource(source=stored, webhook_secret=webhook_secret)
+
+    def accept_hook(self, name: str, offered: str) -> bool:
+        """Refresh that source when the offered secret matches the stored hash.
+
+        A missing name and a wrong secret take the same compare against a dummy
+        hash, so the time an answer takes does not say which names exist.
+        """
+        stored = self.sources.hook_secret_hash(name)
+        matched = compare_digest(
+            hash_webhook_secret(offered),
+            stored if stored is not None else _NO_HASH,
+        )
+        if stored is None or not matched:
+            return False
+        self.refresh_named(name)
         return True
 
     def listed_sources(self) -> tuple[ListedSource, ...]:
@@ -241,12 +384,14 @@ class Decks:
             return ListedSource(
                 name=source.name,
                 url=source.url,
+                access=access_kind_of(source.url),
                 state=SourceState.NEVER_FETCHED,
                 age=None,
             )
         return ListedSource(
             name=source.name,
             url=source.url,
+            access=access_kind_of(source.url),
             state=(
                 SourceState.REACHABLE
                 if run.outcome is SourceRunOutcome.SUCCESS

@@ -93,13 +93,20 @@ each arrives with the slice that fills it.
 ### Listing decks
 
 A source is a row: an id, a name and a URL that are each unique, the ref it
-follows, and the account that owns it. There is no page to add one yet, so the
-one an instance runs on comes from `PRESENTATOR_SOURCE_URL`, an optional
+follows, and the account that owns it. An admin adds one under Settings ·
+Sources with a name, a Git URL, HTTPS token access, and a read-only secret;
+the secret is stored encrypted and never shown again, the source is fetched
+once, and the next screen shows the webhook address and its secret exactly
+once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
+URL carrying a password in its userinfo is refused, and the access kind is
+derived from the URL scheme — a mismatch with the chosen radio is refused.
+SSH deploy keys are not offered yet. The one an instance already runs on still
+comes from `PRESENTATOR_SOURCE_URL`, an optional
 `PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
 naming the environment variable that carries a read-only secret — the
 configuration holds the reference, never the value — and is written into that
 table at every start and at the beginning of every refresh, keyed by its URL so
-it is written once. Every deck names the source that carried it, and a refresh
+it is written once; adding a source does not rewrite that credential. Every deck names the source that carried it, and a refresh
 walks the sources one after another, taking each one in and building its decks
 before it reads the next. `gitmirror` keeps a bare
 mirror of each source's repository under `PRESENTATOR_MIRRORS` by driving `git` as a
@@ -112,13 +119,14 @@ that bound and no more.
 A deck pushed to the source appears without anyone asking for it: the server
 polls every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task beside the routes, which
 never runs two pulls at once and starts the next tick after the bound ends a
-slow one. Where a host can call back, `POST /hooks/<source>` with the source's
-own secret does the same at once; it reads no payload, so every git host and a
-`post-receive` hook are the same caller, and a wrong secret, a missing secret,
-an unknown source, and any other path there answer alike. That address exists
-only while a secret of at least 32 characters arms it, and only that one POST
-is open — everything else under it stays behind the login, as does every
-address on an instance that carries no hook secret. A flood of calls collapses
+slow one. Where a host can call back, `POST /sources/<name>/fetch` with the
+source's own secret does the same at once; it reads no payload, so every git
+host and a `post-receive` hook are the same caller, and a wrong secret, a
+missing secret, an unknown source, a trailing slash, and any other path under
+`/sources/` answer alike. The secret is accepted from `Authorization: Bearer`
+or `X-Gitlab-Token`, stored only as a SHA-256 hash, and compared in constant
+time. Only that POST is open — GET and every other method under `/sources/`
+stay behind the login. A flood of calls collapses
 into the one refresh that runs at a time. Every poll of a source, reachable or
 not, records one run: the moment, whether it reached the source, and either the
 commit it found or a typed reason it did not — never the raw error a git

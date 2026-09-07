@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ source_name }} {{ text.source_created }}{% endblock %}
+{% block body %}
+<main>
+  <p><a href="/settings/sources">{{ text.sources_back }}</a></p>
+  <header>
+    <h1>{{ source_name }} {{ text.source_created }}</h1>
+  </header>
+  {% include "settings_tabs.html" %}
+  <section>
+    <h2>{{ text.source_webhook }}</h2>
+    <p>{{ text.source_webhook_address }}</p>
+    <p>
+      <code data-hook-address>{{ address }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
+    </p>
+    {% if webhook_secret %}
+    <p>
+      {{ text.source_webhook_secret }}
+      <span>{{ text.source_webhook_once }}</span>
+    </p>
+    <p>
+      <code data-hook-secret>{{ webhook_secret }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
+    </p>
+    {% endif %}
+    <p>{{ text.source_webhook_payload }}</p>
+  </section>
+  <p><a href="/settings/sources">{{ text.source_created_done }}</a></p>
+  {% if webhook_secret %}
+  <p role="status">{{ text.source_created_toast }}</p>
+  {% endif %}
+</main>
+<script>
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const value = button.previousElementSibling.textContent;
+    if (value) navigator.clipboard.writeText(value);
+  });
+});
+</script>
+{% endblock %}

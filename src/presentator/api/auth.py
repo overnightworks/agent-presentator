@@ -11,7 +11,7 @@ from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
 
-from fastapi import APIRouter, FastAPI, Form, Request, Response
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
@@ -20,7 +20,7 @@ from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
 from webauth.proxies import client_user_agent, request_is_https, resolve_client_ip
 
 from presentator.api.decks import add_deck_pages
-from presentator.api.hooks import HOOK_CALLS
+from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
@@ -122,7 +122,6 @@ class _Surfaces:
     decks: Decks
     pages: Pages
     secure_cookies: bool
-    hook_is_armed: bool
 
     async def same_origin_only(
         self,
@@ -178,14 +177,13 @@ class _Surfaces:
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
         """Whether this is the sessionless, cross-origin POST the hook is for.
 
-        Only that one call is open, and only while a secret arms the hook; a
-        read of the same address, and every other method, stays behind the
-        session the way any other address does.
+        Only POST under `/sources/` is open; a read of the same address, and
+        every other method, stays behind the session the way any other address
+        does. The prefix, never one exact path, is what the exemption matches,
+        so a trailing slash cannot redirect into the guard.
         """
-        return (
-            self.hook_is_armed
-            and request.method == HTTPMethod.POST
-            and request.url.path.startswith(HOOK_CALLS)
+        return request.method == HTTPMethod.POST and request.url.path.startswith(
+            HOOK_CALLS
         )
 
     def home(self, request: Request) -> Response:
@@ -319,19 +317,18 @@ def create_lobby(
     decks: Decks,
     pages: Pages,
     auth: InstalledAuth,
-    fetch_hook: APIRouter | None,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose.
 
-    Without a fetch hook the instance has no address a source's host may call,
-    and nothing below `/hooks/` leaves the session guard.
+    The fetch hook always stands under `/sources/`; a call that cannot name a
+    stored source and its secret is answered alike, and GET stays behind the
+    session.
     """
     surfaces = _Surfaces(
         identity=identity,
         decks=decks,
         pages=pages,
         secure_cookies=auth.secure_cookies,
-        hook_is_armed=fetch_hook is not None,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
@@ -350,6 +347,5 @@ def create_lobby(
     lobby.include_router(source_routes(pages=pages, decks=decks))
     add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
-    if fetch_hook is not None:
-        lobby.include_router(fetch_hook)
+    lobby.include_router(fetch_hook(decks=decks))
     return lobby

@@ -17,6 +17,7 @@ from presentator.contracts.decks import (
     Source,
     SourcePoll,
     SourceRun,
+    SourceWrite,
 )
 
 
@@ -27,9 +28,23 @@ class SourceStore(Protocol):
     def seed(self) -> None:
         """Make the source the configuration names a row of its own, once.
 
-        There is no surface to add a source at yet, so the row an installation
-        already runs on is written from what it is configured with; writing it
-        again writes nothing.
+        The row an installation already runs on is written from what it is
+        configured with; writing it again writes nothing.
+        """
+
+    @abstractmethod
+    def add(self, write: SourceWrite) -> Source | None:
+        """Write a new source with its secrets, or nothing when name or URL is taken.
+
+        The access secret is stored encrypted; the webhook secret is stored
+        only as the hash. A seeded row is not rewritten.
+        """
+
+    @abstractmethod
+    def hook_secret_hash(self, name: str) -> bytes | None:
+        """The stored hash of that source's webhook secret, if this name exists.
+
+        The name is matched against stored names and is never a path.
         """
 
     @abstractmethod
