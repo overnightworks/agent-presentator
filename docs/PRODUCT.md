@@ -80,6 +80,13 @@ catalog directory holds is offered as a language, so a second language is a
 file and not a change to code, and each catalog names itself. The instance name
 is kept and shown back under Settings; nothing else reads it yet.
 
+The lobby's colours come from the vendored
+[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
+v0.1.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
+still use this product's Pico markup; the package grammar is adopted when
+Users lands
+([#61](https://github.com/overnightworks/agent-presentator/issues/61)).
+
 htmx 2.x is vendored beside Pico and carries the two writes a person makes
 about themselves: the theme rows of the person menu and the Account
 preferences post, and the page is painted again in what they chose.
