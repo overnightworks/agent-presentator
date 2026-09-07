@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 from presentator.contracts.decks import Build, Deck
 from tests.api.lobby import (
     ADMIN,
+    ENGLISH,
     NOW,
-    TEXT,
+    GivenDecks,
     a_configured_source,
     a_lobby,
     a_signed_in_lobby,
@@ -69,16 +70,20 @@ def a_deck_store(
 @pytest.fixture
 def lobby() -> TestClient:
     return a_signed_in_lobby(
-        store=a_deck_store(built=a_build()),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
 
 @pytest.fixture
 def unbuilt_lobby() -> TestClient:
     return a_signed_in_lobby(
-        store=a_deck_store(),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
 
@@ -114,7 +119,7 @@ def test_a_deck_with_a_built_talk_opens_its_presenter_and_its_projector_view(
 
     assert f'href="{_PRESENTER}"' in page
     assert f'href="{_PROJECTOR}"' in page
-    assert TEXT.deck_state_ready in page
+    assert ENGLISH.deck_state_ready in page
     assert lobby.get(_PRESENTER).status_code == HTTPStatus.OK
     assert lobby.get(_PROJECTOR).status_code == HTTPStatus.OK
 
@@ -134,7 +139,7 @@ def test_a_deck_with_an_exported_pdf_offers_it_for_download_on_its_page(
     page = lobby.get(_PAGE).text
 
     assert f'href="{_PDF}"' in page
-    assert TEXT.deck_pdf in page
+    assert ENGLISH.deck_pdf in page
 
 
 def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
@@ -150,13 +155,15 @@ def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
 
 def test_a_built_decks_page_says_how_long_ago_its_talk_was_built() -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built=a_build()),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     page = signed_in.get(_PAGE).text
 
-    assert TEXT.deck_built.format(age=_HOW_LONG_AGO) in page
+    assert ENGLISH.deck_built.format(age=_HOW_LONG_AGO) in page
     assert _SHORT_COMMIT in page
 
 
@@ -169,15 +176,18 @@ def test_a_download_with_nothing_behind_it_answers_the_lobbys_own_page(
     built: Build | None,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built=built),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=built),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     missing = signed_in.get(_PDF)
 
     assert missing.status_code == HTTPStatus.NOT_FOUND
-    assert TEXT.deck_unknown_title in missing.text
-    assert "detail" not in missing.text
+    assert ENGLISH.deck_unknown_title in missing.text
+    assert missing.headers["content-type"].startswith("text/html")
+    assert '"detail"' not in missing.text
 
 
 @pytest.mark.parametrize(
@@ -189,15 +199,17 @@ def test_a_slug_that_could_reach_a_header_is_refused_before_one_is_built(
     slug: str,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(slug=slug, built=a_build()),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(slug=slug, built=a_build()),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     refused = signed_in.get(f"/deck/{quote(slug, safe='')}/pdf")
 
     assert refused.status_code == HTTPStatus.NOT_FOUND
     assert "content-disposition" not in refused.headers
-    assert TEXT.deck_unknown_title in refused.text
+    assert ENGLISH.deck_unknown_title in refused.text
 
 
 def test_a_deck_nothing_has_been_built_from_says_so_and_offers_no_view(
@@ -206,11 +218,11 @@ def test_a_deck_nothing_has_been_built_from_says_so_and_offers_no_view(
     page = unbuilt_lobby.get(_PAGE)
 
     assert page.status_code == HTTPStatus.OK
-    assert TEXT.deck_not_built_explanation in page.text
-    assert TEXT.deck_state_not_built in page.text
+    assert ENGLISH.deck_not_built_explanation in page.text
+    assert ENGLISH.deck_state_not_built in page.text
     assert _PRESENTER not in page.text
     assert _PROJECTOR not in page.text
-    assert TEXT.deck_pdf not in page.text
+    assert ENGLISH.deck_pdf not in page.text
 
 
 @pytest.mark.parametrize(
@@ -230,11 +242,13 @@ def test_a_view_of_a_deck_nothing_has_been_built_from_answers_nothing(
 )
 def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(address: str) -> None:
     signed_out = a_lobby(
-        store=a_deck_store(built=a_build()),
-        source=a_configured_source(_ADDRESS),
+        given=GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
-    refused = signed_out.get(address)
+    refused = signed_out.client.get(address)
 
     assert refused.status_code == HTTPStatus.FOUND
     assert refused.headers["location"] == _LOGIN
@@ -256,8 +270,10 @@ def test_a_path_that_would_leave_the_build_directory_is_refused(
     crafted: str,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     refused = signed_in.get(crafted)
@@ -270,8 +286,10 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
     tmp_path: Path,
 ) -> None:
     signed_in = a_signed_in_lobby(
-        store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     assert "a talk" in signed_in.get(_PROJECTOR).text
@@ -279,8 +297,10 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
 
 def test_a_deck_another_person_owns_is_held_by_anyone_signed_in() -> None:
     lobby = a_signed_in_lobby(
-        store=a_deck_store(built=a_build(), owner="someone-else"),
-        source=a_configured_source(_ADDRESS),
+        GivenDecks(
+            store=a_deck_store(built=a_build(), owner="someone-else"),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     assert lobby.get(_PAGE).status_code == HTTPStatus.OK
@@ -293,20 +313,31 @@ def test_an_address_no_deck_carries_answers_the_lobbys_own_page(
     unknown = lobby.get("/deck/nothing-was-pushed-here")
 
     assert unknown.status_code == HTTPStatus.NOT_FOUND
-    assert TEXT.deck_unknown_title in unknown.text
-    assert "detail" not in unknown.text
+    assert ENGLISH.deck_unknown_title in unknown.text
+    assert unknown.headers["content-type"].startswith("text/html")
+    assert '"detail"' not in unknown.text
 
 
-def test_a_deck_page_stands_behind_the_lobbys_header(lobby: TestClient) -> None:
+def test_a_deck_page_carries_the_header_and_its_person_menu(
+    lobby: TestClient,
+) -> None:
     page = lobby.get(_PAGE).text
 
-    assert f'aria-current="page">{TEXT.section_decks}<' in page
-    assert TEXT.log_out in page
+    assert f">{ENGLISH.section_decks}<" in page
+    assert ENGLISH.menu_account in page
+    assert ENGLISH.menu_theme in page
+    assert ENGLISH.log_out in page
+
+
+def test_a_deck_page_marks_no_section_as_the_current_one(lobby: TestClient) -> None:
+    assert "aria-current" not in lobby.get(_PAGE).text
 
 
 def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None:
     store = a_deck_store(built=a_build())
-    signed_in = a_signed_in_lobby(store=store, source=a_configured_source(_ADDRESS))
+    signed_in = a_signed_in_lobby(
+        GivenDecks(store=store, source=a_configured_source(_ADDRESS)),
+    )
 
     store.mark_removed_except(present=frozenset(), at=NOW)
     removed = signed_in.get(_PAGE)
@@ -315,7 +346,7 @@ def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None
     returned = signed_in.get(_PAGE)
 
     assert removed.status_code == HTTPStatus.NOT_FOUND
-    assert TEXT.deck_unknown_title in removed.text
+    assert ENGLISH.deck_unknown_title in removed.text
     assert returned.status_code == HTTPStatus.OK
-    assert TEXT.deck_state_ready in returned.text
+    assert ENGLISH.deck_state_ready in returned.text
     assert signed_in.get(_PRESENTER).status_code == HTTPStatus.OK

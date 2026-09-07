@@ -7,16 +7,15 @@ adapter satisfies which port.
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from functools import partial
 
 import uvicorn
 from fastapi import APIRouter, FastAPI
 
 from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.catalog import (
-    ENGLISH_CATALOG,
+    CATALOG_DIRECTORY,
     age_in_words,
-    load_lobby_text,
+    load_catalogs,
 )
 from presentator.adapters.decks import (
     ConfiguredSource,
@@ -36,10 +35,17 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
-from presentator.api.auth import Wording, create_lobby
+from presentator.adapters.preferences import (
+    SqliteInstanceSettingsStore,
+    SqlitePersonPreferencesStore,
+    create_preference_tables,
+)
+from presentator.api.auth import create_lobby
 from presentator.api.hooks import fetch_hook
+from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
+from presentator.application.preferences import Preferences
 from presentator.host.config import Settings, load_settings
 from presentator.host.polling import SourcePoller
 
@@ -55,6 +61,7 @@ class Instance:
 def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
     create_identity_tables(settings.database)
+    create_preference_tables(settings.database)
     create_deck_tables(settings.database)
     identity = Identity(
         users=SqliteUserStore(settings.database),
@@ -89,17 +96,21 @@ def build_instance(settings: Settings) -> Instance:
         ),
         clock=SystemClock(),
     )
-    text = load_lobby_text(ENGLISH_CATALOG)
+    pages = Pages(
+        preferences=Preferences(
+            instance=SqliteInstanceSettingsStore(settings.database),
+            people=SqlitePersonPreferencesStore(settings.database),
+            catalogs=load_catalogs(CATALOG_DIRECTORY),
+        ),
+        age_in_words=age_in_words,
+    )
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
     return Instance(
         lobby=create_lobby(
             identity=identity,
             decks=decks,
-            wording=Wording(
-                text=text,
-                age_in_words=partial(age_in_words, language_tag=text.language_tag),
-            ),
+            pages=pages,
             secure_cookies=settings.https,
             fetch_hook=_armed_hook(settings, decks),
         ),

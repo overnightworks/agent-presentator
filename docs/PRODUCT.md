@@ -8,8 +8,9 @@ describes something this file does not list, that thing is not built.
 
 An instance signs a person in, lists the decks a configured Git source
 carries while keeping that list current by itself, gives each deck a page,
-builds the deck a push changed, and delivers that talk and its PDF from the
-page. Nothing is deployed, so no phase of [VISION.md](VISION.md) is
+builds the deck a push changed, delivers that talk and its PDF from the page,
+and lets an admin and every person say how the lobby looks and which language
+it speaks. Nothing is deployed, so no phase of [VISION.md](VISION.md) is
 reached. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
@@ -17,7 +18,9 @@ and login landed as
 list as
 [#26](https://github.com/overnightworks/agent-presentator/issues/26), the deck
 page and the serving boundary as
-[#33](https://github.com/overnightworks/agent-presentator/issues/33).
+[#33](https://github.com/overnightworks/agent-presentator/issues/33), and
+Settings, Account and the person menu as
+[#32](https://github.com/overnightworks/agent-presentator/issues/32).
 
 A decision record is a technical choice, not a claim that its slice exists.
 
@@ -48,6 +51,38 @@ The whole identity implementation is a bridge until `webauth` is tagged
 stores and [#833](https://github.com/overnightworks/songmaker/issues/833) the
 user management, and it is deleted with them. How an instance is started is
 [OPERATIONS.md](OPERATIONS.md).
+
+### Settings, Account, and how the lobby looks
+
+Every signed-in page carries the picture's header: the product name, the Decks
+section, Settings for an admin, and one person control that opens Account, the
+three theme rows, and Log out.
+
+An admin opens Settings and sets the instance name, the default language, and
+the default theme; a person without the admin role is refused there rather than
+sent to the login. Everybody opens Account and overrides language and theme for
+themselves alone. Both resolve the same way — the person's own choice first,
+the instance default behind it — and "follow system" writes no `data-theme`
+attribute at all, so the browser decides
+([ADR 0012](decisions/0012-themes-and-language.md)). The instance defaults live
+in one SQLite row, a person's overrides in a row beside their account, and a
+theme chosen in the person menu is that same Account preference.
+
+English is the only catalog the repository ships. Every catalog file the
+catalog directory holds is offered as a language, so a second language is a
+file and not a change to code, and each catalog names itself. The instance name
+is kept and shown back under Settings; nothing else reads it yet.
+
+htmx 2.x is vendored beside Pico and carries the two writes a person makes
+about themselves: the theme rows of the person menu and the Account
+preferences post, and the page is painted again in what they chose.
+jinja2-fragments ([ADR 0008](decisions/0008-lobby-server-rendered.md)) is not
+installed, because no surface here has a partial to serve: both writes change
+the whole document, down to the `<html>` element the theme sits on.
+
+Settings has no Sources and no Users tab yet, and Account carries neither the
+password nor the sessions part of the picture; each arrives with the slice that
+fills it.
 
 ### Listing decks
 

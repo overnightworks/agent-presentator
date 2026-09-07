@@ -1,10 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ text.deck_unknown_title }}{% endblock %}
 {% block body %}
-{% include "header.html" %}
 <main>
-  <p><a href="/">{{ back }}</a></p>
-  <h1>{{ title }}</h1>
-  <p>{{ explanation }}</p>
+  <p><a href="/">{{ text.deck_back }}</a></p>
+  <h1>{{ text.deck_unknown_title }}</h1>
+  <p>{{ text.deck_unknown_explanation }}</p>
 </main>
 {% endblock %}

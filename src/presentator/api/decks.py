@@ -8,7 +8,6 @@ row names, and the session guard in front of the whole lobby covers every
 address here, the two views and the download included.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
@@ -19,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
 
-from presentator.api.pages import PageRenderer
+from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.contracts.decks import DECK_PATH
 from presentator.contracts.text import LobbyText
@@ -37,33 +36,22 @@ class _DeckPage:
     """The page that says what a deck is and offers the ways into it."""
 
     decks: Decks
-    renderer: PageRenderer
-    text: LobbyText
-    age_in_words: Callable[[timedelta], str]
+    pages: Pages
 
     def deck(self, request: Request, slug: str) -> Response:
         """Show the deck's title, where it came from, and the ways into it."""
         page = self.decks.page(slug)
         if page is None:
             return self._no_such_deck(request)
-        built = self._when_it_was_built(page.built_ago)
-        return self.renderer.signed_in_page(
+        appearance = self.pages.appearance(request)
+        return self.pages.page(
             request,
             _DECK_TEMPLATE,
-            back=self.text.deck_back,
             title=page.title,
             slug=page.slug,
-            built=built,
-            state=(
-                self.text.deck_state_ready if built else self.text.deck_state_not_built
-            ),
-            status_label=self.text.deck_status,
+            built=self._when_it_was_built(page.built_ago, appearance.text),
             source=page.source,
             commit=page.commit,
-            presenter_view=self.text.deck_presenter_view,
-            projector_view=self.text.deck_projector_view,
-            not_built=self.text.deck_not_built_explanation,
-            pdf=self.text.deck_pdf,
         )
 
     def pdf(self, request: Request, slug: str) -> Response:
@@ -84,16 +72,17 @@ class _DeckPage:
 
     def _no_such_deck(self, request: Request) -> Response:
         """The lobby's own page for an address no deck stands under."""
-        return self.renderer.signed_in_page(
+        return self.pages.page(
             request,
             _UNKNOWN_DECK_TEMPLATE,
             status=HTTPStatus.NOT_FOUND,
-            back=self.text.deck_back,
-            title=self.text.deck_unknown_title,
-            explanation=self.text.deck_unknown_explanation,
         )
 
-    def _when_it_was_built(self, built_ago: timedelta | None) -> str | None:
+    def _when_it_was_built(
+        self,
+        built_ago: timedelta | None,
+        text: LobbyText,
+    ) -> str | None:
         """How long ago the delivered talk was built, once one is delivered.
 
         The one value says both that a talk stands and how old it is, so the
@@ -101,7 +90,8 @@ class _DeckPage:
         """
         if built_ago is None:
             return None
-        return self.text.deck_built.format(age=self.age_in_words(built_ago))
+        age = self.pages.age_in_words(built_ago, text.language_tag)
+        return text.deck_built.format(age=age)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -121,21 +111,9 @@ class _BuiltTalk:
         await StaticFiles(directory=directory, html=True)(scope, receive, send)
 
 
-def add_deck_pages(
-    lobby: FastAPI,
-    *,
-    decks: Decks,
-    renderer: PageRenderer,
-    text: LobbyText,
-    age_in_words: Callable[[timedelta], str],
-) -> None:
-    """Give the lobby the deck page, and the talk that stands under it."""
-    page = _DeckPage(
-        decks=decks,
-        renderer=renderer,
-        text=text,
-        age_in_words=age_in_words,
-    )
+def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:
+    """Give the lobby the deck page, its download, and the talk under them."""
+    page = _DeckPage(decks=decks, pages=pages)
     # The page and the download answer their own addresses; everything else
     # below the deck is the talk, so the routes are registered first and the
     # mount catches the rest.

@@ -24,6 +24,11 @@ class User:
     username: str
     role: Role
 
+    @property
+    def is_admin(self) -> bool:
+        """Only an admin reaches Settings and the instance defaults (ADR 0011)."""
+        return self.role is Role.ADMIN
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Credentials:

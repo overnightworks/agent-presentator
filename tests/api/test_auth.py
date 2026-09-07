@@ -2,121 +2,20 @@
 
 import logging
 import re
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from functools import partial
+from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
-from fastapi.testclient import TestClient
-from httpx2 import Response
 
-from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import SESSION_COOKIE, Wording, create_lobby
-from presentator.application.decks import Decks
-from presentator.application.identity import (
-    FAILURES_BEFORE_THROTTLE,
-    IDLE_WINDOW,
-    Identity,
-)
+from presentator.api.auth import SESSION_COOKIE
+from presentator.application.identity import FAILURES_BEFORE_THROTTLE, IDLE_WINDOW
 from presentator.contracts.models import Credentials, Role, User
-from presentator.contracts.text import LobbyText
-from tests.application.fakes import (
-    CountingIdentifierFactory,
-    FakeBuildRunner,
-    FakeDeckFolders,
-    FakeDeckStore,
-    FakeLoginAttemptStore,
-    FakeSessionRecordStore,
-    FakeSourceStore,
-    FakeUserStore,
-    FrozenClock,
-    MarkingCookieSigner,
-    ReversibleHasher,
-    UserStoreThatLostTheRace,
-)
+from tests.api.lobby import ENGLISH, TYPED_WORDS, USERNAME, Lobby, a_lobby
+from tests.application.fakes import UserStoreThatLostTheRace
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-_USERNAME = "felix"
 _WINNERS_HASH = "the hash the winning first start stored"
-_TYPED_WORDS = "the words only this test types"
 _WRONG_WORDS = "guessed"
-_TEXT: LobbyText = load_lobby_text(ENGLISH_CATALOG)
-
-
-@dataclass(frozen=True, slots=True)
-class Lobby:
-    """A running lobby and the clock its session hangs on."""
-
-    client: TestClient
-    clock: FrozenClock
-
-    def set_up_admin(
-        self,
-        *,
-        password: str = _TYPED_WORDS,
-        repeated: str = _TYPED_WORDS,
-        headers: dict[str, str] | None = None,
-    ) -> Response:
-        return self.client.post(
-            "/setup",
-            data={
-                "username": _USERNAME,
-                "password": password,
-                "repeated_password": repeated,
-            },
-            headers=headers,
-        )
-
-    def log_in(
-        self,
-        *,
-        username: str = _USERNAME,
-        password: str = _TYPED_WORDS,
-        headers: dict[str, str] | None = None,
-    ) -> Response:
-        return self.client.post(
-            "/login",
-            data={"username": username, "password": password},
-            headers=headers,
-        )
-
-    def own_origin(self) -> str:
-        return str(self.client.base_url).rstrip("/")
-
-
-def a_lobby(
-    *,
-    secure_cookies: bool = False,
-    users: FakeUserStore | None = None,
-) -> Lobby:
-    clock = FrozenClock(instant=datetime(2026, 1, 15, 9, tzinfo=UTC))
-    identity = Identity(
-        users=FakeUserStore() if users is None else users,
-        sessions=FakeSessionRecordStore(),
-        attempts=FakeLoginAttemptStore(),
-        hasher=ReversibleHasher(),
-        clock=clock,
-        identifiers=CountingIdentifierFactory(),
-        cookies=MarkingCookieSigner(),
-    )
-    lobby = create_lobby(
-        identity=identity,
-        decks=Decks(
-            sources=FakeSourceStore(),
-            folders=FakeDeckFolders(),
-            store=FakeDeckStore(),
-            builder=FakeBuildRunner(),
-            clock=clock,
-        ),
-        wording=Wording(
-            text=_TEXT,
-            age_in_words=partial(age_in_words, language_tag=_TEXT.language_tag),
-        ),
-        secure_cookies=secure_cookies,
-        fetch_hook=None,
-    )
-    return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -128,17 +27,6 @@ def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
         ),
     )
     return store
-
-
-@pytest.fixture
-def lobby() -> Lobby:
-    return a_lobby()
-
-
-@pytest.fixture
-def signed_in_lobby(lobby: Lobby) -> Lobby:
-    lobby.set_up_admin()
-    return lobby
 
 
 def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
@@ -155,7 +43,7 @@ def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None
 
     assert created.status_code == HTTPStatus.SEE_OTHER
     assert created.headers["location"] == "/"
-    assert _USERNAME in lobby.client.get("/").text
+    assert USERNAME in lobby.client.get("/").text
 
 
 def test_the_session_cookie_travels_locked_down(lobby: Lobby) -> None:
@@ -178,7 +66,7 @@ def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> No
     refused = lobby.set_up_admin(repeated="something else")
 
     assert refused.status_code == HTTPStatus.OK
-    assert _TEXT.setup_passwords_differ in refused.text
+    assert ENGLISH.setup_passwords_differ in refused.text
     assert lobby.client.get("/setup").status_code == HTTPStatus.OK
 
 
@@ -202,10 +90,10 @@ def test_the_login_page_offers_no_action_but_signing_in(lobby: Lobby) -> None:
 
     offered = {
         word
-        for word in (_TEXT.login_submit, _TEXT.setup_submit, _TEXT.log_out)
+        for word in (ENGLISH.login_submit, ENGLISH.setup_submit, ENGLISH.log_out)
         if word in page
     }
-    assert offered == {_TEXT.login_submit}
+    assert offered == {ENGLISH.login_submit}
 
 
 def test_the_right_password_opens_the_lobby(signed_in_lobby: Lobby) -> None:
@@ -220,8 +108,8 @@ def test_the_right_password_opens_the_lobby(signed_in_lobby: Lobby) -> None:
 @pytest.mark.parametrize(
     ("username", "password"),
     [
-        pytest.param("nobody", _TYPED_WORDS, id="unknown-name"),
-        pytest.param(_USERNAME, _WRONG_WORDS, id="wrong-password"),
+        pytest.param("nobody", TYPED_WORDS, id="unknown-name"),
+        pytest.param(USERNAME, _WRONG_WORDS, id="wrong-password"),
     ],
 )
 def test_a_refused_login_says_one_sentence_that_tells_nothing_apart(
@@ -232,7 +120,7 @@ def test_a_refused_login_says_one_sentence_that_tells_nothing_apart(
     refused = signed_in_lobby.log_in(username=username, password=password)
 
     assert refused.status_code == HTTPStatus.OK
-    assert _TEXT.login_refused in refused.text
+    assert ENGLISH.login_refused in refused.text
 
 
 def test_repeated_failures_throttle_the_right_password_with_the_same_sentence(
@@ -244,7 +132,7 @@ def test_repeated_failures_throttle_the_right_password_with_the_same_sentence(
     throttled = signed_in_lobby.log_in()
 
     assert throttled.status_code == HTTPStatus.OK
-    assert _TEXT.login_refused in throttled.text
+    assert ENGLISH.login_refused in throttled.text
 
 
 def test_a_login_survives_a_ninety_minute_talk(signed_in_lobby: Lobby) -> None:
@@ -300,7 +188,7 @@ def test_the_password_never_reaches_the_log(
         lobby.log_in()
         lobby.client.get("/")
 
-    assert _TYPED_WORDS not in caplog.text
+    assert TYPED_WORDS not in caplog.text
 
 
 def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
@@ -427,19 +315,18 @@ def test_the_open_setup_page_carries_no_hex_colour_or_inline_style(
     assert "style=" not in page
 
 
-def test_the_signed_in_header_offers_the_person_and_log_out_not_settings(
+def test_the_signed_in_header_offers_the_person_and_log_out(
     signed_in_lobby: Lobby,
 ) -> None:
     page = signed_in_lobby.client.get("/").text
 
-    assert _USERNAME in page
-    assert _TEXT.log_out in page
-    assert "Settings" not in page
+    assert USERNAME in page
+    assert ENGLISH.log_out in page
 
 
 def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
     page = lobby.client.get("/login").text
 
-    assert _TEXT.wordmark in page
-    assert _TEXT.log_out not in page
-    assert _USERNAME not in page
+    assert ENGLISH.wordmark in page
+    assert ENGLISH.log_out not in page
+    assert USERNAME not in page

@@ -1,4 +1,4 @@
-"""Reads a gettext catalog into the lobby's words (ADR 0012).
+"""Reads the gettext catalogs into the lobby's words (ADR 0012).
 
 Babel owns the `.po` format, so adding a language stays adding a file.
 """
@@ -11,10 +11,11 @@ from typing import Final
 from babel.dates import format_timedelta
 from babel.messages.pofile import read_po
 
-from presentator.contracts.text import LobbyText
+from presentator.contracts.text import Catalogs, LobbyText
 
-ENGLISH_CATALOG: Final = Path(__file__).parent / "catalogs" / "en.po"
+CATALOG_DIRECTORY: Final = Path(__file__).parent / "catalogs"
 
+_CATALOG_FILES: Final = "*.po"
 _LANGUAGE_FIELD: Final = "language_tag"
 # Babel rounds an age up to the next unit at 0.85 of it by default, which would
 # call six days a week; the list says what the operator would say.
@@ -23,6 +24,14 @@ _NO_ROUNDING_UP: Final = 1.0
 
 class IncompleteCatalogError(ValueError):
     """A catalog that misses its language or a message would render a blank word."""
+
+
+def load_catalogs(directory: Path) -> Catalogs:
+    """Read every catalog file the directory holds, keyed by its language."""
+    files = sorted(directory.glob(_CATALOG_FILES))
+    return Catalogs(
+        by_tag={text.language_tag: text for text in map(load_lobby_text, files)},
+    )
 
 
 def load_lobby_text(catalog_file: Path) -> LobbyText:
@@ -54,7 +63,7 @@ def _words(translated: dict[str, str], *, missing_in: Path) -> dict[str, str]:
     return {name: translated[name] for name in wanted}
 
 
-def age_in_words(age: timedelta, *, language_tag: str) -> str:
+def age_in_words(age: timedelta, language_tag: str) -> str:
     """Say how long ago something changed, in the catalog's language."""
     return format_timedelta(
         -age,

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ text.settings_title }}{% endblock %}
+{% block body %}
+<main>
+  <header>
+    <h1>{{ text.settings_title }}</h1>
+    <button type="submit" form="general">{{ text.settings_save }}</button>
+  </header>
+  <form id="general" method="post" action="/settings">
+    <label for="instance-name">{{ text.settings_instance_name }}</label>
+    <input id="instance-name" name="name" value="{{ instance_name }}">
+    <label for="default-language">{{ text.settings_default_language }}</label>
+    <select id="default-language" name="language">
+      {% for language in languages %}
+      <option value="{{ language.value }}"
+              {% if language.chosen %}selected{% endif %}>{{ language.label }}</option>
+      {% endfor %}
+    </select>
+    <small>{{ text.settings_language_hint }}</small>
+    <label for="default-theme">{{ text.settings_default_theme }}</label>
+    <select id="default-theme" name="theme">
+      {% for look in themes %}
+      <option value="{{ look.value }}"
+              {% if look.chosen %}selected{% endif %}>{{ look.label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</main>
+{% endblock %}

@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block body %}
-{% include "header.html" %}
 <main>
-  <p><a href="/">{{ back }}</a></p>
+  <p><a href="/">{{ text.deck_back }}</a></p>
   <h1>{{ title }}</h1>
   <p data-meta>
     <code>{{ slug }}</code>
-    <span data-state="{{ 'ready' if built else 'not-built' }}">{{ state }}</span>
+    <span data-state="{{ 'ready' if built else 'not-built' }}">{{
+      text.deck_state_ready if built else text.deck_state_not_built }}</span>
     <span>
-      <small>{{ status_label }}</small>
+      <small>{{ text.deck_status }}</small>
       {% if source %}<code>{{ source }}</code>{% endif %}
       <samp>{{ commit }}</samp>
       {% if built %}<span>{{ built }}</span>{% endif %}
@@ -17,12 +17,12 @@
   </p>
   {% if built %}
   <p data-actions>
-    <a href="/deck/{{ slug }}/presenter/" data-action>{{ presenter_view }}</a>
-    <a href="/deck/{{ slug }}/" data-action data-quiet>{{ projector_view }}</a>
-    <a href="/deck/{{ slug }}/pdf" data-action data-quiet>{{ pdf }}</a>
+    <a href="/deck/{{ slug }}/presenter/" data-action>{{ text.deck_presenter_view }}</a>
+    <a href="/deck/{{ slug }}/" data-action data-quiet>{{ text.deck_projector_view }}</a>
+    <a href="/deck/{{ slug }}/pdf" data-action data-quiet>{{ text.deck_pdf }}</a>
   </p>
   {% else %}
-  <p>{{ not_built }}</p>
+  <p>{{ text.deck_not_built_explanation }}</p>
   {% endif %}
 </main>
 {% endblock %}
