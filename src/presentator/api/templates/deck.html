@@ -15,9 +15,9 @@
     </span>
   </p>
   {% if built %}
-  <p>
-    <a href="/deck/{{ slug }}/presenter/" role="button">{{ presenter_view }}</a>
-    <a href="/deck/{{ slug }}/" role="button" data-quiet>{{ projector_view }}</a>
+  <p data-actions>
+    <a href="/deck/{{ slug }}/presenter/" data-action>{{ presenter_view }}</a>
+    <a href="/deck/{{ slug }}/" data-action data-quiet>{{ projector_view }}</a>
   </p>
   {% else %}
   <p>{{ not_built }}</p>
