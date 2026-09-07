@@ -5,7 +5,7 @@ stands here once, with the doubles and the accounts a test hands in.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from fastapi.testclient import TestClient
@@ -14,6 +14,7 @@ from httpx2 import Response
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
+    duration_in_words,
     load_catalogs,
 )
 from presentator.api.auth import create_lobby
@@ -42,6 +43,9 @@ from tests.application.fakes import (
 )
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
+# No route test waits for a build, so the bound only has to be longer than the
+# ages the tests arrange.
+BUILD_BOUND: Final = timedelta(minutes=5)
 CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
@@ -157,18 +161,18 @@ def a_lobby(
             carried={} if given.source is None else {given.source.id: given.folders},
         ),
         store=FakeDeckStore() if given.store is None else given.store,
-        # Nothing builds at this layer: a test arranges the build its deck
-        # delivers from, the way it arranges the row.
-        builder=FakeBuildRunner(fails=True),
+        builder=FakeBuildRunner(),
         source_runs=FakeSourceRunStore(),
+        build_bound=BUILD_BOUND,
         clock=clock,
     )
     # The list and the deck page read the store only; a test arranges what a
     # poll or the hook would already have taken in before anyone opened a page.
-    # No folders named is not the source carrying none: it is a test that
-    # populated the store itself, so the one refresh here must read nothing
-    # rather than reconcile away what the test already put there.
-    decks.refresh()
+    # A test that named folders has that refresh take them in and build them; a
+    # test that arranged the store itself has already said what each deck is,
+    # and a refresh would reconcile and build rows it never asked about.
+    if given.folders is not None:
+        decks.refresh()
     lobby = create_lobby(
         identity=identity,
         decks=decks,
@@ -179,6 +183,7 @@ def a_lobby(
                 catalogs=catalogs,
             ),
             age_in_words=age_in_words,
+            duration_in_words=duration_in_words,
         ),
         secure_cookies=secure_cookies,
         fetch_hook=None,

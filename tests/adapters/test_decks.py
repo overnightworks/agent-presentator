@@ -31,6 +31,8 @@ from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
     Build,
+    BuildAttempt,
+    BuildOutcome,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -59,6 +61,8 @@ _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
 _BUILT_AT = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
+_TRIED_AT = datetime(2026, 1, 15, 10, tzinfo=UTC)
+_WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
@@ -138,6 +142,7 @@ def a_deck(
         source_id=source_id,
         commit=commit,
         build=None,
+        attempt=None,
     )
 
 
@@ -147,6 +152,20 @@ def a_build(tmp_path: Path, *, commit: str = _COMMIT) -> Build:
         pdf=tmp_path / "builds" / "kundenfeedback" / commit / "deck.pdf",
         commit=commit,
         built_at=_BUILT_AT,
+    )
+
+
+def an_attempt(
+    *,
+    outcome: BuildOutcome = BuildOutcome.FAILED,
+    failure: str | None = _WHAT_THE_TOOLCHAIN_SAID,
+    commit: str = _A_LATER_COMMIT,
+) -> BuildAttempt:
+    return BuildAttempt(
+        commit=commit,
+        started_at=_TRIED_AT,
+        outcome=outcome,
+        failure=failure,
     )
 
 
@@ -636,6 +655,56 @@ def test_everything_a_build_wrote_switches_over_together(tmp_path: Path) -> None
     assert after_the_second.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
 
 
+@pytest.mark.parametrize(
+    "attempt",
+    [an_attempt(outcome=BuildOutcome.RUNNING, failure=None), an_attempt()],
+    ids=["a build that began", "a build that failed"],
+)
+def test_the_build_a_deck_last_started_is_kept_beside_the_talk_that_stands(
+    tmp_path: Path,
+    attempt: BuildAttempt,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck())
+    built = a_build(tmp_path)
+    store.put_build("kundenfeedback", built)
+
+    store.put_attempt("kundenfeedback", attempt)
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt == attempt
+    assert kept.build == built
+
+
+def test_a_build_that_switched_over_clears_the_attempt_that_led_to_it(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck())
+    store.put_attempt("kundenfeedback", an_attempt())
+
+    store.put_build("kundenfeedback", a_build(tmp_path, commit=_A_LATER_COMMIT))
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt is None
+    assert kept.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
+
+
+def test_a_database_written_before_attempts_records_one(tmp_path: Path) -> None:
+    database = a_database_written_before_sources(tmp_path)
+
+    create_deck_tables(database)
+    a_source_store(database).seed()
+    store = SqliteDeckStore(database=database)
+    store.put_attempt("kundenfeedback", an_attempt())
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt == an_attempt()
+
+
 def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     tmp_path: Path,
 ) -> None:
@@ -643,12 +712,15 @@ def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     store.put(a_deck(title="Kundenfeedback"))
     built = a_build(tmp_path)
     store.put_build("kundenfeedback", built)
+    standing_attempt = an_attempt()
+    store.put_attempt("kundenfeedback", standing_attempt)
 
     store.put(a_deck(title="Kundenfeedback Q3"))
     kept = store.get("kundenfeedback")
 
     assert kept is not None
     assert kept.build == built
+    assert kept.attempt == standing_attempt
 
 
 def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(

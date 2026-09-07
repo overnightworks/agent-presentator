@@ -16,6 +16,7 @@ from fastapi import Request, Response
 from fastapi.templating import Jinja2Templates
 
 from presentator.application.preferences import Preferences
+from presentator.contracts.decks import DeckState
 from presentator.contracts.models import User
 from presentator.contracts.preferences import Appearance, ThemeChoice
 from presentator.contracts.text import LobbyText
@@ -49,17 +50,32 @@ def theme_choices(text: LobbyText) -> tuple[tuple[str, str], ...]:
     )
 
 
+def state_word(state: DeckState, text: LobbyText) -> str:
+    """The catalog's own word for what a deck is, shown wherever it is shown.
+
+    The list and the deck page say the same word about the same deck, so which
+    word belongs to which state is decided once.
+    """
+    return {
+        DeckState.READY: text.deck_state_ready,
+        DeckState.BUILDING: text.deck_state_building,
+        DeckState.FAILED: text.deck_state_failed,
+        DeckState.NEVER_BUILT: text.deck_state_never_built,
+    }[state]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Pages:
     """Renders every lobby page in the words and the look its reader chose.
 
-    How an age reads belongs here too: it is the one value a page shows that
-    Python words rather than the catalog, and it is worded in the language the
-    same reader was resolved into.
+    How a length of time reads belongs here too: an age and a duration are the
+    values a page shows that Python words rather than the catalog, and both are
+    worded in the language the same reader was resolved into.
     """
 
     preferences: Preferences
     age_in_words: Callable[[timedelta, str], str]
+    duration_in_words: Callable[[timedelta, str], str]
 
     def appearance(self, request: Request) -> Appearance:
         """The words and the look the person behind this request reads in."""

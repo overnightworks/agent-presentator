@@ -9,6 +9,15 @@ from typing import Final
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
 DECK_PATH: Final = "/deck"
+# What a failed build may say on a page: the end of what its toolchain printed,
+# where the reason stands. A deck's own build can print without limit, and a
+# page is read by a person shortly before they speak.
+FAILURE_TEXT_LIMIT: Final = 2000
+
+
+def bounded_failure(said: str) -> str:
+    """The last of what a build said, short enough for a page to carry."""
+    return said[-FAILURE_TEXT_LIMIT:]
 
 
 def talk_address(slug: str) -> str:
@@ -120,6 +129,18 @@ class Artefacts:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class BuildFailure:
+    """That a build produced nothing, and what its toolchain said about it.
+
+    The words are the toolchain's own, bounded by `bounded_failure`, or nothing
+    where none reached the server — a run given up on, or one that printed
+    nothing at all.
+    """
+
+    text: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Build:
     """The talk a deck delivers, the commit it was built from, and when.
 
@@ -134,6 +155,43 @@ class Build:
     built_at: datetime
 
 
+class BuildOutcome(StrEnum):
+    """How the build a deck last started ended, while it is not its talk yet."""
+
+    RUNNING = "running"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BuildAttempt:
+    """The build a deck last started, for as long as it did not become its talk.
+
+    A running attempt is one nothing has reported back about yet and carries no
+    failure; a failed one carries what its toolchain said, or nothing where no
+    words reached the server at all. The successful switch clears the record,
+    so a deck carries an attempt only while there is something to say about it.
+    """
+
+    commit: str
+    started_at: datetime
+    outcome: BuildOutcome
+    failure: str | None
+
+
+class DeckState(StrEnum):
+    """What the list and the deck page say a deck is, in one word.
+
+    It is read off the talk that stands and the attempt beside it, never
+    stored: two records that can each be written on their own would otherwise
+    disagree about one deck.
+    """
+
+    READY = "ready"
+    BUILDING = "building"
+    FAILED = "failed"
+    NEVER_BUILT = "never-built"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Deck:
     """A talk. The folder name is the identity; the title only shows."""
@@ -145,15 +203,26 @@ class Deck:
     source_id: str
     commit: str
     build: Build | None
+    attempt: BuildAttempt | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ListedDeck:
-    """One row of the deck list, with the age the row shows."""
+    """One row of the deck list, with the state and the age the row shows."""
 
     slug: str
     title: str
+    state: DeckState
     age: timedelta
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShownAttempt:
+    """The build a deck page reports on: its commit, its age, and what broke."""
+
+    commit: str
+    ago: timedelta
+    failure: str | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -165,3 +234,5 @@ class DeckPage:
     source: str | None
     commit: str
     built_ago: timedelta | None
+    state: DeckState
+    attempt: ShownAttempt | None

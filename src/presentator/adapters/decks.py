@@ -28,6 +28,8 @@ from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     Build,
+    BuildAttempt,
+    BuildOutcome,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -63,6 +65,10 @@ CREATE TABLE IF NOT EXISTS decks (
     pdf_export TEXT,
     built_commit TEXT,
     built_at TEXT,
+    attempt_commit TEXT,
+    attempt_started_at TEXT,
+    attempt_outcome TEXT,
+    attempt_failure TEXT,
     removed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS source_runs (
@@ -75,11 +81,16 @@ CREATE TABLE IF NOT EXISTS source_runs (
 );
 """
 # The row shape without a row: a table this product wrote before a column
-# existed gains it in place rather than by a new file.
+# existed gains it in place rather than by a new file, in the order the columns
+# arrived.
 _DECK_COLUMNS: Final = "SELECT * FROM decks LIMIT 0"
-_SOURCE_COLUMN: Final = "source_id"
-_ADD_SOURCE_TO_DECKS: Final = (
-    f"ALTER TABLE decks ADD COLUMN {_SOURCE_COLUMN} TEXT REFERENCES sources(id)"
+_ADD_COLUMN: Final = "ALTER TABLE decks ADD COLUMN {column} {definition}"
+_COLUMNS_ADDED_LATER: Final = (
+    ("source_id", "TEXT REFERENCES sources(id)"),
+    ("attempt_commit", "TEXT"),
+    ("attempt_started_at", "TEXT"),
+    ("attempt_outcome", "TEXT"),
+    ("attempt_failure", "TEXT"),
 )
 _SOURCE_COLUMNS: Final = "SELECT * FROM sources LIMIT 0"
 _ENCRYPTED_COLUMN: Final = "encrypted_secret"
@@ -129,17 +140,30 @@ ON CONFLICT(slug) DO UPDATE SET
 WHERE decks.source_id = excluded.source_id
 """
 # One statement, so everything a build wrote moves at once: no reader can find
-# the talk of one commit beside the PDF or the build time of another.
+# the talk of one commit beside the PDF or the build time of another. The
+# attempt goes in the same write, because a talk that stands has nothing left
+# to report about how it came about.
 _PUT_BUILD: Final = """
 UPDATE decks
-SET active_build = ?, pdf_export = ?, built_commit = ?, built_at = ?
+SET active_build = ?, pdf_export = ?, built_commit = ?, built_at = ?,
+    attempt_commit = NULL, attempt_started_at = NULL,
+    attempt_outcome = NULL, attempt_failure = NULL
+WHERE slug = ?
+"""
+# Nothing the build wrote is touched here: a run that begins, and a run that
+# failed, leave the talk that stands and its PDF where they are (line 16).
+_PUT_ATTEMPT: Final = """
+UPDATE decks
+SET attempt_commit = ?, attempt_started_at = ?,
+    attempt_outcome = ?, attempt_failure = ?
 WHERE slug = ?
 """
 # A deck the seed has not attached to its source yet is no deck any source
 # could refresh, so it is answered for once it names one.
 _ALL_DECKS: Final = """
 SELECT slug, title, changed_at, owner_id, source_id, commit_sha,
-       active_build, pdf_export, built_commit, built_at
+       active_build, pdf_export, built_commit, built_at,
+       attempt_commit, attempt_started_at, attempt_outcome, attempt_failure
 FROM decks
 WHERE removed_at IS NULL AND source_id IS NOT NULL
 """
@@ -157,10 +181,23 @@ WHERE removed_at IS NOT NULL AND source_id = ?
 # What the upsert changed: the one row it wrote, or nothing where the slug is
 # another source's.
 _ONE_ROW: Final = 1
-# The deck row as SQLite hands it back: what the source carries, and then what
-# the build wrote, which is four values or none.
+# The deck row as SQLite hands it back: what the source carries, then what the
+# build wrote, then the attempt beside it — each group four values or none.
 _DeckRow = tuple[
-    str, str, str, str, str, str, str | None, str | None, str | None, str | None
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
 ]
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
@@ -202,14 +239,19 @@ def create_deck_tables(database: Path) -> None:
     """Make the source and deck tables exist, keeping what an older file holds.
 
     A file written before sources were rows keeps its decks and gains the
-    column naming theirs, and one written before a source could hold its own
+    column naming theirs, one written before a build kept what it attempted
+    gains those columns, and one written before a source could hold its own
     secret gains that column, rather than being replaced by an empty file.
     """
     apply_schema(database, _SCHEMA)
     with rows(database) as cursor:
-        _add_missing(
-            cursor, shape=_DECK_COLUMNS, column=_SOURCE_COLUMN, add=_ADD_SOURCE_TO_DECKS
-        )
+        for column, definition in _COLUMNS_ADDED_LATER:
+            _add_missing(
+                cursor,
+                shape=_DECK_COLUMNS,
+                column=column,
+                add=_ADD_COLUMN.format(column=column, definition=definition),
+            )
         _add_missing(
             cursor,
             shape=_SOURCE_COLUMNS,
@@ -526,6 +568,20 @@ class SqliteDeckStore:
                 ),
             )
 
+    def put_attempt(self, slug: str, attempt: BuildAttempt) -> None:
+        """Write down the build this deck last started, and how far it got."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                _PUT_ATTEMPT,
+                (
+                    attempt.commit,
+                    attempt.started_at.isoformat(),
+                    attempt.outcome.value,
+                    attempt.failure,
+                    slug,
+                ),
+            )
+
     def get(self, slug: str) -> Deck | None:
         """Read the one deck row that slug names, while its folder is still there."""
         with rows(self.database) as cursor:
@@ -619,7 +675,8 @@ def _deck(row: _DeckRow) -> Deck:
         owner_id=owner_id,
         source_id=source_id,
         commit=commit,
-        build=_build(*row[6:]),
+        build=_build(*row[6:10]),
+        attempt=_attempt(*row[10:]),
     )
 
 
@@ -637,6 +694,23 @@ def _build(
         pdf=Path(pdf),
         commit=commit,
         built_at=datetime.fromisoformat(built_at),
+    )
+
+
+def _attempt(
+    commit: str | None,
+    started_at: str | None,
+    outcome: str | None,
+    failure: str | None,
+) -> BuildAttempt | None:
+    """The build the row says ran last, or nothing while none is worth telling."""
+    if commit is None or started_at is None or outcome is None:
+        return None
+    return BuildAttempt(
+        commit=commit,
+        started_at=datetime.fromisoformat(started_at),
+        outcome=BuildOutcome(outcome),
+        failure=failure,
     )
 
 

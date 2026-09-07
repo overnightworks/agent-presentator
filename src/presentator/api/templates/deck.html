@@ -6,8 +6,7 @@
   <h1>{{ title }}</h1>
   <p data-meta>
     <code>{{ slug }}</code>
-    <span data-state="{{ 'ready' if built else 'not-built' }}">{{
-      text.deck_state_ready if built else text.deck_state_not_built }}</span>
+    <span data-state="{{ state }}">{{ state_word }}</span>
     <span>
       <small>{{ text.deck_status }}</small>
       {% if source %}<code>{{ source }}</code>{% endif %}
@@ -15,10 +14,27 @@
       {% if built %}<span>{{ built }}</span>{% endif %}
     </span>
   </p>
+  {% if banner %}
+  <aside data-banner="{{ state }}">
+    <p data-lead>{{ banner.lead }}</p>
+    <p data-meta>
+      <small>{{ banner.label }}</small>
+      <samp>{{ banner.commit }}</samp>
+      <span>{{ banner.when }}</span>
+    </p>
+    {% if banner.failure %}<pre>{{ banner.failure }}</pre>{% endif %}
+    {% for sentence in banner.sentences %}<p>{{ sentence }}</p>{% endfor %}
+  </aside>
+  {% endif %}
   {% if built %}
   <p data-actions>
+    {% if views_open %}
     <a href="/deck/{{ slug }}/presenter/" data-action>{{ text.deck_presenter_view }}</a>
     <a href="/deck/{{ slug }}/" data-action data-quiet>{{ text.deck_projector_view }}</a>
+    {% else %}
+    <span data-action data-locked>{{ text.deck_presenter_view }}</span>
+    <span data-action data-quiet data-locked>{{ text.deck_projector_view }}</span>
+    {% endif %}
     <a href="/deck/{{ slug }}/pdf" data-action data-quiet>{{ text.deck_pdf }}</a>
   </p>
   {% else %}

@@ -72,3 +72,17 @@ def age_in_words(age: timedelta, language_tag: str) -> str:
         add_direction=True,
         locale=language_tag,
     )
+
+
+def duration_in_words(elapsed: timedelta, language_tag: str) -> str:
+    """Say how long something has been running, in the catalog's language.
+
+    A build a person is waiting on is measured in seconds, and it is still
+    going: the words say a length, never a moment in the past.
+    """
+    return format_timedelta(
+        elapsed,
+        granularity="second",
+        threshold=_NO_ROUNDING_UP,
+        locale=language_tag,
+    )

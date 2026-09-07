@@ -15,6 +15,7 @@ from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
+    duration_in_words,
     load_catalogs,
 )
 from presentator.adapters.decks import (
@@ -109,6 +110,7 @@ def build_instance(settings: Settings) -> Instance:
         ),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
     )
+    build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
         sources=sources,
         folders=MirroredDeckFolders(mirrors=mirrors),
@@ -117,9 +119,12 @@ def build_instance(settings: Settings) -> Instance:
             builds=settings.builds,
             toolchain=settings.toolchain,
             mirrors=mirrors,
-            build_timeout=timedelta(seconds=settings.build_timeout_seconds),
+            build_timeout=build_bound,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
+        # One toolchain step's bound, which is what the refresh needs: it never
+        # reads a live build, only what a process that is gone left behind.
+        build_bound=build_bound,
         clock=SystemClock(),
     )
     pages = Pages(
@@ -129,6 +134,7 @@ def build_instance(settings: Settings) -> Instance:
             catalogs=load_catalogs(CATALOG_DIRECTORY),
         ),
         age_in_words=age_in_words,
+        duration_in_words=duration_in_words,
     )
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
