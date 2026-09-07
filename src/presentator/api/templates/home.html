@@ -30,7 +30,8 @@
   {% else %}
   <section>
     <h2>{{ text.decks_empty_title }}</h2>
-    <p>{{ text.decks_empty_explanation }}</p>
+    <p>{{ text.decks_empty_explanation }}
+      {% if person.is_admin %}<a href="/settings/sources">{{ text.decks_empty_sources }}</a>{% else %}{{ text.decks_empty_sources }}{% endif %}.</p>
     {% if source_address %}<p><code>{{ source_address }}</code></p>{% endif %}
   </section>
   {% endif %}

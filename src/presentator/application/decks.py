@@ -6,8 +6,10 @@ git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Final
@@ -22,10 +24,12 @@ from presentator.contracts.decks import (
     DeckPage,
     DeckState,
     ListedDeck,
+    ListedSource,
     ShownAttempt,
     Source,
     SourceRun,
     SourceRunOutcome,
+    SourceState,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
@@ -92,19 +96,39 @@ class Decks:
     _one_at_a_time: Lock = field(default_factory=Lock)
 
     def refresh(self) -> None:
-        """Take the source in and build what changed, one refresh at a time.
+        """Take the sources in and build what changed, one refresh at a time.
 
         Whoever noticed the push calls this. A further request while one runs is
         already served by it, so a flood of them pulls once rather than once
         each, and the builds of one refresh follow one another instead of
         competing for the machine.
         """
-        if not self._one_at_a_time.acquire(blocking=False):
-            return
-        try:
-            self._take_in_and_build()
-        finally:
-            self._one_at_a_time.release()
+        self._run_one_at_a_time(self._take_in_and_build)
+
+    def refresh_named(self, name: str) -> bool:
+        """Take that one source in and build what changed, if this instance has it.
+
+        A name nobody stored is not a source to fetch; the caller says so rather
+        than walking every source and doing nothing. A refresh already running
+        is already serving the same lock, so this call returns as if it ran.
+        """
+        source = next(
+            (item for item in self.sources.all() if item.name == name),
+            None,
+        )
+        if source is None:
+            return False
+        self._run_one_at_a_time(partial(self._take_in_and_build_one, source))
+        return True
+
+    def listed_sources(self) -> tuple[ListedSource, ...]:
+        """Each source as the list shows it, reading the newest run only.
+
+        No run is never-fetched; a successful newest run is reachable; a failed
+        one is error, including a credential the instance could not resolve.
+        """
+        now = self.clock.now()
+        return tuple(self._listed_source(source, now) for source in self.sources.all())
 
     def listed(self) -> tuple[ListedDeck, ...]:
         """The stored decks, newest changed first, reading no source.
@@ -210,6 +234,36 @@ class Decks:
         sources = self.sources.all()
         return sources[0].url if len(sources) == 1 else None
 
+    def _listed_source(self, source: Source, now: datetime) -> ListedSource:
+        """The row for that source, derived from its newest run and nothing else."""
+        run = self.source_runs.newest(source.id)
+        if run is None:
+            return ListedSource(
+                name=source.name,
+                url=source.url,
+                state=SourceState.NEVER_FETCHED,
+                age=None,
+            )
+        return ListedSource(
+            name=source.name,
+            url=source.url,
+            state=(
+                SourceState.REACHABLE
+                if run.outcome is SourceRunOutcome.SUCCESS
+                else SourceState.ERROR
+            ),
+            age=now - run.at,
+        )
+
+    def _run_one_at_a_time(self, work: Callable[[], None]) -> None:
+        """Run that work, or drop it while another refresh already holds the lock."""
+        if not self._one_at_a_time.acquire(blocking=False):
+            return
+        try:
+            work()
+        finally:
+            self._one_at_a_time.release()
+
     def _take_in_and_build(self) -> None:
         """Make the configured source a row, then walk the sources one by one.
 
@@ -219,8 +273,12 @@ class Decks:
         """
         self.sources.seed()
         for source in self.sources.all():
-            self._take_in(source)
-            self._build_what_changed(source)
+            self._take_in_and_build_one(source)
+
+    def _take_in_and_build_one(self, source: Source) -> None:
+        """Take that source in and build the decks of it that changed."""
+        self._take_in(source)
+        self._build_what_changed(source)
 
     def _take_in(self, source: Source) -> None:
         """Store every folder that carries both a manifest and slides.

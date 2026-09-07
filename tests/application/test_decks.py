@@ -18,9 +18,12 @@ from presentator.contracts.decks import (
     DeckPage,
     DeckState,
     ListedDeck,
+    ListedSource,
     Source,
+    SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
+    SourceState,
 )
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
@@ -841,6 +844,108 @@ def test_an_unreachable_source_records_a_failed_run_naming_why() -> None:
     assert run.outcome is SourceRunOutcome.FAILURE
     assert run.commit is None
     assert run.reason is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
+
+
+def test_a_source_nobody_has_polled_lists_as_never_fetched() -> None:
+    assert decks_over().listed_sources() == (
+        ListedSource(
+            name=_SOURCE.name,
+            url=_SOURCE.url,
+            state=SourceState.NEVER_FETCHED,
+            age=None,
+        ),
+    )
+
+
+def test_a_successful_newest_run_lists_as_reachable_with_that_runs_age() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=3),
+            outcome=SourceRunOutcome.SUCCESS,
+            commit=_COMMIT,
+            reason=None,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.REACHABLE
+    assert listed[0].age == timedelta(minutes=3)
+
+
+def test_a_failed_newest_run_lists_as_error_even_when_the_reason_is_unresolvable() -> (
+    None
+):
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(hours=2),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.CREDENTIAL_UNRESOLVABLE,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.ERROR
+    assert listed[0].age == timedelta(hours=2)
+
+
+def test_the_list_reads_the_newest_run_only() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(hours=1),
+            outcome=SourceRunOutcome.SUCCESS,
+            commit=_COMMIT,
+            reason=None,
+        ),
+    )
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=2),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.UNREACHABLE,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.ERROR
+    assert listed[0].age == timedelta(minutes=2)
+
+
+def test_refreshing_one_source_leaves_another_unpolled() -> None:
+    run_store = FakeSourceRunStore()
+    decks = decks_over(
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=FakeDeckFolders(
+            carried={
+                _SOURCE.id: (a_folder("kundenfeedback"),),
+                _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+            },
+        ),
+        fakes=DecksFakes(source_runs=run_store),
+    )
+
+    assert decks.refresh_named(_SOURCE.name)
+    assert run_store.newest(_SOURCE.id) is not None
+    assert run_store.newest(_ANOTHER_SOURCE.id) is None
+
+
+def test_refreshing_a_name_this_instance_does_not_have_does_nothing() -> None:
+    run_store = FakeSourceRunStore()
+    decks = decks_over(fakes=DecksFakes(source_runs=run_store))
+
+    assert not decks.refresh_named("no-such-source")
+    assert run_store.newest(_SOURCE.id) is None
 
 
 def test_each_sources_run_is_recorded_under_its_own_id() -> None:

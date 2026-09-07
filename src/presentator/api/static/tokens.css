@@ -335,7 +335,8 @@ main code {
   width: 0.5em;
 }
 
-[data-state="ready"] {
+[data-state="ready"],
+[data-state="reachable"] {
   color: var(--ok);
 }
 
@@ -365,20 +366,24 @@ main code {
   }
 }
 
-[data-state="failed"] {
+[data-state="failed"],
+[data-state="error"] {
   color: var(--fail);
 }
 
-[data-state="failed"]::before {
+[data-state="failed"]::before,
+[data-state="error"]::before {
   border-radius: 0;
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
-[data-state="never-built"] {
+[data-state="never-built"],
+[data-state="never-fetched"] {
   color: var(--ink-faint);
 }
 
-[data-state="never-built"]::before {
+[data-state="never-built"]::before,
+[data-state="never-fetched"]::before {
   background: none;
   border: 1px dashed currentColor;
   border-radius: 0;
@@ -483,4 +488,125 @@ main code {
 [data-action]:focus-visible {
   outline: var(--pico-outline-width) solid var(--accent);
   outline-offset: 0.125rem;
+}
+
+/* Settings is one area: General and Sources share this strip, and the current
+ * tab is the underlined one, matching the picture's tab row.
+ */
+[data-tabs] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: var(--pico-spacing);
+}
+
+[data-tabs] a {
+  border-bottom: 2px solid transparent;
+  color: var(--ink);
+  margin: 0 0 -1px;
+  padding: 0.5rem 0.25rem 0.625rem;
+  text-decoration: none;
+}
+
+[data-tabs] a[aria-current="page"] {
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Fetch now is a row action, not the page's primary button, so it keeps the
+ * outline the picture draws beside the age rather than Pico's full-width fill.
+ */
+td form {
+  margin-bottom: 0;
+}
+
+[data-quiet][type="submit"],
+[data-quiet][type="submit"]:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border: var(--pico-border-width) solid var(--line);
+  color: var(--ink);
+  font-size: 0.875em;
+  margin: 0;
+  padding: 0.35em 0.85em;
+  white-space: nowrap;
+  width: auto;
+}
+
+/* The picture's empty Sources board: a dashed frame that says what a source
+ * is, with the same hollow mark the never-fetched state uses.
+ */
+[data-empty] {
+  border: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+[data-empty] > :last-child {
+  margin-bottom: 0;
+}
+
+[data-empty-mark] {
+  border: 2px dashed var(--ink-faint);
+  border-radius: 2px;
+  height: 1.625rem;
+  opacity: 0.7;
+  width: 2.125rem;
+}
+
+[data-empty] h2 {
+  margin-bottom: 0;
+}
+
+[data-empty] p {
+  color: var(--ink-soft);
+  margin-bottom: 0;
+}
+
+/* On a phone, state and age stay on the first row, name and URL wrap below,
+ * and Fetch now sits at the bottom, as the picture's 390 px board shows.
+ */
+@media (max-width: 520px) {
+  table[data-sources] thead {
+    display: none;
+  }
+
+  table[data-sources] tbody,
+  table[data-sources] tr,
+  table[data-sources] td {
+    display: block;
+  }
+
+  table[data-sources] tr {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.5rem 1rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 0.75rem 0;
+  }
+
+  table[data-sources] td:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  table[data-sources] td:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  table[data-sources] td:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  table[data-sources] td:nth-child(4) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
 }

@@ -101,7 +101,10 @@ msgstr "No deck yet"
 msgid "decks_empty_explanation"
 msgstr ""
 "Decks come only from Git. Push a folder holding deck.toml and slides.md into "
-"your deck source."
+"one of your"
+
+msgid "decks_empty_sources"
+msgstr "sources"
 
 msgid "deck_back"
 msgstr "← Decks"
@@ -169,6 +172,9 @@ msgstr "No deck stands under this address."
 msgid "settings_title"
 msgstr "General"
 
+msgid "settings_sources"
+msgstr "Sources"
+
 msgid "settings_instance_name"
 msgstr "Instance name"
 
@@ -198,3 +204,41 @@ msgstr "Theme"
 
 msgid "account_instance_default"
 msgstr "Instance default"
+
+msgid "sources_column_source"
+msgstr "Source"
+
+msgid "sources_column_fetched"
+msgstr "Fetched"
+
+msgid "sources_fetch_now"
+msgstr "Fetch now"
+
+msgid "source_state_reachable"
+msgstr "reachable"
+
+msgid "source_state_error"
+msgstr "Error"
+
+msgid "source_state_never_fetched"
+msgstr "never fetched"
+
+msgid "sources_empty_title"
+msgstr "No source yet"
+
+msgid "sources_empty_explanation"
+msgstr ""
+"A source is a Git repository that the server reads every few minutes — "
+"GitHub, GitLab, in-house, or bare."
+
+msgid "sources_empty_need"
+msgstr "You need the Git URL and a read-only secret:"
+
+msgid "sources_empty_ssh"
+msgstr "SSH deploy key"
+
+msgid "sources_empty_or"
+msgstr "or"
+
+msgid "sources_empty_https"
+msgstr "HTTPS token"

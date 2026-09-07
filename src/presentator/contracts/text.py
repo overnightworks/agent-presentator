@@ -43,6 +43,7 @@ class LobbyText:
     decks_column_changed: str
     decks_empty_title: str
     decks_empty_explanation: str
+    decks_empty_sources: str
     deck_back: str
     deck_status: str
     deck_state_ready: str
@@ -64,6 +65,7 @@ class LobbyText:
     deck_unknown_title: str
     deck_unknown_explanation: str
     settings_title: str
+    settings_sources: str
     settings_instance_name: str
     settings_default_language: str
     settings_language_hint: str
@@ -74,6 +76,18 @@ class LobbyText:
     account_language: str
     account_theme: str
     account_instance_default: str
+    sources_column_source: str
+    sources_column_fetched: str
+    sources_fetch_now: str
+    source_state_reachable: str
+    source_state_error: str
+    source_state_never_fetched: str
+    sources_empty_title: str
+    sources_empty_explanation: str
+    sources_empty_need: str
+    sources_empty_ssh: str
+    sources_empty_or: str
+    sources_empty_https: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

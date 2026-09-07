@@ -216,6 +216,30 @@ class ListedDeck:
     age: timedelta
 
 
+class SourceState(StrEnum):
+    """What the sources list says a source is, read off its newest run.
+
+    No run is never-fetched, a successful run is reachable, and a failed run
+    is error — whatever typed reason the failure carried. The reason is not a
+    word this list speaks, so a credential the instance could not resolve
+    never becomes a word on the board.
+    """
+
+    REACHABLE = "reachable"
+    ERROR = "error"
+    NEVER_FETCHED = "never-fetched"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ListedSource:
+    """One row of the sources list, with the state and the age the row shows."""
+
+    name: str
+    url: str
+    state: SourceState
+    age: timedelta | None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ShownAttempt:
     """The build a deck page reports on: its commit, its age, and what broke."""

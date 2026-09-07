@@ -60,8 +60,14 @@ three theme rows, and Log out.
 
 An admin opens Settings and sets the instance name, the default language, and
 the default theme; a person without the admin role is refused there rather than
-sent to the login. Everybody opens Account and overrides language and theme for
-themselves alone. Both resolve the same way — the person's own choice first,
+sent to the login. Settings is one area with a tab strip: General is those
+instance defaults, and Sources lists each source with the state and age of its
+newest run — never fetched, reachable, or Error, never the internal reason a
+credential could not be resolved — and a Fetch now that refreshes that one
+source and returns to the list. An instance with no source says what a source
+is and what you need for it. Users is not a tab yet. There is no control to
+add a source, and a source has no page of its own yet. Everybody opens Account
+and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,
 the instance default behind it — and "follow system" writes no `data-theme`
 attribute at all, so the browser decides
 ([ADR 0012](decisions/0012-themes-and-language.md)). The instance defaults live
@@ -80,9 +86,8 @@ jinja2-fragments ([ADR 0008](decisions/0008-lobby-server-rendered.md)) is not
 installed, because no surface here has a partial to serve: both writes change
 the whole document, down to the `<html>` element the theme sits on.
 
-Settings has no Sources and no Users tab yet, and Account carries neither the
-password nor the sessions part of the picture; each arrives with the slice that
-fills it.
+Account carries neither the password nor the sessions part of the picture;
+each arrives with the slice that fills it.
 
 ### Listing decks
 
@@ -116,10 +121,10 @@ address on an instance that carries no hook secret. A flood of calls collapses
 into the one refresh that runs at a time. Every poll of a source, reachable or
 not, records one run: the moment, whether it reached the source, and either the
 commit it found or a typed reason it did not — never the raw error a git
-command left behind. A source's newest run is what a future board reads to show
+command left behind. A source's newest run is what the Sources list reads to show
 whether it is working; every run before that stays in the table too, with
 nothing yet trimming it. Opening the deck list only reads the
-database. A source that cannot be read is logged and says nothing about what it
+database. The empty deck list points an admin at Sources. A source that cannot be read is logged and says nothing about what it
 carries, so every deck stays listed; a folder whose manifest cannot be read is
 logged too and counts as a folder without a title, so the deck row it belongs to
 stands as it was. A folder counts as a deck when it carries both `deck.toml` and

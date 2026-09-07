@@ -22,7 +22,12 @@ from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.preferences import Preferences
-from presentator.contracts.decks import DeckFolder, Source
+from presentator.contracts.decks import (
+    DeckFolder,
+    Source,
+    SourceRun,
+    SourceRunFailure,
+)
 from presentator.contracts.models import Credentials, Role, User
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
@@ -129,7 +134,11 @@ class GivenDecks:
 
     folders: tuple[DeckFolder, ...] | None = None
     source: Source | None = None
+    sources: tuple[Source, ...] = ()
     store: FakeDeckStore | None = None
+    runs: tuple[SourceRun, ...] = ()
+    carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
+    failures: dict[str, SourceRunFailure] | None = None
 
 
 NO_DECKS: Final = GivenDecks()
@@ -153,16 +162,29 @@ def a_lobby(
         identifiers=CountingIdentifierFactory(),
         cookies=MarkingCookieSigner(),
     )
+    stored = (
+        list(given.sources)
+        if given.sources
+        else ([] if given.source is None else [given.source])
+    )
+    run_store = FakeSourceRunStore()
+    for run in given.runs:
+        run_store.record(run)
+    if given.carried is not None:
+        carried = given.carried
+    elif given.source is not None:
+        carried = {given.source.id: given.folders}
+    else:
+        carried = {}
     decks = Decks(
-        sources=FakeSourceStore(
-            sources=[] if given.source is None else [given.source],
-        ),
+        sources=FakeSourceStore(sources=stored),
         folders=FakeDeckFolders(
-            carried={} if given.source is None else {given.source.id: given.folders},
+            carried=carried,
+            failures={} if given.failures is None else given.failures,
         ),
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
-        source_runs=FakeSourceRunStore(),
+        source_runs=run_store,
         build_bound=BUILD_BOUND,
         clock=clock,
     )
