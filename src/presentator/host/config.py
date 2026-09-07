@@ -5,6 +5,7 @@ from typing import Annotated, Final
 
 from pydantic import AfterValidator, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings
+from webauth.proxies import TrustedProxies
 
 # Every secret this instance is handed is at least this many characters, so no
 # guard of it rests on a value somebody could type.
@@ -29,6 +30,12 @@ def _a_real_secret(given: SecretStr) -> SecretStr:
             " leave it unset to keep the hook closed"
         )
         raise ValueError(message)
+    return given
+
+
+def _a_proxy_list(given: str) -> str:
+    """Refuse a list that is not addresses or networks."""
+    TrustedProxies.parse(given)
     return given
 
 
@@ -65,6 +72,9 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     https: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
+    # Empty: the login budget keys on the ASGI peer. A list is the peers whose
+    # X-Forwarded-For this instance believes.
+    trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
 
 
 def load_settings() -> Settings:

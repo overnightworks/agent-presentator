@@ -1,7 +1,7 @@
 """The identity types every layer of the login speaks."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 
 
@@ -31,24 +31,30 @@ class User:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Credentials:
-    """A user beside the hash a typed password is checked against."""
+class Account:
+    """The stored account the login machinery reads, hash included."""
 
-    user: User
+    id: str
+    username: str
+    role: Role
     password_hash: str
+    is_active: bool = True
+
+    def as_user(self) -> User:
+        """The person this account is, without the hash."""
+        return User(id=self.id, username=self.username, role=self.role)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Session:
-    """Idle lifetime is a pure function of last_seen.
+    """A live row the idle-window policy reads: identity, origin, last_seen.
 
-    A store cannot invent a different rule.
+    Whether it still stands is the login library's idle-window policy, not a
+    method here (ADR 0003).
     """
 
     id: str
     user_id: str
     last_seen: datetime
-
-    def is_alive(self, *, at: datetime, idle_window: timedelta) -> bool:
-        """Alive strictly inside the window, so the boundary itself is expired."""
-        return at - self.last_seen < idle_window
+    ip_address: str = ""
+    user_agent: str = ""

@@ -1,29 +1,31 @@
-"""SQLite rows, Argon2id hashes, and signed cookies behind the identity ports.
+"""SQLite rows and Argon2id hashes behind the identity ports.
 
-A bridge until `webauth` is tagged (ADR 0003): songmaker #835 brings the stores
-and #833 the user management, and this module is deleted with them.
+The stores and hasher are this product's implementations of the `webauth`
+ports (ADR 0003). First start's write lock stays here until `webauth[users]`
+ships it.
 """
 
-import hmac
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from hashlib import sha256
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
+from webauth.cookies import sign_session_id, verify_session_cookie
+from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import (
-    Credentials,
+    Account,
     FirstStartClosedError,
     Role,
     Session,
     User,
 )
+from presentator.ports.clock import Clock
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -35,16 +37,23 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
-    last_seen TEXT NOT NULL
+    last_seen TEXT NOT NULL,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS login_attempts (
     username TEXT NOT NULL,
+    ip_address TEXT NOT NULL DEFAULT '',
     failed_at TEXT NOT NULL
 );
 """
 _IDENTIFIER_BYTES: Final = 32
-_COOKIE_SEPARATOR: Final = "."
 _FIRST_START_IS_OVER: Final = "this instance already has an account"
+_SESSION_COLUMNS: Final = (
+    ("ip_address", "TEXT NOT NULL DEFAULT ''"),
+    ("user_agent", "TEXT NOT NULL DEFAULT ''"),
+)
+_ATTEMPT_COLUMNS: Final = (("ip_address", "TEXT NOT NULL DEFAULT ''"),)
 
 
 def _argon2id() -> PasswordHash:
@@ -58,6 +67,23 @@ def _hash_of_a_secret_nobody_typed() -> str:
 def create_identity_tables(database: Path) -> None:
     """Make the accounts, sessions, and attempts tables exist."""
     apply_schema(database, _SCHEMA)
+    _ensure_columns(database, "sessions", _SESSION_COLUMNS)
+    _ensure_columns(database, "login_attempts", _ATTEMPT_COLUMNS)
+
+
+def _ensure_columns(
+    database: Path,
+    table: str,
+    columns: tuple[tuple[str, str], ...],
+) -> None:
+    with rows(database) as cursor:
+        named = {
+            str(column[1])
+            for column in cursor.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, declaration in columns:
+            if name not in named:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +101,7 @@ class SqliteUserStore:
             ).fetchone()
         return None if row is None else _user(row)
 
-    def credentials_for(self, username: str) -> Credentials | None:
+    def get_by_username(self, username: str) -> Account | None:
         """Read the account and its hash for the name someone typed."""
         with rows(self.database) as cursor:
             row = cursor.execute(
@@ -85,10 +111,15 @@ class SqliteUserStore:
             ).fetchone()
         if row is None:
             return None
-        *account, password_hash = row
-        return Credentials(user=_user(account), password_hash=password_hash)
+        user_id, stored_name, role, password_hash = row
+        return Account(
+            id=user_id,
+            username=stored_name,
+            role=Role(role),
+            password_hash=password_hash,
+        )
 
-    def add_first_account(self, credentials: Credentials) -> None:
+    def add_first_account(self, account: Account) -> None:
         """Count and insert inside one write lock, so first start happens once."""
         with rows(self.database) as cursor:
             cursor.execute("BEGIN IMMEDIATE")
@@ -99,12 +130,28 @@ class SqliteUserStore:
                 "INSERT INTO users (id, username, role, password_hash)"
                 " VALUES (?, ?, ?, ?)",
                 (
-                    credentials.user.id,
-                    credentials.user.username,
-                    credentials.user.role.value,
-                    credentials.password_hash,
+                    account.id,
+                    account.username,
+                    account.role.value,
+                    account.password_hash,
                 ),
             )
+
+    def create(self, username: str, password_hash: str, role: str) -> Account:
+        """Add an account once the instance already has one."""
+        user_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "INSERT INTO users (id, username, role, password_hash)"
+                " VALUES (?, ?, ?, ?)",
+                (user_id, username, role, password_hash),
+            )
+        return Account(
+            id=user_id,
+            username=username,
+            role=Role(role),
+            password_hash=password_hash,
+        )
 
     def count(self) -> int:
         """How many accounts exist, which is what first start asks."""
@@ -124,40 +171,121 @@ class SqliteUserStore:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemClock:
+    """The wall clock, in UTC."""
+
+    def now(self) -> datetime:
+        """Read the current time."""
+        return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
 class SqliteSessionRecordStore:
     """The sessions table."""
 
     database: Path
+    clock: Clock = field(default_factory=SystemClock)
 
-    def get(self, session_id: str) -> Session | None:
+    def create(
+        self,
+        user_id: str,
+        expires_at: datetime,
+        *,
+        ip_address: str,
+        user_agent: str,
+    ) -> Session:
+        """Open a session whose last_seen is now; idle-window has no expiry column."""
+        del expires_at
+        session = Session(
+            id=secrets.token_urlsafe(_IDENTIFIER_BYTES),
+            user_id=user_id,
+            last_seen=self.clock.now(),
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        self._put(session)
+        return session
+
+    def load(self, session_id: str) -> Session | None:
         """Read the row a cookie points at."""
         with rows(self.database) as cursor:
             row = cursor.execute(
-                "SELECT id, user_id, last_seen FROM sessions WHERE id = ?",
+                "SELECT id, user_id, last_seen, ip_address, user_agent"
+                " FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        stored_id, user_id, last_seen = row
+        stored_id, user_id, last_seen, ip_address, user_agent = row
         return Session(
             id=stored_id,
             user_id=user_id,
             last_seen=datetime.fromisoformat(last_seen),
+            ip_address=ip_address,
+            user_agent=user_agent,
         )
 
-    def put(self, session: Session) -> None:
-        """Write the session, whether it is new or has just been touched."""
-        with rows(self.database) as cursor:
-            cursor.execute(
-                "INSERT INTO sessions (id, user_id, last_seen) VALUES (?, ?, ?)"
-                " ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen",
-                (session.id, session.user_id, session.last_seen.isoformat()),
-            )
+    def touch(
+        self,
+        record: Session,
+        *,
+        ip_address: str,
+        user_agent: str,
+        now: datetime,
+    ) -> None:
+        """Write last_seen and origin in place."""
+        self._put(
+            Session(
+                id=record.id,
+                user_id=record.user_id,
+                last_seen=now,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            ),
+        )
 
-    def remove(self, session_id: str) -> None:
+    def delete(self, session_id: str) -> None:
         """Delete the row, so logging out cannot be undone with the old cookie."""
         with rows(self.database) as cursor:
             cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+    def delete_for_user(self, user_id: str) -> int:
+        """End every session of one account."""
+        with rows(self.database) as cursor:
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            return int(cursor.rowcount)
+
+    def prune_overflow(self, user_id: str, max_sessions: int) -> list[str]:
+        """Drop the oldest sessions above the cap, newest kept."""
+        with rows(self.database) as cursor:
+            stored = cursor.execute(
+                "SELECT id FROM sessions WHERE user_id = ?"
+                " ORDER BY last_seen DESC, id DESC",
+                (user_id,),
+            ).fetchall()
+            dropped = [session_id for (session_id,) in stored[max_sessions:]]
+            for session_id in dropped:
+                cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        return dropped
+
+    def _put(self, session: Session) -> None:
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "INSERT INTO sessions"
+                " (id, user_id, last_seen, ip_address, user_agent)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET"
+                " last_seen = excluded.last_seen,"
+                " ip_address = excluded.ip_address,"
+                " user_agent = excluded.user_agent",
+                (
+                    session.id,
+                    session.user_id,
+                    session.last_seen.isoformat(),
+                    session.ip_address,
+                    session.user_agent,
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,23 +293,41 @@ class SqliteLoginAttemptStore:
     """The failed-attempts table."""
 
     database: Path
+    clock: Clock = field(default_factory=SystemClock)
 
-    def record_failure(self, username: str, *, at: datetime) -> None:
-        """Remember one refused attempt for the name that was typed."""
+    def record(self, *, ip_address: str, username: str, success: bool) -> None:
+        """Remember a refused attempt; a success spends nothing."""
+        if success:
+            return
         with rows(self.database) as cursor:
             cursor.execute(
-                "INSERT INTO login_attempts (username, failed_at) VALUES (?, ?)",
-                (username, at.isoformat()),
+                "INSERT INTO login_attempts (username, ip_address, failed_at)"
+                " VALUES (?, ?, ?)",
+                (username, ip_address, self.clock.now().isoformat()),
             )
 
-    def failure_count(self, username: str, *, since: datetime) -> int:
-        """Count the refused attempts inside the caller's window."""
+    def count_recent_failures(
+        self,
+        *,
+        ip_address: str,
+        window_seconds: int,
+        username: str | None = None,
+    ) -> int:
+        """Count refused attempts inside the caller's window."""
+        since = (self.clock.now() - timedelta(seconds=window_seconds)).isoformat()
         with rows(self.database) as cursor:
-            (failures,) = cursor.execute(
-                "SELECT count(*) FROM login_attempts"
-                " WHERE username = ? AND failed_at >= ?",
-                (username, since.isoformat()),
-            ).fetchone()
+            if username is None:
+                (failures,) = cursor.execute(
+                    "SELECT count(*) FROM login_attempts"
+                    " WHERE ip_address = ? AND failed_at >= ?",
+                    (ip_address, since),
+                ).fetchone()
+            else:
+                (failures,) = cursor.execute(
+                    "SELECT count(*) FROM login_attempts"
+                    " WHERE username = ? AND failed_at >= ?",
+                    (username, since),
+                ).fetchone()
         return int(failures)
 
 
@@ -196,23 +342,14 @@ class Argon2PasswordHasher:
         """Hash a password for storage; the password itself is never kept."""
         return self.hashes.hash(password)
 
-    def verify(self, password: str, password_hash: str | None) -> bool:
+    def verify(self, password: str, stored_hash: str | None) -> bool:
         """Say whether the password belongs to the stored hash."""
-        if password_hash is None:
+        if stored_hash is None:
             # The answer is known; the point is that a name nobody has costs the
             # same Argon2id verification as a name somebody has.
             self.hashes.verify(password, self.hash_for_nobody)
             return False
-        return self.hashes.verify(password, password_hash)
-
-
-@dataclass(frozen=True, slots=True)
-class SystemClock:
-    """The wall clock, in UTC."""
-
-    def now(self) -> datetime:
-        """Read the current time."""
-        return datetime.now(UTC)
+        return self.hashes.verify(password, stored_hash)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,27 +362,36 @@ class TokenIdentifierFactory:
 
 
 @dataclass(frozen=True, slots=True)
-class HmacSessionCookieSigner:
-    """A cookie value is the session id and its HMAC-SHA256 over the instance key."""
+class SignedSessionCookie:
+    """A cookie value is the session id HMAC-signed with the instance key."""
 
     secret_key: bytes
 
     def sign(self, session_id: str) -> str:
         """Build the value the browser carries."""
-        return f"{session_id}{_COOKIE_SEPARATOR}{self._signature(session_id)}"
+        return sign_session_id(session_id, self.secret_key)
 
     def session_id_from(self, cookie_value: str) -> str | None:
         """Return the id only for a value this instance signed."""
-        session_id, separator, signature = cookie_value.rpartition(_COOKIE_SEPARATOR)
-        if not separator or not hmac.compare_digest(
-            signature,
-            self._signature(session_id),
-        ):
-            return None
-        return session_id
+        return verify_session_cookie(cookie_value, self.secret_key)
 
-    def _signature(self, session_id: str) -> str:
-        return hmac.new(self.secret_key, session_id.encode(), sha256).hexdigest()
+
+@dataclass
+class _LastSeen:
+    """A writable last_seen, which is the field the idle-window policy reads."""
+
+    last_seen: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class IdleWindow:
+    """The library's last_seen window, held so the application never names it."""
+
+    policy: IdleWindowLiveness
+
+    def admits(self, session: Session, *, at: datetime) -> bool:
+        """Alive inside the window, including the boundary itself."""
+        return self.policy.admits_stored_session(_LastSeen(session.last_seen), at)
 
 
 def _user(account: Sequence[str]) -> User:
