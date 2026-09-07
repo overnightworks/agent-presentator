@@ -45,9 +45,9 @@ class SecretLocation(StrEnum):
 class AccessKind(StrEnum):
     """How a source is read, derived from its URL's scheme and nothing else.
 
-    HTTPS (and HTTP) is a token; SSH and the scp form are a deploy key. The
-    radio on the form has to match this, and a mismatch is refused rather than
-    stored as a third kind.
+    HTTPS is a token; SSH and the scp form are a deploy key. The radio on the
+    form has to match this, and a mismatch is refused rather than stored as a
+    third kind.
     """
 
     HTTPS = "https-token"

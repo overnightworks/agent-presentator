@@ -89,9 +89,9 @@ An admin adds a source under Settings · Sources with a name, a Git URL, HTTPS
 token access, and the read-only secret. The name is lowercase letters, digits
 and hyphens, at most 64 characters, unique; the URL is unique too, and must
 not carry a password in its userinfo — that belongs in the Secret field. The
-access kind is derived from the URL scheme (`https://` is a token; `git@` and
-`ssh://` are a deploy key, not yet offered on the form). The secret is stored
-encrypted. SSH deploy keys are not offered yet.
+access kind is derived from the URL scheme (`https://` is a token; `http://` is
+refused; `git@` and `ssh://` are a deploy key, not yet offered on the form).
+The secret is stored encrypted. SSH deploy keys are not offered yet.
 
 The server polls the source every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task
 beside the routes, and never twice at once; opening the deck list reads the

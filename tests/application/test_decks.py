@@ -1,6 +1,8 @@
 """What the lobby calls a deck, which deck it builds, and what it then shows."""
 
+import hashlib
 import logging
+import string
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from threading import Thread
@@ -12,7 +14,6 @@ from presentator.application.decks import (
     Decks,
     SourceRefusal,
     access_kind_of,
-    hash_webhook_secret,
 )
 from presentator.contracts.decks import (
     MANIFEST_FILE,
@@ -984,6 +985,7 @@ def test_each_sources_run_is_recorded_under_its_own_id() -> None:
 
 _READ_ONLY = "a-read-only-token"
 _HTTPS_URL = "https://git.example.invalid/talks.git"
+_MINIMUM_WEBHOOK_SECRET_LENGTH = 32
 
 
 def _add(
@@ -1019,9 +1021,14 @@ def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> 
     assert added.source.ref == "main"
     assert added.source.secret_location is SecretLocation.STORED
     assert added.source.owner_id == _OWNER
-    assert added.webhook_secret
+    assert len(added.webhook_secret) >= _MINIMUM_WEBHOOK_SECRET_LENGTH
+    assert set(added.webhook_secret) <= set(string.ascii_letters + string.digits + "-_")
     assert added.webhook_secret != _READ_ONLY
-    assert store.hook_secret_hash("talks") == hash_webhook_secret(added.webhook_secret)
+    stored_hash = store.hook_secret_hash("talks")
+    assert stored_hash is not None
+    assert (
+        stored_hash.hex() == hashlib.sha256(added.webhook_secret.encode()).hexdigest()
+    )
     assert run_store.newest(added.source.id) is not None
 
 
@@ -1100,6 +1107,38 @@ def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> 
             SourceRefusal.ACCESS_MISMATCH,
             id="file URL",
         ),
+        pytest.param(
+            "talks",
+            "http://git.example.invalid/talks.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="http URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\x00evil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="nul in the URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\nevil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="newline in the URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\tevil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="tab in the URL",
+        ),
     ],
 )
 def test_a_draft_that_cannot_be_a_source_is_refused(
@@ -1120,6 +1159,30 @@ def test_a_draft_that_cannot_be_a_source_is_refused(
     )
     assert refused is reason
     assert store.all() == ()
+
+
+def test_refusing_a_control_character_url_leaves_other_sources_to_poll() -> None:
+    store = having()
+    run_store = FakeSourceRunStore()
+    decks = decks_over(sources=store, fakes=DecksFakes(source_runs=run_store))
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+
+    refused = _add(
+        decks,
+        name="evil",
+        url="https://git.example.invalid/talks.git\x00evil",
+    )
+
+    assert refused is SourceRefusal.ACCESS_MISMATCH
+    assert store.all() == (added.source,)
+
+    decks.refresh()
+
+    run = run_store.newest(added.source.id)
+    assert run is not None
+    assert run.outcome is SourceRunOutcome.SUCCESS
+    assert [source.name for source in decks.listed_sources()] == ["talks"]
 
 
 def test_a_duplicate_name_or_url_is_refused() -> None:
@@ -1187,7 +1250,8 @@ def test_https_and_ssh_urls_name_their_access_kind() -> None:
     ssh = "ssh://git@git.example.invalid/talks.git"
     scp = "git@git.example.invalid:talks.git"
     assert access_kind_of(https) is AccessKind.HTTPS
-    assert access_kind_of(http) is AccessKind.HTTPS
+    assert access_kind_of(http) is None
     assert access_kind_of(ssh) is AccessKind.SSH
     assert access_kind_of(scp) is AccessKind.SSH
     assert access_kind_of("file:///tmp/talks.git") is None
+    assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None

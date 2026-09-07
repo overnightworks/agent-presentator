@@ -98,8 +98,9 @@ Sources with a name, a Git URL, HTTPS token access, and a read-only secret;
 the secret is stored encrypted and never shown again, the source is fetched
 once, and the next screen shows the webhook address and its secret exactly
 once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
-URL carrying a password in its userinfo is refused, and the access kind is
-derived from the URL scheme — a mismatch with the chosen radio is refused.
+URL carrying a password in its userinfo is refused, `http://` is refused, and
+the access kind is derived from the URL scheme — a mismatch with the chosen
+radio is refused.
 SSH deploy keys are not offered yet. The one an instance already runs on still
 comes from `PRESENTATOR_SOURCE_URL`, an optional
 `PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`

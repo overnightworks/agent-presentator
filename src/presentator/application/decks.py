@@ -67,7 +67,6 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The form lives at this path segment, so a source must not take it.
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
-_HTTPS_SCHEMES: Final = frozenset({"http", "https"})
 _SSH_SCHEMES: Final = frozenset({"ssh"})
 # Added sources follow main; the configured source still carries its own ref.
 _ADDED_REF: Final = "main"
@@ -98,11 +97,13 @@ class AddedSource:
 def access_kind_of(url: str) -> AccessKind | None:
     """The access the URL's scheme names, or nothing when it names none.
 
-    HTTPS and HTTP are a token; SSH and the scp form (`git@host:path`) are a
-    deploy key. Anything else is not an access this product has.
+    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy key.
+    Anything else is not an access this product has.
     """
+    if any(character < " " for character in url):
+        return None
     parsed = urlparse(url)
-    if parsed.scheme in _HTTPS_SCHEMES:
+    if parsed.scheme == _HTTPS_ACCESS:
         return AccessKind.HTTPS
     if parsed.scheme in _SSH_SCHEMES or (not parsed.scheme and "@" in url):
         return AccessKind.SSH

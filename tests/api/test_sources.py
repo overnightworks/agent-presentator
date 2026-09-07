@@ -511,6 +511,16 @@ def test_the_seeded_source_keeps_its_environment_credential_when_another_is_adde
         pytest.param(
             {
                 "name": "talks",
+                "url": "http://git.example.invalid/talks.git",
+                "access": "https",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_access,
+            id="http URL",
+        ),
+        pytest.param(
+            {
+                "name": "talks",
                 "url": _HTTPS_URL,
                 "access": "ssh",
                 "secret": _READ_ONLY,
