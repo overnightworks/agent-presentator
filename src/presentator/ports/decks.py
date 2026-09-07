@@ -5,6 +5,7 @@ Named for decks rather than for a catalogue, because the message catalog
 """
 
 from abc import abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -23,8 +24,13 @@ class DeckFolders(Protocol):
     """Reads the folders a source carries, without deciding what a deck is."""
 
     @abstractmethod
-    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
-        """Every folder at the source's newest commit, empty when it is unreadable."""
+    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
+        """Every folder at the source's newest commit, or nothing when it is unreadable.
+
+        Nothing is not emptiness: a source nobody could read says nothing about
+        what it carries, while a read that found no folder says every deck is
+        gone.
+        """
 
 
 class DeckStore(Protocol):
@@ -52,4 +58,12 @@ class DeckStore(Protocol):
 
     @abstractmethod
     def all(self) -> tuple[Deck, ...]:
-        """Every stored deck, in no promised order."""
+        """Every deck whose folder is still there, in no promised order."""
+
+    @abstractmethod
+    def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
+        """Mark the decks outside `present` removed, and clear the mark inside it.
+
+        A mark is not a delete: the row keeps its identity and its owner, so a
+        folder pushed again is the deck it was.
+        """

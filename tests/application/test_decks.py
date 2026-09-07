@@ -277,3 +277,43 @@ def test_a_flood_of_refreshes_takes_the_source_in_once_at_a_time() -> None:
     assert held.at_once == 1
     assert held.reads == reads_while_one_ran + 1
     assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+
+
+def test_a_folder_the_source_no_longer_carries_leaves_the_list() -> None:
+    mirror = FakeDeckFolders(
+        found=(a_folder("alter-vortrag"), a_folder("kundenfeedback")),
+    )
+    decks = decks_over(mirror=mirror)
+    refreshed(decks)
+
+    mirror.found = (a_folder("kundenfeedback"),)
+    after_the_delete = refreshed(decks)
+
+    assert [deck.slug for deck in after_the_delete] == ["kundenfeedback"]
+
+
+def test_a_folder_pushed_again_is_the_same_deck_with_the_same_owner() -> None:
+    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback", title="Feedback"),))
+    store = FakeDeckStore()
+    decks = decks_over(mirror=mirror, store=store)
+    refreshed(decks)
+
+    mirror.found = ()
+    while_it_was_gone = refreshed(decks)
+    mirror.found = (a_folder("kundenfeedback", title="Feedback"),)
+    after_it_came_back = refreshed(decks)
+
+    assert while_it_was_gone == ()
+    assert [deck.slug for deck in after_it_came_back] == ["kundenfeedback"]
+    assert [deck.owner_id for deck in store.all()] == [_OWNER]
+
+
+def test_a_source_that_cannot_be_read_leaves_every_deck_listed() -> None:
+    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback"),))
+    decks = decks_over(mirror=mirror)
+    refreshed(decks)
+
+    mirror.found = None
+    while_the_source_was_unreadable = refreshed(decks)
+
+    assert [deck.slug for deck in while_the_source_was_unreadable] == ["kundenfeedback"]
