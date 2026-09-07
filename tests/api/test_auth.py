@@ -8,6 +8,7 @@ from http import HTTPStatus
 import pytest
 
 from presentator.api.auth import SESSION_COOKIE
+from presentator.api.hooks import hook_address
 from presentator.application.identity import (
     FAILURE_WINDOW,
     FAILURES_BEFORE_THROTTLE,
@@ -275,6 +276,13 @@ def test_a_login_another_site_submitted_is_refused(signed_in_lobby: Lobby) -> No
     refused = signed_in_lobby.log_in(headers={"origin": "https://another.example"})
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
+    asked = lobby.client.get(hook_address("talks"))
+
+    assert asked.status_code == HTTPStatus.FOUND
+    assert asked.headers["location"] == "/login"
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:

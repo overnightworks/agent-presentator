@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ text.sources_add }}{% endblock %}
+{% block body %}
+<main>
+  <p><a href="/settings/sources">{{ text.sources_back }}</a></p>
+  <header>
+    <h1>{{ text.sources_add }}</h1>
+  </header>
+  {% include "settings_tabs.html" %}
+  {% if draft %}<p role="alert">{{ draft.reason }}</p>{% endif %}
+  <form method="post" action="/settings/sources/new">
+    <label for="name">{{ text.source_name }}</label>
+    <input id="name" name="name" required
+           value="{% if draft %}{{ draft.name }}{% endif %}"
+           autocomplete="off">
+    <label for="url">{{ text.source_url }}</label>
+    <input id="url" name="url" required
+           value="{% if draft %}{{ draft.url }}{% endif %}"
+           spellcheck="false" autocomplete="off">
+    <fieldset>
+      <legend>{{ text.source_access }}</legend>
+      <label>
+        <input type="radio" name="access" value="{{ ssh_access }}" disabled>
+        {{ text.source_access_ssh }}
+      </label>
+      <label>
+        <input type="radio" name="access" value="{{ https_access }}"
+               {% if not draft or draft.access == https_access %}checked{% endif %}>
+        {{ text.source_access_https }}
+      </label>
+    </fieldset>
+    <label for="secret">{{ text.source_secret }}</label>
+    <details>
+      <summary>{{ text.source_secret_info_mark }}</summary>
+      <p>{{ text.source_secret_info }}</p>
+    </details>
+    <input id="secret" name="secret" type="password" required autocomplete="off">
+    <p>{{ text.source_webhook_later }}</p>
+    <button type="button" disabled>{{ text.source_check }}</button>
+    <button type="submit">{{ text.source_create }}</button>
+  </form>
+</main>
+{% endblock %}

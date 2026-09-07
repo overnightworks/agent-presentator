@@ -87,6 +87,37 @@ class LobbyText:
     sources_empty_ssh: str
     sources_empty_or: str
     sources_empty_https: str
+    sources_add: str
+    sources_back: str
+    sources_column_access: str
+    source_name: str
+    source_url: str
+    source_access: str
+    source_access_ssh: str
+    source_access_https: str
+    source_access_token: str
+    source_access_deploy_key: str
+    source_secret: str
+    source_secret_info_mark: str
+    source_secret_info: str
+    source_webhook_later: str
+    source_check: str
+    source_create: str
+    source_created: str
+    source_webhook: str
+    source_webhook_address: str
+    source_webhook_secret: str
+    source_webhook_once: str
+    source_copy: str
+    source_webhook_payload: str
+    source_created_done: str
+    source_created_toast: str
+    source_refused_name: str
+    source_refused_duplicate_name: str
+    source_refused_duplicate_url: str
+    source_refused_password: str
+    source_refused_access: str
+    source_refused_secret: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

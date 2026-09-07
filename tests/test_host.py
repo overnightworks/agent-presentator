@@ -24,8 +24,10 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
 )
 from presentator.adapters.secrets import secret_box
+from presentator.adapters.sqlite import rows
 from presentator.api.auth import SESSION_COOKIE
-from presentator.api.hooks import HOOKS_PATH
+from presentator.api.hooks import hook_address
+from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.host import main
 from presentator.host.config import (
@@ -314,7 +316,7 @@ def a_polled_source(
     *,
     armed: bool = True,
 ) -> Instance:
-    """A real stack reading that remote, with the hook open while a secret arms it."""
+    """A real stack reading that remote, with the env hook secret set while armed."""
     environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
     environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
     if armed:
@@ -323,6 +325,15 @@ def a_polled_source(
             _WHAT_THE_HOST_CARRIES,
         )
     return a_real_instance()
+
+
+def arm_the_seeded_hook(database: Path, secret: str) -> None:
+    """Write the webhook hash onto the seeded row, as adding a source would."""
+    with rows(database) as cursor:
+        cursor.execute(
+            "UPDATE sources SET hook_secret_hash = ? WHERE name = ?",
+            (hash_webhook_secret(secret), _SOURCE_NAME),
+        )
 
 
 def listed_addresses(page: str) -> list[str]:
@@ -338,7 +349,7 @@ def owner_of(database: Path, slug: str) -> str:
 
 def call_the_hook(lobby: TestClient, *, carrying: str) -> Response:
     return lobby.post(
-        f"{HOOKS_PATH}/{_SOURCE_NAME}",
+        hook_address(_SOURCE_NAME),
         headers={"authorization": f"Bearer {carrying}"},
     )
 
@@ -433,8 +444,12 @@ def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
 def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    lobby = signed_in(a_polled_source(environment, remote))
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    asyncio.run(instance.poller.tick())
+    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     called = call_the_hook(lobby, carrying=_WHAT_THE_HOST_CARRIES)
@@ -446,8 +461,12 @@ def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
 def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    lobby = signed_in(a_polled_source(environment, remote))
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    asyncio.run(instance.poller.tick())
+    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     refused = call_the_hook(lobby, carrying="guessed")
@@ -456,7 +475,7 @@ def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
     assert EXAMPLE_TITLE not in lobby.get("/").text
 
 
-def test_without_a_secret_the_real_stack_has_no_hook_address(
+def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
 ) -> None:
@@ -466,8 +485,8 @@ def test_without_a_secret_the_real_stack_has_no_hook_address(
 
     called = call_the_hook(lobby, carrying=_WHAT_THE_HOST_CARRIES)
 
-    assert called.status_code == HTTPStatus.FOUND
-    assert called.headers["location"] == "/login"
+    assert (called.status_code, called.content) == (HTTPStatus.NOT_FOUND, b"")
+    assert called.headers.get("location") is None
     assert EXAMPLE_TITLE not in signed_in(a_real_instance()).get("/").text
 
 

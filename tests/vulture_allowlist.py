@@ -8,6 +8,7 @@ from presentator.api.auth import DeckRow
 from presentator.api.decks import Banner
 from presentator.api.sources import SourceRow
 from presentator.contracts.text import LobbyText
+from presentator.host.config import Settings
 
 # `presentator/api/templates/home.html` renders it in the "Changed" column.
 DeckRow.changed
@@ -15,6 +16,7 @@ DeckRow.changed
 # `presentator/api/templates/sources.html` renders each row of the Sources list.
 SourceRow.name
 SourceRow.url
+SourceRow.access
 SourceRow.state
 SourceRow.state_word
 SourceRow.fetched
@@ -54,3 +56,19 @@ LobbyText.settings_save
 LobbyText.account_preferences
 LobbyText.account_language
 LobbyText.account_theme
+LobbyText.sources_back
+LobbyText.source_access
+LobbyText.source_secret
+LobbyText.source_secret_info_mark
+LobbyText.source_secret_info
+LobbyText.source_webhook_later
+LobbyText.source_webhook
+LobbyText.source_webhook_address
+LobbyText.source_webhook_secret
+LobbyText.source_copy
+LobbyText.source_webhook_payload
+LobbyText.source_created_done
+LobbyText.source_created
+
+# Still loaded from the environment; the hook compares the per-source hash.
+Settings.source_hook_secret

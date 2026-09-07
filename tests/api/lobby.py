@@ -4,7 +4,7 @@ Every route test arranges the same instance, so the wiring the host does
 stands here once, with the doubles and the accounts a test hands in.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
@@ -174,6 +174,7 @@ class GivenDecks:
     runs: tuple[SourceRun, ...] = ()
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
+    hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
 
 
 NO_DECKS: Final = GivenDecks()
@@ -214,7 +215,7 @@ def a_lobby(
     else:
         carried = {}
     decks = Decks(
-        sources=FakeSourceStore(sources=stored),
+        sources=FakeSourceStore(sources=stored, hashes=dict(given.hook_hashes)),
         folders=FakeDeckFolders(
             carried=carried,
             failures={} if given.failures is None else given.failures,
@@ -248,7 +249,6 @@ def a_lobby(
             config=a_web_auth(hasher=hasher),
             secure_cookies=secure_cookies,
         ),
-        fetch_hook=None,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
 

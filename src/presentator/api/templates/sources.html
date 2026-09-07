@@ -4,6 +4,7 @@
 <main>
   <header>
     <h1>{{ text.settings_sources }}</h1>
+    <a href="/settings/sources/new">{{ text.sources_add }}</a>
   </header>
   {% include "settings_tabs.html" %}
   {% if sources %}
@@ -12,6 +13,7 @@
       <tr>
         <th scope="col">{{ text.decks_column_state }}</th>
         <th scope="col">{{ text.sources_column_source }}</th>
+        <th scope="col">{{ text.sources_column_access }}</th>
         <th scope="col">{{ text.sources_column_fetched }}</th>
         <th scope="col"></th>
       </tr>
@@ -24,6 +26,7 @@
           {{ source.name }}
           <code>{{ source.url }}</code>
         </td>
+        <td>{% if source.access %}{{ source.access }}{% endif %}</td>
         <td>{% if source.fetched %}{{ source.fetched }}{% else %}—{% endif %}</td>
         <td>
           <form method="post" action="/settings/sources/{{ source.name }}/fetch">
@@ -44,6 +47,7 @@
       {{ text.sources_empty_or }}
       <code>{{ text.sources_empty_https }}</code>
     </p>
+    <p><a href="/settings/sources/new">{{ text.sources_add }}</a></p>
   </section>
   {% endif %}
 </main>

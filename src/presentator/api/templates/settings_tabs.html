@@ -1,4 +1,4 @@
 <nav data-tabs>
   <a href="/settings"{% if request.url.path == "/settings" %} aria-current="page"{% endif %}>{{ text.settings_title }}</a>
-  <a href="/settings/sources"{% if request.url.path == "/settings/sources" %} aria-current="page"{% endif %}>{{ text.settings_sources }}</a>
+  <a href="/settings/sources"{% if request.url.path.startswith("/settings/sources") %} aria-current="page"{% endif %}>{{ text.settings_sources }}</a>
 </nav>

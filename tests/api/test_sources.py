@@ -1,5 +1,7 @@
 """Settings · Sources, driven the way a browser drives them."""
 
+import re
+from dataclasses import replace
 from datetime import timedelta
 from http import HTTPStatus
 
@@ -7,12 +9,14 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
+from presentator.api.hooks import hook_address
 from presentator.api.preferences import SETTINGS
-from presentator.api.sources import SOURCES
+from presentator.api.sources import NEW, SOURCES
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
     DeckFolder,
+    SecretLocation,
     Source,
     SourceRun,
     SourceRunFailure,
@@ -42,6 +46,9 @@ _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _FETCH = f"{SOURCES}/{{name}}/fetch"
 _NEVER_AN_AGE = "—"
+_HTTPS_URL = "https://git.example.invalid/talks.git"
+_READ_ONLY = "a-read-only-token"
+_HOOK_SECRET = re.compile(r"data-hook-secret>([^<]+)<")
 
 
 def another_source() -> Source:
@@ -288,6 +295,298 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
 
     reading = lobby.client.get(SOURCES)
     posting = fetch(lobby.client, "decks")
+
+    assert reading.status_code == HTTPStatus.FOUND
+    assert reading.headers["location"] == "/login"
+    assert posting.status_code == HTTPStatus.FOUND
+    assert posting.headers["location"] == "/login"
+
+
+def create_source(
+    client: TestClient,
+    *,
+    name: str = "talks",
+    url: str = _HTTPS_URL,
+    access: str = "https",
+    secret: str = _READ_ONLY,
+) -> Response:
+    return client.post(
+        NEW,
+        data={"name": name, "url": url, "access": access, "secret": secret},
+    )
+
+
+def the_created_page(client: TestClient, created: Response) -> Response:
+    assert created.status_code == HTTPStatus.SEE_OTHER
+    return client.get(created.headers["location"])
+
+
+def test_the_list_and_the_empty_state_offer_add_source() -> None:
+    empty = a_signed_in_lobby().get(SOURCES).text
+    filled = (
+        a_signed_in_lobby(GivenDecks(source=a_configured_source(_ADDRESS)))
+        .get(SOURCES)
+        .text
+    )
+
+    assert f'href="{NEW}">{ENGLISH.sources_add}<' in empty
+    assert f'href="{NEW}">{ENGLISH.sources_add}<' in filled
+
+
+def test_the_access_column_names_how_the_url_is_read() -> None:
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(source=a_configured_source(_ADDRESS)),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.sources_column_access in page
+    assert ENGLISH.source_access_deploy_key in page
+
+
+def test_only_an_admin_reaches_the_add_form(instance: Lobby) -> None:
+    signed_in_as(instance, NEIGHBOUR)
+
+    assert instance.client.get(NEW).status_code == HTTPStatus.FORBIDDEN
+    assert create_source(instance.client).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_only_an_admin_reaches_the_created_page(instance: Lobby) -> None:
+    created = create_source(instance.client)
+    signed_in_as(instance, NEIGHBOUR)
+
+    assert instance.client.get(created.headers["location"]).status_code == (
+        HTTPStatus.FORBIDDEN
+    )
+
+
+def test_a_created_page_for_a_name_this_instance_does_not_have_is_not_found() -> None:
+    assert (
+        a_signed_in_lobby().get(f"{SOURCES}/talks").status_code == HTTPStatus.NOT_FOUND
+    )
+
+
+def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(source=a_configured_source("file:///tmp/decks.git")),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.source_access_token not in page
+    assert ENGLISH.source_access_deploy_key not in page
+
+
+def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
+    page = a_signed_in_lobby().get(NEW).text
+
+    assert ENGLISH.sources_add in page
+    assert ENGLISH.source_name in page
+    assert ENGLISH.source_url in page
+    assert ENGLISH.source_access_https in page
+    assert ENGLISH.source_access_ssh in page
+    assert 'name="access" value="ssh" disabled' in page
+    assert 'name="access" value="https"' in page
+    assert "checked" in page
+    assert ENGLISH.source_check in page
+    assert f">{ENGLISH.source_check}<" in page
+    assert "disabled" in page
+    assert ENGLISH.source_create in page
+    assert 'name="secret"' in page
+    assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+def test_creating_a_source_stores_it_fetches_it_and_shows_address_and_secret() -> None:
+    lobby = a_signed_in_lobby()
+
+    page = the_created_page(lobby, create_source(lobby)).text
+    secret = _HOOK_SECRET.search(page)
+
+    assert secret is not None
+    assert secret.group(1) != _READ_ONLY
+    assert hook_address("talks") in page
+    assert ENGLISH.source_webhook_once in page
+    assert ENGLISH.source_created_toast in page
+    listed = lobby.get(SOURCES).text
+    assert "talks" in listed
+    assert _HTTPS_URL in listed
+    assert ENGLISH.source_state_reachable in listed
+    assert ENGLISH.source_access_token in listed
+
+
+def test_a_second_load_of_the_created_page_shows_the_secret_no_more() -> None:
+    lobby = a_signed_in_lobby()
+    created = create_source(lobby)
+    first = the_created_page(lobby, created)
+    secret = _HOOK_SECRET.search(first.text)
+    assert secret is not None
+
+    second = lobby.get(created.headers["location"]).text
+
+    assert secret.group(1) in first.text
+    assert secret.group(1) not in second
+    assert ENGLISH.source_webhook_once not in second
+    assert hook_address("talks") in second
+
+
+def test_a_call_to_the_shown_address_with_the_shown_secret_answers_204() -> None:
+    lobby = a_signed_in_lobby()
+    page = the_created_page(lobby, create_source(lobby, name="alpha")).text
+    secret = _HOOK_SECRET.search(page)
+    assert secret is not None
+
+    called = lobby.post(
+        hook_address("alpha"),
+        headers={"authorization": f"Bearer {secret.group(1)}"},
+    )
+    gitlab = lobby.post(
+        hook_address("alpha"),
+        headers={"x-gitlab-token": secret.group(1)},
+    )
+
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert gitlab.status_code == HTTPStatus.NO_CONTENT
+
+
+def test_the_seeded_source_keeps_its_environment_credential_when_another_is_added() -> (
+    None
+):
+    seeded = replace(
+        a_configured_source(_ADDRESS),
+        secret_location=SecretLocation.ENVIRONMENT,
+    )
+    lobby = a_signed_in_lobby(GivenDecks(source=seeded))
+
+    the_created_page(lobby, create_source(lobby))
+    listed = lobby.get(SOURCES).text
+
+    assert "decks" in listed
+    assert _ADDRESS in listed
+    assert ENGLISH.source_access_deploy_key in listed
+    assert "talks" in listed
+
+
+@pytest.mark.parametrize(
+    ("fields", "sentence"),
+    [
+        pytest.param(
+            {
+                "name": "Talks",
+                "url": _HTTPS_URL,
+                "access": "https",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_name,
+            id="malformed name",
+        ),
+        pytest.param(
+            {"name": "new", "url": _HTTPS_URL, "access": "https", "secret": _READ_ONLY},
+            ENGLISH.source_refused_name,
+            id="reserved name",
+        ),
+        pytest.param(
+            {
+                "name": "talks",
+                "url": "https://user:token@git.example.invalid/talks.git",
+                "access": "https",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_password,
+            id="password in the URL",
+        ),
+        pytest.param(
+            {
+                "name": "talks",
+                "url": "git@git.example.invalid:talks.git",
+                "access": "https",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_access,
+            id="scheme mismatch",
+        ),
+        pytest.param(
+            {
+                "name": "talks",
+                "url": "http://git.example.invalid/talks.git",
+                "access": "https",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_access,
+            id="http URL",
+        ),
+        pytest.param(
+            {
+                "name": "talks",
+                "url": _HTTPS_URL,
+                "access": "ssh",
+                "secret": _READ_ONLY,
+            },
+            ENGLISH.source_refused_access,
+            id="ssh radio",
+        ),
+        pytest.param(
+            {"name": "talks", "url": _HTTPS_URL, "access": "https", "secret": ""},
+            ENGLISH.source_refused_secret,
+            id="missing secret",
+        ),
+    ],
+)
+def test_a_refused_form_comes_back_without_the_secret(
+    fields: dict[str, str],
+    sentence: str,
+) -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = create_source(lobby, **fields)
+
+    assert refused.status_code == HTTPStatus.OK
+    assert sentence in refused.text
+    assert 'name="secret"' in refused.text
+    secret_input = refused.text.split('name="secret"')[1].split(">")[0]
+    assert "value=" not in secret_input
+    assert _READ_ONLY not in refused.text
+    assert ENGLISH.sources_empty_title in lobby.get(SOURCES).text
+
+
+def test_a_duplicate_name_or_url_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+    the_created_page(lobby, create_source(lobby))
+
+    duplicate_name = create_source(lobby, url="https://git.example.invalid/other.git")
+    duplicate_url = create_source(lobby, name="other")
+
+    assert ENGLISH.source_refused_duplicate_name in duplicate_name.text
+    assert ENGLISH.source_refused_duplicate_url in duplicate_url.text
+    assert _READ_ONLY not in duplicate_name.text
+    assert _READ_ONLY not in duplicate_url.text
+
+
+def test_add_source_from_another_site_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = lobby.post(
+        NEW,
+        data={
+            "name": "talks",
+            "url": _HTTPS_URL,
+            "access": "https",
+            "secret": _READ_ONLY,
+        },
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
+    lobby = a_lobby()
+
+    reading = lobby.client.get(NEW)
+    posting = create_source(lobby.client)
 
     assert reading.status_code == HTTPStatus.FOUND
     assert reading.headers["location"] == "/login"

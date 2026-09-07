@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import uvicorn
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig
 from webauth.liveness import IdleWindowLiveness
@@ -52,7 +52,6 @@ from presentator.adapters.preferences import (
 )
 from presentator.adapters.secrets import secret_box
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
-from presentator.api.hooks import fetch_hook
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import (
@@ -166,7 +165,6 @@ def build_instance(settings: Settings) -> Instance:
                 config=web_auth,
                 secure_cookies=settings.https,
             ),
-            fetch_hook=_armed_hook(settings, decks),
         ),
         poller=SourcePoller(
             refresh=decks.refresh,
@@ -200,18 +198,6 @@ def _web_auth_config(
         login_rate_window_seconds=failure_seconds,
         session_cookie_name=SESSION_COOKIE,
         session_cache=None,
-    )
-
-
-def _armed_hook(settings: Settings, decks: Decks) -> APIRouter | None:
-    """The hook's route once a secret arms it; without one there is no address."""
-    secret = settings.source_hook_secret
-    if secret is None:
-        return None
-    return fetch_hook(
-        decks=decks,
-        source=settings.source_name,
-        secret=secret.get_secret_value(),
     )
 
 

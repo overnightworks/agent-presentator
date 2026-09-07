@@ -1,16 +1,24 @@
 """What the lobby calls a deck, which deck it builds, and what it then shows."""
 
+import hashlib
 import logging
-from dataclasses import dataclass, field
+import string
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 
 import pytest
 
-from presentator.application.decks import Decks
+from presentator.application.decks import (
+    AddedSource,
+    Decks,
+    SourceRefusal,
+    access_kind_of,
+)
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    AccessKind,
     BuildAttempt,
     BuildOutcome,
     Deck,
@@ -19,11 +27,13 @@ from presentator.contracts.decks import (
     DeckState,
     ListedDeck,
     ListedSource,
+    SecretLocation,
     Source,
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
     SourceState,
+    SourceWrite,
 )
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
@@ -851,6 +861,7 @@ def test_a_source_nobody_has_polled_lists_as_never_fetched() -> None:
         ListedSource(
             name=_SOURCE.name,
             url=_SOURCE.url,
+            access=access_kind_of(_SOURCE.url),
             state=SourceState.NEVER_FETCHED,
             age=None,
         ),
@@ -970,3 +981,277 @@ def test_each_sources_run_is_recorded_under_its_own_id() -> None:
     assert second_run is not None
     assert first_run.outcome is SourceRunOutcome.SUCCESS
     assert second_run.outcome is SourceRunOutcome.FAILURE
+
+
+_READ_ONLY = "a-read-only-token"
+_HTTPS_URL = "https://git.example.invalid/talks.git"
+_MINIMUM_WEBHOOK_SECRET_LENGTH = 32
+
+
+def _add(
+    decks: Decks,
+    *,
+    name: str = "talks",
+    url: str = _HTTPS_URL,
+    access: str = "https",
+    secret: str = _READ_ONLY,
+) -> AddedSource | SourceRefusal:
+    return decks.add_source(
+        name=name,
+        url=url,
+        access=access,
+        secret=secret,
+        owner_id=_OWNER,
+    )
+
+
+def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> None:
+    store = having()
+    run_store = FakeSourceRunStore()
+    decks = decks_over(
+        sources=store,
+        fakes=DecksFakes(source_runs=run_store),
+    )
+
+    added = _add(decks)
+
+    assert isinstance(added, AddedSource)
+    assert added.source.name == "talks"
+    assert added.source.url == _HTTPS_URL
+    assert added.source.ref == "main"
+    assert added.source.secret_location is SecretLocation.STORED
+    assert added.source.owner_id == _OWNER
+    assert len(added.webhook_secret) >= _MINIMUM_WEBHOOK_SECRET_LENGTH
+    assert set(added.webhook_secret) <= set(string.ascii_letters + string.digits + "-_")
+    assert added.webhook_secret != _READ_ONLY
+    stored_hash = store.hook_secret_hash("talks")
+    assert stored_hash is not None
+    assert (
+        stored_hash.hex() == hashlib.sha256(added.webhook_secret.encode()).hexdigest()
+    )
+    assert run_store.newest(added.source.id) is not None
+
+
+@pytest.mark.parametrize(
+    ("name", "url", "access", "secret", "reason"),
+    [
+        pytest.param(
+            "Talks",
+            _HTTPS_URL,
+            "https",
+            _READ_ONLY,
+            SourceRefusal.MALFORMED_NAME,
+            id="uppercase",
+        ),
+        pytest.param(
+            "new",
+            _HTTPS_URL,
+            "https",
+            _READ_ONLY,
+            SourceRefusal.MALFORMED_NAME,
+            id="the form's own path",
+        ),
+        pytest.param(
+            "-talks",
+            _HTTPS_URL,
+            "https",
+            _READ_ONLY,
+            SourceRefusal.MALFORMED_NAME,
+            id="leading hyphen",
+        ),
+        pytest.param(
+            "t" * 65,
+            _HTTPS_URL,
+            "https",
+            _READ_ONLY,
+            SourceRefusal.MALFORMED_NAME,
+            id="too long",
+        ),
+        pytest.param(
+            "talks",
+            _HTTPS_URL,
+            "https",
+            "",
+            SourceRefusal.BLANK_ACCESS,
+            id="blank secret",
+        ),
+        pytest.param(
+            "talks",
+            "https://user:token@git.example.invalid/talks.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.USERINFO,
+            id="password in the URL",
+        ),
+        pytest.param(
+            "talks",
+            "git@git.example.invalid:talks.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="ssh URL with https radio",
+        ),
+        pytest.param(
+            "talks",
+            _HTTPS_URL,
+            "ssh",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="ssh radio",
+        ),
+        pytest.param(
+            "talks",
+            "file:///tmp/talks.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="file URL",
+        ),
+        pytest.param(
+            "talks",
+            "http://git.example.invalid/talks.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="http URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\x00evil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="nul in the URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\nevil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="newline in the URL",
+        ),
+        pytest.param(
+            "talks",
+            "https://git.example.invalid/talks.git\tevil",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="tab in the URL",
+        ),
+    ],
+)
+def test_a_draft_that_cannot_be_a_source_is_refused(
+    name: str,
+    url: str,
+    access: str,
+    secret: str,
+    reason: SourceRefusal,
+) -> None:
+    store = having()
+
+    refused = _add(
+        decks_over(sources=store),
+        name=name,
+        url=url,
+        access=access,
+        secret=secret,
+    )
+    assert refused is reason
+    assert store.all() == ()
+
+
+def test_refusing_a_control_character_url_leaves_other_sources_to_poll() -> None:
+    store = having()
+    run_store = FakeSourceRunStore()
+    decks = decks_over(sources=store, fakes=DecksFakes(source_runs=run_store))
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+
+    refused = _add(
+        decks,
+        name="evil",
+        url="https://git.example.invalid/talks.git\x00evil",
+    )
+
+    assert refused is SourceRefusal.ACCESS_MISMATCH
+    assert store.all() == (added.source,)
+
+    decks.refresh()
+
+    run = run_store.newest(added.source.id)
+    assert run is not None
+    assert run.outcome is SourceRunOutcome.SUCCESS
+    assert [source.name for source in decks.listed_sources()] == ["talks"]
+
+
+def test_a_duplicate_name_or_url_is_refused() -> None:
+    first = having()
+    decks = decks_over(sources=first)
+    assert isinstance(_add(decks), AddedSource)
+
+    assert (
+        _add(decks, url="https://git.example.invalid/other.git")
+        is SourceRefusal.DUPLICATE_NAME
+    )
+    assert _add(decks, name="other") is SourceRefusal.DUPLICATE_URL
+
+
+def test_adding_a_source_does_not_rewrite_a_seeded_environment_source() -> None:
+    seeded = replace(
+        a_source("decks", identifier="the-configured-source"),
+        secret_location=SecretLocation.ENVIRONMENT,
+    )
+    store = having(seeded)
+
+    added = _add(decks_over(sources=store))
+
+    assert isinstance(added, AddedSource)
+    kept = next(source for source in store.all() if source.id == seeded.id)
+    assert kept.secret_location is SecretLocation.ENVIRONMENT
+
+
+def test_a_hook_call_with_the_stored_secret_refreshes_that_source() -> None:
+    store = having()
+    run_store = FakeSourceRunStore()
+    decks = decks_over(sources=store, fakes=DecksFakes(source_runs=run_store))
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+
+    assert decks.accept_hook(added.source.name, added.webhook_secret)
+    assert run_store.newest(added.source.id) is not None
+
+
+def test_an_insert_that_lost_the_race_is_a_duplicate_name() -> None:
+    class StoreThatRejectsWrites(FakeSourceStore):
+        def add(self, write: SourceWrite) -> Source | None:
+            del write
+            return None
+
+    assert _add(decks_over(sources=StoreThatRejectsWrites())) is (
+        SourceRefusal.DUPLICATE_NAME
+    )
+
+
+def test_a_hook_call_with_the_wrong_secret_or_name_is_refused() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+
+    assert not decks.accept_hook(added.source.name, "guessed")
+    assert not decks.accept_hook("no-such-source", added.webhook_secret)
+    assert not decks.accept_hook(added.source.name, "")
+
+
+def test_https_and_ssh_urls_name_their_access_kind() -> None:
+    https = "https://git.example.invalid/talks.git"
+    http = "http://git.example.invalid/talks.git"
+    ssh = "ssh://git@git.example.invalid/talks.git"
+    scp = "git@git.example.invalid:talks.git"
+    assert access_kind_of(https) is AccessKind.HTTPS
+    assert access_kind_of(http) is None
+    assert access_kind_of(ssh) is AccessKind.SSH
+    assert access_kind_of(scp) is AccessKind.SSH
+    assert access_kind_of("file:///tmp/talks.git") is None
+    assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None

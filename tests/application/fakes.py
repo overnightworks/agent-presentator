@@ -19,10 +19,12 @@ from presentator.contracts.decks import (
     BuildFailure,
     Deck,
     DeckFolder,
+    SecretLocation,
     Source,
     SourcePoll,
     SourceRun,
     SourceRunFailure,
+    SourceWrite,
 )
 from presentator.contracts.models import (
     Account,
@@ -300,10 +302,34 @@ class FakeSourceStore:
 
     sources: list[Source] = field(default_factory=list[Source])
     seeds: Source | None = None
+    hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    minted: int = 0
 
     def seed(self) -> None:
         if self.seeds is not None and self.seeds not in self.sources:
             self.sources.append(self.seeds)
+
+    def add(self, write: SourceWrite) -> Source | None:
+        if any(
+            source.name == write.name or source.url == write.url
+            for source in self.sources
+        ):
+            return None
+        self.minted += 1
+        stored = Source(
+            id=f"added-{self.minted}",
+            name=write.name,
+            url=write.url,
+            ref=write.ref,
+            secret_location=SecretLocation.STORED,
+            owner_id=write.owner_id,
+        )
+        self.sources.append(stored)
+        self.hashes[write.name] = write.hook_secret_hash
+        return stored
+
+    def hook_secret_hash(self, name: str) -> bytes | None:
+        return self.hashes.get(name)
 
     def all(self) -> tuple[Source, ...]:
         return tuple(self.sources)

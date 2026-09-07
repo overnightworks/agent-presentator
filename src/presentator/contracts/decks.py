@@ -42,6 +42,30 @@ class SecretLocation(StrEnum):
     STORED = "stored"
 
 
+class AccessKind(StrEnum):
+    """How a source is read, derived from its URL's scheme and nothing else.
+
+    HTTPS is a token; SSH and the scp form are a deploy key. The radio on the
+    form has to match this, and a mismatch is refused rather than stored as a
+    third kind.
+    """
+
+    HTTPS = "https-token"
+    SSH = "ssh-deploy-key"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceWrite:
+    """What the store is given to insert: the row, the access value, and the hash."""
+
+    name: str
+    url: str
+    ref: str
+    owner_id: str
+    access_secret: str
+    hook_secret_hash: bytes
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Source:
     """A git repository decks are mirrored from, holding no secret value."""
@@ -236,6 +260,7 @@ class ListedSource:
 
     name: str
     url: str
+    access: AccessKind | None
     state: SourceState
     age: timedelta | None
 

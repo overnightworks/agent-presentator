@@ -40,6 +40,7 @@ from presentator.contracts.decks import (
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
+    SourceWrite,
 )
 from presentator.contracts.models import Account, Role, User
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
@@ -580,6 +581,90 @@ def test_a_sources_table_written_before_this_column_gains_it_and_keeps_its_row(
         a_resolver(database).resolve(CredentialReference(name=seeded.id))
         == _WHAT_THE_GIT_HOST_EXPECTS
     )
+    assert sources.hook_secret_hash(seeded.name) is None
+
+
+_A_WEBHOOK_HASH = b"\x11" * 32
+_HTTPS_URL = "https://git.example.invalid/talks.git"
+_THE_CREDENTIAL_COLUMN = "SELECT credential_reference FROM sources WHERE id = ?"
+_THE_ENCRYPTED_OF = "SELECT encrypted_secret FROM sources WHERE id = ?"
+
+
+def a_write(
+    *,
+    name: str = "talks",
+    url: str = _HTTPS_URL,
+) -> SourceWrite:
+    return SourceWrite(
+        name=name,
+        url=url,
+        ref=MAIN_BRANCH,
+        owner_id=_OWNER.id,
+        access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+        hook_secret_hash=_A_WEBHOOK_HASH,
+    )
+
+
+def test_adding_a_source_stores_the_secret_encrypted_and_the_webhook_hash(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+
+    added = sources.add(a_write())
+
+    assert added is not None
+    assert added.secret_location is SecretLocation.STORED
+    assert sources.hook_secret_hash("talks") == _A_WEBHOOK_HASH
+    with rows(database) as cursor:
+        written = cursor.execute(_THE_ENCRYPTED_OF, (added.id,)).fetchone()[0]
+    assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in written
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=added.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
+
+
+def test_adding_a_source_does_not_rewrite_the_seeded_credential(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database, credential=_CREDENTIAL_VARIABLE)
+    sources.seed()
+    seeded = sources.all()[0]
+
+    added = sources.add(a_write())
+
+    assert added is not None
+    with rows(database) as cursor:
+        credential = cursor.execute(_THE_CREDENTIAL_COLUMN, (seeded.id,)).fetchone()[0]
+        encrypted = cursor.execute(_THE_ENCRYPTED_OF, (seeded.id,)).fetchone()[0]
+    kept = next(source for source in sources.all() if source.id == seeded.id)
+    assert credential == _CREDENTIAL_VARIABLE
+    assert encrypted is None
+    assert kept.secret_location is SecretLocation.ENVIRONMENT
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=seeded.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
+
+
+def test_adding_a_source_with_a_name_or_url_already_stored_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    sources.seed()
+    seeded = sources.all()[0]
+
+    same_name = sources.add(a_write(name=seeded.name))
+    same_url = sources.add(a_write(url=seeded.url))
+
+    assert same_name is None
+    assert same_url is None
+    assert sources.all() == (seeded,)
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(

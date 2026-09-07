@@ -239,3 +239,105 @@ msgstr "or"
 
 msgid "sources_empty_https"
 msgstr "HTTPS token"
+
+msgid "sources_add"
+msgstr "Add source"
+
+msgid "sources_back"
+msgstr "← Sources"
+
+msgid "sources_column_access"
+msgstr "Access"
+
+msgid "source_name"
+msgstr "Name"
+
+msgid "source_url"
+msgstr "Git URL"
+
+msgid "source_access"
+msgstr "Access"
+
+msgid "source_access_ssh"
+msgstr "SSH deploy key"
+
+msgid "source_access_https"
+msgstr "HTTPS token"
+
+msgid "source_access_token"
+msgstr "Token"
+
+msgid "source_access_deploy_key"
+msgstr "Deploy-Key"
+
+msgid "source_secret"
+msgstr "Secret"
+
+msgid "source_secret_info_mark"
+msgstr "i"
+
+msgid "source_secret_info"
+msgstr ""
+"Stored encrypted and never shown again after creation. It only needs read "
+"access — the server never writes back to Git."
+
+msgid "source_webhook_later"
+msgstr ""
+"The webhook address and its secret are created only once you add the source."
+
+msgid "source_check"
+msgstr "Check connection"
+
+msgid "source_create"
+msgstr "Create"
+
+msgid "source_created"
+msgstr "created"
+
+msgid "source_webhook"
+msgstr "Webhook — enter both of these in your GitLab"
+
+msgid "source_webhook_address"
+msgstr "Address"
+
+msgid "source_webhook_secret"
+msgstr "Secret"
+
+msgid "source_webhook_once"
+msgstr "visible only now"
+
+msgid "source_copy"
+msgstr "Copy"
+
+msgid "source_webhook_payload"
+msgstr ""
+"The server doesn't read the host's payload — every valid call just means "
+"“fetch now”."
+
+msgid "source_created_done"
+msgstr "Done"
+
+msgid "source_created_toast"
+msgstr "Source created"
+
+msgid "source_refused_name"
+msgstr ""
+"A name is lowercase letters, digits and hyphens, starts with a letter or "
+"digit, and is at most 64 characters."
+
+msgid "source_refused_duplicate_name"
+msgstr "A source with this name is already here."
+
+msgid "source_refused_duplicate_url"
+msgstr "A source with this Git URL is already here."
+
+msgid "source_refused_password"
+msgstr "Put the secret in the Secret field, not in the URL."
+
+msgid "source_refused_access"
+msgstr ""
+"The access kind has to match the Git URL: HTTPS for https://, SSH for git@ "
+"and ssh://."
+
+msgid "source_refused_secret"
+msgstr "A source needs a secret."

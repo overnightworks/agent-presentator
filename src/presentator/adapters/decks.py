@@ -38,6 +38,7 @@ from presentator.contracts.decks import (
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
+    SourceWrite,
 )
 from presentator.ports.identity import IdentifierFactory, UserStore
 
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS sources (
     ref TEXT NOT NULL,
     credential_reference TEXT,
     encrypted_secret BLOB,
+    hook_secret_hash BLOB,
     owner_id TEXT NOT NULL REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS decks (
@@ -97,6 +99,15 @@ _ENCRYPTED_COLUMN: Final = "encrypted_secret"
 _ADD_ENCRYPTED_TO_SOURCES: Final = (
     f"ALTER TABLE sources ADD COLUMN {_ENCRYPTED_COLUMN} BLOB"
 )
+_HOOK_HASH_COLUMN: Final = "hook_secret_hash"
+_ADD_HOOK_HASH_TO_SOURCES: Final = (
+    f"ALTER TABLE sources ADD COLUMN {_HOOK_HASH_COLUMN} BLOB"
+)
+_ADD_SOURCE: Final = """
+INSERT INTO sources (id, name, url, ref, encrypted_secret, hook_secret_hash, owner_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+_HOOK_HASH_BY_NAME: Final = "SELECT hook_secret_hash FROM sources WHERE name = ?"
 # Every uniqueness the table has, not the URL alone: a configuration naming a
 # new URL under the name another source already answers to is a configuration
 # to correct, never a row to overwrite.
@@ -240,8 +251,10 @@ def create_deck_tables(database: Path) -> None:
 
     A file written before sources were rows keeps its decks and gains the
     column naming theirs, one written before a build kept what it attempted
-    gains those columns, and one written before a source could hold its own
-    secret gains that column, rather than being replaced by an empty file.
+    gains those columns, one written before a source could hold its own
+    secret gains that column, and one written before a source carried a
+    webhook-secret hash gains that column, rather than being replaced by an
+    empty file.
     """
     apply_schema(database, _SCHEMA)
     with rows(database) as cursor:
@@ -257,6 +270,12 @@ def create_deck_tables(database: Path) -> None:
             shape=_SOURCE_COLUMNS,
             column=_ENCRYPTED_COLUMN,
             add=_ADD_ENCRYPTED_TO_SOURCES,
+        )
+        _add_missing(
+            cursor,
+            shape=_SOURCE_COLUMNS,
+            column=_HOOK_HASH_COLUMN,
+            add=_ADD_HOOK_HASH_TO_SOURCES,
         )
 
 
@@ -354,6 +373,48 @@ class SqliteSourceStore:
                 _log.warning(_NAME_ALREADY_TAKEN, asked_for.name)
                 return
             cursor.execute(_ADOPT_ORPHANED_DECKS, (_source(stored).id,))
+
+    def add(self, write: SourceWrite) -> Source | None:
+        """Write a new source with its secrets, leaving every existing row alone.
+
+        A name or URL this table already carries is IntegrityError rather than
+        an overwrite: the seeded source keeps the credential it was written
+        with, and a second source with the same identity is not stored.
+        """
+        identifier = self.identifiers.new_id()
+        try:
+            with rows(self.database) as cursor:
+                cursor.execute(
+                    _ADD_SOURCE,
+                    (
+                        identifier,
+                        write.name,
+                        write.url,
+                        write.ref,
+                        self.box.encrypt(write.access_secret),
+                        write.hook_secret_hash,
+                        write.owner_id,
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            return None
+        return Source(
+            id=identifier,
+            name=write.name,
+            url=write.url,
+            ref=write.ref,
+            secret_location=SecretLocation.STORED,
+            owner_id=write.owner_id,
+        )
+
+    def hook_secret_hash(self, name: str) -> bytes | None:
+        """The stored hash of that source's webhook secret, if this name exists."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(_HOOK_HASH_BY_NAME, (name,)).fetchone()
+        if found is None:
+            return None
+        digest: bytes | None = found[0]
+        return digest
 
     def put_credential(self, source_id: str, secret: str) -> None:
         """Keep that source's read-only secret in its row, encrypted.
