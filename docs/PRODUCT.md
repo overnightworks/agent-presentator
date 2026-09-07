@@ -86,11 +86,17 @@ fills it.
 
 ### Listing decks
 
-One Git source is configured with `PRESENTATOR_SOURCE_URL`, an optional
+A source is a row: an id, a name and a URL that are each unique, the ref it
+follows, and the account that owns it. There is no page to add one yet, so the
+one an instance runs on comes from `PRESENTATOR_SOURCE_URL`, an optional
 `PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
 naming the environment variable that carries a read-only secret — the
-configuration holds the reference, never the value. `gitmirror` keeps a bare
-mirror of that repository under `PRESENTATOR_MIRRORS` by driving `git` as a
+configuration holds the reference, never the value — and is written into that
+table at every start and at the beginning of every refresh, keyed by its URL so
+it is written once. Every deck names the source that carried it, and a refresh
+walks the sources one after another, taking each one in and building its decks
+before it reads the next. `gitmirror` keeps a bare
+mirror of each source's repository under `PRESENTATOR_MIRRORS` by driving `git` as a
 subprocess ([ADR 0010](decisions/0010-git-sources-mirror.md)); nothing is ever
 checked out, and the tree is read at one commit. The pull runs with a minimal
 environment that cannot prompt, and inside
@@ -116,16 +122,22 @@ stands as it was. A folder counts as a deck when it carries both `deck.toml` and
 `title` in the manifest changes no link. A folder the source no longer carries
 leaves the list: the refresh marks its deck as removed instead of deleting
 anything, and a folder pushed again under the same name loses that mark and is
-the deck it was, at the same address and with the same owner. Only a refresh
+the deck it was, at the same address and with the same owner. Only that
+source's decks are reconciled, so what one source stopped carrying says nothing
+about another's. The folder name is one address for the whole instance: a
+folder whose name another source already carries is skipped with a line in the
+log, and the source that carried it first keeps it. Only a refresh
 reconciles, so a page view never does. The most recently changed deck stands
 first, and a deck belongs to the account that owns the source it came from — for
 a configured source, the admin that first start created. While no deck exists,
-the list says so and names the Git address instead of showing an empty table;
+the list says so and names the Git address instead of showing an empty table,
+as long as one source is all there is to name;
 there is no upload, no editing, and no way to add a source in the lobby
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
-Sources and their secrets in the store, the fetch log, and build states are open
-on
+There is no Sources page yet, a source's secret is still the environment
+variable its row names, and removing a source, the fetch log and build states
+are open on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
 ### A deck's page, and the talk behind it

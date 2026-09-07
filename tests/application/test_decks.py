@@ -1,5 +1,6 @@
 """What the lobby calls a deck, which deck it builds, and what it then shows."""
 
+import logging
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 
@@ -28,12 +29,21 @@ from tests.application.fakes import (
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _OWNER = "the account that set the instance up"
-_SOURCE = Source(
-    url="git@example.invalid:decks.git",
-    ref="main",
-    credential_reference=None,
-    owner_id=_OWNER,
-)
+
+
+def a_source(name: str, *, identifier: str) -> Source:
+    return Source(
+        id=identifier,
+        name=name,
+        url=f"git@example.invalid:{name}.git",
+        ref="main",
+        credential_reference=None,
+        owner_id=_OWNER,
+    )
+
+
+_SOURCE = a_source("decks", identifier="the-configured-source")
+_ANOTHER_SOURCE = a_source("talks", identifier="a-second-source")
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
@@ -57,17 +67,27 @@ def a_folder(
     )
 
 
+def carrying(*folders: DeckFolder, source: Source = _SOURCE) -> FakeDeckFolders:
+    """A mirror in which that source carries exactly those folders."""
+    return FakeDeckFolders(carried={source.id: folders})
+
+
+def having(*sources: Source, seeds: Source | None = None) -> FakeSourceStore:
+    """The sources an instance already has, and the one its seed would write."""
+    return FakeSourceStore(sources=list(sources), seeds=seeds)
+
+
 def decks_over(
     *folders: DeckFolder,
-    source: Source | None = _SOURCE,
+    sources: FakeSourceStore | None = None,
     mirror: DeckFolders | None = None,
     store: FakeDeckStore | None = None,
     builder: FakeBuildRunner | None = None,
     clock: FrozenClock | None = None,
 ) -> Decks:
     return Decks(
-        sources=FakeSourceStore(source=source),
-        folders=FakeDeckFolders(found=folders) if mirror is None else mirror,
+        sources=having(_SOURCE) if sources is None else sources,
+        folders=carrying(*folders) if mirror is None else mirror,
         store=FakeDeckStore() if store is None else store,
         builder=FakeBuildRunner() if builder is None else builder,
         clock=FrozenClock(instant=_NOW) if clock is None else clock,
@@ -129,11 +149,11 @@ def test_a_folder_that_is_no_folders_own_name_is_neither_listed_nor_built(
 
 
 def test_the_folder_name_stays_the_address_when_the_title_changes() -> None:
-    mirror = FakeDeckFolders(found=(a_folder("knowledge-fabric", title="Fabric"),))
+    mirror = carrying(a_folder("knowledge-fabric", title="Fabric"))
     decks = decks_over(mirror=mirror)
     first = refreshed(decks)
 
-    mirror.found = (a_folder("knowledge-fabric", title="Fabric v2"),)
+    mirror.carried[_SOURCE.id] = (a_folder("knowledge-fabric", title="Fabric v2"),)
     renamed = refreshed(decks)
 
     assert [deck.slug for deck in first] == ["knowledge-fabric"]
@@ -151,7 +171,7 @@ def test_a_deck_belongs_to_the_owner_of_the_source_it_came_from() -> None:
 
 
 def test_without_a_configured_source_there_is_no_list_and_no_address() -> None:
-    decks = decks_over(a_folder("kundenfeedback"), source=None)
+    decks = decks_over(a_folder("kundenfeedback"), sources=having())
 
     assert refreshed(decks) == ()
     assert decks.source_address() is None
@@ -209,13 +229,11 @@ def test_a_deck_already_built_at_its_commit_is_not_built_again() -> None:
 
 def test_a_push_builds_the_deck_it_changed_and_leaves_the_others_alone() -> None:
     builder = FakeBuildRunner()
-    mirror = FakeDeckFolders(
-        found=(a_folder("kundenfeedback"), a_folder("knowledge-fabric")),
-    )
+    mirror = carrying(a_folder("kundenfeedback"), a_folder("knowledge-fabric"))
     decks = decks_over(mirror=mirror, builder=builder)
     decks.refresh()
 
-    mirror.found = (
+    mirror.carried[_SOURCE.id] = (
         a_folder("kundenfeedback", commit=_A_LATER_COMMIT),
         a_folder("knowledge-fabric"),
     )
@@ -226,7 +244,7 @@ def test_a_push_builds_the_deck_it_changed_and_leaves_the_others_alone() -> None
 
 def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
     builder = FakeBuildRunner()
-    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback"),))
+    mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror, builder=builder)
     decks.refresh()
     standing = decks.built_talk("kundenfeedback")
@@ -234,7 +252,7 @@ def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
     built_when = page_of(decks, "kundenfeedback").built_ago
 
     builder.fails = True
-    mirror.found = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
     decks.refresh()
 
     assert decks.built_talk("kundenfeedback") == standing
@@ -301,19 +319,19 @@ def test_a_deck_page_names_no_source_while_none_is_configured() -> None:
     store = FakeDeckStore()
     decks_over(a_folder("kundenfeedback"), store=store).refresh()
 
-    page = page_of(decks_over(source=None, store=store), "kundenfeedback")
+    page = page_of(decks_over(sources=having(), store=store), "kundenfeedback")
 
     assert page.source is None
     assert page.commit == _SHORT_COMMIT
 
 
 def test_the_list_shows_the_last_refresh_and_reads_no_source() -> None:
-    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback"),))
+    mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror)
 
     before_any_refresh = decks.listed()
     decks.refresh()
-    mirror.found = (a_folder("pushed-after-the-refresh"),)
+    mirror.carried[_SOURCE.id] = (a_folder("pushed-after-the-refresh"),)
 
     assert before_any_refresh == ()
     assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
@@ -344,27 +362,25 @@ def test_a_flood_of_refreshes_takes_the_source_in_once_at_a_time() -> None:
 
 
 def test_a_folder_the_source_no_longer_carries_leaves_the_list() -> None:
-    mirror = FakeDeckFolders(
-        found=(a_folder("alter-vortrag"), a_folder("kundenfeedback")),
-    )
+    mirror = carrying(a_folder("alter-vortrag"), a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror)
     refreshed(decks)
 
-    mirror.found = (a_folder("kundenfeedback"),)
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback"),)
     after_the_delete = refreshed(decks)
 
     assert [deck.slug for deck in after_the_delete] == ["kundenfeedback"]
 
 
 def test_a_folder_pushed_again_is_the_same_deck_with_the_same_owner() -> None:
-    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback", title="Feedback"),))
+    mirror = carrying(a_folder("kundenfeedback", title="Feedback"))
     store = FakeDeckStore()
     decks = decks_over(mirror=mirror, store=store)
     refreshed(decks)
 
-    mirror.found = ()
+    mirror.carried[_SOURCE.id] = ()
     while_it_was_gone = refreshed(decks)
-    mirror.found = (a_folder("kundenfeedback", title="Feedback"),)
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", title="Feedback"),)
     after_it_came_back = refreshed(decks)
 
     assert while_it_was_gone == ()
@@ -373,11 +389,157 @@ def test_a_folder_pushed_again_is_the_same_deck_with_the_same_owner() -> None:
 
 
 def test_a_source_that_cannot_be_read_leaves_every_deck_listed() -> None:
-    mirror = FakeDeckFolders(found=(a_folder("kundenfeedback"),))
+    mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror)
     refreshed(decks)
 
-    mirror.found = None
+    mirror.carried[_SOURCE.id] = None
     while_the_source_was_unreadable = refreshed(decks)
 
     assert [deck.slug for deck in while_the_source_was_unreadable] == ["kundenfeedback"]
+
+
+def test_the_source_the_seed_writes_is_taken_in_by_the_refresh_that_seeded_it() -> None:
+    decks = decks_over(
+        sources=having(seeds=_SOURCE),
+        mirror=carrying(a_folder("kundenfeedback")),
+    )
+
+    listed = refreshed(decks)
+
+    assert [deck.slug for deck in listed] == ["kundenfeedback"]
+
+
+def test_two_sources_each_list_their_own_decks() -> None:
+    store = FakeDeckStore()
+    decks = decks_over(
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=FakeDeckFolders(
+            carried={
+                _SOURCE.id: (a_folder("kundenfeedback"),),
+                _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+            },
+        ),
+        store=store,
+    )
+
+    listed = refreshed(decks)
+
+    assert sorted(deck.slug for deck in listed) == [
+        "knowledge-fabric",
+        "kundenfeedback",
+    ]
+    assert {deck.slug: deck.source_id for deck in store.all()} == {
+        "kundenfeedback": _SOURCE.id,
+        "knowledge-fabric": _ANOTHER_SOURCE.id,
+    }
+
+
+def test_a_folder_deleted_in_one_source_leaves_the_other_sources_decks_listed() -> None:
+    mirror = FakeDeckFolders(
+        carried={
+            _SOURCE.id: (a_folder("kundenfeedback"),),
+            _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+        },
+    )
+    decks = decks_over(sources=having(_SOURCE, _ANOTHER_SOURCE), mirror=mirror)
+    refreshed(decks)
+
+    mirror.carried[_SOURCE.id] = ()
+    after_the_delete = refreshed(decks)
+
+    assert [deck.slug for deck in after_the_delete] == ["knowledge-fabric"]
+
+
+def test_a_folder_name_another_source_carries_stays_with_the_source_that_had_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = FakeDeckStore()
+    decks = decks_over(
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=FakeDeckFolders(
+            carried={
+                _SOURCE.id: (a_folder("kundenfeedback", title="The first"),),
+                _ANOTHER_SOURCE.id: (a_folder("kundenfeedback", title="The second"),),
+            },
+        ),
+        store=store,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        listed = refreshed(decks)
+
+    assert [(deck.slug, deck.title) for deck in listed] == [
+        ("kundenfeedback", "The first"),
+    ]
+    assert [deck.source_id for deck in store.all()] == [_SOURCE.id]
+    assert "kundenfeedback" in caplog.text
+    assert _ANOTHER_SOURCE.name in caplog.text
+
+
+def test_a_deck_is_built_out_of_the_source_that_carried_it() -> None:
+    builder = FakeBuildRunner()
+    decks = decks_over(
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=FakeDeckFolders(
+            carried={
+                _SOURCE.id: (a_folder("kundenfeedback"),),
+                _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+            },
+        ),
+        builder=builder,
+    )
+
+    decks.refresh()
+
+    assert builder.from_source == {
+        "kundenfeedback": _SOURCE.id,
+        "knowledge-fabric": _ANOTHER_SOURCE.id,
+    }
+
+
+def test_a_deck_page_names_the_address_of_the_source_that_carried_it() -> None:
+    decks = decks_over(
+        sources=having(_SOURCE, _ANOTHER_SOURCE),
+        mirror=FakeDeckFolders(
+            carried={
+                _SOURCE.id: (a_folder("kundenfeedback"),),
+                _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+            },
+        ),
+    )
+    decks.refresh()
+
+    assert page_of(decks, "kundenfeedback").source == _SOURCE.url
+    assert page_of(decks, "knowledge-fabric").source == _ANOTHER_SOURCE.url
+
+
+def test_an_empty_list_names_no_address_while_two_sources_could_carry_a_deck() -> None:
+    decks = decks_over(sources=having(_SOURCE, _ANOTHER_SOURCE))
+
+    assert refreshed(decks) == ()
+    assert decks.source_address() is None
+
+
+def test_a_source_that_cannot_be_read_stops_no_other_sources_refresh() -> None:
+    mirror = FakeDeckFolders(
+        carried={
+            _SOURCE.id: (a_folder("kundenfeedback"),),
+            _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+        },
+    )
+    decks = decks_over(sources=having(_SOURCE, _ANOTHER_SOURCE), mirror=mirror)
+    refreshed(decks)
+
+    mirror.carried[_SOURCE.id] = None
+    mirror.carried[_ANOTHER_SOURCE.id] = (
+        a_folder("knowledge-fabric"),
+        a_folder("pushed-while-the-other-was-unreadable"),
+    )
+    while_one_source_was_unreadable = refreshed(decks)
+
+    assert sorted(deck.slug for deck in while_one_source_was_unreadable) == [
+        "knowledge-fabric",
+        "kundenfeedback",
+        "pushed-while-the-other-was-unreadable",
+    ]

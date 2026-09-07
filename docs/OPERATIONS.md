@@ -23,12 +23,15 @@ session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`) and
 `PRESENTATOR_PORT` (`8000`). An empty instance offers `/setup` once, to create
 the admin; from then on that page is closed.
 
-Starting an instance creates the tables it needs. There is no migration path
-yet, so a database file written by an older version of the code is deleted and
-the instance set up again rather than upgraded.
+Starting an instance creates the tables it needs, and changes in place what it
+finds: a file written before a source was a row of its own keeps its decks and
+gains the column naming the source they came from. There is no migration tool
+beyond what a start does itself, so an older shape a start cannot upgrade is
+still a file to delete and set up again.
 
 The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
-(`main`), `PRESENTATOR_SOURCE_NAME` (`decks`, the name in its hook address),
+(`main`), `PRESENTATOR_SOURCE_NAME` (`decks`, its name and the name in its hook
+address),
 `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`) and
 `PRESENTATOR_SOURCE_TIMEOUT_SECONDS` (`20`). Without a URL the
 instance runs and its deck list stays empty. A private remote adds
@@ -43,6 +46,15 @@ export DECKS_TOKEN="…"
 
 The user name belongs in the URL, because only the operator knows which name
 the host expects beside a token.
+
+That configuration is written into the instance's `sources` table: once at
+every start and again at the beginning of every refresh, so an instance whose
+admin is created after it started carries its source too. The URL identifies
+the row, so this writes nothing after the first time. Changing
+`PRESENTATOR_SOURCE_URL` therefore adds a second source rather than replacing
+the first — removing one is not built yet — and a new URL under the name
+another source already answers to is refused with a line in the log, because a
+name is unique. There is no page to add or remove a source at yet.
 
 The server polls the source every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task
 beside the routes, and never twice at once; opening the deck list reads the

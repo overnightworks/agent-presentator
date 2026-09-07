@@ -183,22 +183,29 @@ class FakePersonPreferencesStore:
 
 @dataclass
 class FakeSourceStore:
-    """The one source an installation would have configured."""
+    """The sources an instance has, and the one its configuration seeds."""
 
-    source: Source | None = None
+    sources: list[Source] = field(default_factory=list[Source])
+    seeds: Source | None = None
 
-    def configured(self) -> Source | None:
-        return self.source
+    def seed(self) -> None:
+        if self.seeds is not None and self.seeds not in self.sources:
+            self.sources.append(self.seeds)
+
+    def all(self) -> tuple[Source, ...]:
+        return tuple(self.sources)
 
 
 @dataclass
 class FakeDeckFolders:
-    """The folders a source carries, or nothing when it cannot be read."""
+    """What each source carries, or nothing where one cannot be read."""
 
-    found: tuple[DeckFolder, ...] | None = ()
+    carried: dict[str, tuple[DeckFolder, ...] | None] = field(
+        default_factory=dict[str, tuple[DeckFolder, ...] | None],
+    )
 
     def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
-        return self.found
+        return self.carried.get(source.id, ())
 
 
 @dataclass
@@ -208,12 +215,15 @@ class FakeDeckStore:
     kept: dict[str, Deck] = field(default_factory=dict[str, Deck])
     removed: set[str] = field(default_factory=set[str])
 
-    def put(self, deck: Deck) -> None:
+    def put(self, deck: Deck) -> bool:
         standing = self.kept.get(deck.slug)
+        if standing is not None and standing.source_id != deck.source_id:
+            return False
         self.kept[deck.slug] = replace(
             deck,
             build=None if standing is None else standing.build,
         )
+        return True
 
     def put_build(self, slug: str, build: Build) -> None:
         self.kept[slug] = replace(self.kept[slug], build=build)
@@ -226,8 +236,18 @@ class FakeDeckStore:
             deck for slug, deck in self.kept.items() if slug not in self.removed
         )
 
-    def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
-        self.removed = {slug for slug in self.kept if slug not in present}
+    def mark_removed_except(
+        self,
+        present: frozenset[str],
+        *,
+        source_id: str,
+        at: datetime,
+    ) -> None:
+        reconciled = {
+            slug for slug, deck in self.kept.items() if deck.source_id == source_id
+        }
+        self.removed -= reconciled
+        self.removed |= reconciled - present
 
 
 @dataclass
@@ -279,9 +299,11 @@ class FakeBuildRunner:
     fails: bool = False
     writes_outside_the_root: bool = False
     built: list[str] = field(default_factory=list[str])
+    from_source: dict[str, str] = field(default_factory=dict[str, str])
 
     def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
         self.built.append(deck.slug)
+        self.from_source[deck.slug] = source.id
         if self.fails:
             return None
         root = _SOMEWHERE_ELSE if self.writes_outside_the_root else BUILDS_ROOT

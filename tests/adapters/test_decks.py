@@ -13,9 +13,15 @@ from presentator.adapters.decks import (
     MirroredDeckFolders,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceStore,
     create_deck_tables,
 )
-from presentator.adapters.identity import SqliteUserStore, create_identity_tables
+from presentator.adapters.identity import (
+    SqliteUserStore,
+    TokenIdentifierFactory,
+    create_identity_tables,
+)
+from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
@@ -30,6 +36,12 @@ from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _NOTICED_GONE_AT = datetime(2026, 1, 20, 9, tzinfo=UTC)
 _OWNER = User(id="the-admin", username="felix", role=Role.ADMIN)
+_SOURCE_ID = "the-source-that-carried-it"
+_ANOTHER_SOURCE_ID = "a-second-source"
+_SOURCE_NAME = "decks"
+_ANOTHER_SOURCE_NAME = "talks"
+_ADDRESS = "git@example.invalid:decks.git"
+_ANOTHER_ADDRESS = "git@example.invalid:talks.git"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
@@ -41,6 +53,8 @@ _A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
 def a_source(url: str, *, credential: str | None = None) -> Source:
     return Source(
+        id=_SOURCE_ID,
+        name=_SOURCE_NAME,
         url=url,
         ref=MAIN_BRANCH,
         credential_reference=credential,
@@ -80,12 +94,14 @@ def a_deck(
     *,
     title: str = "Kundenfeedback",
     commit: str = _COMMIT,
+    source_id: str = _SOURCE_ID,
 ) -> Deck:
     return Deck(
         slug=slug,
         title=title,
         changed_at=_PUSHED_AT,
         owner_id=_OWNER.id,
+        source_id=source_id,
         commit=commit,
         build=None,
     )
@@ -105,6 +121,82 @@ def a_deck_store(tmp_path: Path) -> SqliteDeckStore:
     create_identity_tables(database)
     create_deck_tables(database)
     return SqliteDeckStore(database=database)
+
+
+def a_source_store(
+    database: Path,
+    *,
+    url: str | None = _ADDRESS,
+    name: str = _SOURCE_NAME,
+) -> SqliteSourceStore:
+    """The sources table of an instance configured with that address."""
+    return SqliteSourceStore(
+        database=database,
+        configured=ConfiguredSource(
+            name=name,
+            url=url,
+            ref=MAIN_BRANCH,
+            credential_reference=None,
+            accounts=SqliteUserStore(database),
+        ),
+        identifiers=TokenIdentifierFactory(),
+    )
+
+
+# The deck table as this product wrote it before a source was a row of its own,
+# so what an upgrade finds is a file and not a description of one.
+_DECKS_BEFORE_SOURCES = """
+CREATE TABLE decks (
+    slug TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    commit_sha TEXT NOT NULL,
+    active_build TEXT,
+    pdf_export TEXT,
+    built_commit TEXT,
+    built_at TEXT,
+    removed_at TEXT
+);
+"""
+_A_DECK_BEFORE_SOURCES = """
+INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha)
+VALUES (?, ?, ?, ?, ?)
+"""
+
+
+def a_database_written_before_sources(tmp_path: Path) -> Path:
+    """A file this product wrote before sources were rows, carrying one deck."""
+    database = tmp_path / "presentator.sqlite3"
+    create_identity_tables(database)
+    SqliteUserStore(database).add_first_account(
+        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+    )
+    apply_schema(database, _DECKS_BEFORE_SOURCES)
+    kept = a_deck()
+    with rows(database) as cursor:
+        cursor.execute(
+            _A_DECK_BEFORE_SOURCES,
+            (
+                kept.slug,
+                kept.title,
+                kept.changed_at.isoformat(),
+                kept.owner_id,
+                kept.commit,
+            ),
+        )
+    return database
+
+
+def an_instance_that_was_set_up(tmp_path: Path) -> Path:
+    """A database with every table and the admin first start created."""
+    database = tmp_path / "presentator.sqlite3"
+    create_identity_tables(database)
+    create_deck_tables(database)
+    SqliteUserStore(database).add_first_account(
+        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+    )
+    return database
 
 
 def test_a_pushed_deck_folder_is_read_with_its_title_and_its_change_time(
@@ -259,12 +351,14 @@ def test_a_deck_whose_folder_vanished_is_gone_from_the_list_until_it_returns(
 
     store.mark_removed_except(
         present=frozenset({"knowledge-fabric"}),
+        source_id=_SOURCE_ID,
         at=_NOTICED_GONE_AT,
     )
     while_it_was_gone = store.all()
     store.put(a_deck("kundenfeedback", title="Kundenfeedback Q4"))
     store.mark_removed_except(
         present=frozenset({"knowledge-fabric", "kundenfeedback"}),
+        source_id=_SOURCE_ID,
         at=_NOTICED_GONE_AT,
     )
 
@@ -279,7 +373,11 @@ def test_a_removed_decks_own_page_is_unreachable_by_slug(tmp_path: Path) -> None
     store = a_deck_store(tmp_path)
     store.put(a_deck("kundenfeedback"))
 
-    store.mark_removed_except(present=frozenset(), at=_NOTICED_GONE_AT)
+    store.mark_removed_except(
+        present=frozenset(),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
 
     assert store.get("kundenfeedback") is None
 
@@ -292,7 +390,11 @@ def test_a_slug_carrying_an_apostrophe_and_a_non_ascii_letter_survives_reconcili
     store.put(a_deck(kept_slug))
     store.put(a_deck("gone"))
 
-    store.mark_removed_except(present=frozenset({kept_slug}), at=_NOTICED_GONE_AT)
+    store.mark_removed_except(
+        present=frozenset({kept_slug}),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
 
     assert store.get(kept_slug) == a_deck(kept_slug)
     assert store.get("gone") is None
@@ -329,37 +431,137 @@ def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     assert kept.build == built
 
 
-def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(
+def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
-    accounts = SqliteUserStore(database)
-    configured = ConfiguredSource(
-        url="git@example.invalid:decks.git",
-        ref=MAIN_BRANCH,
-        credential_reference=None,
-        accounts=accounts,
+    create_deck_tables(database)
+    sources = a_source_store(database)
+
+    sources.seed()
+    before_first_start = sources.all()
+    SqliteUserStore(database).add_first_account(
+        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+    )
+    sources.seed()
+    sources.seed()
+
+    assert before_first_start == ()
+    seeded = sources.all()
+    assert [(source.name, source.url, source.ref) for source in seeded] == [
+        (_SOURCE_NAME, _ADDRESS, MAIN_BRANCH),
+    ]
+    assert seeded[0].owner_id == _OWNER.id
+    assert seeded[0].credential_reference is None
+
+
+def test_a_second_configured_address_is_a_second_source(tmp_path: Path) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    a_source_store(database).seed()
+
+    a_source_store(
+        database,
+        url=_ANOTHER_ADDRESS,
+        name=_ANOTHER_SOURCE_NAME,
+    ).seed()
+
+    assert {source.url for source in a_source_store(database).all()} == {
+        _ADDRESS,
+        _ANOTHER_ADDRESS,
+    }
+
+
+def test_an_address_under_a_name_another_source_answers_to_is_not_stored(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    a_source_store(database).seed()
+
+    with caplog.at_level(logging.WARNING):
+        a_source_store(database, url=_ANOTHER_ADDRESS).seed()
+
+    assert [source.url for source in a_source_store(database).all()] == [_ADDRESS]
+    assert _SOURCE_NAME in caplog.text
+    assert _ANOTHER_ADDRESS not in caplog.text
+
+
+def test_an_instance_without_a_configured_url_stores_no_source(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+
+    a_source_store(database, url=None).seed()
+
+    assert a_source_store(database).all() == ()
+
+
+def test_a_database_written_before_sources_keeps_its_decks_and_names_the_seeded_one(
+    tmp_path: Path,
+) -> None:
+    database = a_database_written_before_sources(tmp_path)
+
+    create_deck_tables(database)
+    sources = a_source_store(database)
+    sources.seed()
+
+    seeded = sources.all()
+    assert [source.url for source in seeded] == [_ADDRESS]
+    assert SqliteDeckStore(database=database).all() == (a_deck(source_id=seeded[0].id),)
+
+
+def test_a_folder_name_another_source_carries_is_not_taken_over(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="The first"))
+
+    taken_over = store.put(
+        a_deck(title="The second", source_id=_ANOTHER_SOURCE_ID),
     )
 
-    before_first_start = configured.configured()
-    accounts.add_first_account(Credentials(user=_OWNER, password_hash=_A_STORED_HASH))
-
-    assert before_first_start is None
-    assert configured.configured() == a_source("git@example.invalid:decks.git")
+    assert taken_over is False
+    assert store.all() == (a_deck(title="The first"),)
 
 
-def test_an_instance_without_a_configured_url_has_no_source(tmp_path: Path) -> None:
-    database = tmp_path / "presentator.sqlite3"
-    create_identity_tables(database)
-    accounts = SqliteUserStore(database)
-    accounts.add_first_account(Credentials(user=_OWNER, password_hash=_A_STORED_HASH))
-
-    unconfigured = ConfiguredSource(
-        url=None,
-        ref=MAIN_BRANCH,
-        credential_reference=None,
-        accounts=accounts,
+def test_a_removed_slug_stays_with_its_source_and_is_the_deck_it_was(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="The first"))
+    store.mark_removed_except(
+        present=frozenset(),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
     )
 
-    assert unconfigured.configured() is None
+    taken_over = store.put(a_deck(title="The second", source_id=_ANOTHER_SOURCE_ID))
+    while_it_was_gone = store.all()
+
+    store.put(a_deck(title="The first"))
+    store.mark_removed_except(
+        present=frozenset({"kundenfeedback"}),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
+
+    assert taken_over is False
+    assert while_it_was_gone == ()
+    assert store.all() == (a_deck(title="The first"),)
+
+
+def test_one_sources_reconciliation_leaves_another_sources_decks_alone(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck("kundenfeedback"))
+    store.put(a_deck("knowledge-fabric", source_id=_ANOTHER_SOURCE_ID))
+
+    store.mark_removed_except(
+        present=frozenset(),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
+
+    assert store.all() == (a_deck("knowledge-fabric", source_id=_ANOTHER_SOURCE_ID),)
