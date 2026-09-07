@@ -1,8 +1,0 @@
-claim_id = "02f46eddadf24985b52e3732639bda86"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "ca09c0e68628990c1233eaa73f70a0817908fc5d"
-branch = "claude/issue-54-secret-at-rest"
-scope = ["src/presentator", "tests", "pyproject.toml", "uv.lock", "docs"]
-opened_commit = "3fc946b5c15d4e2c06b0e393579cab11d9ad4406"
-whole_reason = "The dependency, its owner module, its column and its composition arrive together or not at all."
