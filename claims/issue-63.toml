@@ -1,0 +1,8 @@
+claim_id = "01a01eec65c847f2a3075efd66a8e007"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "25913950980f2453c8f3099f2bb2b9acc03ad3c8"
+branch = "claude/issue-63-instance-runs"
+scope = ["Dockerfile", "compose.yaml", "docs", ".github", "scripts"]
+opened_commit = "6385760edfd5b378e723f01db7ba32eeeff7b382"
+whole_reason = "An image nobody can start and a compose file with no image are each half of one instance."
