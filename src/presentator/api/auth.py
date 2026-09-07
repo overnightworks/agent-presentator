@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
-from webauth.proxies import client_user_agent, resolve_client_ip
+from webauth.proxies import client_user_agent, request_is_https, resolve_client_ip
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
@@ -87,7 +87,8 @@ def _is_a_stylesheet(path: str) -> bool:
 def _comes_from_elsewhere(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is not None:
-        return origin != f"{request.url.scheme}://{request.url.netloc}"
+        scheme = "https" if request_is_https(request) else "http"
+        return origin != f"{scheme}://{request.url.netloc}"
     fetch_site = request.headers.get("sec-fetch-site")
     return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
 

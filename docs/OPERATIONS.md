@@ -33,8 +33,11 @@ is correct for a direct run. Behind the tunnel of
 [ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
 connects from localhost, so that peer is `127.0.0.1` and every login through
 the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
-(`127.0.0.1`) so the library reads `X-Forwarded-For` and the budget keys on
-the browser's address.
+(`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`.
+Without it no form is accepted at all: the browser sends `Origin: https://…`
+while the app sees the tunnel connection as http, so the origins never match.
+The list is required for the product to work behind the tunnel, not only for
+a sharper budget.
 
 Starting an instance creates the tables it needs, and changes in place what it
 finds: a file written before a source was a row of its own keeps its decks and

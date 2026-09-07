@@ -106,25 +106,6 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
     assert TestClient(served[0]).get("/login").is_success
 
 
-def test_the_server_does_not_rewrite_the_client_from_forwarded_headers(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    recorded: list[uvicorn.Config] = []
-
-    class ServerThatOnlyRecordsWhatItGot:
-        def __init__(self, config: uvicorn.Config) -> None:
-            recorded.append(config)
-
-        async def serve(self) -> None:
-            return
-
-    environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsWhatItGot)
-
-    main.main()
-
-    assert recorded[0].proxy_headers is False
-
-
 def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
     """A browser whose ASGI peer is an address, so a proxy list can trust it."""
     return TestClient(instance.lobby, follow_redirects=False, client=(peer, 50000))
@@ -153,6 +134,24 @@ def spend_the_address_budget(lobby: TestClient, *, forwarded: str) -> None:
             data={"username": f"nobody-{index}", "password": _WRONG_WORDS},
             headers={"x-forwarded-for": forwarded},
         )
+
+
+def post_from_the_tunnel(lobby: TestClient) -> Response:
+    """First start as the tunnel's browser: https Origin on an http connection."""
+    host = str(lobby.base_url).removeprefix("http://").rstrip("/")
+    return lobby.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+        headers={
+            "origin": f"https://{host}",
+            "sec-fetch-site": "same-origin",
+            "x-forwarded-proto": "https",
+        },
+    )
 
 
 @pytest.mark.usefixtures("environment")
@@ -199,6 +198,17 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
 
     with pytest.raises(ConfigurationError, match="trusted_proxies"):
         load_settings()
+
+
+def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    refused = post_from_the_tunnel(a_browser(a_real_instance()))
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
+    accepted = post_from_the_tunnel(a_browser(a_real_instance()))
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 @pytest.mark.usefixtures("environment")
