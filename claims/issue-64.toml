@@ -1,0 +1,8 @@
+claim_id = "7b3f7b345ed9439da0acdcb8e0e3454c"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "fc3c965351e525ff820ff82457bf566b0b975a09"
+branch = "claude/issue-64-sources-list"
+scope = ["src/presentator", "tests"]
+opened_commit = "405c1638424c482a6f56391ad348d0000521777e"
+whole_reason = "A new page owns its route, its words and its read model at once."
