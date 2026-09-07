@@ -26,6 +26,11 @@ LobbyText.setup_password
 LobbyText.setup_repeat_password
 LobbyText.decks_title
 LobbyText.decks_column_deck
+LobbyText.deck_back
+LobbyText.deck_status
+LobbyText.deck_presenter_view
+LobbyText.deck_projector_view
+LobbyText.deck_unknown_explanation
 LobbyText.settings_title
 LobbyText.settings_instance_name
 LobbyText.settings_default_language

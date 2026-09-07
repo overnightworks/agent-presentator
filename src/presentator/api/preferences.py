@@ -143,9 +143,9 @@ class _Surfaces:
         )
 
 
-def preference_routes(*, pages: Pages, preferences: Preferences) -> APIRouter:
+def preference_routes(*, pages: Pages) -> APIRouter:
     """The Settings and Account addresses, for the lobby factory to include."""
-    surfaces = _Surfaces(pages=pages, preferences=preferences)
+    surfaces = _Surfaces(pages=pages, preferences=pages.preferences)
     router = APIRouter()
     router.add_api_route(SETTINGS, surfaces.settings_page, methods=["GET"])
     router.add_api_route(SETTINGS, surfaces.save_settings, methods=["POST"])

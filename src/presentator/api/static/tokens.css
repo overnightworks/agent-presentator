@@ -286,3 +286,94 @@ td code {
 main code {
   overflow-wrap: anywhere;
 }
+
+/* The picture writes a deck's facts as one row of separate things — folder,
+ * state, where the delivered talk came from — with air between them, not as a
+ * sentence. On a phone that row wraps instead of running out of the page.
+ */
+[data-meta] {
+  align-items: baseline;
+  color: var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+/* In that row a folder name and a git address are addresses to recognise, like
+ * the folder under a list row, so they stay plain monospace. The commit stands
+ * as `samp`, git's own output, and keeps the chip Pico draws around it.
+ */
+[data-meta] code {
+  background: none;
+  color: var(--ink-soft);
+  padding: 0;
+}
+
+[data-meta] small {
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The picture marks the state with a filled dot before its word. The word is
+ * what says which state it is; the dot and its colour only make it findable.
+ */
+[data-state]::before {
+  background: currentColor;
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 0.5em;
+  margin-right: 0.4em;
+  width: 0.5em;
+}
+
+[data-state="ready"] {
+  color: var(--ok);
+}
+
+[data-state="not-built"] {
+  color: var(--ink-faint);
+}
+
+/* The picture draws the two ways into a deck as buttons, but they navigate, so
+ * they stay anchors: `role="button"` would have a link claim to be a button and
+ * owe the keyboard handling of one. Pico shapes an anchor only under that role,
+ * so the shape is written here, against Pico's own measurements and this
+ * theme's colours. Each rule repeats under the link states, because Pico
+ * styles `a:hover` at a specificity a single attribute would lose to.
+ */
+[data-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+[data-action],
+[data-action]:is(:hover, :active, :focus) {
+  background-color: var(--accent);
+  border: var(--pico-border-width) solid var(--accent);
+  border-radius: var(--pico-border-radius);
+  color: var(--on-accent);
+  padding: var(--pico-form-element-spacing-vertical)
+    var(--pico-form-element-spacing-horizontal);
+  text-decoration: none;
+}
+
+/* The picture fills one way in — the presenter view, what the speaker opens —
+ * and outlines the other, so the two do not compete for the eye.
+ */
+[data-action][data-quiet],
+[data-action][data-quiet]:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* A link drawn without an underline still has to say where the keyboard
+ * stands.
+ */
+[data-action]:focus-visible {
+  outline: var(--pico-outline-width) solid var(--accent);
+  outline-offset: 0.125rem;
+}

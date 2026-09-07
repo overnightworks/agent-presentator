@@ -1,4 +1,8 @@
-"""The lobby a route test drives: the real routes over fakes at every port."""
+"""The lobby a route test drives: the real routes over fakes at every port.
+
+Every route test arranges the same instance, so the wiring the host does
+stands here once, with the doubles and the accounts a test hands in.
+"""
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,6 +17,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.api.auth import create_lobby
+from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.preferences import Preferences
@@ -39,6 +44,7 @@ CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
 NEIGHBOUR: Final = "anna"
+ADMIN: Final = "the-admin"
 TYPED_WORDS: Final = "the words only this test types"
 
 
@@ -98,13 +104,29 @@ def a_user_store(*people: Credentials) -> FakeUserStore:
     )
 
 
+def a_configured_source(url: str) -> Source:
+    """The one source an installation carries, owned by its admin."""
+    return Source(url=url, ref="main", credential_reference=None, owner_id=ADMIN)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GivenDecks:
+    """What the deck side of an instance carries before a test drives it."""
+
+    folders: tuple[DeckFolder, ...] = ()
+    source: Source | None = None
+    store: FakeDeckStore | None = None
+
+
+NO_DECKS: Final = GivenDecks()
+
+
 def a_lobby(
     *,
     secure_cookies: bool = False,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
-    folders: tuple[DeckFolder, ...] = (),
-    source: Source | None = None,
+    given: GivenDecks = NO_DECKS,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
     clock = FrozenClock(instant=NOW)
@@ -117,21 +139,34 @@ def a_lobby(
         identifiers=CountingIdentifierFactory(),
         cookies=MarkingCookieSigner(),
     )
-    preferences = Preferences(
-        instance=FakeInstanceSettingsStore(),
-        people=FakePersonPreferencesStore(),
-        catalogs=catalogs,
+    decks = Decks(
+        sources=FakeSourceStore(source=given.source),
+        folders=FakeDeckFolders(found=given.folders),
+        store=FakeDeckStore() if given.store is None else given.store,
+        clock=clock,
     )
+    # The list and the deck page read the store only; a test arranges what a
+    # poll or the hook would already have taken in before anyone opened a page.
+    decks.refresh()
     lobby = create_lobby(
         identity=identity,
-        decks=Decks(
-            sources=FakeSourceStore(source=source),
-            folders=FakeDeckFolders(found=folders),
-            store=FakeDeckStore(),
-            clock=clock,
+        decks=decks,
+        pages=Pages(
+            preferences=Preferences(
+                instance=FakeInstanceSettingsStore(),
+                people=FakePersonPreferencesStore(),
+                catalogs=catalogs,
+            ),
+            age_in_words=age_in_words,
         ),
-        preferences=preferences,
-        age_in_words=age_in_words,
         secure_cookies=secure_cookies,
+        fetch_hook=None,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
+
+
+def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:
+    """The same lobby with its first admin created and their session open."""
+    lobby = a_lobby(given=given)
+    lobby.set_up_admin()
+    return lobby.client

@@ -2,15 +2,23 @@
 
 from datetime import timedelta
 from http import HTTPStatus
+from typing import Final
 
 import pytest
 from fastapi.testclient import TestClient
 
-from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
-from tests.api.lobby import ENGLISH, NOW, a_lobby
+from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder
+from tests.api.lobby import (
+    ENGLISH,
+    NOW,
+    GivenDecks,
+    a_configured_source,
+    a_signed_in_lobby,
+)
 
-_ADDRESS = "git@heimserver:decks.git"
-_A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
+_ADDRESS: Final = "git@heimserver:decks.git"
+_A_DECK: Final = frozenset({MANIFEST_FILE, SLIDES_FILE})
+_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 
 
 def a_folder(name: str, *, title: str, changed_ago: timedelta) -> DeckFolder:
@@ -19,16 +27,8 @@ def a_folder(name: str, *, title: str, changed_ago: timedelta) -> DeckFolder:
         file_names=_A_DECK,
         title=title,
         changed_at=NOW - changed_ago,
+        commit=_COMMIT,
     )
-
-
-def a_signed_in_lobby(
-    *folders: DeckFolder,
-    source: Source | None = None,
-) -> TestClient:
-    lobby = a_lobby(folders=folders, source=source)
-    lobby.set_up_admin()
-    return lobby.client
 
 
 def the_page_itself(page: str) -> str:
@@ -36,18 +36,9 @@ def the_page_itself(page: str) -> str:
     return page[page.index("<main") :]
 
 
-def a_configured_source() -> Source:
-    return Source(
-        url=_ADDRESS,
-        ref="main",
-        credential_reference=None,
-        owner_id="the-admin",
-    )
-
-
 @pytest.fixture
 def empty_lobby() -> TestClient:
-    return a_signed_in_lobby(source=a_configured_source())
+    return a_signed_in_lobby(GivenDecks(source=a_configured_source(_ADDRESS)))
 
 
 def test_a_source_without_a_deck_names_the_git_address_instead_of_a_table(
@@ -73,12 +64,16 @@ def test_an_empty_list_offers_no_way_to_add_a_deck_or_a_source(
 
 def test_a_pushed_deck_is_listed_with_its_title_its_folder_and_its_age() -> None:
     lobby = a_signed_in_lobby(
-        a_folder(
-            "kundenfeedback",
-            title="Kundenfeedback Q3",
-            changed_ago=timedelta(minutes=2),
+        GivenDecks(
+            folders=(
+                a_folder(
+                    "kundenfeedback",
+                    title="Kundenfeedback Q3",
+                    changed_ago=timedelta(minutes=2),
+                ),
+            ),
+            source=a_configured_source(_ADDRESS),
         ),
-        source=a_configured_source(),
     )
 
     listed = lobby.get("/").text
@@ -91,9 +86,13 @@ def test_a_pushed_deck_is_listed_with_its_title_its_folder_and_its_age() -> None
 
 def test_the_most_recently_changed_deck_stands_at_the_top_of_the_list() -> None:
     lobby = a_signed_in_lobby(
-        a_folder("older", title="Older talk", changed_ago=timedelta(days=6)),
-        a_folder("newer", title="Newer talk", changed_ago=timedelta(minutes=2)),
-        source=a_configured_source(),
+        GivenDecks(
+            folders=(
+                a_folder("older", title="Older talk", changed_ago=timedelta(days=6)),
+                a_folder("newer", title="Newer talk", changed_ago=timedelta(minutes=2)),
+            ),
+            source=a_configured_source(_ADDRESS),
+        ),
     )
 
     listed = lobby.get("/").text

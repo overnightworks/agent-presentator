@@ -5,8 +5,10 @@ choice (ADR 0012) rather than a property of the instance the routes were built
 with.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import timedelta
+from http import HTTPStatus
 from pathlib import Path
 from typing import Final
 
@@ -49,16 +51,29 @@ def theme_choices(text: LobbyText) -> tuple[tuple[str, str], ...]:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Pages:
-    """Renders every lobby page in the words and the look its reader chose."""
+    """Renders every lobby page in the words and the look its reader chose.
+
+    How an age reads belongs here too: it is the one value a page shows that
+    Python words rather than the catalog, and it is worded in the language the
+    same reader was resolved into.
+    """
 
     preferences: Preferences
+    age_in_words: Callable[[timedelta, str], str]
 
     def appearance(self, request: Request) -> Appearance:
         """The words and the look the person behind this request reads in."""
         person = signed_in_person(request)
         return self.preferences.appearance_for(None if person is None else person.id)
 
-    def page(self, request: Request, name: str, **content: object) -> Response:
+    def page(
+        self,
+        request: Request,
+        name: str,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+        **content: object,
+    ) -> Response:
         """Render a page, with the header a signed-in person sees on every one."""
         appearance = self.appearance(request)
         return _TEMPLATES.TemplateResponse(
@@ -74,6 +89,7 @@ class Pages:
                 ),
                 **content,
             },
+            status_code=status,
         )
 
 

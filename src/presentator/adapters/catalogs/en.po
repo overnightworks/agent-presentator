@@ -42,9 +42,6 @@ msgstr "User"
 msgid "log_out"
 msgstr "Log out"
 
-msgid "section_decks"
-msgstr "Decks"
-
 msgid "login_title"
 msgstr "Login"
 
@@ -102,6 +99,34 @@ msgid "decks_empty_explanation"
 msgstr ""
 "Decks come only from Git. Push a folder holding deck.toml and slides.md into "
 "your deck source."
+
+msgid "deck_back"
+msgstr "← Decks"
+
+msgid "deck_status"
+msgstr "Status"
+
+msgid "deck_state_ready"
+msgstr "ready"
+
+msgid "deck_state_not_built"
+msgstr "not built"
+
+msgid "deck_not_built_explanation"
+msgstr ""
+"No talk has been built from this deck yet, so there is no view to open."
+
+msgid "deck_presenter_view"
+msgstr "Presenter view"
+
+msgid "deck_projector_view"
+msgstr "Projector view"
+
+msgid "deck_unknown_title"
+msgstr "No such deck"
+
+msgid "deck_unknown_explanation"
+msgstr "No deck stands under this address."
 
 msgid "settings_title"
 msgstr "General"

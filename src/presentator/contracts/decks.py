@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Final
 
 MANIFEST_FILE: Final = "deck.toml"
@@ -26,6 +27,7 @@ class DeckFolder:
     file_names: frozenset[str]
     title: str | None
     changed_at: datetime
+    commit: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,6 +38,8 @@ class Deck:
     title: str
     changed_at: datetime
     owner_id: str
+    commit: str
+    active_build: Path | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -45,3 +49,14 @@ class ListedDeck:
     slug: str
     title: str
     age: timedelta
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeckPage:
+    """What a deck's own page says about it before anyone speaks."""
+
+    slug: str
+    title: str
+    source: str | None
+    commit: str
+    built: bool
