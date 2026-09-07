@@ -14,6 +14,7 @@ from tests.api.lobby import (
     ADMIN,
     ENGLISH,
     NOW,
+    SOURCE_ID,
     GivenDecks,
     a_configured_source,
     a_lobby,
@@ -58,6 +59,7 @@ def a_deck_store(
             title=_TITLE,
             changed_at=NOW,
             owner_id=owner,
+            source_id=SOURCE_ID,
             commit=_COMMIT,
             build=None,
         ),
@@ -339,10 +341,10 @@ def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None
         GivenDecks(store=store, source=a_configured_source(_ADDRESS)),
     )
 
-    store.mark_removed_except(present=frozenset(), at=NOW)
+    store.mark_removed_except(present=frozenset(), source_id=SOURCE_ID, at=NOW)
     removed = signed_in.get(_PAGE)
 
-    store.mark_removed_except(present=frozenset({_SLUG}), at=NOW)
+    store.mark_removed_except(present=frozenset({_SLUG}), source_id=SOURCE_ID, at=NOW)
     returned = signed_in.get(_PAGE)
 
     assert removed.status_code == HTTPStatus.NOT_FOUND

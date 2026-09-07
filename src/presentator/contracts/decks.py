@@ -23,6 +23,8 @@ def talk_address(slug: str) -> str:
 class Source:
     """A git repository decks are mirrored from, holding no secret value."""
 
+    id: str
+    name: str
     url: str
     ref: str
     credential_reference: str | None
@@ -71,6 +73,7 @@ class Deck:
     title: str
     changed_at: datetime
     owner_id: str
+    source_id: str
     commit: str
     build: Build | None
 

@@ -24,6 +24,7 @@ _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _OWNER = "the-admin"
+_SOURCE_ID = "the-source-that-carried-it"
 _A_SERVER_SECRET = "PRESENTATOR_" + "A_VALUE_ONLY_THIS_TEST_SET"
 _WHAT_THE_SERVER_HOLDS = "the words only this test set in the environment"
 # What the toolchain stand-in writes down, so a test can read the command line
@@ -79,6 +80,8 @@ def source(remote: GitRemote) -> Source:
     """The one source, carrying the example deck at its newest commit."""
     remote.commit_example_deck(at=_PUSHED_AT)
     return Source(
+        id=_SOURCE_ID,
+        name="decks",
         url=remote.url,
         ref=MAIN_BRANCH,
         credential_reference=None,
@@ -92,6 +95,7 @@ def a_deck(remote: GitRemote, *, slug: str = EXAMPLE_SLUG) -> Deck:
         title="Hello Co-Presenter",
         changed_at=_PUSHED_AT,
         owner_id=_OWNER,
+        source_id=_SOURCE_ID,
         commit=remote.head,
         build=None,
     )

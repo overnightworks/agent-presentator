@@ -46,6 +46,7 @@ ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
 NEIGHBOUR: Final = "anna"
 ADMIN: Final = "the-admin"
+SOURCE_ID: Final = "the-source-the-instance-carries"
 TYPED_WORDS: Final = "the words only this test types"
 
 
@@ -107,7 +108,14 @@ def a_user_store(*people: Credentials) -> FakeUserStore:
 
 def a_configured_source(url: str) -> Source:
     """The one source an installation carries, owned by its admin."""
-    return Source(url=url, ref="main", credential_reference=None, owner_id=ADMIN)
+    return Source(
+        id=SOURCE_ID,
+        name="decks",
+        url=url,
+        ref="main",
+        credential_reference=None,
+        owner_id=ADMIN,
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -141,8 +149,12 @@ def a_lobby(
         cookies=MarkingCookieSigner(),
     )
     decks = Decks(
-        sources=FakeSourceStore(source=given.source),
-        folders=FakeDeckFolders(found=given.folders),
+        sources=FakeSourceStore(
+            sources=[] if given.source is None else [given.source],
+        ),
+        folders=FakeDeckFolders(
+            carried={} if given.source is None else {given.source.id: given.folders},
+        ),
         store=FakeDeckStore() if given.store is None else given.store,
         # Nothing builds at this layer: a test arranges the build its deck
         # delivers from, the way it arranges the row.

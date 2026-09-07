@@ -12,11 +12,20 @@ from presentator.contracts.decks import Artefacts, Build, Deck, DeckFolder, Sour
 
 
 class SourceStore(Protocol):
-    """Where decks are mirrored from; configuration until Settings owns it."""
+    """The sources decks are mirrored from, one row each."""
 
     @abstractmethod
-    def configured(self) -> Source | None:
-        """The source this installation reads, or nothing while none is set."""
+    def seed(self) -> None:
+        """Make the source the configuration names a row of its own, once.
+
+        There is no surface to add a source at yet, so the row an installation
+        already runs on is written from what it is configured with; writing it
+        again writes nothing.
+        """
+
+    @abstractmethod
+    def all(self) -> tuple[Source, ...]:
+        """Every source this instance mirrors, in no promised order."""
 
 
 class DeckFolders(Protocol):
@@ -36,11 +45,15 @@ class DeckStore(Protocol):
     """The decks this instance knows about, keyed by their folder name."""
 
     @abstractmethod
-    def put(self, deck: Deck) -> None:
+    def put(self, deck: Deck) -> bool:
         """Write what a source carries under this slug, keeping its built talk.
 
         Taking a deck in must not unpresent it and must not take away its
         downloadable PDF, so what a build wrote moves only by putting a build.
+
+        A folder name is one address for the whole instance, so a name another
+        source already carries is refused rather than taken over: the answer
+        says whether the slug was this deck's source's to write.
         """
 
     @abstractmethod
@@ -61,11 +74,18 @@ class DeckStore(Protocol):
         """Every deck whose folder is still there, in no promised order."""
 
     @abstractmethod
-    def mark_removed_except(self, present: frozenset[str], *, at: datetime) -> None:
-        """Mark the decks outside `present` removed, and clear the mark inside it.
+    def mark_removed_except(
+        self,
+        present: frozenset[str],
+        *,
+        source_id: str,
+        at: datetime,
+    ) -> None:
+        """Mark that source's decks outside `present` removed, clear it inside.
 
         A mark is not a delete: the row keeps its identity and its owner, so a
-        folder pushed again is the deck it was.
+        folder pushed again is the deck it was. One source's folders say
+        nothing about another's, so only the named source's decks are read.
         """
 
 

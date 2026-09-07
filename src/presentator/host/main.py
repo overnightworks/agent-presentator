@@ -23,6 +23,7 @@ from presentator.adapters.decks import (
     MirroredDeckFolders,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceStore,
     create_deck_tables,
 )
 from presentator.adapters.identity import (
@@ -63,29 +64,42 @@ def build_instance(settings: Settings) -> Instance:
     create_identity_tables(settings.database)
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
+    accounts = SqliteUserStore(settings.database)
+    identifiers = TokenIdentifierFactory()
     identity = Identity(
-        users=SqliteUserStore(settings.database),
+        users=accounts,
         sessions=SqliteSessionRecordStore(settings.database),
         attempts=SqliteLoginAttemptStore(settings.database),
         hasher=Argon2PasswordHasher(),
         clock=SystemClock(),
-        identifiers=TokenIdentifierFactory(),
+        identifiers=identifiers,
         cookies=HmacSessionCookieSigner(
             settings.secret_key.get_secret_value().encode(),
         ),
     )
+    sources = SqliteSourceStore(
+        database=settings.database,
+        configured=ConfiguredSource(
+            name=settings.source_name,
+            url=settings.source_url,
+            ref=settings.source_ref,
+            credential_reference=settings.source_credential,
+            accounts=accounts,
+        ),
+        identifiers=identifiers,
+    )
+    # A file written before sources were rows carries decks that name none, so
+    # the row they belong to is written before the first page reads them; on an
+    # empty instance there is no admin to own it yet, and the refresh that runs
+    # after first start writes it then.
+    sources.seed()
     mirrors = SourceMirrors(
         directory=settings.mirrors,
         credentials=EnvironmentCredentials(),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
     )
     decks = Decks(
-        sources=ConfiguredSource(
-            url=settings.source_url,
-            ref=settings.source_ref,
-            credential_reference=settings.source_credential,
-            accounts=SqliteUserStore(settings.database),
-        ),
+        sources=sources,
         folders=MirroredDeckFolders(mirrors=mirrors),
         store=SqliteDeckStore(database=settings.database),
         builder=SlidevBuilds(

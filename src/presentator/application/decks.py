@@ -32,6 +32,9 @@ _SHORT_COMMIT: Final = 7
 _NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
 _NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
 _NOT_A_FOLDERS_OWN_NAME: Final = "folder %r is not a folder's own name, skipped"
+_NAME_BELONGS_TO_ANOTHER_SOURCE: Final = (
+    "folder %r is already carried by another source, skipped for source %s"
+)
 
 
 def _is_a_plain_folder_name(candidate: str) -> bool:
@@ -101,9 +104,25 @@ class Decks:
         return DeckPage(
             slug=deck.slug,
             title=deck.title,
-            source=self.source_address(),
+            source=self._address_of(deck),
             commit=(deck.commit if built is None else built.commit)[:_SHORT_COMMIT],
             built_ago=None if built is None else self.clock.now() - built.built_at,
+        )
+
+    def _address_of(self, deck: Deck) -> str | None:
+        """The address the source that carried this deck is mirrored from.
+
+        A deck names the source it came from, never whichever source the
+        instance happens to have first, so two sources cannot show one
+        another's address on a page.
+        """
+        return next(
+            (
+                source.url
+                for source in self.sources.all()
+                if source.id == deck.source_id
+            ),
+            None,
         )
 
     def built_talk(self, slug: str) -> Path | None:
@@ -128,17 +147,25 @@ class Decks:
         return deck.build.pdf
 
     def source_address(self) -> str | None:
-        """The git address an empty list names, while one is configured."""
-        source = self.sources.configured()
-        return None if source is None else source.url
+        """The git address an empty list names, while one source is all there is.
+
+        With a second source there is no single address the list could name,
+        so it says only that it is empty.
+        """
+        sources = self.sources.all()
+        return sources[0].url if len(sources) == 1 else None
 
     def _take_in_and_build(self) -> None:
-        """Read what the source carries now, then build every deck it moved."""
-        source = self.sources.configured()
-        if source is None:
-            return
-        self._take_in(source)
-        self._build_what_changed(source)
+        """Make the configured source a row, then walk the sources one by one.
+
+        A source is taken in and built before the next one is read, so a
+        refresh costs its sources' pull bounds one after another instead of
+        opening as many pulls at once as the instance has sources.
+        """
+        self.sources.seed()
+        for source in self.sources.all():
+            self._take_in(source)
+            self._build_what_changed(source)
 
     def _take_in(self, source: Source) -> None:
         """Store every folder that carries both a manifest and slides.
@@ -150,7 +177,9 @@ class Decks:
         has stopped carrying is marked as removed rather than deleted, and a
         folder that comes back under its old name loses that mark, so it is the
         deck it was. A source nobody could read carries no such news, and leaves
-        every deck where it is.
+        every deck where it is. A folder whose name another source already
+        carries is skipped too: the slug is the address of one deck on this
+        instance, and the source that carried it first keeps it.
         """
         carried = self.folders.folders(source)
         if carried is None:
@@ -161,28 +190,36 @@ class Decks:
                 continue
             if folder.title is None or SLIDES_FILE not in folder.file_names:
                 continue
-            self.store.put(
+            taken_in = self.store.put(
                 Deck(
                     slug=folder.name,
                     title=folder.title,
                     changed_at=folder.changed_at,
                     owner_id=source.owner_id,
+                    source_id=source.id,
                     commit=folder.commit,
                     build=None,
                 ),
             )
+            if not taken_in:
+                _log.warning(_NAME_BELONGS_TO_ANOTHER_SOURCE, folder.name, source.name)
         self.store.mark_removed_except(
             present=frozenset(folder.name for folder in carried),
+            source_id=source.id,
             at=self.clock.now(),
         )
 
     def _build_what_changed(self, source: Source) -> None:
-        """Build every deck whose commit is not the one its talk was built from.
+        """Build that source's decks whose commit its talk was not built from.
 
         The commit is the whole change check: a push moves one folder's commit,
-        so only that deck is built again and the other talks are left alone.
+        so only that deck is built again and the other talks are left alone. A
+        deck is built out of the mirror of its own source, so a source's walk
+        passes over the decks another source carried.
         """
         for deck in self.store.all():
+            if deck.source_id != source.id:
+                continue
             if deck.build is not None and deck.build.commit == deck.commit:
                 continue
             self._switch_over(deck, source)

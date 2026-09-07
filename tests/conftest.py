@@ -76,13 +76,23 @@ class GitRemote:
         _git(self.work, "push", "--quiet", "origin", MAIN_BRANCH)
 
 
-@pytest.fixture
-def remote(tmp_path: Path) -> GitRemote:
-    """An empty bare repository with a working tree that pushes into it."""
-    bare = tmp_path / "remote.git"
-    work = tmp_path / "work"
+def _a_remote(under: Path, named: str) -> GitRemote:
+    bare = under / f"{named}.git"
+    work = under / f"{named}-work"
     work.mkdir()
-    _git(tmp_path, "init", "--bare", "--quiet", str(bare))
+    _git(under, "init", "--bare", "--quiet", str(bare))
     _git(work, "init", "--quiet", "--initial-branch", MAIN_BRANCH)
     _git(work, "remote", "add", "origin", str(bare))
     return GitRemote(bare=bare, work=work)
+
+
+@pytest.fixture
+def remote(tmp_path: Path) -> GitRemote:
+    """An empty bare repository with a working tree that pushes into it."""
+    return _a_remote(tmp_path, "remote")
+
+
+@pytest.fixture
+def another_remote(tmp_path: Path) -> GitRemote:
+    """A second one, for what two sources of one instance do to one another."""
+    return _a_remote(tmp_path, "another-remote")

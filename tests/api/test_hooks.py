@@ -15,8 +15,8 @@ from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.preferences import Preferences
-from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
-from tests.api.lobby import CATALOGS
+from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder
+from tests.api.lobby import CATALOGS, a_configured_source
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeBuildRunner,
@@ -79,16 +79,10 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
     """The lobby the host composes: its pages, and the hook while one arms it."""
     clock = FrozenClock(instant=_NOW)
     store = FakeDeckStore()
+    source = a_configured_source("git@example.invalid:decks.git")
     decks = Decks(
-        sources=FakeSourceStore(
-            source=Source(
-                url="git@example.invalid:decks.git",
-                ref="main",
-                credential_reference=None,
-                owner_id="the-admin",
-            ),
-        ),
-        folders=FakeDeckFolders(found=(a_pushed_folder(),)),
+        sources=FakeSourceStore(sources=[source]),
+        folders=FakeDeckFolders(carried={source.id: (a_pushed_folder(),)}),
         store=store,
         builder=FakeBuildRunner(),
         clock=clock,

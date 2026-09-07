@@ -35,6 +35,7 @@ _DELETED_AT = datetime(2026, 1, 16, 9, tzinfo=UTC)
 _PUSHED_AGAIN_AT = datetime(2026, 2, 1, 9, tzinfo=UTC)
 _ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
+_ANOTHER_SOURCE_NAME = "more-talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
 
 
@@ -177,6 +178,13 @@ def test_the_instance_key_is_never_shown() -> None:
 def a_signed_in_instance() -> TestClient:
     """The real stack with its admin created and its session open."""
     return signed_in(a_real_instance())
+
+
+def logged_in(instance: Instance) -> TestClient:
+    """A browser at that stack, signed in as the account it already carries."""
+    client = TestClient(instance.lobby, follow_redirects=False)
+    client.post("/login", data={"username": _PERSON, "password": _TYPED_WORDS})
+    return client
 
 
 def a_polled_source(
@@ -401,3 +409,41 @@ def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     assert after_the_delete == [_ANOTHER_SLUG]
     assert after_it_came_back == [EXAMPLE_SLUG, _ANOTHER_SLUG]
     assert owner_of(database, EXAMPLE_SLUG) == owner_before_the_delete
+
+
+def test_an_instance_carries_its_configured_source_from_the_moment_it_starts(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    signed_in(a_polled_source(environment, remote))
+
+    started_again = a_polled_source(environment, remote)
+    listed = logged_in(started_again).get("/")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert remote.url in listed.text
+
+
+def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    another_remote: GitRemote,
+) -> None:
+    first = a_polled_source(environment, remote)
+    lobby = signed_in(first)
+    remote.commit_example_deck(at=_PUSHED_AT)
+    asyncio.run(first.poller.tick())
+    another_remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
+    environment.setenv("PRESENTATOR_SOURCE_URL", another_remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_NAME", _ANOTHER_SOURCE_NAME)
+    both = a_real_instance()
+
+    asyncio.run(both.poller.tick())
+    listed_together = listed_addresses(lobby.get("/").text)
+
+    remote.remove(EXAMPLE_SLUG, at=_DELETED_AT)
+    asyncio.run(both.poller.tick())
+    after_the_delete = listed_addresses(lobby.get("/").text)
+
+    assert sorted(listed_together) == sorted([EXAMPLE_SLUG, _ANOTHER_SLUG])
+    assert after_the_delete == [_ANOTHER_SLUG]
