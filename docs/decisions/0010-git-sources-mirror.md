@@ -3,8 +3,9 @@
 Audience: humans and agents adding a deck source, or building the second caller
 of this package.
 
-- Status: ACCEPTED 2026-09-06 — `src/gitmirror` exists and mirrors one source;
-  polling, the webhook, secret rotation, and the fetch log are still open
+- Status: ACCEPTED 2026-09-06 — `src/gitmirror` exists and mirrors one source,
+  which the server polls and a hook can hurry; secret rotation and the fetch log
+  are still open
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)

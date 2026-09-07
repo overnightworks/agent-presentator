@@ -1,8 +1,10 @@
 """In-memory stands-in for the ports, so the use cases run pure."""
 
+import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Final
 
 from presentator.contracts.decks import Deck, DeckFolder, Source
 from presentator.contracts.models import (
@@ -12,6 +14,9 @@ from presentator.contracts.models import (
     Session,
     User,
 )
+
+# How long one thread waits for another before a test calls the run stuck.
+PATIENCE: Final = timedelta(seconds=5)
 
 
 @dataclass
@@ -181,3 +186,34 @@ class FakeDeckStore:
 
     def all(self) -> tuple[Deck, ...]:
         return tuple(self.kept.values())
+
+
+@dataclass
+class HeldDeckFolders:
+    """A mirror read a test opens and closes, so overlapping reads are visible.
+
+    Every read waits for the test to release it, and the double counts how many
+    were inside at the same time.
+    """
+
+    found: tuple[DeckFolder, ...] = ()
+    entered: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    reads: int = 0
+    at_once: int = 0
+    inside: int = 0
+    counting: threading.Lock = field(default_factory=threading.Lock)
+
+    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
+        self._enter()
+        self.entered.set()
+        self.release.wait(PATIENCE.total_seconds())
+        with self.counting:
+            self.inside -= 1
+        return self.found
+
+    def _enter(self) -> None:
+        with self.counting:
+            self.reads += 1
+            self.inside += 1
+            self.at_once = max(self.at_once, self.inside)

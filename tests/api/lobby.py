@@ -11,7 +11,7 @@ from typing import Final
 from fastapi.testclient import TestClient
 
 from presentator.adapters.catalog import ENGLISH_CATALOG, age_in_words, load_lobby_text
-from presentator.api.auth import create_lobby
+from presentator.api.auth import Wording, create_lobby
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.contracts.decks import DeckFolder, Source
@@ -50,6 +50,15 @@ def a_lobby(
 ) -> TestClient:
     """The whole lobby over fakes, with nobody signed in yet."""
     clock = FrozenClock(instant=NOW)
+    decks = Decks(
+        sources=FakeSourceStore(source=source),
+        folders=FakeDeckFolders(found=folders),
+        store=FakeDeckStore() if store is None else store,
+        clock=clock,
+    )
+    # The list and the deck page read the store only; a test arranges what a
+    # poll or the hook would already have taken in before anyone opened a page.
+    decks.refresh()
     lobby = create_lobby(
         identity=Identity(
             users=FakeUserStore(),
@@ -60,15 +69,13 @@ def a_lobby(
             identifiers=CountingIdentifierFactory(),
             cookies=MarkingCookieSigner(),
         ),
-        decks=Decks(
-            sources=FakeSourceStore(source=source),
-            folders=FakeDeckFolders(found=folders),
-            store=FakeDeckStore() if store is None else store,
-            clock=clock,
+        decks=decks,
+        wording=Wording(
+            text=TEXT,
+            age_in_words=partial(age_in_words, language_tag=TEXT.language_tag),
         ),
-        text=TEXT,
-        age_in_words=partial(age_in_words, language_tag=TEXT.language_tag),
         secure_cookies=False,
+        fetch_hook=None,
     )
     return TestClient(lobby, follow_redirects=False)
 

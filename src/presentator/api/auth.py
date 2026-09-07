@@ -13,12 +13,13 @@ from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Annotated, Final
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import APIRouter, FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 
 from presentator.api.decks import add_deck_pages
+from presentator.api.hooks import HOOK_CALLS
 from presentator.api.pages import PageRenderer
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
@@ -48,21 +49,6 @@ async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Res
     return response
 
 
-async def _same_origin_only(
-    request: Request,
-    call_next: RequestResponseEndpoint,
-) -> Response:
-    """Refuse a form another site submitted.
-
-    Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first start
-    and login are answered without a cookie, so `SameSite=Lax` does not cover
-    them, and a foreign page could otherwise create the instance's admin.
-    """
-    if request.method == HTTPMethod.POST and _comes_from_elsewhere(request):
-        return Response(status_code=HTTPStatus.FORBIDDEN)
-    return await call_next(request)
-
-
 def _is_a_stylesheet(path: str) -> bool:
     """Whether the address really stands inside the public stylesheet mount.
 
@@ -84,6 +70,14 @@ def _comes_from_elsewhere(request: Request) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Wording:
+    """The words a page shows, and how this language words an age."""
+
+    text: LobbyText
+    age_in_words: Callable[[timedelta], str]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class DeckRow:
     """One deck as the list renders it: a name, its folder, and its age."""
 
@@ -102,6 +96,23 @@ class _Pages:
     text: LobbyText
     age_in_words: Callable[[timedelta], str]
     secure_cookies: bool
+    hook_is_armed: bool
+
+    async def same_origin_only(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Refuse a form another site submitted.
+
+        Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first
+        start and login are answered without a cookie, so `SameSite=Lax` does
+        not cover them, and a foreign page could otherwise create the
+        instance's admin.
+        """
+        if self._is_a_foreign_form(request):
+            return Response(status_code=HTTPStatus.FORBIDDEN)
+        return await call_next(request)
 
     async def only_signed_in(
         self,
@@ -110,7 +121,11 @@ class _Pages:
     ) -> Response:
         """Send every address but the open ones to the login, and slide the window."""
         path = request.url.path
-        if path in _WITHOUT_A_SESSION or _is_a_stylesheet(path):
+        if (
+            path in _WITHOUT_A_SESSION
+            or _is_a_stylesheet(path)
+            or self._is_a_call_from_a_source_host(request)
+        ):
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
         person = self.identity.signed_in_user(cookie_value)
@@ -120,6 +135,26 @@ class _Pages:
         answer = await call_next(request)
         self._carry_session(answer, cookie_value)
         return answer
+
+    def _is_a_foreign_form(self, request: Request) -> bool:
+        if request.method != HTTPMethod.POST:
+            return False
+        if self._is_a_call_from_a_source_host(request):
+            return False
+        return _comes_from_elsewhere(request)
+
+    def _is_a_call_from_a_source_host(self, request: Request) -> bool:
+        """Whether this is the sessionless, cross-origin POST the hook is for.
+
+        Only that one call is open, and only while a secret arms the hook; a
+        read of the same address, and every other method, stays behind the
+        session the way any other address does.
+        """
+        return (
+            self.hook_is_armed
+            and request.method == HTTPMethod.POST
+            and request.url.path.startswith(HOOK_CALLS)
+        )
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
@@ -142,7 +177,7 @@ class _Pages:
                 slug=deck.slug,
                 changed=self.age_in_words(deck.age),
             )
-            for deck in self.decks.refreshed_list()
+            for deck in self.decks.listed()
         )
 
     def login_page(self, request: Request) -> Response:
@@ -246,25 +281,30 @@ def create_lobby(
     *,
     identity: Identity,
     decks: Decks,
-    text: LobbyText,
-    age_in_words: Callable[[timedelta], str],
+    wording: Wording,
     secure_cookies: bool,
+    fetch_hook: APIRouter | None,
 ) -> FastAPI:
-    """Build the lobby around the use cases and the words the host chose."""
-    renderer = PageRenderer(text=text)
+    """Build the lobby around the use cases and the words the host chose.
+
+    Without a fetch hook the instance has no address a source's host may call,
+    and nothing below `/hooks/` leaves the session guard.
+    """
+    renderer = PageRenderer(text=wording.text)
     pages = _Pages(
         identity=identity,
         decks=decks,
         renderer=renderer,
-        text=text,
-        age_in_words=age_in_words,
+        text=wording.text,
+        age_in_words=wording.age_in_words,
         secure_cookies=secure_cookies,
+        hook_is_armed=fetch_hook is not None,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.only_signed_in)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=_same_origin_only)
+    lobby.add_middleware(BaseHTTPMiddleware, dispatch=pages.same_origin_only)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
     lobby.add_api_route(_LOBBY, pages.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, pages.login_page, methods=["GET"])
@@ -272,6 +312,8 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, pages.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, pages.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, pages.set_up_admin, methods=["POST"])
-    add_deck_pages(lobby, decks=decks, renderer=renderer, text=text)
+    add_deck_pages(lobby, decks=decks, renderer=renderer, text=wording.text)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
+    if fetch_hook is not None:
+        lobby.include_router(fetch_hook)
     return lobby

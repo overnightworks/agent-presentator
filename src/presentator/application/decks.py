@@ -5,8 +5,9 @@ deck page says is decided here; git, TOML, and SQL stay outside (ADR 0001,
 ADR 0005).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Final
 
 from presentator.contracts.decks import SLIDES_FILE, Deck, DeckPage, ListedDeck
@@ -26,15 +27,38 @@ class Decks:
     folders: DeckFolders
     store: DeckStore
     clock: Clock
+    _one_at_a_time: Lock = field(default_factory=Lock)
 
-    def refreshed_list(self) -> tuple[ListedDeck, ...]:
-        """Take in what the source carries now, then list it, newest changed first.
+    def refresh(self) -> None:
+        """Take in what the source carries now, one refresh at a time.
 
-        Pulling on the way to the list is what makes a pushed folder appear
-        without any further action; polling and the webhook widen that later.
+        Whoever noticed the push calls this. A further request while one runs is
+        already served by it, so a flood of them pulls once rather than once
+        each.
         """
-        self._take_in()
-        return self._listed()
+        if not self._one_at_a_time.acquire(blocking=False):
+            return
+        try:
+            self._take_in()
+        finally:
+            self._one_at_a_time.release()
+
+    def listed(self) -> tuple[ListedDeck, ...]:
+        """The stored decks, newest changed first, reading no source.
+
+        A page view costs a read, never a pull: what the source carries is the
+        refresh's business.
+        """
+        now = self.clock.now()
+        newest_first = sorted(
+            self.store.all(),
+            key=lambda deck: deck.changed_at,
+            reverse=True,
+        )
+        return tuple(
+            ListedDeck(slug=deck.slug, title=deck.title, age=now - deck.changed_at)
+            for deck in newest_first
+        )
 
     def page(self, slug: str) -> DeckPage | None:
         """What that deck's page says, or nothing while no deck carries the slug."""
@@ -80,15 +104,3 @@ class Decks:
                     active_build=None,
                 ),
             )
-
-    def _listed(self) -> tuple[ListedDeck, ...]:
-        now = self.clock.now()
-        newest_first = sorted(
-            self.store.all(),
-            key=lambda deck: deck.changed_at,
-            reverse=True,
-        )
-        return tuple(
-            ListedDeck(slug=deck.slug, title=deck.title, age=now - deck.changed_at)
-            for deck in newest_first
-        )
