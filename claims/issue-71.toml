@@ -1,0 +1,8 @@
+claim_id = "f7f2cb7927a84fea81f237d90e04788e"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "c78dbbab7e9202047ce92b15f2c29ba2da80ebeb"
+branch = "claude/issue-71-real-talk"
+scope = ["examples", "docs/OPERATIONS.md"]
+opened_commit = "598dc3f9148dadf01b541cfa1d30f487426db69b"
+whole_reason = "The talk's folder and the sentence that says what a deck needs are one proof."
