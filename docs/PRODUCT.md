@@ -144,8 +144,13 @@ Every row carries the state of its deck's build in one word — ready, building,
 failed, or never built — with a shape and a colour of its own, read off the
 talk that stands and the build last attempted beside it, never stored.
 
-There is no Sources page yet, a source's secret is still the environment
-variable its row names, and removing a source is open on
+There is no Sources page yet. A source's row can hold its read-only secret
+itself, encrypted with a key derived from `PRESENTATOR_SECRET_KEY`
+([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)), and
+the one resolver that answers at every pull reads whichever of the two columns
+the row carries; nothing fills the encrypted one until the page for adding a
+source does, so the source an instance runs on still names an environment
+variable. Removing a source is open on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8). Nothing
 prunes a source's older runs yet, so the table grows without bound; that is
 open on #8 (slice 12.6).

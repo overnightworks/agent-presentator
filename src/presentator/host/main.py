@@ -22,6 +22,7 @@ from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
     MirroredDeckFolders,
+    SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
     SqliteSourceRunStore,
@@ -43,6 +44,7 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
+from presentator.adapters.secrets import secret_box
 from presentator.api.auth import create_lobby
 from presentator.api.hooks import fetch_hook
 from presentator.api.pages import Pages
@@ -68,6 +70,9 @@ def build_instance(settings: Settings) -> Instance:
     create_deck_tables(settings.database)
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
+    # One box for both directions: what the store writes down is what the
+    # resolver opens at the pull, and neither picks its own key.
+    box = secret_box(settings.secret_key.get_secret_value())
     identity = Identity(
         users=accounts,
         sessions=SqliteSessionRecordStore(settings.database),
@@ -89,6 +94,7 @@ def build_instance(settings: Settings) -> Instance:
             accounts=accounts,
         ),
         identifiers=identifiers,
+        box=box,
     )
     # A file written before sources were rows carries decks that name none, so
     # the row they belong to is written before the first page reads them; on an
@@ -97,7 +103,11 @@ def build_instance(settings: Settings) -> Instance:
     sources.seed()
     mirrors = SourceMirrors(
         directory=settings.mirrors,
-        credentials=EnvironmentCredentials(),
+        credentials=SourceCredentials(
+            database=settings.database,
+            box=box,
+            environment=EnvironmentCredentials(),
+        ),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)

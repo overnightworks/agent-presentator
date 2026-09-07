@@ -45,7 +45,7 @@ def a_source(name: str, *, identifier: str) -> Source:
         name=name,
         url=f"git@example.invalid:{name}.git",
         ref="main",
-        credential_reference=None,
+        secret_location=None,
         owner_id=_OWNER,
     )
 

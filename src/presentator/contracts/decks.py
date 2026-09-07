@@ -29,6 +29,19 @@ def talk_address(slug: str) -> str:
     return f"{DECK_PATH}/{slug}/"
 
 
+class SecretLocation(StrEnum):
+    """Where a source's read-only secret stands, never the secret itself.
+
+    A row is the truth about its own secret; this says which of the two forms
+    that row anchors, so nobody has to read a value to find out. The
+    environment form is what an instance configured from `PRESENTATOR_SOURCE_*`
+    still carries, and it goes when that configuration does.
+    """
+
+    ENVIRONMENT = "environment"
+    STORED = "stored"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Source:
     """A git repository decks are mirrored from, holding no secret value."""
@@ -37,7 +50,7 @@ class Source:
     name: str
     url: str
     ref: str
-    credential_reference: str | None
+    secret_location: SecretLocation | None
     owner_id: str
 
 

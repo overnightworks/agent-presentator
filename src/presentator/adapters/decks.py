@@ -7,6 +7,7 @@ between its vocabulary and the product's, and holds the deck table (ADR 0006).
 import json
 import logging
 import os
+import sqlite3
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from gitmirror.model import (
     GitSource,
     Revision,
 )
+from presentator.adapters.secrets import SecretBox
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
@@ -30,6 +32,7 @@ from presentator.contracts.decks import (
     BuildOutcome,
     Deck,
     DeckFolder,
+    SecretLocation,
     Source,
     SourcePoll,
     SourceRun,
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS sources (
     url TEXT NOT NULL UNIQUE,
     ref TEXT NOT NULL,
     credential_reference TEXT,
+    encrypted_secret BLOB,
     owner_id TEXT NOT NULL REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS decks (
@@ -76,7 +80,7 @@ CREATE TABLE IF NOT EXISTS source_runs (
     reason TEXT
 );
 """
-# The row shape without a row: a deck table this product wrote before a column
+# The row shape without a row: a table this product wrote before a column
 # existed gains it in place rather than by a new file, in the order the columns
 # arrived.
 _DECK_COLUMNS: Final = "SELECT * FROM decks LIMIT 0"
@@ -88,6 +92,11 @@ _COLUMNS_ADDED_LATER: Final = (
     ("attempt_outcome", "TEXT"),
     ("attempt_failure", "TEXT"),
 )
+_SOURCE_COLUMNS: Final = "SELECT * FROM sources LIMIT 0"
+_ENCRYPTED_COLUMN: Final = "encrypted_secret"
+_ADD_ENCRYPTED_TO_SOURCES: Final = (
+    f"ALTER TABLE sources ADD COLUMN {_ENCRYPTED_COLUMN} BLOB"
+)
 # Every uniqueness the table has, not the URL alone: a configuration naming a
 # new URL under the name another source already answers to is a configuration
 # to correct, never a row to overwrite.
@@ -97,12 +106,23 @@ VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 """
 _ALL_SOURCES: Final = """
-SELECT id, name, url, ref, credential_reference, owner_id
+SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id
 FROM sources
 """
 _SOURCE_BY_URL: Final = f"{_ALL_SOURCES} WHERE url = ?"
 _ADOPT_ORPHANED_DECKS: Final = "UPDATE decks SET source_id = ? WHERE source_id IS NULL"
-_SourceRow = tuple[str, str, str, str, str | None, str]
+# The ciphertext is written on its own: everything else about a source is what
+# the operator typed, while this is the one value the instance key can open.
+_PUT_ENCRYPTED_VALUE: Final = "UPDATE sources SET encrypted_secret = ? WHERE id = ?"
+# What a pull needs and nothing else: the two columns that say where this
+# source's secret stands.
+_SOURCE_ANCHOR: Final = """
+SELECT encrypted_secret, credential_reference
+FROM sources
+WHERE id = ?
+"""
+_SourceRow = tuple[str, str, str, str, str | None, bytes | None, str]
+_AnchorRow = tuple[bytes | None, str | None]
 # Nothing a build wrote is touched by this statement, on purpose: taking a deck
 # in again must not unpresent the talk that already stands, nor take away the
 # PDF that is already downloadable (line 16). Whether the row is marked removed
@@ -218,18 +238,51 @@ class MalformedManifestError(ValueError):
 def create_deck_tables(database: Path) -> None:
     """Make the source and deck tables exist, keeping what an older file holds.
 
-    A file written before a column existed keeps its decks and gains that
-    column, rather than being replaced by an empty one.
+    A file written before sources were rows keeps its decks and gains the
+    column naming theirs, one written before a build kept what it attempted
+    gains those columns, and one written before a source could hold its own
+    secret gains that column, rather than being replaced by an empty file.
     """
     apply_schema(database, _SCHEMA)
     with rows(database) as cursor:
-        cursor.execute(_DECK_COLUMNS)
-        named = {column[0] for column in cursor.description}
         for column, definition in _COLUMNS_ADDED_LATER:
-            if column not in named:
-                cursor.execute(
-                    _ADD_COLUMN.format(column=column, definition=definition),
-                )
+            _add_missing(
+                cursor,
+                shape=_DECK_COLUMNS,
+                column=column,
+                add=_ADD_COLUMN.format(column=column, definition=definition),
+            )
+        _add_missing(
+            cursor,
+            shape=_SOURCE_COLUMNS,
+            column=_ENCRYPTED_COLUMN,
+            add=_ADD_ENCRYPTED_TO_SOURCES,
+        )
+
+
+def _add_missing(
+    cursor: sqlite3.Cursor,
+    *,
+    shape: str,
+    column: str,
+    add: str,
+) -> None:
+    """Add that column where the table this instance found does not carry it."""
+    cursor.execute(shape)
+    if column not in {named[0] for named in cursor.description}:
+        cursor.execute(add)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SeededRow:
+    """What the configured source writes into the table, column by column."""
+
+    id: str
+    name: str
+    url: str
+    ref: str
+    credential_reference: str | None
+    owner_id: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -246,12 +299,16 @@ class ConfiguredSource:
     credential_reference: str | None
     accounts: UserStore
 
-    def to_be_seeded(self, *, identifier: str) -> Source | None:
-        """The row this configuration asks for, once a URL and an admin exist."""
+    def to_be_seeded(self, *, identifier: str) -> _SeededRow | None:
+        """The row this configuration asks for, once a URL and an admin exist.
+
+        A row, not a `Source`: the environment variable's name is a column of
+        the table and belongs to nobody above it.
+        """
         owner = self.accounts.first_admin()
         if self.url is None or owner is None:
             return None
-        return Source(
+        return _SeededRow(
             id=identifier,
             name=self.name,
             url=self.url,
@@ -268,6 +325,7 @@ class SqliteSourceStore:
     database: Path
     configured: ConfiguredSource
     identifiers: IdentifierFactory
+    box: SecretBox
 
     def seed(self) -> None:
         """Write the configured source once, and adopt the decks that name none.
@@ -297,6 +355,16 @@ class SqliteSourceStore:
                 return
             cursor.execute(_ADOPT_ORPHANED_DECKS, (_source(stored).id,))
 
+    def put_credential(self, source_id: str, secret: str) -> None:
+        """Keep that source's read-only secret in its row, encrypted.
+
+        The value is written down in the one form this instance can open
+        again, so what stands in the file is of no use to whoever reads the
+        file without the instance key.
+        """
+        with rows(self.database) as cursor:
+            cursor.execute(_PUT_ENCRYPTED_VALUE, (self.box.encrypt(secret), source_id))
+
     def all(self) -> tuple[Source, ...]:
         """Read every source this instance mirrors decks from."""
         with rows(self.database) as cursor:
@@ -318,6 +386,42 @@ class EnvironmentCredentials:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SourceCredentials:
+    """Answers with the secret the source's own row anchors, at the pull.
+
+    One resolver for both forms a row can anchor, and the row says which:
+    a source carrying ciphertext is read out of the box, and one that still
+    names an environment variable is read out of the environment. Which it is
+    is never guessed from what a value looks like.
+    """
+
+    database: Path
+    box: SecretBox
+    environment: EnvironmentCredentials
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        """The secret of the source that reference anchors, or nothing.
+
+        Nothing is the honest answer to a source this instance no longer
+        carries, to a row holding no secret at all, and to ciphertext another
+        instance key wrote; the pull that asked reads all three as a
+        credential it cannot resolve.
+        """
+        with rows(self.database) as cursor:
+            found = cursor.execute(_SOURCE_ANCHOR, (reference.name,)).fetchone()
+        return None if found is None else self._behind(found)
+
+    def _behind(self, row: _AnchorRow) -> str | None:
+        """What the row anchors, read where the column it carries points."""
+        encrypted, variable = row
+        if encrypted is not None:
+            return self.box.decrypt(encrypted)
+        if variable is None:
+            return None
+        return self.environment.resolve(CredentialReference(name=variable))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceMirrors:
     """The bare mirrors this instance keeps, and how one of them is opened.
 
@@ -331,13 +435,16 @@ class SourceMirrors:
 
     def of(self, source: Source) -> GitMirror:
         """The mirror of that source, whether or not it has been pulled yet."""
-        reference = source.credential_reference
         return GitMirror(
             source=GitSource(
                 url=source.url,
                 ref=source.ref,
+                # The source's own id is the anchor, because the row is what
+                # knows where its secret stands; the resolver reads it there.
                 credential=(
-                    None if reference is None else CredentialReference(name=reference)
+                    None
+                    if source.secret_location is None
+                    else CredentialReference(name=source.id)
                 ),
             ),
             # A URL is not a directory name, and two sources must not share a
@@ -531,15 +638,32 @@ class SqliteSourceRunStore:
 
 
 def _source(row: _SourceRow) -> Source:
-    identifier, name, url, ref, credential_reference, owner_id = row
+    identifier, name, url, ref, reference, encrypted, owner_id = row
     return Source(
         id=identifier,
         name=name,
         url=url,
         ref=ref,
-        credential_reference=credential_reference,
+        secret_location=_where_the_secret_stands(reference, encrypted),
         owner_id=owner_id,
     )
+
+
+def _where_the_secret_stands(
+    reference: str | None,
+    encrypted: bytes | None,
+) -> SecretLocation | None:
+    """Which form the row anchors: the column it carries says so, not a value.
+
+    The stored form wins where a row carries both, so a secret this instance
+    was given replaces the environment variable an older configuration named
+    without waiting for that configuration to go.
+    """
+    if encrypted is not None:
+        return SecretLocation.STORED
+    if reference is not None:
+        return SecretLocation.ENVIRONMENT
+    return None
 
 
 def _deck(row: _DeckRow) -> Deck:

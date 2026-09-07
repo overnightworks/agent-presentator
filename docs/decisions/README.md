@@ -23,6 +23,7 @@ number is never reused and never renumbered.
 - [ADR 0010: A reusable `gitmirror` package owns deck sources, mirroring them from any git remote](0010-git-sources-mirror.md)
 - [ADR 0011: An instance has accounts an admin creates; the AI subscriptions belong to the host](0011-instance-users.md)
 - [ADR 0012: Appearance is a theme file and language is a catalog; neither is code](0012-themes-and-language.md)
+- [ADR 0013: One library encrypts a source's secret at rest, and the child process is where the plaintext goes](0013-secrets-at-rest-and-credential-delivery.md)
 
 ## How to read a record
 
