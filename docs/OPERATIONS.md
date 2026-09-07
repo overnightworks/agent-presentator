@@ -136,7 +136,8 @@ The second value this deployment needs is the trusted proxy. `cloudflared`
 machine and enters through the published port, so the container sees it as the
 gateway of its own network, never as `127.0.0.1`. `compose.yaml` fixes that
 network's subnet so the address is one to write down rather than one Docker
-numbered by chance:
+numbered by chance — which also means one machine runs one such instance, since
+a second project from this file would ask for the same subnet:
 
 ```sh
 printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
@@ -179,16 +180,24 @@ without the built talks answers not-found for each of them until every deck is
 pushed anew. The mirrors are clones and cost a first pull. Both archives are
 taken through compose, which knows the project's volumes — naming them by hand
 archives an empty volume of a project that does not exist, and says it went
-well:
+well — and out of the mount points `/data/database` and `/data/builds`, which
+are where those volumes stand whatever `.env` says the settings are. Neither
+archive is believed until it has been read back:
 
 ```sh
+set -euo pipefail
 docker compose stop
 for volume in database builds; do
   docker compose run --rm --no-TTY presentator tar cz -C "/data/${volume}" . \
     > "${volume}.tar.gz"
 done
-tar tzf database.tar.gz | grep -q './presentator.sqlite3' \
-  || { echo 'no database in the archive; keep the backup before this one' >&2; exit 1; }
+databases="$(tar tzf database.tar.gz | grep -c 'presentator\.sqlite3$' || true)"
+talks="$(tar tzf builds.tar.gz | grep -c 'talk/index\.html$' || true)"
+if [ "$databases" -lt 1 ] || [ "$talks" -lt 1 ]; then
+  echo "$databases databases and $talks talks in the archives:" \
+       "keep the backup before this one" >&2
+  exit 1
+fi
 docker compose start
 ```
 

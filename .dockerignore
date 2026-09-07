@@ -14,3 +14,13 @@
 **/__pycache__
 **/dist
 **/.slidev
+
+# The two trees above are admitted whole, so what must never be in an image is
+# named again here: a secret or a key nested inside one of them would otherwise
+# ride in on its parent directory.
+**/.env*
+**/*.pem
+**/*.key
+**/id_*
+**/.npmrc
+**/.git
