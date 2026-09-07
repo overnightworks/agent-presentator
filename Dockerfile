@@ -1,15 +1,20 @@
 # One image is the whole instance: the packaged server, the Slidev toolchain it
 # spawns, and the Chromium that toolchain exports a PDF with. Node is the base
 # because the toolchain's version is the narrow one (frontend/.nvmrc); uv brings
-# the Python that .python-version names.
-FROM node:24.20.0-trixie-slim
+# the Python that .python-version names. Both are held by digest, because a tag
+# is a name its owner may move.
+FROM node:24.20.0-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0
 
-# git mirrors a deck source and ssh reaches a private one (ADR 0010).
+# git mirrors a deck source and ssh reaches a private one (ADR 0010). Their
+# versions are the ones this base image's archive carries: Debian keeps no
+# older build to fall back to, so a pinned version is a build that breaks the
+# day the archive moves, and the digest above is what makes the layer
+# repeatable.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 /uv /usr/local/bin/uv
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON_INSTALL_DIR=/opt/python \

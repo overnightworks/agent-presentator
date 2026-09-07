@@ -21,7 +21,9 @@ export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
 uv run agent-presentator
 ```
 
-The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
+The rest carries defaults and varies by deployment. Every value in brackets
+below is what a direct run uses; the container image replaces some of them, and
+"Running it as a container" lists which. `PRESENTATOR_DATABASE` (the
 SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
 mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HTTPS` (marks the
 session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`),
@@ -38,7 +40,10 @@ the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 Without it no form is accepted at all: the browser sends `Origin: https://…`
 while the app sees the tunnel connection as http, so the origins never match.
 The list is required for the product to work behind the tunnel, not only for
-a sharper budget.
+a sharper budget. `127.0.0.1` is the answer for a direct run, where the tunnel
+client and the server share one loopback; a container has a network of its own
+and sees that same client as its gateway, which the section after this one
+names.
 
 Starting an instance creates the tables it needs, and changes in place what it
 finds: a file written before a source was a row of its own keeps its decks and
@@ -102,11 +107,21 @@ path without one is open work on
 
 `Dockerfile` builds one image: the packaged server, the Slidev toolchain it
 spawns, and the Chromium that toolchain exports a PDF with. `compose.yaml`
-starts it. The image owns the paths of its own filesystem — the database under
-`/data/database`, the mirrors and the builds beside it, the toolchain at
-`/app/frontend` — and binds every interface inside the container, while compose
-offers the address to this machine alone, because the tunnel of
-[ADR 0007](decisions/0007-browser-client-behind-tunnel.md) connects from here.
+starts it. Five of the settings this file names are not a deployment's choice
+inside a container but a fact of the image's own filesystem and network, so the
+image sets them and their defaults elsewhere here do not apply:
+
+| Setting | In this image |
+| --- | --- |
+| `PRESENTATOR_DATABASE` | `/data/database/presentator.sqlite3` |
+| `PRESENTATOR_MIRRORS` | `/data/mirrors` |
+| `PRESENTATOR_BUILDS` | `/data/builds` |
+| `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
+| `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
+
+Overriding one of the three paths in `.env` moves that state out of its volume,
+which is how an instance loses what it writes; every other setting is the
+operator's as before.
 
 `PRESENTATOR_SECRET_KEY` is the only value a fresh instance must be given, and
 compose refuses to start the service without it, naming it. Everything else is
@@ -116,10 +131,28 @@ carries the variable `PRESENTATOR_SOURCE_CREDENTIAL` names, because only the
 operator knows what it is called. A value exported in the shell reaches compose
 itself, but the container is handed nothing but that file and the key.
 
+The second value this deployment needs is the trusted proxy. `cloudflared`
+([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)) runs on this
+machine and enters through the published port, so the container sees it as the
+gateway of its own network, never as `127.0.0.1`. `compose.yaml` fixes that
+network's subnet so the address is one to write down rather than one Docker
+numbered by chance:
+
 ```sh
 printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
+printf 'PRESENTATOR_TRUSTED_PROXIES=%s\n' "172.31.255.1" >> .env
 printf 'PRESENTATOR_SOURCE_URL=%s\n' "https://git.example/decks.git" >> .env
 docker compose up -d
+```
+
+Without that line the instance answers every request against the connection it
+has — http, and one login budget for the whole tunnel — so a browser's
+`Origin: https://…` matches nothing and no form is accepted. After a change to
+the subnet, what the running container's gateway really is:
+
+```sh
+docker compose ps -q presentator | xargs docker inspect \
+  --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'
 ```
 
 An instance without a source runs and lists nothing; the settings above say
@@ -140,20 +173,30 @@ changes the tables it finds in place, as above:
 git pull && docker compose build && docker compose up -d
 ```
 
-A backup is the database volume together with `PRESENTATOR_SECRET_KEY` — the
-file alone restores no working source — and the builds volume beside it, since
-a deck standing at the commit its talk was built from is never built again: a
-database restored without those files names talks that are no longer there,
-until every deck is pushed anew. The mirrors are clones and cost a first pull.
+A backup is the database volume and the builds volume: a deck standing at the
+commit its talk was built from is never built again, so an instance restored
+without the built talks answers not-found for each of them until every deck is
+pushed anew. The mirrors are clones and cost a first pull. Both archives are
+taken through compose, which knows the project's volumes — naming them by hand
+archives an empty volume of a project that does not exist, and says it went
+well:
 
 ```sh
 docker compose stop
 for volume in database builds; do
-  docker run --rm -v "agent-presentator_${volume}:/volume:ro" \
-    agent-presentator tar cz -C /volume . > "${volume}.tar.gz"
+  docker compose run --rm --no-TTY presentator tar cz -C "/data/${volume}" . \
+    > "${volume}.tar.gz"
 done
+tar tzf database.tar.gz | grep -q './presentator.sqlite3' \
+  || { echo 'no database in the archive; keep the backup before this one' >&2; exit 1; }
 docker compose start
 ```
+
+Those files restore nothing by themselves. `PRESENTATOR_SECRET_KEY` belongs
+with them, because the sources' stored secrets are encrypted with a derivation
+of it, and so does every value an environment-configured source names through
+`PRESENTATOR_SOURCE_CREDENTIAL` — a restored instance whose `.env` is gone
+lists its decks and can pull none of them.
 
 ## Building the decks
 
@@ -284,6 +327,10 @@ No bypass actor exists: an administrator is subject to the same gates, and
 repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
+
+The `Container image` job that proves the image still builds is not in that
+list yet. Adding it is a ruleset change of its own, sent as the same body
+through the `PUT` above; until then a red image build does not hold a merge.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has

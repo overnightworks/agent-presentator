@@ -1,10 +1,16 @@
-# The image carries the application and the toolchain project, never this
-# machine's own state: an installed tree, a built talk, or a local secret.
-.git
-.env
-.venv
+# An allowlist: everything is out of the build context, and only what the image
+# is built from comes back in. A deny list would let the next environment file,
+# key, or state directory into the context by simply being new.
+*
+!.python-version
+!pyproject.toml
+!uv.lock
+!src
+!frontend
+
+# What the build makes for itself, so this machine's copy never travels.
 **/node_modules
+**/.pnpm-store
 **/__pycache__
 **/dist
 **/.slidev
-reports
