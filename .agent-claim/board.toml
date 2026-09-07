@@ -1,0 +1,4 @@
+# This pin makes `aco` read work-item bodies as one typed `agent-claim` TOML
+# block instead of prose headings. From now on every hand-created issue must
+# carry the four-line block skeleton (version, now, next, done_when).
+body_contract = "block"
