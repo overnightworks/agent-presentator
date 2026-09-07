@@ -23,6 +23,7 @@ from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
 from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
+from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import Account, FirstStartClosedError
@@ -346,6 +347,7 @@ def create_lobby(
     lobby.add_api_route(_SETUP, surfaces.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, surfaces.set_up_admin, methods=["POST"])
     lobby.include_router(preference_routes(pages=pages))
+    lobby.include_router(source_routes(pages=pages, decks=decks))
     add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     if fetch_hook is not None:

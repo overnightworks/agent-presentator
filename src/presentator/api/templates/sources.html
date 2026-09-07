@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ text.settings_sources }}{% endblock %}
+{% block body %}
+<main>
+  <header>
+    <h1>{{ text.settings_sources }}</h1>
+  </header>
+  {% include "settings_tabs.html" %}
+  {% if sources %}
+  <table data-sources>
+    <thead>
+      <tr>
+        <th scope="col">{{ text.decks_column_state }}</th>
+        <th scope="col">{{ text.sources_column_source }}</th>
+        <th scope="col">{{ text.sources_column_fetched }}</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for source in sources %}
+      <tr>
+        <td><span data-state="{{ source.state }}">{{ source.state_word }}</span></td>
+        <td>
+          {{ source.name }}
+          <code>{{ source.url }}</code>
+        </td>
+        <td>{% if source.fetched %}{{ source.fetched }}{% else %}—{% endif %}</td>
+        <td>
+          <form method="post" action="/settings/sources/{{ source.name }}/fetch">
+            <button type="submit" data-quiet>{{ text.sources_fetch_now }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <section data-empty>
+    <span data-empty-mark></span>
+    <h2>{{ text.sources_empty_title }}</h2>
+    <p>{{ text.sources_empty_explanation }}</p>
+    <p>{{ text.sources_empty_need }}
+      <code>{{ text.sources_empty_ssh }}</code>
+      {{ text.sources_empty_or }}
+      <code>{{ text.sources_empty_https }}</code>
+    </p>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

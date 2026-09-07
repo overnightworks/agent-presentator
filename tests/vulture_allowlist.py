@@ -6,10 +6,18 @@ Every entry names the site that reaches it; an entry without one is an excuse.
 
 from presentator.api.auth import DeckRow
 from presentator.api.decks import Banner
+from presentator.api.sources import SourceRow
 from presentator.contracts.text import LobbyText
 
 # `presentator/api/templates/home.html` renders it in the "Changed" column.
 DeckRow.changed
+
+# `presentator/api/templates/sources.html` renders each row of the Sources list.
+SourceRow.name
+SourceRow.url
+SourceRow.state
+SourceRow.state_word
+SourceRow.fetched
 
 # `presentator/api/templates/deck.html` renders the build block out of these.
 Banner.lead

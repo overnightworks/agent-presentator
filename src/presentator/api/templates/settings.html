@@ -6,6 +6,7 @@
     <h1>{{ text.settings_title }}</h1>
     <button type="submit" form="general">{{ text.settings_save }}</button>
   </header>
+  {% include "settings_tabs.html" %}
   <form id="general" method="post" action="/settings">
     <label for="instance-name">{{ text.settings_instance_name }}</label>
     <input id="instance-name" name="name" value="{{ instance_name }}">

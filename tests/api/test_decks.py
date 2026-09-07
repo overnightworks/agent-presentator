@@ -124,6 +124,14 @@ def test_an_empty_list_offers_no_way_to_add_a_deck_or_a_source(
     assert "Add source" not in listed
 
 
+def test_an_empty_list_points_an_admin_at_the_sources(
+    empty_lobby: TestClient,
+) -> None:
+    listed = the_page_itself(empty_lobby.get("/").text)
+
+    assert f'href="/settings/sources">{ENGLISH.decks_empty_explanation}<' in listed
+
+
 def test_a_pushed_deck_is_listed_with_its_title_its_folder_and_its_age() -> None:
     lobby = a_signed_in_lobby(
         GivenDecks(
