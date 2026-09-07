@@ -1,7 +1,0 @@
-claim_id = "f8139182f3ce49b5aff1d87c1e74c477"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "8ab176c2d4b36f5d9a94036f54669927a63b1efd"
-branch = "fix/body-contract"
-scope = [".agent-claim", "scripts/check_root_layout.py", "tests/test_root_layout.py"]
-opened_commit = "6ea011737a892ef87129a47d44a459d12d4c247e"
