@@ -8,11 +8,9 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Protocol
 
-from agent_providers.claude.adapter import stream_claude_api_turn
+from agent_providers.claude.adapter import stream_claude_turn
 from agent_providers.config import ProviderRuntimeConfig, configure
 from agent_providers.events import AssistantTextEvent
-from agent_providers.tool_loop import ToolOutcome
-from pydantic import SecretStr
 
 from copresenter.deck import Deck, Slide
 from copresenter.sentences import flush, take_sentences
@@ -28,6 +26,12 @@ SYSTEM_PROMPT = (
     "If the question is off-topic, say so briefly and return to the slide. "
     "Use 'KI' not 'AI' when speaking German."
 )
+
+_CLAUDE_CLI_BINARY = "claude"
+_CLAUDE_TURN_USER = "copresenter"
+_CODEX_MAX_CONCURRENT_PROCESSES = 1
+_CODEX_MAX_CONCURRENT_IMAGE_RUNS = 1
+_SCRUBBED_SECRET_KEYS = ("ANTHROPIC_API_KEY",)
 
 
 class Answerer(Protocol):
@@ -64,29 +68,53 @@ def _page(slide: Slide, *, current_mark: bool = False) -> str:
     return f"Slide {slide.number}{mark}: {slide.title}\n{slide.body}{notes}"
 
 
-class ClaudeAnswerer:
-    """One Claude turn through agent-providers, streaming text deltas."""
+def provider_runtime(model: str) -> ProviderRuntimeConfig:
+    """The agent-providers runtime this process installs once.
 
-    def __init__(self, *, api_key: str, model: str) -> None:
-        """Install the provider runtime once. The key stays in memory."""
+    Answering is the installed `claude` CLI and the operator's login. The
+    optional API key stays empty. Codex caps are required by the config shape
+    and unused here, so each bound is 1. Secret names are still scrubbed from
+    the child environment.
+    """
+    unused = Path(tempfile.gettempdir()) / "copresenter-unused"
+    unused.mkdir(parents=True, exist_ok=True)
+    return ProviderRuntimeConfig(
+        claude_chat_model=model,
+        anthropic_api_key=None,
+        claude_cli_binary=_CLAUDE_CLI_BINARY,
+        grok_cli_binary="grok",
+        codex_cli_binary="codex",
+        grok_cli_auth_file=unused / "grok-auth",
+        grok_cli_session_root=unused,
+        codex_cli_auth_file=unused / "codex-auth",
+        codex_code_mode_host_binary=unused / "codex-host",
+        codex_resources_directory=unused,
+        codex_max_concurrent_processes=_CODEX_MAX_CONCURRENT_PROCESSES,
+        codex_max_concurrent_image_runs=_CODEX_MAX_CONCURRENT_IMAGE_RUNS,
+        cli_working_directory_root=unused,
+        cli_prompt_file_prefix="copresenter-prompt-",
+        cli_prompt_file_placeholder="PROMPT_FILE",
+        secret_env_keys=_SCRUBBED_SECRET_KEYS,
+        mcp_server=None,
+    )
+
+
+class ClaudeAnswerer:
+    """One Claude turn through the installed CLI, streaming text deltas."""
+
+    def __init__(self, *, model: str) -> None:
+        """Install the provider runtime once. No API key is stored."""
         self.provider = "claude"
         self.model = model
-        self._api_key = api_key
-        _install_runtime(api_key=api_key, model=model)
+        configure(provider_runtime(model))
 
     async def stream(self, *, said: str, slide: int, deck: Deck) -> AsyncIterator[str]:
-        """Yield Claude's text as it arrives. Never logs the key."""
-
-        def _no_tools(name: str, _arguments: dict[str, object]) -> ToolOutcome:
-            return ToolOutcome(content=f"unknown tool {name}", is_error=True)
-
-        async for event in stream_claude_api_turn(
-            api_key=self._api_key,
+        """Yield Claude's text as it arrives."""
+        async for event in stream_claude_turn(
+            user_id=_CLAUDE_TURN_USER,
             system=SYSTEM_PROMPT,
             model=self.model,
             messages=[{"role": "user", "content": user_message(said, slide, deck)}],
-            executor=_no_tools,
-            tool_schemas=[],
         ):
             if isinstance(event, AssistantTextEvent) and event.text:
                 yield event.text
@@ -161,27 +189,3 @@ async def _speak_each(
 
 def _b64(wav: bytes) -> str:
     return base64.standard_b64encode(wav).decode("ascii")
-
-
-def _install_runtime(*, api_key: str, model: str) -> None:
-    unused = Path(tempfile.gettempdir()) / "copresenter-unused"
-    unused.mkdir(parents=True, exist_ok=True)
-    configure(
-        ProviderRuntimeConfig(
-            claude_chat_model=model,
-            anthropic_api_key=SecretStr(api_key),
-            claude_cli_binary="claude",
-            grok_cli_binary="grok",
-            codex_cli_binary="codex",
-            grok_cli_auth_file=unused / "grok-auth",
-            grok_cli_session_root=unused,
-            codex_cli_auth_file=unused / "codex-auth",
-            codex_code_mode_host_binary=unused / "codex-host",
-            codex_resources_directory=unused,
-            cli_working_directory_root=unused,
-            cli_prompt_file_prefix="copresenter-prompt-",
-            cli_prompt_file_placeholder="PROMPT_FILE",
-            secret_env_keys=("ANTHROPIC_API_KEY",),
-            mcp_server=None,
-        )
-    )

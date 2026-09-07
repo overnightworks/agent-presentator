@@ -38,7 +38,7 @@ mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech servic
                  |  POST /ask {said,slide}  |
                  +--------------------------+
                             |
-                     Claude (agent-providers)
+                     Claude CLI (agent-providers)
                             |
                      each sentence --POST /speak--> speech service --WAV--> overlay
 ```
@@ -50,24 +50,30 @@ mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech servic
 | Copresenter | Speech `WS /hear?language=de` | Those frames, forwarded |
 | Speech | Overlay (via copresenter) | `{"text","final"}` partials and finals |
 | Overlay | `POST /ask` | `{said, slide, language}` |
-| Copresenter | Claude | Current slide + the deck around it + what was said |
+| Copresenter | Claude CLI | Current slide + the deck around it + what was said |
 | Copresenter | Speech `POST /speak` | One finished sentence, `{text, language}` |
 | Copresenter | Overlay | SSE: `text`, `sentence`, `audio` (WAV as `wav_b64`), `done` |
 
 The overlay is off until the Presenter switch is turned on. Off, it neither
-listens nor speaks and the microphone is released.
+listens nor speaks and the microphone is released. Off during activation
+releases anything that activation later obtains. Off during playback stops the
+audio at once.
 
 ## How to run it with the speech service
 
-The provider key is `ANTHROPIC_API_KEY` in the environment. The process
-refuses to start without it. The key is never logged and never written to a
-file.
+Answering is the installed `claude` executable, using the operator's own
+Claude login on this machine. The process does not take an API key. If
+`ANTHROPIC_API_KEY` happens to be set, it is scrubbed from the CLI child
+environment and never logged.
 
 ```sh
-export ANTHROPIC_API_KEY="…"          # required
-export COPRESENTER_SPEECH_URL="http://127.0.0.1:8765"   # stand-in; #74's own default is :8090
+# claude on PATH, already logged in (`claude` / `claude login`)
 export COPRESENTER_DECK="../examples/copresenter-deck"
 export COPRESENTER_CLAUDE_MODEL="claude-sonnet-4-6"   # optional
+# default speech is the #74 service:
+#   COPRESENTER_SPEECH_URL=http://127.0.0.1:8090
+# the stand-in is an explicit override:
+#   export COPRESENTER_SPEECH_URL="http://127.0.0.1:8765"
 ```
 
 Speech service (the real one from #74, or the stand-in while that lane is still
@@ -76,8 +82,9 @@ building):
 ```sh
 # real:
 #   follow speech/README.md, then point COPRESENTER_SPEECH_URL at it
-# stand-in:
+# stand-in (binds 8765 unless COPRESENTER_STANDIN_PORT says otherwise):
 uv run copresenter-standin
+export COPRESENTER_SPEECH_URL="http://127.0.0.1:8765"
 ```
 
 This service:
@@ -102,21 +109,22 @@ folder to take the overlay with you.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | (none) | Claude credential. Required. Not a `COPRESENTER_*` field. |
 | `COPRESENTER_HOST` | `127.0.0.1` | Bind address |
 | `COPRESENTER_PORT` | `3040` | Bind port |
-| `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8765` | Local speech service |
+| `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
 | `COPRESENTER_DECK` | `examples/copresenter-deck` | Folder with `slides.md` |
 | `COPRESENTER_CLAUDE_MODEL` | `claude-sonnet-4-6` | Model name given to agent-providers |
 | `COPRESENTER_LANGUAGE` | `de` | Language sent to `/speak` and `/hear` unless the overlay overrides it |
+
+The stage needs `claude` on PATH with a login, and the speech service.
 
 ## What it does not yet do
 
 - Navigate the deck, click animations, or take over the talk.
 - Classify intent, use a wake word, or talk over itself (playback gates new
   questions; a late transcript that matches what was just spoken is dropped).
-- Parse Slidev as Slidev does: this reader splits on `---` and takes the last
-  HTML comment as notes. Imported slides and click steps are unseen.
+- Parse every Slidev feature: imported slides and click steps are unseen. Slide
+  separators and per-slide frontmatter are read.
 - Split abbreviations such as `z.B.` correctly.
 - Search a knowledge graph, the web, or anything outside the deck folder.
 - Authenticate callers. It is a local demo process.

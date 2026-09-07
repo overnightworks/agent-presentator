@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -129,33 +130,75 @@ def _speech_report(health: SpeechHealth, address: str) -> dict[str, object]:
 
 
 async def _pipe_hear(socket: WebSocket, upstream: object) -> None:
-    async def upward() -> None:
-        try:
-            while True:
-                message = await socket.receive()
-                if message.get("type") == "websocket.disconnect":
-                    await upstream.close()
-                    return
-                data = message.get("bytes")
-                if data:
-                    await upstream.send(data)
-        except WebSocketDisconnect:
-            await upstream.close()
-
-    async def downward() -> None:
-        try:
-            async for message in upstream:
-                if isinstance(message, bytes):
-                    await socket.send_bytes(message)
-                else:
-                    await socket.send_text(message)
-        except (WebSocketException, WebSocketDisconnect):
-            await socket.close()
-
+    """Copy PCM up and transcripts down until either side ends, then stop both."""
+    upward = asyncio.create_task(_forward_up(socket, upstream))
+    downward = asyncio.create_task(_forward_down(socket, upstream))
+    pending: set[asyncio.Task[None]] = set()
     try:
-        await asyncio.gather(upward(), downward())
+        _done, pending = await asyncio.wait(
+            {upward, downward},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        for task in _done:
+            _raise_if_failed(task)
+        for task in pending:
+            await _await_stopped(task)
     finally:
-        await upstream.close()
+        await _close_quietly(upstream)
+        await _close_quietly(socket)
+
+
+async def _forward_up(socket: WebSocket, upstream: object) -> None:
+    try:
+        while True:
+            message = await socket.receive()
+            if message.get("type") == "websocket.disconnect":
+                return
+            data = message.get("bytes")
+            if data:
+                await upstream.send(data)
+    except WebSocketDisconnect:
+        return
+
+
+async def _forward_down(socket: WebSocket, upstream: object) -> None:
+    try:
+        async for message in upstream:
+            if isinstance(message, bytes):
+                await socket.send_bytes(message)
+            else:
+                await socket.send_text(message)
+    except (WebSocketException, WebSocketDisconnect):
+        return
+
+
+def _raise_if_failed(task: asyncio.Task[None]) -> None:
+    if task.cancelled():
+        return
+    exception = task.exception()
+    if exception is not None:
+        raise exception
+
+
+async def _await_stopped(task: asyncio.Task[None]) -> None:
+    try:
+        await task
+    except (asyncio.CancelledError, WebSocketDisconnect, WebSocketException):
+        return
+
+
+async def _close_quietly(connection: object) -> None:
+    close = getattr(connection, "close", None)
+    if close is None:
+        return
+    try:
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+    except (WebSocketDisconnect, WebSocketException, RuntimeError, ConnectionError):
+        return
 
 
 def compose(settings: Settings, *, answerer: Answerer) -> FastAPI:

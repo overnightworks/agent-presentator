@@ -29,6 +29,10 @@ let askAbort = null
 let playQueue = Promise.resolve()
 let spokenText = ''
 let sampleRate = 16000
+let activationGeneration = 0
+let playGeneration = 0
+let activeAudio = null
+let finishActivePlay = null
 
 const state = computed(() => {
   if (!on.value) return 'off'
@@ -38,6 +42,7 @@ const state = computed(() => {
 })
 
 function snapshot() {
+  const tracks = mediaStream ? mediaStream.getTracks() : []
   return {
     on: on.value,
     heard: heard.value,
@@ -48,7 +53,13 @@ function snapshot() {
     model: whoModel.value,
     hearOpen: Boolean(hearSocket && hearSocket.readyState === WebSocket.OPEN),
     speaking: speaking.value,
+    micLive: tracks.some((track) => track.readyState === 'live'),
+    audioPlaying: Boolean(activeAudio && !activeAudio.paused && !activeAudio.ended),
   }
+}
+
+function stillActive(generation) {
+  return on.value && generation === activationGeneration
 }
 
 function setOn(value) {
@@ -68,8 +79,14 @@ async function sendPcm(bytes) {
   return true
 }
 
+function closeHear() {
+  if (!hearSocket) return
+  try { hearSocket.close() } catch { /* already closed */ }
+}
+
 async function turnOn() {
   if (on.value) return
+  const generation = ++activationGeneration
   on.value = true
   error.value = ''
   heard.value = ''
@@ -79,17 +96,21 @@ async function turnOn() {
   let report
   try {
     const response = await fetch(`${COPRESENTER}/who`)
+    if (!stillActive(generation)) return
     report = await response.json()
+    if (!stillActive(generation)) return
     whoModel.value = report.answerer?.model || ''
     sampleRate = report.speech?.sample_rate || 16000
   } catch {
+    if (!stillActive(generation)) return
     error.value = 'Unreachable'
     hearing.value = 'off'
     return
   }
+  if (!stillActive(generation)) return
   if (report.speech?.hearing?.ready) {
     hearing.value = 'local'
-    await startLocalHear()
+    await startLocalHear(generation)
     return
   }
   if (startBrowserHear()) {
@@ -101,50 +122,55 @@ async function turnOn() {
 }
 
 function turnOff() {
+  activationGeneration += 1
   on.value = false
   hearing.value = 'off'
-  speaking.value = false
   error.value = ''
   if (askAbort) {
     askAbort.abort()
     askAbort = null
   }
-  stopLocalHear()
   stopBrowserHear()
-  stopAudio()
+  releaseCapture()
+  invalidatePlayback()
 }
 
-async function startLocalHear() {
+async function startLocalHear(generation) {
   const url = COPRESENTER.replace(/^http/, 'ws') + `/hear?language=${LANGUAGE}`
-  hearSocket = new WebSocket(url)
-  hearSocket.binaryType = 'arraybuffer'
-  hearSocket.onmessage = (event) => {
-    let payload
-    try {
-      payload = JSON.parse(event.data)
-    } catch {
-      return
-    }
-    if (!payload.text) return
-    heard.value = payload.text
-    if (payload.final) onFinal(payload.text)
+  const socket = new WebSocket(url)
+  socket.binaryType = 'arraybuffer'
+  bindHearSocket(socket, generation)
+  if (!stillActive(generation)) {
+    abandon({ socket })
+    return
   }
-  hearSocket.onerror = () => {
-    if (!on.value) return
-    if (startBrowserHear()) hearing.value = 'browser'
-    else error.value = 'No hearing'
-  }
+  hearSocket = socket
+  let stream = null
+  let context = null
+  let node = null
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
     })
-    audioContext = new AudioContext()
-    await audioContext.audioWorklet.addModule(workletUrl())
-    const source = audioContext.createMediaStreamSource(mediaStream)
-    workletNode = new AudioWorkletNode(audioContext, 'pcm-capture')
-    const fromRate = audioContext.sampleRate
+    if (!stillActive(generation)) {
+      abandon({ socket, stream })
+      return
+    }
+    mediaStream = stream
+    context = new AudioContext()
+    audioContext = context
+    await context.audioWorklet.addModule(workletUrl())
+    if (!stillActive(generation)) {
+      abandon({ socket, stream, context })
+      return
+    }
+    const source = context.createMediaStreamSource(stream)
+    node = new AudioWorkletNode(context, 'pcm-capture')
+    workletNode = node
+    const fromRate = context.sampleRate
     let pending = new Float32Array(0)
-    workletNode.port.onmessage = (event) => {
+    node.port.onmessage = (event) => {
+      if (!stillActive(generation)) return
       pending = concat(pending, event.data)
       const needed = Math.round(fromRate * 0.1)
       while (pending.length >= needed) {
@@ -155,35 +181,87 @@ async function startLocalHear() {
         }
       }
     }
-    source.connect(workletNode)
+    source.connect(node)
   } catch {
-    // Mic refused: the socket still accepts injected frames and `say()`.
+    abandon({ socket, stream, context, node })
+    if (!stillActive(generation)) return
+    fallbackHear('No hearing')
   }
 }
 
-function stopLocalHear() {
-  if (hearSocket) {
-    hearSocket.onmessage = null
-    hearSocket.onerror = null
-    hearSocket.close()
-    hearSocket = null
+function bindHearSocket(socket, generation) {
+  socket.onmessage = (event) => {
+    if (!stillActive(generation) || hearSocket !== socket) return
+    let payload
+    try {
+      payload = JSON.parse(event.data)
+    } catch {
+      return
+    }
+    if (payload.error) {
+      fallbackHear('No hearing')
+      return
+    }
+    if (!payload.text) return
+    heard.value = payload.text
+    if (payload.final) onFinal(payload.text)
   }
-  if (workletNode) {
-    workletNode.port.onmessage = null
-    workletNode.disconnect()
-    workletNode = null
+  socket.onerror = () => {
+    if (!stillActive(generation) || hearSocket !== socket) return
+    fallbackHear('No hearing')
   }
-  if (audioContext) {
-    audioContext.close()
-    audioContext = null
+  socket.onclose = () => {
+    if (hearSocket === socket) hearSocket = null
+    if (!stillActive(generation)) return
+    fallbackHear('Hearing closed')
   }
-  if (mediaStream) {
-    for (const track of mediaStream.getTracks()) track.stop()
-    mediaStream = null
+}
+
+function fallbackHear(message) {
+  releaseCapture()
+  if (!on.value) return
+  error.value = message
+  if (startBrowserHear()) {
+    hearing.value = 'browser'
+    return
   }
+  hearing.value = 'off'
+}
+
+function abandon({ socket, stream, context, node } = {}) {
+  if (socket) {
+    if (hearSocket === socket) hearSocket = null
+    socket.onmessage = null
+    socket.onerror = null
+    socket.onclose = null
+    try { socket.close() } catch { /* already closed */ }
+  }
+  if (node) {
+    if (workletNode === node) workletNode = null
+    node.port.onmessage = null
+    try { node.disconnect() } catch { /* already disconnected */ }
+  }
+  if (context) {
+    if (audioContext === context) audioContext = null
+    try { context.close() } catch { /* already closed */ }
+  }
+  if (stream) {
+    if (mediaStream === stream) mediaStream = null
+    for (const track of stream.getTracks()) track.stop()
+  }
+}
+
+function releaseCapture() {
+  abandon({
+    socket: hearSocket,
+    stream: mediaStream,
+    context: audioContext,
+    node: workletNode,
+  })
 }
 
 function startBrowserHear() {
+  if (recognition) return true
   const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!Ctor) return false
   recognition = new Ctor()
@@ -239,6 +317,7 @@ function isEcho(text, spoken) {
 }
 
 async function ask(text) {
+  invalidatePlayback()
   if (askAbort) askAbort.abort()
   const controller = new AbortController()
   askAbort = controller
@@ -277,6 +356,7 @@ async function readSse(body, signal) {
 }
 
 function applySse(block) {
+  if (!on.value) return
   const kind = (block.match(/^event:\s*(\S+)/m) || [])[1]
   const dataLine = (block.match(/^data:\s*(.*)$/m) || [])[1]
   if (!kind || dataLine == null) return
@@ -290,33 +370,77 @@ function applySse(block) {
 }
 
 function enqueueWav(b64) {
+  if (!on.value) return
+  const generation = playGeneration
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
-  playQueue = playQueue.then(() => playUrl(url)).finally(() => URL.revokeObjectURL(url))
+  playQueue = playQueue.then(() => {
+    if (generation !== playGeneration) return undefined
+    return playUrl(url, generation)
+  }).finally(() => URL.revokeObjectURL(url))
 }
 
-function playUrl(url) {
+function playUrl(url, generation) {
   return new Promise((resolve) => {
+    if (generation !== playGeneration) {
+      resolve()
+      return
+    }
     const audio = new Audio(url)
+    activeAudio = audio
     speaking.value = true
+    let settled = false
+    const settle = (failed) => {
+      if (settled) return
+      settled = true
+      if (finishActivePlay === abortPlay) finishActivePlay = null
+      if (activeAudio === audio) activeAudio = null
+      if (generation !== playGeneration) {
+        resolve()
+        return
+      }
+      speaking.value = false
+      if (failed) error.value = 'No speech'
+      resolve()
+    }
+    const abortPlay = () => settle(false)
+    finishActivePlay = abortPlay
     audio.onloadedmetadata = () => {
+      if (generation !== playGeneration) return
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         audioSeconds.value += audio.duration
       }
     }
-    const settle = () => {
-      speaking.value = false
-      resolve()
-    }
-    audio.onended = settle
-    audio.onerror = settle
-    audio.play().catch(settle)
+    audio.onended = () => settle(false)
+    audio.onerror = () => settle(true)
+    audio.play().then(() => {
+      if (generation !== playGeneration) abortPlay()
+    }).catch(() => settle(true))
   })
 }
 
-function stopAudio() {
-  playQueue = Promise.resolve()
+function stopActiveAudio() {
+  const audio = activeAudio
+  activeAudio = null
+  if (!audio) return
+  audio.onended = null
+  audio.onerror = null
+  audio.onloadedmetadata = null
+  audio.pause()
+  audio.removeAttribute('src')
+  audio.load()
+}
+
+function invalidatePlayback() {
+  playGeneration += 1
+  stopActiveAudio()
   speaking.value = false
+  if (finishActivePlay) {
+    const finish = finishActivePlay
+    finishActivePlay = null
+    finish()
+  }
+  playQueue = Promise.resolve()
 }
 
 function workletUrl() {
@@ -353,7 +477,7 @@ function toPcm16(float32, fromRate, toRate) {
 }
 
 onMounted(() => {
-  window.__copresenter = { setOn, say, sendPcm, snapshot }
+  window.__copresenter = { setOn, say, sendPcm, snapshot, closeHear }
 })
 onUnmounted(() => {
   turnOff()

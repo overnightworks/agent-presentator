@@ -31,6 +31,7 @@ FRONTEND = REPO / "frontend"
 TALK = Path("/tmp/copresenter-talk")
 REPORT = Path("/tmp/copresenter-proof.json")
 LOCK = Path("/tmp/probe-stack.lock")
+SPEECH_SERVICE = "http://127.0.0.1:8090"
 
 
 def _free_port() -> int:
@@ -88,15 +89,21 @@ def _pcm_frame() -> bytes:
     return b"\x00\x00" * (SAMPLE_RATE // 10)
 
 
-def _drive(page, talk_url: str) -> dict[str, object]:
-    page.goto(talk_url, wait_until="networkidle")
+def _wait_ready(page) -> None:
     page.wait_for_function("() => window.__copresenter")
+
+
+def _turn_on_local(page) -> None:
     page.evaluate("() => window.__copresenter.setOn(true)")
     page.wait_for_function(
         "() => window.__copresenter.snapshot().on === true"
         " && window.__copresenter.snapshot().hearing === 'local'"
         " && window.__copresenter.snapshot().hearOpen === true"
     )
+
+
+def _drive_loop(page) -> dict[str, object]:
+    _turn_on_local(page)
     sent = page.evaluate(
         """(bytes) => {
             const frame = Uint8Array.from(bytes)
@@ -122,6 +129,207 @@ def _drive(page, talk_url: str) -> dict[str, object]:
     snap["sent_pcm"] = bool(sent)
     snap["off"] = off
     return snap
+
+
+def _drive_off_during_activation(page) -> dict[str, object]:
+    page.evaluate(
+        """() => {
+            window.__copresenter.setOn(true)
+            window.__copresenter.setOn(false)
+        }"""
+    )
+    page.wait_for_timeout(1000)
+    snap = page.evaluate("() => window.__copresenter.snapshot()")
+    return {
+        "on": snap["on"],
+        "hearOpen": snap["hearOpen"],
+        "micLive": snap["micLive"],
+        "hearing": snap["hearing"],
+    }
+
+
+def _drive_off_during_playback(page) -> dict[str, object]:
+    _turn_on_local(page)
+    page.evaluate("() => window.__copresenter.say('Was steht auf dieser Folie?')")
+    page.wait_for_function(
+        """() => {
+            const snap = window.__copresenter.snapshot()
+            return snap.speaking === true || snap.audioPlaying === true
+        }""",
+        timeout=15000,
+    )
+    page.evaluate("() => window.__copresenter.setOn(false)")
+    page.wait_for_function("() => window.__copresenter.snapshot().on === false")
+    snap = page.evaluate("() => window.__copresenter.snapshot()")
+    return {
+        "on": snap["on"],
+        "speaking": snap["speaking"],
+        "audioPlaying": snap["audioPlaying"],
+        "hearOpen": snap["hearOpen"],
+        "micLive": snap["micLive"],
+    }
+
+
+def _drive_socket_close(page) -> dict[str, object]:
+    _turn_on_local(page)
+    page.evaluate("() => window.__copresenter.closeHear()")
+    page.wait_for_function(
+        """() => {
+            const snap = window.__copresenter.snapshot()
+            return snap.on === true && Boolean(snap.error)
+        }""",
+        timeout=10000,
+    )
+    snap = page.evaluate("() => window.__copresenter.snapshot()")
+    page.evaluate("() => window.__copresenter.setOn(false)")
+    return {
+        "on_during_error": True,
+        "error": snap["error"],
+        "hearOpen": snap["hearOpen"],
+        "hearing": snap["hearing"],
+    }
+
+
+def _drive_against_speech(page, talk_url: str) -> dict[str, object]:
+    page.goto(talk_url, wait_until="networkidle")
+    _wait_ready(page)
+    loop = _drive_loop(page)
+    off_activation = _drive_off_during_activation(page)
+    off_playback = _drive_off_during_playback(page)
+    closed = _drive_socket_close(page)
+    return {
+        "loop": loop,
+        "off_during_activation": off_activation,
+        "off_during_playback": off_playback,
+        "socket_close": closed,
+    }
+
+
+def _speech_ready(url: str) -> bool:
+    try:
+        body = httpx.get(f"{url}/health", timeout=1.0).json()
+    except (httpx.HTTPError, ValueError, TypeError):
+        return False
+    speaking = body.get("speaking") if isinstance(body, dict) else None
+    if not isinstance(speaking, dict):
+        return False
+    return speaking.get("ready") is True
+
+
+def _drive_real_speech(browser) -> dict[str, object]:
+    talk_port = _free_port()
+    httpd = ThreadingHTTPServer(("127.0.0.1", talk_port), TalkHandler)
+    thread = Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    copresenter_server = None
+    try:
+        present_port = _free_port()
+        settings = Settings(port=present_port, speech_url=SPEECH_SERVICE, deck=DECK)
+        copresenter_server = _serve(
+            compose(settings, answerer=CannedAnswerer()),
+            "127.0.0.1",
+            present_port,
+        )
+        _wait_http(f"http://127.0.0.1:{present_port}/who")
+        talk_url = f"http://127.0.0.1:{talk_port}/?copresenter=http://127.0.0.1:{present_port}"
+        page = browser.new_page()
+        page.goto(talk_url, wait_until="networkidle")
+        _wait_ready(page)
+        page.evaluate("() => window.__copresenter.setOn(true)")
+        page.wait_for_function("() => window.__copresenter.snapshot().on === true")
+        page.evaluate("() => window.__copresenter.say('Was steht auf dieser Folie?')")
+        page.wait_for_function(
+            """() => {
+                const snap = window.__copresenter.snapshot()
+                return snap.answer.length > 0 && snap.audioSeconds > 0
+            }""",
+            timeout=30000,
+        )
+        snap = page.evaluate("() => window.__copresenter.snapshot()")
+        page.evaluate("() => window.__copresenter.setOn(false)")
+        who = httpx.get(f"http://127.0.0.1:{present_port}/who", timeout=2.0).json()
+        return {
+            "heard": snap.get("heard"),
+            "answer": snap.get("answer"),
+            "audio_seconds": snap.get("audioSeconds"),
+            "who": who,
+        }
+    finally:
+        httpd.shutdown()
+        if copresenter_server is not None:
+            copresenter_server.should_exit = True
+
+
+class TalkHandler(SimpleHTTPRequestHandler):
+    """Serve the static talk build for the browser proof."""
+
+    def __init__(self, *args, **kwargs):
+        """Serve files from the built talk directory."""
+        super().__init__(*args, directory=str(TALK), **kwargs)
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        """Stay quiet; the proof reports through stdout."""
+        del fmt, args
+
+
+def _ok_standin(result: dict[str, object]) -> bool:
+    loop = result["loop"]
+    off_act = result["off_during_activation"]
+    off_play = result["off_during_playback"]
+    closed = result["socket_close"]
+    if not loop.get("heard") or not loop.get("answer") or not loop.get("audioSeconds"):
+        return False
+    if loop.get("off", {}).get("on") is not False:
+        return False
+    if off_act.get("on") or off_act.get("hearOpen") or off_act.get("micLive"):
+        return False
+    if off_play.get("on") or off_play.get("audioPlaying") or off_play.get("speaking"):
+        return False
+    return bool(closed.get("error"))
+
+
+def _browser_proof(talk_url: str, present_url: str) -> tuple[dict[str, object], bool]:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path="/usr/bin/google-chrome",
+            args=[
+                "--headless=new",
+                "--autoplay-policy=no-user-gesture-required",
+                "--use-fake-ui-for-media-stream",
+                "--use-fake-device-for-media-stream",
+                "--mute-audio",
+            ],
+        )
+        context = browser.new_context(permissions=["microphone"])
+        page = context.new_page()
+        result = _drive_against_speech(page, talk_url)
+        who = httpx.get(f"{present_url}/who", timeout=2.0).json()
+        if _speech_ready(SPEECH_SERVICE):
+            speech_8090: dict[str, object] | str = _drive_real_speech(context)
+        else:
+            speech_8090 = "skipped: GET /health on :8090 is not ready"
+        browser.close()
+    loop = result["loop"]
+    report = {
+        "hearing": loop.get("hearing"),
+        "heard": loop.get("heard"),
+        "answer": loop.get("answer"),
+        "audio_seconds": loop.get("audioSeconds"),
+        "sent_pcm": loop.get("sent_pcm"),
+        "toggle_off": loop.get("off", {}).get("on") is False,
+        "off_during_activation": result["off_during_activation"],
+        "off_during_playback": result["off_during_playback"],
+        "socket_close": result["socket_close"],
+        "speech_8090": speech_8090,
+        "who": who,
+        "answerer": "canned",
+        "speech": "stand-in",
+    }
+    REPORT.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    return report, _ok_standin(result)
 
 
 def main() -> int:
@@ -152,53 +360,11 @@ def main() -> int:
         )
         _wait_http(f"{speech_url}/health")
         _wait_http(f"{present_url}/who")
-
-        class TalkHandler(SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory=str(TALK), **kwargs)
-
-            def log_message(self, fmt: str, *args: object) -> None:
-                del fmt, args
-
         httpd = ThreadingHTTPServer(("127.0.0.1", talk_port), TalkHandler)
         Thread(target=httpd.serve_forever, daemon=True).start()
         talk_url = f"http://127.0.0.1:{talk_port}/?copresenter={present_url}"
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                executable_path="/usr/bin/google-chrome",
-                args=[
-                    "--headless=new",
-                    "--autoplay-policy=no-user-gesture-required",
-                    "--use-fake-ui-for-media-stream",
-                    "--use-fake-device-for-media-stream",
-                    "--mute-audio",
-                ],
-            )
-            context = browser.new_context(
-                permissions=["microphone"],
-            )
-            page = context.new_page()
-            snap = _drive(page, talk_url)
-            who = httpx.get(f"{present_url}/who", timeout=2.0).json()
-            browser.close()
-        report = {
-            "hearing": snap.get("hearing"),
-            "heard": snap.get("heard"),
-            "answer": snap.get("answer"),
-            "audio_seconds": snap.get("audioSeconds"),
-            "sent_pcm": snap.get("sent_pcm"),
-            "toggle_off": snap.get("off", {}).get("on") is False,
-            "who": who,
-            "answerer": "canned",
-            "speech": "stand-in",
-        }
-        REPORT.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
-        if not report["heard"] or not report["answer"] or not report["audio_seconds"]:
-            return 1
-        return 0
+        _report, ok = _browser_proof(talk_url, present_url)
+        return 0 if ok else 1
     finally:
         if httpd is not None:
             httpd.shutdown()
