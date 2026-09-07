@@ -10,6 +10,11 @@ from datetime import timedelta
 
 import uvicorn
 from fastapi import APIRouter, FastAPI
+from pydantic import SecretStr
+from webauth.config import WebAuthConfig
+from webauth.liveness import IdleWindowLiveness
+from webauth.proxies import TrustedProxies
+from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.catalog import (
@@ -29,7 +34,8 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     Argon2PasswordHasher,
-    HmacSessionCookieSigner,
+    IdleWindow,
+    SignedSessionCookie,
     SqliteLoginAttemptStore,
     SqliteSessionRecordStore,
     SqliteUserStore,
@@ -42,11 +48,16 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
-from presentator.api.auth import create_lobby
+from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
 from presentator.api.hooks import fetch_hook
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
-from presentator.application.identity import Identity
+from presentator.application.identity import (
+    FAILURE_WINDOW,
+    FAILURES_BEFORE_THROTTLE,
+    IDLE_WINDOW,
+    Identity,
+)
 from presentator.application.preferences import Preferences
 from presentator.host.config import Settings, load_settings
 from presentator.host.polling import SourcePoller
@@ -67,16 +78,19 @@ def build_instance(settings: Settings) -> Instance:
     create_deck_tables(settings.database)
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
+    clock = SystemClock()
+    hasher = Argon2PasswordHasher()
+    liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
+    web_auth = _web_auth_config(settings.secret_key, hasher=hasher, liveness=liveness)
     identity = Identity(
         users=accounts,
-        sessions=SqliteSessionRecordStore(settings.database),
-        attempts=SqliteLoginAttemptStore(settings.database),
-        hasher=Argon2PasswordHasher(),
-        clock=SystemClock(),
+        sessions=SqliteSessionRecordStore(settings.database, clock=clock),
+        attempts=SqliteLoginAttemptStore(settings.database, clock=clock),
+        hasher=hasher,
+        clock=clock,
         identifiers=identifiers,
-        cookies=HmacSessionCookieSigner(
-            settings.secret_key.get_secret_value().encode(),
-        ),
+        cookies=SignedSessionCookie(settings.secret_key.get_secret_value().encode()),
+        liveness=IdleWindow(liveness),
     )
     sources = SqliteSourceStore(
         database=settings.database,
@@ -127,13 +141,43 @@ def build_instance(settings: Settings) -> Instance:
             identity=identity,
             decks=decks,
             pages=pages,
-            secure_cookies=settings.https,
+            auth=InstalledAuth(
+                config=web_auth,
+                secure_cookies=settings.https,
+            ),
             fetch_hook=_armed_hook(settings, decks),
         ),
         poller=SourcePoller(
             refresh=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
+    )
+
+
+def _web_auth_config(
+    secret: SecretStr,
+    *,
+    hasher: Argon2PasswordHasher,
+    liveness: IdleWindowLiveness,
+) -> WebAuthConfig:
+    """The library configuration this host runs: Argon2id, no Redis, last_seen."""
+    idle_seconds = int(IDLE_WINDOW.total_seconds())
+    failure_seconds = int(FAILURE_WINDOW.total_seconds())
+    return WebAuthConfig(
+        session_secret=secret,
+        trusted_proxies=TrustedProxies(),
+        password_hasher=hasher,
+        rate_limits=SingleProcessRateLimitBackend(),
+        allowed_hosts_exact=frozenset(),
+        allowed_hosts_patterns=(),
+        session_max_age_seconds=idle_seconds,
+        session_liveness=liveness,
+        login_rate_limit=FAILURES_BEFORE_THROTTLE,
+        login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
+        login_lockout_window_seconds=failure_seconds,
+        login_rate_window_seconds=failure_seconds,
+        session_cookie_name=SESSION_COOKIE,
+        session_cache=None,
     )
 
 

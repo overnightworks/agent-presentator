@@ -2,8 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — depends on the extraction in
-  [songmaker #825](https://github.com/overnightworks/songmaker/issues/825)
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -35,6 +34,32 @@ delivers, not against what the libraries might grow into.
 as dependencies pinned by Git tag. This repository writes no provider protocol
 and no authentication mechanics; a defect in either is fixed in its library and
 pulled in by a new tag.
+
+### Amendment 2026-09-07 — webauth v0.2.0 owns the login mechanism
+
+Authority: [#50](https://github.com/overnightworks/agent-presentator/issues/50)
+(slice 13a of [#8](https://github.com/overnightworks/agent-presentator/issues/8)).
+
+`webauth` v0.2.0 is pinned as `overnightworks-webauth` from its release wheel.
+Redis is optional, hashing is a port, and session liveness is a policy, so this
+host can run without Redis (ADR 0006) and without bcrypt.
+
+This repository keeps its own truth: the SQLite user, session, and login-attempt
+stores, the Argon2id hasher, first-start `/setup`, the 302 to `/login` for every
+unauthenticated HTML address, the static and armed-hook exemptions, and the
+one catalog sentence for a refused login. The library owns the mechanism: HMAC
+cookie signing, `judge_credentials` / `login_attempt_budget`, and
+`IdleWindowLiveness` over `last_seen`. Cookie flags stay this host's
+(`SameSite=Lax`, `HttpOnly`, `Secure` iff HTTPS); `issue_session_cookies` hardcodes
+`Strict` and is not called. Cross-site POST refusal stays this host's Origin and
+`Sec-Fetch-Site` check against the request's own origin; the library's CSRF
+middleware checks an allowlist and does not read `Sec-Fetch-Site`.
+`http_refusal` is not used on the HTML login: 401 vs 429 would tell throttle
+apart from a wrong password.
+
+User management (Settings · Users, password change, admin reset, deactivation)
+is not in this slice. It waits on `webauth` v0.3.0 and
+[#61](https://github.com/overnightworks/agent-presentator/issues/61).
 
 ### What exists today, and what does not
 

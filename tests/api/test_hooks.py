@@ -9,14 +9,14 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.adapters.catalog import age_in_words
-from presentator.api.auth import create_lobby
+from presentator.api.auth import InstalledAuth, create_lobby
 from presentator.api.hooks import HOOKS_PATH, fetch_hook
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder
-from tests.api.lobby import CATALOGS, a_configured_source
+from tests.api.lobby import CATALOGS, a_configured_source, a_web_auth
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeBuildRunner,
@@ -31,6 +31,7 @@ from tests.application.fakes import (
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
+    MatchingLiveness,
     ReversibleHasher,
 )
 
@@ -81,6 +82,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
     clock = FrozenClock(instant=_NOW)
     store = FakeDeckStore()
     source = a_configured_source("git@example.invalid:decks.git")
+    hasher = ReversibleHasher()
     decks = Decks(
         sources=FakeSourceStore(sources=[source]),
         folders=FakeDeckFolders(carried={source.id: (a_pushed_folder(),)}),
@@ -92,12 +94,13 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
     lobby = create_lobby(
         identity=Identity(
             users=FakeUserStore(),
-            sessions=FakeSessionRecordStore(),
-            attempts=FakeLoginAttemptStore(),
-            hasher=ReversibleHasher(),
+            sessions=FakeSessionRecordStore(clock=clock),
+            attempts=FakeLoginAttemptStore(clock=clock),
+            hasher=hasher,
             clock=clock,
             identifiers=CountingIdentifierFactory(),
             cookies=MarkingCookieSigner(),
+            liveness=MatchingLiveness(),
         ),
         decks=decks,
         pages=Pages(
@@ -108,7 +111,7 @@ def a_lobby_with_a_hook(*, armed: bool = True) -> Hooked:
             ),
             age_in_words=age_in_words,
         ),
-        secure_cookies=False,
+        auth=InstalledAuth(config=a_web_auth(hasher=hasher)),
         fetch_hook=(
             fetch_hook(
                 decks=decks,

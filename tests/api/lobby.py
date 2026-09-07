@@ -10,19 +10,29 @@ from typing import Final
 
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from pydantic import SecretStr
+from webauth.config import WebAuthConfig
+from webauth.liveness import IdleWindowLiveness
+from webauth.proxies import TrustedProxies
+from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
     load_catalogs,
 )
-from presentator.api.auth import create_lobby
+from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
-from presentator.application.identity import Identity
+from presentator.application.identity import (
+    FAILURE_WINDOW,
+    FAILURES_BEFORE_THROTTLE,
+    IDLE_WINDOW,
+    Identity,
+)
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import DeckFolder, Source
-from presentator.contracts.models import Credentials, Role, User
+from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
     CountingIdentifierFactory,
@@ -38,6 +48,7 @@ from tests.application.fakes import (
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
+    MatchingLiveness,
     ReversibleHasher,
 )
 
@@ -92,18 +103,42 @@ class Lobby:
         return str(self.client.base_url).rstrip("/")
 
 
-def an_account(username: str, *, role: Role = Role.USER) -> Credentials:
+def an_account(username: str, *, role: Role = Role.USER) -> Account:
     """One account a test can log into, hashed the way the fake hasher hashes."""
-    return Credentials(
-        user=User(id=f"id-of-{username}", username=username, role=role),
+    return Account(
+        id=f"id-of-{username}",
+        username=username,
+        role=role,
         password_hash=ReversibleHasher().hash(TYPED_WORDS),
     )
 
 
-def a_user_store(*people: Credentials) -> FakeUserStore:
+def a_user_store(*people: Account) -> FakeUserStore:
     """The accounts an instance already has, without going through first start."""
     return FakeUserStore(
-        accounts={person.user.username: person for person in people},
+        accounts={person.username: person for person in people},
+    )
+
+
+def a_web_auth(*, hasher: ReversibleHasher) -> WebAuthConfig:
+    """The library configuration a route test runs, over the fake hasher."""
+    idle_seconds = int(IDLE_WINDOW.total_seconds())
+    failure_seconds = int(FAILURE_WINDOW.total_seconds())
+    return WebAuthConfig(
+        session_secret=SecretStr("t" * 32),
+        trusted_proxies=TrustedProxies(),
+        password_hasher=hasher,
+        rate_limits=SingleProcessRateLimitBackend(),
+        allowed_hosts_exact=frozenset({"testserver"}),
+        allowed_hosts_patterns=(),
+        session_max_age_seconds=idle_seconds,
+        session_liveness=IdleWindowLiveness(idle_seconds),
+        login_rate_limit=FAILURES_BEFORE_THROTTLE,
+        login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
+        login_lockout_window_seconds=failure_seconds,
+        login_rate_window_seconds=failure_seconds,
+        session_cookie_name=SESSION_COOKIE,
+        session_cache=None,
     )
 
 
@@ -140,14 +175,16 @@ def a_lobby(
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
     clock = FrozenClock(instant=NOW)
+    hasher = ReversibleHasher()
     identity = Identity(
         users=FakeUserStore() if users is None else users,
-        sessions=FakeSessionRecordStore(),
-        attempts=FakeLoginAttemptStore(),
-        hasher=ReversibleHasher(),
+        sessions=FakeSessionRecordStore(clock=clock),
+        attempts=FakeLoginAttemptStore(clock=clock),
+        hasher=hasher,
         clock=clock,
         identifiers=CountingIdentifierFactory(),
         cookies=MarkingCookieSigner(),
+        liveness=MatchingLiveness(),
     )
     decks = Decks(
         sources=FakeSourceStore(
@@ -180,7 +217,10 @@ def a_lobby(
             ),
             age_in_words=age_in_words,
         ),
-        secure_cookies=secure_cookies,
+        auth=InstalledAuth(
+            config=a_web_auth(hasher=hasher),
+            secure_cookies=secure_cookies,
+        ),
         fetch_hook=None,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)

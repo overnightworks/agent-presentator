@@ -1,11 +1,14 @@
 """In-memory stands-in for the ports, so the use cases run pure."""
 
+from __future__ import annotations
+
 import threading
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
+from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.decks import (
     Artefacts,
     Build,
@@ -17,7 +20,7 @@ from presentator.contracts.decks import (
     SourceRunFailure,
 )
 from presentator.contracts.models import (
-    Credentials,
+    Account,
     FirstStartClosedError,
     Role,
     Session,
@@ -38,33 +41,45 @@ _AN_UNNAMED_FAILURE: Final = SourceRunFailure.UNREACHABLE
 class FakeUserStore:
     """Accounts in a dictionary, keyed the way the real table is."""
 
-    accounts: dict[str, Credentials] = field(default_factory=dict[str, Credentials])
+    accounts: dict[str, Account] = field(default_factory=dict[str, Account])
+    minted: int = 0
 
     def get(self, user_id: str) -> User | None:
         found = [
-            credentials.user
-            for credentials in self.accounts.values()
-            if credentials.user.id == user_id
+            account.as_user()
+            for account in self.accounts.values()
+            if account.id == user_id
         ]
         return found[0] if found else None
 
-    def credentials_for(self, username: str) -> Credentials | None:
+    def get_by_username(self, username: str) -> Account | None:
         return self.accounts.get(username)
 
-    def add_first_account(self, credentials: Credentials) -> None:
+    def add_first_account(self, account: Account) -> None:
         if self.accounts:
             message = "this instance already has an account"
             raise FirstStartClosedError(message)
-        self.accounts[credentials.user.username] = credentials
+        self.accounts[account.username] = account
+
+    def create(self, username: str, password_hash: str, role: str) -> Account:
+        self.minted += 1
+        account = Account(
+            id=f"created-{self.minted}",
+            username=username,
+            role=Role(role),
+            password_hash=password_hash,
+        )
+        self.accounts[username] = account
+        return account
 
     def count(self) -> int:
         return len(self.accounts)
 
     def first_admin(self) -> User | None:
         admins = [
-            credentials.user
-            for credentials in self.accounts.values()
-            if credentials.user.role is Role.ADMIN
+            account.as_user()
+            for account in self.accounts.values()
+            if account.role is Role.ADMIN
         ]
         return admins[0] if admins else None
 
@@ -74,30 +89,116 @@ class FakeSessionRecordStore:
     """Session rows in a dictionary."""
 
     rows: dict[str, Session] = field(default_factory=dict[str, Session])
+    clock: FrozenClock | None = None
+    minted: int = 0
 
-    def get(self, session_id: str) -> Session | None:
+    def create(
+        self,
+        user_id: str,
+        expires_at: datetime,
+        *,
+        ip_address: str,
+        user_agent: str,
+    ) -> Session:
+        del expires_at
+        self.minted += 1
+        assert self.clock is not None
+        last_seen = self.clock.now()
+        session = Session(
+            id=f"session-{self.minted}",
+            user_id=user_id,
+            last_seen=last_seen,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        self.rows[session.id] = session
+        return session
+
+    def load(self, session_id: str) -> Session | None:
         return self.rows.get(session_id)
 
-    def put(self, session: Session) -> None:
-        self.rows[session.id] = session
+    def touch(
+        self,
+        record: Session,
+        *,
+        ip_address: str,
+        user_agent: str,
+        now: datetime,
+    ) -> None:
+        self.rows[record.id] = replace(
+            record,
+            last_seen=now,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
-    def remove(self, session_id: str) -> None:
+    def delete(self, session_id: str) -> None:
         self.rows.pop(session_id, None)
+
+    def delete_for_user(self, user_id: str) -> int:
+        kept = {
+            session_id: session
+            for session_id, session in self.rows.items()
+            if session.user_id != user_id
+        }
+        dropped = len(self.rows) - len(kept)
+        self.rows.clear()
+        self.rows.update(kept)
+        return dropped
+
+    def prune_overflow(self, user_id: str, max_sessions: int) -> list[str]:
+        owned = sorted(
+            (session for session in self.rows.values() if session.user_id == user_id),
+            key=lambda session: (session.last_seen, session.id),
+            reverse=True,
+        )
+        dropped = [session.id for session in owned[max_sessions:]]
+        for session_id in dropped:
+            self.rows.pop(session_id, None)
+        return dropped
 
 
 @dataclass
 class FakeLoginAttemptStore:
-    """Failures as a list of moments per name."""
+    """Failures as a list of moments per name and address."""
 
-    failures: list[tuple[str, datetime]] = field(
-        default_factory=list[tuple[str, datetime]],
+    clock: FrozenClock
+    failures: list[tuple[str, str, datetime]] = field(
+        default_factory=list[tuple[str, str, datetime]],
     )
 
-    def record_failure(self, username: str, *, at: datetime) -> None:
-        self.failures.append((username, at))
+    def record(self, *, ip_address: str, username: str, success: bool) -> None:
+        if success:
+            return
+        self.failures.append((username, ip_address, self.clock.now()))
 
-    def failure_count(self, username: str, *, since: datetime) -> int:
-        return sum(1 for name, at in self.failures if name == username and at >= since)
+    def count_recent_failures(
+        self,
+        *,
+        ip_address: str,
+        window_seconds: int,
+        username: str | None = None,
+    ) -> int:
+        since = self.clock.now() - timedelta(seconds=window_seconds)
+        if username is not None:
+            return sum(
+                1 for name, _, at in self.failures if name == username and at >= since
+            )
+        return sum(
+            1
+            for _, address, at in self.failures
+            if address == ip_address and at >= since
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingLiveness:
+    """The idle-window rule a test can freeze, matching the library's `<=`."""
+
+    window: timedelta = IDLE_WINDOW
+
+    def admits(self, session: Session, *, at: datetime) -> bool:
+        return (at - session.last_seen).total_seconds() <= self.window.total_seconds()
 
 
 @dataclass
@@ -109,8 +210,8 @@ class ReversibleHasher:
     def hash(self, password: str) -> str:
         return f"{self.marker}{password}"
 
-    def verify(self, password: str, password_hash: str | None) -> bool:
-        return password_hash == self.hash(password)
+    def verify(self, password: str, stored_hash: str | None) -> bool:
+        return stored_hash == self.hash(password)
 
 
 @dataclass

@@ -4,12 +4,15 @@ Audience: whoever administers this repository and the machines it runs on.
 
 ## Running an instance
 
-One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. It signs
-the session cookie, and without it the process refuses to start. In development
-it lives in a gitignored `.env` at the repository root; on the server it comes
-from the process environment. A refusal names the setting and what is wrong
-with it, never the value it was given, so a mistyped secret does not land in
-the startup output.
+One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. `webauth`
+signs the session cookie with it, and without it the process refuses to start.
+In development it lives in a gitignored `.env` at the repository root; on the
+server it comes from the process environment. A refusal names the setting and
+what is wrong with it, never the value it was given, so a mistyped secret does
+not land in the startup output. Five refused logins for one name inside five
+minutes are throttled; the page says the same sentence it says for a wrong
+password. A session lasts twelve idle hours and slides forward on every
+request; logging out deletes the row.
 
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"

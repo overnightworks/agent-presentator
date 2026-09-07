@@ -1,14 +1,15 @@
 """The capabilities the login calls out through; adapters fill them.
 
-The whole set is a bridge to `webauth` (ADR 0003): songmaker #835 brings the
-stores and #833 the user management, and this file goes with them.
+The stores, hasher, and cookie signer are this product's implementations of
+the `webauth` ports (ADR 0003). First start and the first admin stay here
+until `webauth[users]` ships them.
 """
 
 from abc import abstractmethod
 from datetime import datetime
 from typing import Protocol
 
-from presentator.contracts.models import Credentials, Session, User
+from presentator.contracts.models import Account, Session, User
 
 
 class UserStore(Protocol):
@@ -19,16 +20,20 @@ class UserStore(Protocol):
         """A live session names its user by id."""
 
     @abstractmethod
-    def credentials_for(self, username: str) -> Credentials | None:
+    def get_by_username(self, username: str) -> Account | None:
         """Login looks up the typed name, never an enumeration of accounts."""
 
     @abstractmethod
-    def add_first_account(self, credentials: Credentials) -> None:
+    def add_first_account(self, account: Account) -> None:
         """Store the instance's first account, refusing once one exists.
 
         Counting and inserting are one step, so two first starts at the same
         moment cannot both become admin.
         """
+
+    @abstractmethod
+    def create(self, username: str, password_hash: str, role: str) -> Account:
+        """Add an account once an admin exists to create one."""
 
     @abstractmethod
     def count(self) -> int:
@@ -43,28 +48,60 @@ class SessionRecordStore(Protocol):
     """Server-side session rows; logout deletes the row, not only the cookie."""
 
     @abstractmethod
-    def get(self, session_id: str) -> Session | None:
+    def create(
+        self,
+        user_id: str,
+        expires_at: datetime,
+        *,
+        ip_address: str,
+        user_agent: str,
+    ) -> Session:
+        """Open a session; last_seen is this store's, from the clock it holds."""
+
+    @abstractmethod
+    def load(self, session_id: str) -> Session | None:
         """A cookie is only a key; the row is the session."""
 
     @abstractmethod
-    def put(self, session: Session) -> None:
-        """Create and sliding touch are the same write of an immutable record."""
+    def touch(
+        self,
+        record: Session,
+        *,
+        ip_address: str,
+        user_agent: str,
+        now: datetime,
+    ) -> None:
+        """Slide last_seen to `now` and remember where the request came from."""
 
     @abstractmethod
-    def remove(self, session_id: str) -> None:
+    def delete(self, session_id: str) -> None:
         """Logout has to kill the row so a stolen cookie cannot come back."""
+
+    @abstractmethod
+    def delete_for_user(self, user_id: str) -> int:
+        """End every session of one account; the number dropped is returned."""
+
+    @abstractmethod
+    def prune_overflow(self, user_id: str, max_sessions: int) -> list[str]:
+        """Drop the oldest sessions above `max_sessions`, newest kept."""
 
 
 class LoginAttemptStore(Protocol):
     """Failed attempts are counted so guessing is throttled."""
 
     @abstractmethod
-    def record_failure(self, username: str, *, at: datetime) -> None:
-        """The clock is passed in so the store does not read one of its own."""
+    def record(self, *, ip_address: str, username: str, success: bool) -> None:
+        """Remember one attempt; only a failure spends the budget."""
 
     @abstractmethod
-    def failure_count(self, username: str, *, since: datetime) -> int:
-        """The window is the caller's, so policy does not leak into the store."""
+    def count_recent_failures(
+        self,
+        *,
+        ip_address: str,
+        window_seconds: int,
+        username: str | None = None,
+    ) -> int:
+        """Failures inside the window, by username when given, else by address."""
 
 
 class PasswordHasher(Protocol):
@@ -75,7 +112,7 @@ class PasswordHasher(Protocol):
         """First start and admin-created accounts store only the hash."""
 
     @abstractmethod
-    def verify(self, password: str, password_hash: str | None) -> bool:
+    def verify(self, password: str, stored_hash: str | None) -> bool:
         """Say whether the password belongs to the hash, and refuse an absent one.
 
         An absent hash still costs a full verification, so an unknown name and a
@@ -88,7 +125,7 @@ class IdentifierFactory(Protocol):
 
     @abstractmethod
     def new_id(self) -> str:
-        """A user id and a session id are both minted here."""
+        """A user id is minted here."""
 
 
 class SessionCookieSigner(Protocol):
@@ -101,3 +138,11 @@ class SessionCookieSigner(Protocol):
     @abstractmethod
     def session_id_from(self, cookie_value: str) -> str | None:
         """Return the signed id, or nothing when the value was not signed here."""
+
+
+class SessionLiveness(Protocol):
+    """Whether a stored session still stands at a given instant."""
+
+    @abstractmethod
+    def admits(self, session: Session, *, at: datetime) -> bool:
+        """Alive inside the idle window, including the boundary itself."""

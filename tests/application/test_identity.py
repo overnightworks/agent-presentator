@@ -1,15 +1,10 @@
-"""First start, login, the throttle, the sliding session, and logout."""
+"""First start, the sliding session, and logout."""
 
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from presentator.application.identity import (
-    FAILURE_WINDOW,
-    FAILURES_BEFORE_THROTTLE,
-    IDLE_WINDOW,
-    Identity,
-)
+from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import FirstStartClosedError, Role
 from tests.application.fakes import (
     CountingIdentifierFactory,
@@ -18,11 +13,11 @@ from tests.application.fakes import (
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
+    MatchingLiveness,
     ReversibleHasher,
 )
 
 _TYPED_WORDS = "the words only this test types"
-_WRONG_WORDS = "guessed"
 
 
 @pytest.fixture
@@ -34,12 +29,13 @@ def clock() -> FrozenClock:
 def identity(clock: FrozenClock) -> Identity:
     return Identity(
         users=FakeUserStore(),
-        sessions=FakeSessionRecordStore(),
-        attempts=FakeLoginAttemptStore(),
+        sessions=FakeSessionRecordStore(clock=clock),
+        attempts=FakeLoginAttemptStore(clock=clock),
         hasher=ReversibleHasher(),
         clock=clock,
         identifiers=CountingIdentifierFactory(),
         cookies=MarkingCookieSigner(),
+        liveness=MatchingLiveness(),
     )
 
 
@@ -73,56 +69,7 @@ def test_first_start_refuses_a_second_account(identity: Identity) -> None:
     with pytest.raises(FirstStartClosedError):
         identity.create_first_admin(username="stranger", password=_TYPED_WORDS)
 
-    assert identity.log_in(username="stranger", password=_TYPED_WORDS) is None
-
-
-def test_the_right_password_opens_a_session(identity: Identity) -> None:
-    sign_up_the_admin(identity)
-
-    cookie = identity.log_in(username="felix", password=_TYPED_WORDS)
-
-    assert cookie is not None
-    assert identity.signed_in_user(cookie) is not None
-
-
-@pytest.mark.parametrize(
-    ("username", "password"),
-    [
-        pytest.param("nobody", _TYPED_WORDS, id="unknown-name"),
-        pytest.param("felix", _WRONG_WORDS, id="wrong-password"),
-    ],
-)
-def test_a_refused_login_opens_no_session(
-    identity: Identity,
-    username: str,
-    password: str,
-) -> None:
-    sign_up_the_admin(identity)
-
-    assert identity.log_in(username=username, password=password) is None
-
-
-def test_repeated_failures_throttle_even_the_right_password(
-    identity: Identity,
-) -> None:
-    sign_up_the_admin(identity)
-    for _ in range(FAILURES_BEFORE_THROTTLE):
-        identity.log_in(username="felix", password=_WRONG_WORDS)
-
-    assert identity.log_in(username="felix", password=_TYPED_WORDS) is None
-
-
-def test_the_throttle_lets_go_once_the_failures_age_out(
-    identity: Identity,
-    clock: FrozenClock,
-) -> None:
-    sign_up_the_admin(identity)
-    for _ in range(FAILURES_BEFORE_THROTTLE):
-        identity.log_in(username="felix", password=_WRONG_WORDS)
-
-    clock.advance(FAILURE_WINDOW + timedelta(seconds=1))
-
-    assert identity.log_in(username="felix", password=_TYPED_WORDS) is not None
+    assert identity.account_named("stranger") is None
 
 
 def test_a_login_survives_a_ninety_minute_talk(
@@ -142,7 +89,7 @@ def test_a_session_expires_after_twelve_idle_hours(
 ) -> None:
     cookie = sign_up_the_admin(identity)
 
-    clock.advance(IDLE_WINDOW)
+    clock.advance(IDLE_WINDOW + timedelta(seconds=1))
 
     assert identity.signed_in_user(cookie) is None
 
@@ -156,6 +103,17 @@ def test_the_idle_window_starts_again_at_every_request(
     clock.advance(IDLE_WINDOW - timedelta(minutes=1))
     assert identity.signed_in_user(cookie) is not None
     clock.advance(IDLE_WINDOW - timedelta(minutes=1))
+
+    assert identity.signed_in_user(cookie) is not None
+
+
+def test_a_session_at_the_idle_boundary_is_still_alive(
+    identity: Identity,
+    clock: FrozenClock,
+) -> None:
+    cookie = sign_up_the_admin(identity)
+
+    clock.advance(IDLE_WINDOW)
 
     assert identity.signed_in_user(cookie) is not None
 

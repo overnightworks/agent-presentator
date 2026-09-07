@@ -56,8 +56,9 @@ and only an adapter may name `gitmirror`.
 
 The third-party rule is written per library, when that library is first
 imported, rather than speculatively before it exists. `pwdlib` and `sqlite3`
-carry one contract, `tomllib` and `babel` another. A library with no contract
-yet is one nothing imports; the first import writes it.
+carry one contract, `tomllib` and `babel` another, `webauth` a third: adapters
+and the host import it, and the api may import only its request helpers. A
+library with no contract yet is one nothing imports; the first import writes it.
 
 ## Consequences
 
