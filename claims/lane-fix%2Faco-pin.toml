@@ -1,0 +1,7 @@
+claim_id = "37e2d0bbce0a4d7f826c9acc69e824b1"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "ca09c0e68628990c1233eaa73f70a0817908fc5d"
+branch = "fix/aco-pin"
+scope = [".github/workflows/pr-check.yml", "AGENTS.md"]
+opened_commit = "d1eb7aa6c4644b2fff9222899c8ddf2cf70c90d5"
