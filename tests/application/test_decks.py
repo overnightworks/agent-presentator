@@ -519,3 +519,27 @@ def test_an_empty_list_names_no_address_while_two_sources_could_carry_a_deck() -
 
     assert refreshed(decks) == ()
     assert decks.source_address() is None
+
+
+def test_a_source_that_cannot_be_read_stops_no_other_sources_refresh() -> None:
+    mirror = FakeDeckFolders(
+        carried={
+            _SOURCE.id: (a_folder("kundenfeedback"),),
+            _ANOTHER_SOURCE.id: (a_folder("knowledge-fabric"),),
+        },
+    )
+    decks = decks_over(sources=having(_SOURCE, _ANOTHER_SOURCE), mirror=mirror)
+    refreshed(decks)
+
+    mirror.carried[_SOURCE.id] = None
+    mirror.carried[_ANOTHER_SOURCE.id] = (
+        a_folder("knowledge-fabric"),
+        a_folder("pushed-while-the-other-was-unreadable"),
+    )
+    while_one_source_was_unreadable = refreshed(decks)
+
+    assert sorted(deck.slug for deck in while_one_source_was_unreadable) == [
+        "knowledge-fabric",
+        "kundenfeedback",
+        "pushed-while-the-other-was-unreadable",
+    ]

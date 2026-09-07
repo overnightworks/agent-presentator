@@ -132,8 +132,10 @@ _DeckRow = tuple[
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
 _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
+# The name and never the URL: a URL may carry userinfo, and a log line is read
+# by more eyes than the store is.
 _NAME_ALREADY_TAKEN: Final = (
-    "source %s is not stored: another source already answers to the name %s"
+    "the configured source is not stored: another source answers to the name %s"
 )
 
 _log = logging.getLogger(__name__)
@@ -218,7 +220,7 @@ class SqliteSourceStore:
             )
             stored = cursor.execute(_SOURCE_BY_URL, (asked_for.url,)).fetchone()
             if stored is None:
-                _log.warning(_NAME_ALREADY_TAKEN, asked_for.url, asked_for.name)
+                _log.warning(_NAME_ALREADY_TAKEN, asked_for.name)
                 return
             cursor.execute(_ADOPT_ORPHANED_DECKS, (_source(stored).id,))
 

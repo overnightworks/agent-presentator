@@ -483,8 +483,8 @@ def test_an_address_under_a_name_another_source_answers_to_is_not_stored(
         a_source_store(database, url=_ANOTHER_ADDRESS).seed()
 
     assert [source.url for source in a_source_store(database).all()] == [_ADDRESS]
-    assert _ANOTHER_ADDRESS in caplog.text
     assert _SOURCE_NAME in caplog.text
+    assert _ANOTHER_ADDRESS not in caplog.text
 
 
 def test_an_instance_without_a_configured_url_stores_no_source(
@@ -522,6 +522,32 @@ def test_a_folder_name_another_source_carries_is_not_taken_over(
     )
 
     assert taken_over is False
+    assert store.all() == (a_deck(title="The first"),)
+
+
+def test_a_removed_slug_stays_with_its_source_and_is_the_deck_it_was(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck(title="The first"))
+    store.mark_removed_except(
+        present=frozenset(),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
+
+    taken_over = store.put(a_deck(title="The second", source_id=_ANOTHER_SOURCE_ID))
+    while_it_was_gone = store.all()
+
+    store.put(a_deck(title="The first"))
+    store.mark_removed_except(
+        present=frozenset({"kundenfeedback"}),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
+
+    assert taken_over is False
+    assert while_it_was_gone == ()
     assert store.all() == (a_deck(title="The first"),)
 
 
