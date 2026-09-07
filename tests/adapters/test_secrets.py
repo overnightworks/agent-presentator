@@ -1,6 +1,6 @@
 """What the box writes down, and what it refuses to read back."""
 
-from base64 import urlsafe_b64encode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
@@ -41,7 +41,15 @@ def test_bytes_somebody_changed_since_are_refused() -> None:
     box = secret_box(_INSTANCE_KEY)
     stored = box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS)
 
-    assert box.decrypt(stored[:-1] + b"x") is None
+    # The last base64 character carries padding bits that do not all encode
+    # ciphertext, so flipping it can decode back to the same bytes; flip a
+    # byte in the middle of the decoded token, which is certainly part of the
+    # authenticated payload (IV, ciphertext, or HMAC), instead.
+    decoded = bytearray(urlsafe_b64decode(stored))
+    decoded[len(decoded) // 2] ^= 0xFF
+    tampered = urlsafe_b64encode(bytes(decoded))
+
+    assert box.decrypt(tampered) is None
 
 
 def test_the_box_does_not_encrypt_with_the_cookie_signers_own_material() -> None:
