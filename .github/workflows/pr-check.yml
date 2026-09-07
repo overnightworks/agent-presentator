@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   # `main` accepts a landing only when the pull request says which item it
-  # closes, so a merge can never leave its own item open. `agent-claim pr-check`
-  # owns that grammar (its README's "Landing classification" section); the
+  # closes, so a merge can never leave its own item open. `aco check` owns
+  # that grammar (its README's "Landing classification" section); the
   # pull request template asks for exactly what it verifies. A `merge_group`
   # event carries no pull request number, so the check cannot re-run there --
   # it already ran on the `pull_request` event that armed the candidate -- and
@@ -27,14 +27,14 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out the event commit
-        # A checkout is required: agent-claim reads .agent-claim/board.toml
+        # A checkout is required: aco reads .agent-claim/board.toml
         # from the working tree and fetches refs/aco/state with the
         # checkout's own credentials. A shallow checkout is enough.
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        # No Python pin here: this job runs agent-claim's own tool environment
+        # No Python pin here: this job runs aco's own tool environment
         # through uvx, not this repository's interpreter.
         if: ${{ github.event_name == 'pull_request' }}
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -46,10 +46,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Pinned to a commit because the ledger moved to refs/aco/state and no
-        # tagged release resolves it yet; re-pin to a tag once agent-claim
-        # 1.0.0 ships the state-ref build.
-        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@24598455006880fbb96bfead4de02339cd7f8a4f agent-claim --repo ${{ github.repository }} pr-check --pr ${{ github.event.pull_request.number }}
+        # Pinned to the agent-claim v1.0.0 release tag.
+        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v1.0.0 aco check ${{ github.event.pull_request.number }}
 
       - name: Hold the required check name for the merge queue
         if: ${{ github.event_name == 'merge_group' }}
