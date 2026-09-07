@@ -20,12 +20,14 @@ from presentator.adapters.builds import SlidevBuilds
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
+    duration_in_words,
     load_catalogs,
 )
 from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
     MirroredDeckFolders,
+    SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
     SqliteSourceRunStore,
@@ -48,6 +50,7 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
+from presentator.adapters.secrets import secret_box
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
 from presentator.api.hooks import fetch_hook
 from presentator.api.pages import Pages
@@ -87,6 +90,9 @@ def build_instance(settings: Settings) -> Instance:
         liveness=liveness,
         trusted_proxies=settings.trusted_proxies,
     )
+    # One box for both directions: what the store writes down is what the
+    # resolver opens at the pull, and neither picks its own key.
+    box = secret_box(settings.secret_key.get_secret_value())
     identity = Identity(
         users=accounts,
         sessions=SqliteSessionRecordStore(settings.database, clock=clock),
@@ -107,6 +113,7 @@ def build_instance(settings: Settings) -> Instance:
             accounts=accounts,
         ),
         identifiers=identifiers,
+        box=box,
     )
     # A file written before sources were rows carries decks that name none, so
     # the row they belong to is written before the first page reads them; on an
@@ -115,9 +122,14 @@ def build_instance(settings: Settings) -> Instance:
     sources.seed()
     mirrors = SourceMirrors(
         directory=settings.mirrors,
-        credentials=EnvironmentCredentials(),
+        credentials=SourceCredentials(
+            database=settings.database,
+            box=box,
+            environment=EnvironmentCredentials(),
+        ),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
     )
+    build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
         sources=sources,
         folders=MirroredDeckFolders(mirrors=mirrors),
@@ -126,9 +138,12 @@ def build_instance(settings: Settings) -> Instance:
             builds=settings.builds,
             toolchain=settings.toolchain,
             mirrors=mirrors,
-            build_timeout=timedelta(seconds=settings.build_timeout_seconds),
+            build_timeout=build_bound,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
+        # One toolchain step's bound, which is what the refresh needs: it never
+        # reads a live build, only what a process that is gone left behind.
+        build_bound=build_bound,
         clock=SystemClock(),
     )
     pages = Pages(
@@ -138,6 +153,7 @@ def build_instance(settings: Settings) -> Instance:
             catalogs=load_catalogs(CATALOG_DIRECTORY),
         ),
         age_in_words=age_in_words,
+        duration_in_words=duration_in_words,
     )
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.

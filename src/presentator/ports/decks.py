@@ -11,6 +11,8 @@ from typing import Protocol
 from presentator.contracts.decks import (
     Artefacts,
     Build,
+    BuildAttempt,
+    BuildFailure,
     Deck,
     Source,
     SourcePoll,
@@ -86,7 +88,18 @@ class DeckStore(Protocol):
 
         Everything the build is switches at once, so nothing can read half a
         switch: an address that answered from the previous build answers from
-        the new one, and never from a mixture of the two.
+        the new one, and never from a mixture of the two. The attempt that led
+        to it is cleared by the same write: a talk that stands has nothing left
+        to report about how it came about.
+        """
+
+    @abstractmethod
+    def put_attempt(self, slug: str, attempt: BuildAttempt) -> None:
+        """Record the build this deck last started, without touching its talk.
+
+        What a deck delivers is the build's alone, so a run that says it has
+        begun, and a run that says it failed, leave the standing talk and its
+        PDF exactly where they are (line 16).
         """
 
     @abstractmethod
@@ -121,11 +134,14 @@ class BuildRunner(Protocol):
     """
 
     @abstractmethod
-    def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
-        """What this deck's commit built into, or nothing when the build failed.
+    def build(self, deck: Deck, *, source: Source) -> Artefacts | BuildFailure:
+        """What this deck's commit built into, or why nothing came of it.
 
-        Nothing is what a broken deck yields, so the talk that already stands
-        keeps standing until a build really produced a new one.
+        A failure is what a broken deck yields, so the talk that already stands
+        keeps standing until a build really produced a new one. The reason
+        travels with the answer rather than staying in a log, because it is
+        what the deck's page has to show its owner (line 9); a failure with no
+        words is one no toolchain reported back about.
         """
 
     @abstractmethod

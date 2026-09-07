@@ -86,6 +86,9 @@ msgstr "The two passwords do not match"
 msgid "decks_title"
 msgstr "Decks"
 
+msgid "decks_column_state"
+msgstr "State"
+
 msgid "decks_column_deck"
 msgstr "Deck"
 
@@ -109,8 +112,14 @@ msgstr "Status"
 msgid "deck_state_ready"
 msgstr "ready"
 
-msgid "deck_state_not_built"
-msgstr "not built"
+msgid "deck_state_building"
+msgstr "building"
+
+msgid "deck_state_failed"
+msgstr "failed"
+
+msgid "deck_state_never_built"
+msgstr "never built"
 
 msgid "deck_built"
 msgstr "built {age}"
@@ -118,6 +127,29 @@ msgstr "built {age}"
 msgid "deck_not_built_explanation"
 msgstr ""
 "No talk has been built from this deck yet, so there is no view to open."
+
+msgid "deck_building_explanation"
+msgstr "Both views unlock once the build is done. Reload the page."
+
+msgid "deck_building_label"
+msgstr "Building"
+
+msgid "deck_building_for"
+msgstr "for {age}"
+
+msgid "deck_failed_title"
+msgstr "Error"
+
+msgid "deck_attempt_label"
+msgstr "Attempt"
+
+msgid "deck_failed_without_a_message"
+msgstr ""
+"This build left no message. It may have run past its time or been "
+"interrupted."
+
+msgid "deck_failed_last_talk_stands"
+msgstr "The last talk that was built still opens in both views."
 
 msgid "deck_presenter_view"
 msgstr "Presenter view"

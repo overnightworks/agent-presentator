@@ -21,11 +21,12 @@ from webauth.proxies import client_user_agent, request_is_https, resolve_client_
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
-from presentator.api.pages import Pages
+from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.contracts.models import Account, FirstStartClosedError
+from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
 
@@ -103,10 +104,12 @@ class InstalledAuth:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeckRow:
-    """One deck as the list renders it: a name, its folder, and its age."""
+    """One deck as the list renders it: its state, name, folder, and age."""
 
     title: str
     slug: str
+    state: str
+    state_word: str
     changed: str
 
 
@@ -190,15 +193,17 @@ class _Surfaces:
             request,
             "home.html",
             source_address=self.decks.source_address(),
-            decks=self._rows(self.pages.appearance(request).text.language_tag),
+            decks=self._rows(self.pages.appearance(request).text),
         )
 
-    def _rows(self, language_tag: str) -> tuple[DeckRow, ...]:
+    def _rows(self, text: LobbyText) -> tuple[DeckRow, ...]:
         return tuple(
             DeckRow(
                 title=deck.title,
                 slug=deck.slug,
-                changed=self.pages.age_in_words(deck.age, language_tag),
+                state=deck.state.value,
+                state_word=state_word(deck.state, text),
+                changed=self.pages.age_in_words(deck.age, text.language_tag),
             )
             for deck in self.decks.listed()
         )

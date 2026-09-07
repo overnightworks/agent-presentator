@@ -26,8 +26,10 @@ from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
     SLIDES_FILE,
     Artefacts,
+    BuildFailure,
     Deck,
     Source,
+    bounded_failure,
     talk_address,
 )
 
@@ -43,10 +45,6 @@ _PDF_FILE: Final = "deck.pdf"
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
 _INHERITED: Final = ("PATH", "HOME")
-# Enough of the toolchain's own words to say what broke, without turning a log
-# line into a deck's whole output.
-_REPORTED_OUTPUT: Final = 2000
-
 _UNREADABLE_DECK: Final = "deck %s cannot be read at %s: %s"
 _TOOLCHAIN_FAILED: Final = "%s of deck %s failed: %s"
 _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
@@ -64,26 +62,30 @@ class SlidevBuilds:
     mirrors: SourceMirrors
     build_timeout: timedelta
 
-    def build(self, deck: Deck, *, source: Source) -> Artefacts | None:
-        """Build this deck at its commit, or say nothing came of it.
+    def build(self, deck: Deck, *, source: Source) -> Artefacts | BuildFailure:
+        """Build this deck at its commit, or say what came of it instead.
 
         The talk and the PDF are written under a directory of this build's own
         that nothing points at yet, and the directory the deck delivered from
-        before is left where it stands.
+        before is left where it stands. What the toolchain said about a failure
+        travels back with it, because the deck's page shows it (line 9).
         """
         with TemporaryDirectory() as work:
             folder = Path(work) / deck.slug
             if not self._exported(deck, source=source, into=folder):
-                return None
+                # A tree this server cannot read out of its own mirror is a
+                # fault of this host, not words a deck's author could act on.
+                return BuildFailure(text=None)
             written = self._a_place_of_its_own(deck)
             artefacts = Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
-            if self._toolchain_ran(deck, slides=folder / SLIDES_FILE, into=artefacts):
+            broke = self._what_broke(deck, slides=folder / SLIDES_FILE, into=artefacts)
+            if broke is None:
                 return artefacts
         # Nothing points at what a build that did not finish left behind, and
         # nothing ever will, so it goes; the directory the deck delivers from is
         # not touched, and cleaning up the ones that were pointed at is line 20.
         shutil.rmtree(written, ignore_errors=True)
-        return None
+        return broke
 
     def holds(self, artefacts: Artefacts) -> bool:
         """Whether both artefacts really stand under the root builds are kept in."""
@@ -99,7 +101,13 @@ class SlidevBuilds:
         for_the_deck.mkdir(parents=True, exist_ok=True)
         return Path(mkdtemp(prefix=f"{deck.commit}-", dir=for_the_deck))
 
-    def _toolchain_ran(self, deck: Deck, *, slides: Path, into: Artefacts) -> bool:
+    def _what_broke(
+        self,
+        deck: Deck,
+        *,
+        slides: Path,
+        into: Artefacts,
+    ) -> BuildFailure | None:
         """Build the talk and export the PDF, or say which of them failed."""
         entry = str(slides)
         steps = (
@@ -113,9 +121,13 @@ class SlidevBuilds:
             ),
             (_EXPORT, entry, "--output", str(into.pdf)),
         )
-        # `all` stops at the first step that failed, so a deck that does not
+        # The walk stops at the first step that failed, so a deck that does not
         # build is never exported either.
-        return all(self._ran(*step, deck=deck) for step in steps)
+        for step in steps:
+            broke = self._ran(*step, deck=deck)
+            if broke is not None:
+                return broke
+        return None
 
     def _exported(self, deck: Deck, *, source: Source, into: Path) -> bool:
         """Write the deck's tree at its commit out of the mirror, as files."""
@@ -130,8 +142,8 @@ class SlidevBuilds:
             return False
         return True
 
-    def _ran(self, step: str, *arguments: str, deck: Deck) -> bool:
-        """Run one step of the toolchain, and say whether it succeeded."""
+    def _ran(self, step: str, *arguments: str, deck: Deck) -> BuildFailure | None:
+        """Run one step of the toolchain, and say nothing when it succeeded."""
         try:
             process = subprocess.Popen(
                 [_TOOLCHAIN, "exec", _SLIDEV, step, *arguments],
@@ -146,8 +158,12 @@ class SlidevBuilds:
                 start_new_session=True,
             )
         except OSError as unavailable:
+            # A toolchain that cannot be started is this host's fault, and what
+            # the operating system says about it names paths of this host; the
+            # deck's page is told that no words came back, and the log keeps
+            # them.
             _log.error(_TOOLCHAIN_UNAVAILABLE, step, deck.slug, unavailable)
-            return False
+            return BuildFailure(text=None)
         with process:
             try:
                 _, stderr = process.communicate(
@@ -157,11 +173,15 @@ class SlidevBuilds:
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 process.wait()
                 _log.warning(_TOOLCHAIN_TIMED_OUT, step, deck.slug, self.build_timeout)
-                return False
+                # What a step that was killed had written so far is not read:
+                # the pipe is the killed tree's, and reading it would wait on
+                # the very processes the bound gave up on.
+                return BuildFailure(text=None)
         if process.returncode != 0:
-            _log.warning(_TOOLCHAIN_FAILED, step, deck.slug, _tail(stderr))
-            return False
-        return True
+            said = _tail(stderr)
+            _log.warning(_TOOLCHAIN_FAILED, step, deck.slug, said)
+            return BuildFailure(text=said or None)
+        return None
 
 
 def _toolchain_environment() -> dict[str, str]:
@@ -170,4 +190,4 @@ def _toolchain_environment() -> dict[str, str]:
 
 
 def _tail(output: bytes) -> str:
-    return output.decode(errors="replace").strip()[-_REPORTED_OUTPUT:]
+    return bounded_failure(output.decode(errors="replace").strip())

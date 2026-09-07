@@ -1,16 +1,19 @@
 """Deck folders read out of a real repository, and deck rows in a real file."""
 
 import logging
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from gitmirror.model import CredentialReference
+from gitmirror.mirror import credential_arguments, unattended_environment
+from gitmirror.model import CredentialReference, CredentialResolver
 from presentator.adapters.decks import (
     ConfiguredSource,
     EnvironmentCredentials,
     MirroredDeckFolders,
+    SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
     SqliteSourceRunStore,
@@ -22,13 +25,17 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
+from presentator.adapters.secrets import SecretBox, secret_box
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
     Build,
+    BuildAttempt,
+    BuildOutcome,
     Deck,
     DeckFolder,
+    SecretLocation,
     Source,
     SourceRun,
     SourceRunFailure,
@@ -47,22 +54,45 @@ _ANOTHER_SOURCE_NAME = "talks"
 _ADDRESS = "git@example.invalid:decks.git"
 _ANOTHER_ADDRESS = "git@example.invalid:talks.git"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
+_INSTANCE_KEY = "an instance key of thirty-two ch"
+_ANOTHER_INSTANCE_KEY = "the key another instance carries"
+_WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _A_STORED_HASH = "the hash first start stored"
 _BUILT_AT = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
+_TRIED_AT = datetime(2026, 1, 15, 10, tzinfo=UTC)
+_WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _A_LATER_COMMIT = "b7c1d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80"
 
 
-def a_source(url: str, *, credential: str | None = None) -> Source:
+def a_source(url: str) -> Source:
+    """A source whose secret, if it had one, no test of this file resolves."""
     return Source(
         id=_SOURCE_ID,
         name=_SOURCE_NAME,
         url=url,
         ref=MAIN_BRANCH,
-        credential_reference=credential,
+        secret_location=None,
         owner_id=_OWNER.id,
+    )
+
+
+def a_box(*, instance_key: str = _INSTANCE_KEY) -> SecretBox:
+    return secret_box(instance_key)
+
+
+def a_resolver(
+    database: Path,
+    *,
+    instance_key: str = _INSTANCE_KEY,
+) -> SourceCredentials:
+    """The resolver the composition root builds, over that real file."""
+    return SourceCredentials(
+        database=database,
+        box=a_box(instance_key=instance_key),
+        environment=EnvironmentCredentials(),
     )
 
 
@@ -70,18 +100,22 @@ def folders_under(
     tmp_path: Path,
     *,
     pull_timeout: timedelta = _A_GENEROUS_BOUND,
+    credentials: CredentialResolver | None = None,
 ) -> MirroredDeckFolders:
-    return MirroredDeckFolders(mirrors=mirrors_under(tmp_path, timeout=pull_timeout))
+    return MirroredDeckFolders(
+        mirrors=mirrors_under(tmp_path, timeout=pull_timeout, credentials=credentials),
+    )
 
 
 def mirrors_under(
     tmp_path: Path,
     *,
     timeout: timedelta = _A_GENEROUS_BOUND,
+    credentials: CredentialResolver | None = None,
 ) -> SourceMirrors:
     return SourceMirrors(
         directory=tmp_path / "mirrors",
-        credentials=EnvironmentCredentials(),
+        credentials=EnvironmentCredentials() if credentials is None else credentials,
         pull_timeout=timeout,
     )
 
@@ -108,6 +142,7 @@ def a_deck(
         source_id=source_id,
         commit=commit,
         build=None,
+        attempt=None,
     )
 
 
@@ -117,6 +152,20 @@ def a_build(tmp_path: Path, *, commit: str = _COMMIT) -> Build:
         pdf=tmp_path / "builds" / "kundenfeedback" / commit / "deck.pdf",
         commit=commit,
         built_at=_BUILT_AT,
+    )
+
+
+def an_attempt(
+    *,
+    outcome: BuildOutcome = BuildOutcome.FAILED,
+    failure: str | None = _WHAT_THE_TOOLCHAIN_SAID,
+    commit: str = _A_LATER_COMMIT,
+) -> BuildAttempt:
+    return BuildAttempt(
+        commit=commit,
+        started_at=_TRIED_AT,
+        outcome=outcome,
+        failure=failure,
     )
 
 
@@ -159,6 +208,8 @@ def a_source_store(
     *,
     url: str | None = _ADDRESS,
     name: str = _SOURCE_NAME,
+    credential: str | None = None,
+    instance_key: str = _INSTANCE_KEY,
 ) -> SqliteSourceStore:
     """The sources table of an instance configured with that address."""
     return SqliteSourceStore(
@@ -167,11 +218,19 @@ def a_source_store(
             name=name,
             url=url,
             ref=MAIN_BRANCH,
-            credential_reference=None,
+            credential_reference=credential,
             accounts=SqliteUserStore(database),
         ),
         identifiers=TokenIdentifierFactory(),
+        box=a_box(instance_key=instance_key),
     )
+
+
+def a_seeded_source(database: Path, *, credential: str | None = None) -> Source:
+    """The one row an instance configured with that credential carries."""
+    store = a_source_store(database, credential=credential)
+    store.seed()
+    return store.all()[0]
 
 
 # The deck table as this product wrote it before a source was a row of its own,
@@ -194,6 +253,23 @@ _A_DECK_BEFORE_SOURCES = """
 INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha)
 VALUES (?, ?, ?, ?, ?)
 """
+# The sources table as this product wrote it while a source's only credential
+# was the name of an environment variable.
+_SOURCES_BEFORE_ENCRYPTION = """
+CREATE TABLE sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    url TEXT NOT NULL UNIQUE,
+    ref TEXT NOT NULL,
+    credential_reference TEXT,
+    owner_id TEXT NOT NULL REFERENCES users(id)
+);
+"""
+_A_SOURCE_BEFORE_ENCRYPTION = """
+INSERT INTO sources (id, name, url, ref, credential_reference, owner_id)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+_THE_RAW_COLUMN = "SELECT encrypted_secret FROM sources WHERE id = ?"
 
 
 def a_database_written_before_sources(tmp_path: Path) -> Path:
@@ -376,13 +452,134 @@ def test_a_credential_reference_the_environment_does_not_carry_stops_the_read(
 ) -> None:
     monkeypatch.delenv(_CREDENTIAL_VARIABLE, raising=False)
     remote.commit_example_deck(at=_PUSHED_AT)
+    database = an_instance_that_was_set_up(tmp_path)
+    stored = a_seeded_source(database, credential=_CREDENTIAL_VARIABLE)
 
-    poll = folders_under(tmp_path).folders(
-        a_source(remote.url, credential=_CREDENTIAL_VARIABLE),
-    )
+    poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(stored)
 
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
+
+
+def test_a_row_that_names_an_environment_variable_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    database = an_instance_that_was_set_up(tmp_path)
+
+    stored = a_seeded_source(database, credential=_CREDENTIAL_VARIABLE)
+
+    assert stored.secret_location is SecretLocation.ENVIRONMENT
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=stored.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
+
+
+def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    sources.seed()
+    seeded = sources.all()[0]
+
+    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+
+    with rows(database) as cursor:
+        written = cursor.execute(_THE_RAW_COLUMN, (seeded.id,)).fetchone()[0]
+    assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in written
+    assert sources.all()[0].secret_location is SecretLocation.STORED
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=seeded.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
+
+
+def test_a_secret_another_instance_key_wrote_is_refused_rather_than_answered(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    sources.seed()
+    seeded = sources.all()[0]
+    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+
+    resolved = a_resolver(database, instance_key=_ANOTHER_INSTANCE_KEY).resolve(
+        CredentialReference(name=seeded.id),
+    )
+
+    assert resolved is None
+
+
+def test_a_source_carrying_no_secret_and_one_nobody_stored_answer_with_nothing(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    seeded = a_seeded_source(database)
+    resolver = a_resolver(database)
+
+    assert seeded.secret_location is None
+    assert resolver.resolve(CredentialReference(name=seeded.id)) is None
+    assert resolver.resolve(CredentialReference(name="no source of this name")) is None
+
+
+def test_a_stored_secret_reaches_git_without_riding_on_its_command_line(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    sources.seed()
+    seeded = sources.all()[0]
+    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+
+    resolved = a_resolver(database).resolve(CredentialReference(name=seeded.id))
+    assert resolved == _WHAT_THE_GIT_HOST_EXPECTS
+    arguments = credential_arguments(resolved)
+    answered = subprocess.run(
+        ["git", *arguments, "credential", "fill"],
+        capture_output=True,
+        check=True,
+        env=unattended_environment(resolved),
+        input="protocol=https\nhost=git.example\nusername=token-user\n\n",
+        text=True,
+    )
+
+    assert f"password={_WHAT_THE_GIT_HOST_EXPECTS}" in answered.stdout
+    assert not any(_WHAT_THE_GIT_HOST_EXPECTS in argument for argument in arguments)
+
+
+def test_a_sources_table_written_before_this_column_gains_it_and_keeps_its_row(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "presentator.sqlite3"
+    create_identity_tables(database)
+    SqliteUserStore(database).add_first_account(
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
+    )
+    apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
+    with rows(database) as cursor:
+        cursor.execute(
+            _A_SOURCE_BEFORE_ENCRYPTION,
+            (_SOURCE_ID, _SOURCE_NAME, _ADDRESS, MAIN_BRANCH, None, _OWNER.id),
+        )
+
+    create_deck_tables(database)
+    sources = a_source_store(database)
+    seeded = sources.all()[0]
+    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+
+    assert seeded.url == _ADDRESS
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=seeded.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
@@ -473,6 +670,56 @@ def test_everything_a_build_wrote_switches_over_together(tmp_path: Path) -> None
     assert after_the_second.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
 
 
+@pytest.mark.parametrize(
+    "attempt",
+    [an_attempt(outcome=BuildOutcome.RUNNING, failure=None), an_attempt()],
+    ids=["a build that began", "a build that failed"],
+)
+def test_the_build_a_deck_last_started_is_kept_beside_the_talk_that_stands(
+    tmp_path: Path,
+    attempt: BuildAttempt,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck())
+    built = a_build(tmp_path)
+    store.put_build("kundenfeedback", built)
+
+    store.put_attempt("kundenfeedback", attempt)
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt == attempt
+    assert kept.build == built
+
+
+def test_a_build_that_switched_over_clears_the_attempt_that_led_to_it(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck())
+    store.put_attempt("kundenfeedback", an_attempt())
+
+    store.put_build("kundenfeedback", a_build(tmp_path, commit=_A_LATER_COMMIT))
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt is None
+    assert kept.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
+
+
+def test_a_database_written_before_attempts_records_one(tmp_path: Path) -> None:
+    database = a_database_written_before_sources(tmp_path)
+
+    create_deck_tables(database)
+    a_source_store(database).seed()
+    store = SqliteDeckStore(database=database)
+    store.put_attempt("kundenfeedback", an_attempt())
+
+    kept = store.get("kundenfeedback")
+    assert kept is not None
+    assert kept.attempt == an_attempt()
+
+
 def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     tmp_path: Path,
 ) -> None:
@@ -480,12 +727,15 @@ def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     store.put(a_deck(title="Kundenfeedback"))
     built = a_build(tmp_path)
     store.put_build("kundenfeedback", built)
+    standing_attempt = an_attempt()
+    store.put_attempt("kundenfeedback", standing_attempt)
 
     store.put(a_deck(title="Kundenfeedback Q3"))
     kept = store.get("kundenfeedback")
 
     assert kept is not None
     assert kept.build == built
+    assert kept.attempt == standing_attempt
 
 
 def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(
@@ -515,7 +765,7 @@ def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(
         (_SOURCE_NAME, _ADDRESS, MAIN_BRANCH),
     ]
     assert seeded[0].owner_id == _OWNER.id
-    assert seeded[0].credential_reference is None
+    assert seeded[0].secret_location is None
 
 
 def test_a_second_configured_address_is_a_second_source(tmp_path: Path) -> None:

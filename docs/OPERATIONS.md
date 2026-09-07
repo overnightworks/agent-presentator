@@ -5,15 +5,16 @@ Audience: whoever administers this repository and the machines it runs on.
 ## Running an instance
 
 One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. `webauth`
-signs the session cookie with it, and without it the process refuses to start.
-In development it lives in a gitignored `.env` at the repository root; on the
-server it comes from the process environment. A refusal names the setting and
-what is wrong with it, never the value it was given, so a mistyped secret does
-not land in the startup output. Five refused logins for one name inside five
-minutes, and five failures from one address inside five minutes regardless of
-name, are throttled; the page says the same sentence it says for a wrong
-password. A session lasts twelve idle hours and slides forward on every
-request; logging out deletes the row.
+signs the session cookie with it, and, through a derivation of its own,
+encrypts what a source's row holds ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md));
+without it the process refuses to start. In development it lives in a gitignored
+`.env` at the repository root; on the server it comes from the process
+environment. A refusal names the setting and what is wrong with it, never the
+value it was given, so a mistyped secret does not land in the startup output.
+Five refused logins for one name inside five minutes, and five failures from
+one address inside five minutes regardless of name, are throttled; the page
+says the same sentence it says for a wrong password. A session lasts twelve
+idle hours and slides forward on every request; logging out deletes the row.
 
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
@@ -41,7 +42,8 @@ a sharper budget.
 
 Starting an instance creates the tables it needs, and changes in place what it
 finds: a file written before a source was a row of its own keeps its decks and
-gains the column naming the source they came from. There is no migration tool
+gains the column naming the source they came from, and one written before a
+source could hold its own secret gains that column. There is no migration tool
 beyond what a start does itself, so an older shape a start cannot upgrade is
 still a file to delete and set up again.
 
@@ -63,6 +65,15 @@ export DECKS_TOKEN="…"
 The user name belongs in the URL, because only the operator knows which name
 the host expects beside a token.
 
+That variable is one of the two forms a source's row can anchor. The other is
+the encrypted column the row itself carries, which the page for adding a source
+will fill; a row carrying it is read with the instance key at every pull, and
+the environment variable is what a row that has none still names. Ciphertext
+this instance's key cannot open is refused rather than handed to `git`: that
+source's fetch fails and its decks stay listed. Keep
+`PRESENTATOR_SECRET_KEY` with the database backup — the file alone restores no
+working source.
+
 That configuration is written into the instance's `sources` table: once at
 every start and again at the beginning of every refresh, so an instance whose
 admin is created after it started carries its source too. The URL identifies
@@ -82,8 +93,9 @@ neutralised, any inherited credential helper cleared, and `ssh` in batch mode
 with its own connect timeout — so nothing on the machine can turn a pull into a
 wait for an answer nobody will give.
 
-Replacing the secret means changing the environment of the running process, so
-today it takes a restart. A rotation path without one is open work on
+Replacing the secret of an environment-configured source means changing the
+environment of the running process, so today it takes a restart. A rotation
+path without one is open work on
 [ADR 0010](decisions/0010-git-sources-mirror.md), together with the fetch log.
 
 ## Building the decks

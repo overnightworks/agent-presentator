@@ -6,17 +6,23 @@ git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Final
 
 from presentator.contracts.decks import (
     SLIDES_FILE,
+    Artefacts,
     Build,
+    BuildAttempt,
+    BuildOutcome,
     Deck,
     DeckPage,
+    DeckState,
     ListedDeck,
+    ShownAttempt,
     Source,
     SourceRun,
     SourceRunOutcome,
@@ -54,6 +60,21 @@ def _is_a_plain_folder_name(candidate: str) -> bool:
     )
 
 
+def _state_of(deck: Deck) -> DeckState:
+    """The one word for what this deck is, read off its talk and its attempt.
+
+    An attempt outranks the talk that stands, because it is the newer news: a
+    deck whose last build failed is failed even while yesterday's talk still
+    opens (line 16).
+    """
+    attempt = deck.attempt
+    if attempt is None:
+        return DeckState.READY if deck.build is not None else DeckState.NEVER_BUILT
+    if attempt.outcome is BuildOutcome.RUNNING:
+        return DeckState.BUILDING
+    return DeckState.FAILED
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Decks:
     """Every use case the lobby has around the talks it knows."""
@@ -64,6 +85,10 @@ class Decks:
     builder: BuildRunner
     source_runs: SourceRuns
     clock: Clock
+    # How long a build may take before the refresh stops believing it is still
+    # running: a process that died with the server leaves its attempt behind,
+    # and nobody may read that as building for ever.
+    build_bound: timedelta
     _one_at_a_time: Lock = field(default_factory=Lock)
 
     def refresh(self) -> None:
@@ -94,7 +119,12 @@ class Decks:
             reverse=True,
         )
         return tuple(
-            ListedDeck(slug=deck.slug, title=deck.title, age=now - deck.changed_at)
+            ListedDeck(
+                slug=deck.slug,
+                title=deck.title,
+                state=_state_of(deck),
+                age=now - deck.changed_at,
+            )
             for deck in newest_first
         )
 
@@ -116,6 +146,22 @@ class Decks:
             source=self._address_of(deck),
             commit=(deck.commit if built is None else built.commit)[:_SHORT_COMMIT],
             built_ago=None if built is None else self.clock.now() - built.built_at,
+            state=_state_of(deck),
+            attempt=self._shown(deck.attempt),
+        )
+
+    def _shown(self, attempt: BuildAttempt | None) -> ShownAttempt | None:
+        """What the page says about the build that ran last, while one has run.
+
+        The commit is shortened the way the delivered one is: a person reads
+        both off the same screen to see which push is which.
+        """
+        if attempt is None:
+            return None
+        return ShownAttempt(
+            commit=attempt.commit[:_SHORT_COMMIT],
+            ago=self.clock.now() - attempt.started_at,
+            failure=attempt.failure,
         )
 
     def _address_of(self, deck: Deck) -> str | None:
@@ -224,6 +270,7 @@ class Decks:
                     source_id=source.id,
                     commit=folder.commit,
                     build=None,
+                    attempt=None,
                 ),
             )
             if not taken_in:
@@ -235,36 +282,105 @@ class Decks:
         )
 
     def _build_what_changed(self, source: Source) -> None:
-        """Build that source's decks whose commit its talk was not built from.
+        """Build that source's decks whose commit nothing has tried yet.
 
         The commit is the whole change check: a push moves one folder's commit,
         so only that deck is built again and the other talks are left alone. A
-        deck is built out of the mirror of its own source, so a source's walk
-        passes over the decks another source carried.
+        folder standing at the commit its talk was built from needs no build at
+        all, and a commit that was already tried is not tried again, so a deck
+        that cannot build costs one build and not one per refresh until it is
+        pushed again. A deck is built out of the mirror of its own source, so a
+        source's walk passes over the decks another source carried.
         """
         for deck in self.store.all():
             if deck.source_id != source.id:
                 continue
-            if deck.build is not None and deck.build.commit == deck.commit:
+            self._give_up_on_a_build_that_never_returned(deck)
+            standing = deck.build
+            if standing is not None and standing.commit == deck.commit:
+                self._deliver_the_standing_talk_again(deck, standing)
+                continue
+            if self._was_already_tried(deck):
                 continue
             self._switch_over(deck, source)
+
+    def _deliver_the_standing_talk_again(self, deck: Deck, standing: Build) -> None:
+        """Make the talk that stands this commit's talk again, building nothing.
+
+        Reverting a broken push is how a person undoes it in git (line 16): the
+        folder is back at the commit the standing talk was built from, so that
+        talk is current again and the failure recorded against the push that
+        was reverted goes with the one statement a successful switch writes.
+        Its build time does not move, because that build is the one that ran.
+        A deck that carries no attempt is left alone, so an unchanged deck
+        costs a refresh no write at all.
+        """
+        if deck.attempt is None:
+            return
+        self.store.put_build(deck.slug, standing)
+
+    def _was_already_tried(self, deck: Deck) -> bool:
+        """Whether a build was already started for the commit the folder carries."""
+        return deck.attempt is not None and deck.attempt.commit == deck.commit
+
+    def _give_up_on_a_build_that_never_returned(self, deck: Deck) -> None:
+        """Call an attempt that outlived the build bound failed, not running.
+
+        Builds follow one another inside one refresh, so an attempt still
+        saying it runs when the next refresh reads it belongs to a process that
+        is gone — the server was restarted while it built. Nobody may read that
+        as a deck building for ever, and it left no words to show. The bound is
+        one toolchain step's, not the whole walk's, on purpose: no live build
+        is ever read here, so the bound only has to be too long for a leftover
+        to be mistaken for one that just began.
+        """
+        attempt = deck.attempt
+        if attempt is None or attempt.outcome is not BuildOutcome.RUNNING:
+            return
+        if self.clock.now() - attempt.started_at <= self.build_bound:
+            return
+        self.store.put_attempt(
+            deck.slug,
+            replace(attempt, outcome=BuildOutcome.FAILED),
+        )
 
     def _switch_over(self, deck: Deck, source: Source) -> None:
         """Deliver this deck from its new build, once there really is one.
 
-        A build that failed, and one that left artefacts anywhere but under the
-        root they belong in, write no pointer at all: whatever the deck was
-        delivering before keeps being delivered.
+        The attempt is recorded before the toolchain starts, so a page opened
+        while it runs says so, and a run that dies with the server leaves a
+        record behind rather than nothing. A build that failed, and one that
+        left artefacts anywhere but under the root they belong in, write no
+        pointer at all: whatever the deck was delivering before keeps being
+        delivered, and the attempt says why it is still that one.
         """
-        artefacts = self.builder.build(deck, source=source)
-        if artefacts is None or not self.builder.holds(artefacts):
+        attempt = BuildAttempt(
+            commit=deck.commit,
+            started_at=self.clock.now(),
+            outcome=BuildOutcome.RUNNING,
+            failure=None,
+        )
+        self.store.put_attempt(deck.slug, attempt)
+        built = self.builder.build(deck, source=source)
+        if not isinstance(built, Artefacts):
+            self._failed(deck, attempt, said=built.text)
+            return
+        if not self.builder.holds(built):
+            self._failed(deck, attempt, said=None)
             return
         self.store.put_build(
             deck.slug,
             Build(
-                directory=artefacts.directory,
-                pdf=artefacts.pdf,
+                directory=built.directory,
+                pdf=built.pdf,
                 commit=deck.commit,
                 built_at=self.clock.now(),
             ),
+        )
+
+    def _failed(self, deck: Deck, attempt: BuildAttempt, *, said: str | None) -> None:
+        """Close this attempt as failed, keeping the moment it started."""
+        self.store.put_attempt(
+            deck.slug,
+            replace(attempt, outcome=BuildOutcome.FAILED, failure=said),
         )

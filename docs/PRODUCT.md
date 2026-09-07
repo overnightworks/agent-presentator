@@ -8,10 +8,10 @@ describes something this file does not list, that thing is not built.
 
 An instance signs a person in, lists the decks a configured Git source
 carries while keeping that list current by itself, gives each deck a page,
-builds the deck a push changed, delivers that talk and its PDF from the page,
-and lets an admin and every person say how the lobby looks and which language
-it speaks. Nothing is deployed, so no phase of [VISION.md](VISION.md) is
-reached. M0 is tracked on
+builds the deck a push changed, shows what state that build is in, delivers
+that talk and its PDF from the page, and lets an admin and every person say how
+the lobby looks and which language it speaks. Nothing is deployed, so no phase
+of [VISION.md](VISION.md) is reached. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
 [#22](https://github.com/overnightworks/agent-presentator/issues/22), the deck
@@ -141,19 +141,40 @@ as long as one source is all there is to name;
 there is no upload, no editing, and no way to add a source in the lobby
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
-There is no Sources page yet, a source's secret is still the environment
-variable its row names, and removing a source and build states are open on
+Every row carries the state of its deck's build in one word — ready, building,
+failed, or never built — with a shape and a colour of its own, read off the
+talk that stands and the build last attempted beside it, never stored.
+
+There is no Sources page yet. A source's row can hold its read-only secret
+itself, encrypted with a key derived from `PRESENTATOR_SECRET_KEY`
+([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)), and
+the one resolver that answers at every pull reads whichever of the two columns
+the row carries; nothing fills the encrypted one until the page for adding a
+source does, so the source an instance runs on still names an environment
+variable. Removing a source is open on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8). Nothing
 prunes a source's older runs yet, so the table grows without bound; that is
 open on #8 (slice 12.6).
 
 ### A deck's page, and the talk behind it
 
-`/deck/<folder>` shows the deck's title, its folder, the address it was
-mirrored from, the short commit the talk it delivers was built from, and how
-long ago that build ran, so before speaking a person sees whether their push is
-in what will be on the screen. Until a build has switched anything over, the
-commit shown is the one the source last carried under that folder.
+`/deck/<folder>` shows the deck's title, its folder, the state of its build,
+the address it was mirrored from, the short commit the talk it delivers was
+built from, and how long ago that build ran, so before speaking a person sees
+whether their push is in what will be on the screen. Until a build has switched
+anything over, the commit shown is the one the source last carried under that
+folder.
+
+While a build runs, the page says so with the commit being built and how long
+it has been running, and the two views are shown locked rather than offered:
+the talk that stands may be replaced at any moment, and only a page load says
+it is done. The PDF of the last good build stays offered beside them. Where the
+last build failed, the page names the commit that was tried, how long ago, and
+what the toolchain said — as text, never as markup, and cut to the last two
+thousand characters — and says that the last talk that was built still opens;
+the three ways in stay open, because the failure moved nothing (line 16). A
+build that left no words at all is explained in the lobby's own sentence
+instead.
 
 Where a deck's built talk stands, which file its PDF is handed over as, which
 commit both were built from, and when, are four columns on the deck's row that
@@ -189,11 +210,21 @@ header.
 
 ### Building a deck
 
-A refresh takes the source in and then builds every deck whose commit is not
-the commit its talk was built from, so a push builds the deck it changed and
-leaves the other talks alone. Builds run inside that refresh, which runs one at
-a time beside the routes, so they follow one another and no page view waits for
-one.
+A refresh takes the source in and then builds every deck whose commit neither
+its talk was built from nor a build has already been attempted at, so a push
+builds the deck it changed, leaves the other talks alone, and a deck that
+cannot build costs one build rather than one per refresh until it is pushed
+again. Builds run inside that refresh, which runs one at a time beside the
+routes, so they follow one another and no page view waits for one.
+
+The deck's row carries the build it last started: the commit, when it began,
+whether it is running or failed, and what it said when it failed. The refresh
+writes that record before the toolchain starts, so a page opened while it runs
+says so; the successful switch clears it in the same statement that moves the
+talk. Because builds follow one another, an attempt still saying it runs when
+the next refresh reads it belongs to a process that is gone — a server
+restarted mid-build — and is counted failed once it is older than
+`PRESENTATOR_BUILD_TIMEOUT_SECONDS`, so nothing reads as building for ever.
 
 A build writes the deck's tree at its commit out of the bare mirror into a
 temporary working directory — nothing is ever checked out into the mirror —
@@ -210,9 +241,14 @@ Only when both artefacts exist, and only after they are resolved and found to
 stand under the builds root, does one statement switch the four columns over.
 A build that failed, one that ran past its bound, one whose toolchain is not on
 the machine, and one whose result stands anywhere else write no pointer at all:
-the talk that already stands keeps standing and keeps its build time. What a
-build that did not finish left behind is taken away again, and the directory a
-deck delivers from is never removed, so a request that read the previous
+the talk that already stands keeps standing and keeps its build time, and the
+attempt beside it says why it is still that one. What the toolchain printed
+travels back from the build as the reason rather than staying in the log, cut
+to its last two thousand characters, because it is what the deck's page shows;
+a run given up on, one whose tree this host could not read, and one that
+printed nothing hand back no words, and the page says that in its own
+sentence. What a build that did not finish left behind is taken away again, and
+the directory a deck delivers from is never removed, so a request that read the previous
 pointer still finds a directory. Cleaning up the builds that were pointed at is
 open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
@@ -225,7 +261,3 @@ no network and nothing of the server mounted
 [#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
 lands, a deck source is as trusted as the machine.
 
-Which state a build is in — building, failed, and the error text on the deck's
-page — is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) too; today a
-deck either delivers a talk or says it delivers none.
