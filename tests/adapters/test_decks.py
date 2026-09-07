@@ -15,11 +15,18 @@ from presentator.adapters.decks import (
     create_deck_tables,
 )
 from presentator.adapters.identity import SqliteUserStore, create_identity_tables
-from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, Deck, Source
+from presentator.contracts.decks import (
+    MANIFEST_FILE,
+    SLIDES_FILE,
+    Deck,
+    DeckFolder,
+    Source,
+)
 from presentator.contracts.models import Credentials, Role, User
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_NOTICED_GONE_AT = datetime(2026, 1, 20, 9, tzinfo=UTC)
 _OWNER = User(id="the-admin", username="felix", role=Role.ADMIN)
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
@@ -48,6 +55,17 @@ def folders_under(
     )
 
 
+def folders_read(tmp_path: Path, source: Source) -> tuple[DeckFolder, ...]:
+    """What a source a test has made readable carries."""
+    read = folders_under(tmp_path).folders(source)
+    assert read is not None
+    return read
+
+
+def a_deck(slug: str, *, title: str = "Kundenfeedback") -> Deck:
+    return Deck(slug=slug, title=title, changed_at=_PUSHED_AT, owner_id=_OWNER.id)
+
+
 def a_deck_store(tmp_path: Path) -> SqliteDeckStore:
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
@@ -61,7 +79,7 @@ def test_a_pushed_deck_folder_is_read_with_its_title_and_its_change_time(
 ) -> None:
     remote.commit_example_deck(at=_PUSHED_AT)
 
-    folders = folders_under(tmp_path).folders(a_source(remote.url))
+    folders = folders_read(tmp_path, a_source(remote.url))
 
     assert len(folders) == 1
     read = folders[0]
@@ -77,7 +95,7 @@ def test_a_folder_without_a_manifest_is_read_without_a_title(
 ) -> None:
     remote.commit({"just-notes/slides.md": "# notes\n"}, at=_PUSHED_AT)
 
-    folders = folders_under(tmp_path).folders(a_source(remote.url))
+    folders = folders_read(tmp_path, a_source(remote.url))
 
     assert [folder.title for folder in folders] == [None]
 
@@ -90,7 +108,7 @@ def test_a_folder_without_a_manifest_is_read_without_a_title(
     ],
     ids=["names no title", "is not TOML"],
 )
-def test_a_folder_whose_manifest_is_unreadable_leaves_the_others_listed(
+def test_a_folder_whose_manifest_is_unreadable_is_still_there_without_a_title(
     broken: str,
     manifest: str,
     caplog: pytest.LogCaptureFixture,
@@ -104,13 +122,16 @@ def test_a_folder_whose_manifest_is_unreadable_leaves_the_others_listed(
     )
 
     with caplog.at_level(logging.WARNING):
-        folders = folders_under(tmp_path).folders(a_source(remote.url))
+        folders = folders_read(tmp_path, a_source(remote.url))
 
-    assert [folder.name for folder in folders] == [EXAMPLE_SLUG]
+    assert {folder.name: folder.title for folder in folders} == {
+        EXAMPLE_SLUG: EXAMPLE_TITLE,
+        broken: None,
+    }
     assert broken in caplog.text
 
 
-def test_a_pull_that_runs_past_its_bound_leaves_the_list_empty_rather_than_waiting(
+def test_a_pull_that_runs_past_its_bound_says_nothing_rather_than_waiting(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
@@ -120,10 +141,10 @@ def test_a_pull_that_runs_past_its_bound_leaves_the_list_empty_rather_than_waiti
         a_source(remote.url),
     )
 
-    assert folders == ()
+    assert folders is None
 
 
-def test_a_source_that_cannot_be_read_yields_no_folders_and_says_so(
+def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
@@ -132,7 +153,7 @@ def test_a_source_that_cannot_be_read_yields_no_folders_and_says_so(
     with caplog.at_level(logging.WARNING):
         folders = folders_under(tmp_path).folders(unreachable)
 
-    assert folders == ()
+    assert folders is None
     assert "unreachable" in caplog.text
 
 
@@ -161,39 +182,43 @@ def test_a_credential_reference_the_environment_does_not_carry_stops_the_read(
         a_source(remote.url, credential=_CREDENTIAL_VARIABLE),
     )
 
-    assert folders == ()
+    assert folders is None
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
     tmp_path: Path,
 ) -> None:
     store = a_deck_store(tmp_path)
-    store.put(
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
+    store.put(a_deck("kundenfeedback"))
+
+    store.put(a_deck("kundenfeedback", title="Kundenfeedback Q3"))
+
+    assert store.all() == (a_deck("kundenfeedback", title="Kundenfeedback Q3"),)
+
+
+def test_a_deck_whose_folder_vanished_is_gone_from_the_list_until_it_returns(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck("kundenfeedback"))
+    store.put(a_deck("knowledge-fabric"))
+
+    store.mark_removed_except(
+        present=frozenset({"knowledge-fabric"}),
+        at=_NOTICED_GONE_AT,
+    )
+    while_it_was_gone = store.all()
+    store.put(a_deck("kundenfeedback", title="Kundenfeedback Q4"))
+    store.mark_removed_except(
+        present=frozenset({"knowledge-fabric", "kundenfeedback"}),
+        at=_NOTICED_GONE_AT,
     )
 
-    store.put(
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback Q3",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
-    )
-
-    assert store.all() == (
-        Deck(
-            slug="kundenfeedback",
-            title="Kundenfeedback Q3",
-            changed_at=_PUSHED_AT,
-            owner_id=_OWNER.id,
-        ),
-    )
+    assert [deck.slug for deck in while_it_was_gone] == ["knowledge-fabric"]
+    assert sorted(store.all(), key=lambda deck: deck.slug) == [
+        a_deck("knowledge-fabric"),
+        a_deck("kundenfeedback", title="Kundenfeedback Q4"),
+    ]
 
 
 def test_the_configured_source_belongs_to_the_account_that_set_the_instance_up(

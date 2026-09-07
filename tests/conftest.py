@@ -54,6 +54,11 @@ class GitRemote:
             written.write_text(content, encoding="utf-8")
         self._push(at=at)
 
+    def remove(self, folder: str, *, at: datetime) -> None:
+        """Delete the folder from the tree, commit that deletion, and push."""
+        shutil.rmtree(self.work / folder)
+        self._push(at=at)
+
     def commit_example_deck(self, *, at: datetime, into: str = EXAMPLE_SLUG) -> None:
         """Copy the repository's own example deck in and push it."""
         shutil.copytree(EXAMPLE_DECK, self.work / into, dirs_exist_ok=True)
