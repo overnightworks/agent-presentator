@@ -16,6 +16,7 @@ from typing import Final
 
 from gitmirror.mirror import GitMirror
 from gitmirror.model import (
+    ConnectionState,
     CredentialReference,
     CredentialResolver,
     GitSource,
@@ -28,6 +29,10 @@ from presentator.contracts.decks import (
     Deck,
     DeckFolder,
     Source,
+    SourcePoll,
+    SourceRun,
+    SourceRunFailure,
+    SourceRunOutcome,
 )
 from presentator.ports.identity import IdentifierFactory, UserStore
 
@@ -55,6 +60,14 @@ CREATE TABLE IF NOT EXISTS decks (
     built_commit TEXT,
     built_at TEXT,
     removed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS source_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL REFERENCES sources(id),
+    at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    commit_sha TEXT,
+    reason TEXT
 );
 """
 # The row shape without a row: a deck table written before sources existed has
@@ -137,6 +150,26 @@ _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listin
 _NAME_ALREADY_TAKEN: Final = (
     "the configured source is not stored: another source answers to the name %s"
 )
+_RECORD_SOURCE_RUN: Final = """
+INSERT INTO source_runs (source_id, at, outcome, commit_sha, reason)
+VALUES (?, ?, ?, ?, ?)
+"""
+# `id` orders runs of the same source recorded at one identical instant, which
+# a frozen test clock can produce; `at` alone cannot break that tie.
+_NEWEST_SOURCE_RUN: Final = """
+SELECT source_id, at, outcome, commit_sha, reason
+FROM source_runs
+WHERE source_id = ?
+ORDER BY id DESC
+LIMIT 1
+"""
+_SourceRunRow = tuple[str, str, str, str | None, str | None]
+# `gitmirror`'s own words never reach a `SourceRun`; a connection that carries
+# no revision is always one of these two states, never `READY`.
+_FAILURE_BY_CONNECTION_STATE: Final[dict[ConnectionState, SourceRunFailure]] = {
+    ConnectionState.CREDENTIAL_UNRESOLVABLE: SourceRunFailure.CREDENTIAL_UNRESOLVABLE,
+    ConnectionState.UNREACHABLE: SourceRunFailure.UNREACHABLE,
+}
 
 _log = logging.getLogger(__name__)
 
@@ -281,18 +314,26 @@ class MirroredDeckFolders:
 
     mirrors: SourceMirrors
 
-    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
-        """Every top-level folder at the newest commit, or nothing when unreadable."""
+    def folders(self, source: Source) -> SourcePoll:
+        """Poll for every top-level folder at the newest commit, or why not."""
         mirror = self.mirrors.of(source)
         connection = mirror.connect()
         revision = connection.revision
         if revision is None:
             _log.warning(_UNREADABLE_SOURCE, source.url, connection.state)
-            return None
-        return tuple(
-            self._folder(mirror, revision, entry.name)
-            for entry in mirror.entries(revision)
-            if entry.is_directory
+            return SourcePoll(
+                folders=None,
+                commit=None,
+                failure=_FAILURE_BY_CONNECTION_STATE[connection.state],
+            )
+        return SourcePoll(
+            folders=tuple(
+                self._folder(mirror, revision, entry.name)
+                for entry in mirror.entries(revision)
+                if entry.is_directory
+            ),
+            commit=revision.commit,
+            failure=None,
         )
 
     def _folder(
@@ -408,6 +449,33 @@ class SqliteDeckStore:
         return tuple(_deck(row) for row in found)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SqliteSourceRunStore:
+    """The `source_runs` table: one row per poll, kept for every run so far."""
+
+    database: Path
+
+    def record(self, run: SourceRun) -> None:
+        """Add the run as a new row; an older run of the same source stands."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                _RECORD_SOURCE_RUN,
+                (
+                    run.source_id,
+                    run.at.isoformat(),
+                    run.outcome.value,
+                    run.commit,
+                    None if run.reason is None else run.reason.value,
+                ),
+            )
+
+    def newest(self, source_id: str) -> SourceRun | None:
+        """Read that source's newest row, or nothing while it carries none."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(_NEWEST_SOURCE_RUN, (source_id,)).fetchone()
+        return None if found is None else _source_run(found)
+
+
 def _source(row: _SourceRow) -> Source:
     identifier, name, url, ref, credential_reference, owner_id = row
     return Source(
@@ -447,6 +515,17 @@ def _build(
         pdf=Path(pdf),
         commit=commit,
         built_at=datetime.fromisoformat(built_at),
+    )
+
+
+def _source_run(row: _SourceRunRow) -> SourceRun:
+    source_id, at, outcome, commit, reason = row
+    return SourceRun(
+        source_id=source_id,
+        at=datetime.fromisoformat(at),
+        outcome=SourceRunOutcome(outcome),
+        commit=commit,
+        reason=None if reason is None else SourceRunFailure(reason),
     )
 
 

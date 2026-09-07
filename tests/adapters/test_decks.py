@@ -13,6 +13,7 @@ from presentator.adapters.decks import (
     MirroredDeckFolders,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceRunStore,
     SqliteSourceStore,
     create_deck_tables,
 )
@@ -29,6 +30,9 @@ from presentator.contracts.decks import (
     Deck,
     DeckFolder,
     Source,
+    SourceRun,
+    SourceRunFailure,
+    SourceRunOutcome,
 )
 from presentator.contracts.models import Credentials, Role, User
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
@@ -84,9 +88,9 @@ def mirrors_under(
 
 def folders_read(tmp_path: Path, source: Source) -> tuple[DeckFolder, ...]:
     """What a source a test has made readable carries."""
-    read = folders_under(tmp_path).folders(source)
-    assert read is not None
-    return read
+    poll = folders_under(tmp_path).folders(source)
+    assert poll.folders is not None
+    return poll.folders
 
 
 def a_deck(
@@ -121,6 +125,33 @@ def a_deck_store(tmp_path: Path) -> SqliteDeckStore:
     create_identity_tables(database)
     create_deck_tables(database)
     return SqliteDeckStore(database=database)
+
+
+def a_source_run_store(tmp_path: Path) -> SqliteSourceRunStore:
+    database = tmp_path / "presentator.sqlite3"
+    create_identity_tables(database)
+    create_deck_tables(database)
+    return SqliteSourceRunStore(database=database)
+
+
+def a_successful_run(*, source_id: str = _SOURCE_ID, at: datetime) -> SourceRun:
+    return SourceRun(
+        source_id=source_id,
+        at=at,
+        outcome=SourceRunOutcome.SUCCESS,
+        commit=_COMMIT,
+        reason=None,
+    )
+
+
+def a_failed_run(*, source_id: str = _SOURCE_ID, at: datetime) -> SourceRun:
+    return SourceRun(
+        source_id=source_id,
+        at=at,
+        outcome=SourceRunOutcome.FAILURE,
+        commit=None,
+        reason=SourceRunFailure.UNREACHABLE,
+    )
 
 
 def a_source_store(
@@ -274,17 +305,31 @@ def test_a_folder_whose_manifest_is_unreadable_is_still_there_without_a_title(
     assert broken in caplog.text
 
 
+def test_a_poll_that_reaches_a_source_carries_its_newest_commit(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    poll = folders_under(tmp_path).folders(a_source(remote.url))
+
+    assert poll.commit == remote.head
+    assert poll.failure is None
+
+
 def test_a_pull_that_runs_past_its_bound_says_nothing_rather_than_waiting(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
     remote.commit_example_deck(at=_PUSHED_AT)
 
-    folders = folders_under(tmp_path, pull_timeout=_NO_BUDGET_AT_ALL).folders(
+    poll = folders_under(tmp_path, pull_timeout=_NO_BUDGET_AT_ALL).folders(
         a_source(remote.url),
     )
 
-    assert folders is None
+    assert poll.folders is None
+    assert poll.commit is None
+    assert poll.failure is SourceRunFailure.UNREACHABLE
 
 
 def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
@@ -294,9 +339,10 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     unreachable = a_source((tmp_path / "nothing.git").as_uri())
 
     with caplog.at_level(logging.WARNING):
-        folders = folders_under(tmp_path).folders(unreachable)
+        poll = folders_under(tmp_path).folders(unreachable)
 
-    assert folders is None
+    assert poll.folders is None
+    assert poll.failure is SourceRunFailure.UNREACHABLE
     assert "unreachable" in caplog.text
 
 
@@ -321,11 +367,12 @@ def test_a_credential_reference_the_environment_does_not_carry_stops_the_read(
     monkeypatch.delenv(_CREDENTIAL_VARIABLE, raising=False)
     remote.commit_example_deck(at=_PUSHED_AT)
 
-    folders = folders_under(tmp_path).folders(
+    poll = folders_under(tmp_path).folders(
         a_source(remote.url, credential=_CREDENTIAL_VARIABLE),
     )
 
-    assert folders is None
+    assert poll.folders is None
+    assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
@@ -565,3 +612,49 @@ def test_one_sources_reconciliation_leaves_another_sources_decks_alone(
     )
 
     assert store.all() == (a_deck("knowledge-fabric", source_id=_ANOTHER_SOURCE_ID),)
+
+
+def test_a_source_with_no_run_yet_reads_as_nothing(tmp_path: Path) -> None:
+    store = a_source_run_store(tmp_path)
+
+    assert store.newest(_SOURCE_ID) is None
+
+
+def test_a_recorded_run_is_read_back_carrying_its_commit(tmp_path: Path) -> None:
+    store = a_source_run_store(tmp_path)
+    run = a_successful_run(at=_PUSHED_AT)
+
+    store.record(run)
+
+    assert store.newest(_SOURCE_ID) == run
+
+
+def test_a_recorded_failure_is_read_back_naming_why(tmp_path: Path) -> None:
+    store = a_source_run_store(tmp_path)
+    run = a_failed_run(at=_PUSHED_AT)
+
+    store.record(run)
+
+    read = store.newest(_SOURCE_ID)
+    assert read == run
+    assert read is not None
+    assert read.commit is None
+    assert read.reason is SourceRunFailure.UNREACHABLE
+
+
+def test_the_newest_run_of_a_source_belongs_to_that_source_alone(
+    tmp_path: Path,
+) -> None:
+    store = a_source_run_store(tmp_path)
+    store.record(a_successful_run(at=_PUSHED_AT))
+    store.record(a_failed_run(at=_NOTICED_GONE_AT))
+    store.record(a_successful_run(source_id=_ANOTHER_SOURCE_ID, at=_PUSHED_AT))
+
+    newest_of_first = store.newest(_SOURCE_ID)
+    newest_of_second = store.newest(_ANOTHER_SOURCE_ID)
+
+    assert newest_of_first == a_failed_run(at=_NOTICED_GONE_AT)
+    assert newest_of_second == a_successful_run(
+        source_id=_ANOTHER_SOURCE_ID,
+        at=_PUSHED_AT,
+    )

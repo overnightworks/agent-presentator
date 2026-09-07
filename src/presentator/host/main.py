@@ -23,6 +23,7 @@ from presentator.adapters.decks import (
     MirroredDeckFolders,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceRunStore,
     SqliteSourceStore,
     create_deck_tables,
 )
@@ -108,6 +109,7 @@ def build_instance(settings: Settings) -> Instance:
             mirrors=mirrors,
             build_timeout=timedelta(seconds=settings.build_timeout_seconds),
         ),
+        source_runs=SqliteSourceRunStore(database=settings.database),
         clock=SystemClock(),
     )
     pages = Pages(

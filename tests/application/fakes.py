@@ -12,6 +12,9 @@ from presentator.contracts.decks import (
     Deck,
     DeckFolder,
     Source,
+    SourcePoll,
+    SourceRun,
+    SourceRunFailure,
 )
 from presentator.contracts.models import (
     Credentials,
@@ -25,6 +28,10 @@ from presentator.contracts.text import LobbyText
 
 # How long one thread waits for another before a test calls the run stuck.
 PATIENCE: Final = timedelta(seconds=5)
+# What a poll that does not name its own commit or failure carries instead:
+# most tests only care about the folders a source carries, never these two.
+_A_FETCHED_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+_AN_UNNAMED_FAILURE: Final = SourceRunFailure.UNREACHABLE
 
 
 @dataclass
@@ -197,15 +204,51 @@ class FakeSourceStore:
 
 
 @dataclass
+class FakeSourceRunStore:
+    """Every run recorded so far, in the order it arrived."""
+
+    recorded: list[SourceRun] = field(default_factory=list[SourceRun])
+
+    def record(self, run: SourceRun) -> None:
+        self.recorded.append(run)
+
+    def newest(self, source_id: str) -> SourceRun | None:
+        for run in reversed(self.recorded):
+            if run.source_id == source_id:
+                return run
+        return None
+
+
+@dataclass
 class FakeDeckFolders:
-    """What each source carries, or nothing where one cannot be read."""
+    """What each source carries, or nothing where one cannot be read.
+
+    A poll's commit and failure are controlled per source only where a test
+    cares about the run they are recorded into; every other test only arranges
+    `carried`.
+    """
 
     carried: dict[str, tuple[DeckFolder, ...] | None] = field(
         default_factory=dict[str, tuple[DeckFolder, ...] | None],
     )
+    commits: dict[str, str] = field(default_factory=dict[str, str])
+    failures: dict[str, SourceRunFailure] = field(
+        default_factory=dict[str, SourceRunFailure],
+    )
 
-    def folders(self, source: Source) -> tuple[DeckFolder, ...] | None:
-        return self.carried.get(source.id, ())
+    def folders(self, source: Source) -> SourcePoll:
+        found = self.carried.get(source.id, ())
+        if found is None:
+            return SourcePoll(
+                folders=None,
+                commit=None,
+                failure=self.failures.get(source.id, _AN_UNNAMED_FAILURE),
+            )
+        return SourcePoll(
+            folders=found,
+            commit=self.commits.get(source.id, _A_FETCHED_COMMIT),
+            failure=None,
+        )
 
 
 @dataclass
@@ -266,13 +309,13 @@ class HeldDeckFolders:
     inside: int = 0
     counting: threading.Lock = field(default_factory=threading.Lock)
 
-    def folders(self, source: Source) -> tuple[DeckFolder, ...]:
+    def folders(self, source: Source) -> SourcePoll:
         self._enter()
         self.entered.set()
         self.release.wait(PATIENCE.total_seconds())
         with self.counting:
             self.inside -= 1
-        return self.found
+        return SourcePoll(folders=self.found, commit=_A_FETCHED_COMMIT, failure=None)
 
     def _enter(self) -> None:
         with self.counting:
