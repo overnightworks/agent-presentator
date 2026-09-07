@@ -8,10 +8,21 @@ from http import HTTPStatus
 import pytest
 
 from presentator.api.auth import SESSION_COOKIE
-from presentator.application.identity import FAILURES_BEFORE_THROTTLE, IDLE_WINDOW
-from presentator.contracts.models import Credentials, Role, User
-from tests.api.lobby import ENGLISH, TYPED_WORDS, USERNAME, Lobby, a_lobby
-from tests.application.fakes import UserStoreThatLostTheRace
+from presentator.application.identity import (
+    FAILURE_WINDOW,
+    FAILURES_BEFORE_THROTTLE,
+    IDLE_WINDOW,
+)
+from presentator.contracts.models import Account, Role
+from tests.api.lobby import (
+    ENGLISH,
+    TYPED_WORDS,
+    USERNAME,
+    Lobby,
+    a_lobby,
+    a_user_store,
+)
+from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _WINNERS_HASH = "the hash the winning first start stored"
@@ -21,8 +32,10 @@ _WRONG_WORDS = "guessed"
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
     store = UserStoreThatLostTheRace()
     store.add_first_account(
-        Credentials(
-            user=User(id="winner", username="someone-else", role=Role.ADMIN),
+        Account(
+            id="winner",
+            username="someone-else",
+            role=Role.ADMIN,
             password_hash=_WINNERS_HASH,
         ),
     )
@@ -105,6 +118,26 @@ def test_the_right_password_opens_the_lobby(signed_in_lobby: Lobby) -> None:
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
 
 
+def test_a_deactivated_account_hears_the_same_sentence() -> None:
+    lobby = a_lobby(
+        users=a_user_store(
+            Account(
+                id="id-of-felix",
+                username=USERNAME,
+                role=Role.ADMIN,
+                password_hash=ReversibleHasher().hash(TYPED_WORDS),
+                is_active=False,
+            ),
+        ),
+    )
+
+    refused = lobby.log_in()
+
+    assert refused.status_code == HTTPStatus.OK
+    assert ENGLISH.login_refused in refused.text
+    assert SESSION_COOKIE not in lobby.client.cookies
+
+
 @pytest.mark.parametrize(
     ("username", "password"),
     [
@@ -145,9 +178,20 @@ def test_a_login_survives_a_ninety_minute_talk(signed_in_lobby: Lobby) -> None:
 def test_a_session_left_alone_for_twelve_hours_leads_back_to_the_login(
     signed_in_lobby: Lobby,
 ) -> None:
-    signed_in_lobby.clock.advance(IDLE_WINDOW)
+    signed_in_lobby.clock.advance(IDLE_WINDOW + timedelta(seconds=1))
 
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
+
+
+def test_the_throttle_lets_go_once_the_failures_age_out(
+    signed_in_lobby: Lobby,
+) -> None:
+    for _ in range(FAILURES_BEFORE_THROTTLE):
+        signed_in_lobby.log_in(password=_WRONG_WORDS)
+
+    signed_in_lobby.clock.advance(FAILURE_WINDOW + timedelta(seconds=1))
+
+    assert signed_in_lobby.log_in().status_code == HTTPStatus.SEE_OTHER
 
 
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(

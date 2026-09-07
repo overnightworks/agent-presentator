@@ -15,6 +15,9 @@ from fastapi import APIRouter, FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
+from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
+from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
+from webauth.proxies import client_user_agent, request_is_https, resolve_client_ip
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS
@@ -23,10 +26,32 @@ from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
-from presentator.contracts.models import FirstStartClosedError
+from presentator.contracts.models import Account, FirstStartClosedError
 from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
+
+
+@dataclass
+class _Credentials:
+    """A writable account view `judge_credentials` can read."""
+
+    id: str
+    username: str
+    role: str
+    is_active: bool
+    password_hash: str
+
+
+def _credentials(account: Account) -> _Credentials:
+    return _Credentials(
+        id=account.id,
+        username=account.username,
+        role=account.role.value,
+        is_active=account.is_active,
+        password_hash=account.password_hash,
+    )
+
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
@@ -64,9 +89,18 @@ def _is_a_stylesheet(path: str) -> bool:
 def _comes_from_elsewhere(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is not None:
-        return origin != f"{request.url.scheme}://{request.url.netloc}"
+        scheme = "https" if request_is_https(request) else "http"
+        return origin != f"{scheme}://{request.url.netloc}"
     fetch_site = request.headers.get("sec-fetch-site")
     return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InstalledAuth:
+    """The library configuration and the cookie flags this host chose."""
+
+    config: WebAuthConfig
+    secure_cookies: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -97,10 +131,11 @@ class _Surfaces:
     ) -> Response:
         """Refuse a form another site submitted.
 
-        Containment until `webauth`'s `CsrfPolicy` arrives (ADR 0003): first
-        start and login are answered without a cookie, so `SameSite=Lax` does
-        not cover them, and a foreign page could otherwise create the
-        instance's admin.
+        `webauth.middleware.csrf.CsrfOriginMiddleware` checks Origin against a
+        host allowlist and does not read Sec-Fetch-Site, so a cross-site POST
+        this instance's own Origin header could not describe would pass it.
+        The ruled refusal is Origin and Sec-Fetch-Site against this request's
+        own origin (issue #8), which is what this guard still does.
         """
         if self._is_a_foreign_form(request):
             return Response(status_code=HTTPStatus.FORBIDDEN)
@@ -121,7 +156,11 @@ class _Surfaces:
             request.state.signed_in_person = None
             return await call_next(request)
         cookie_value = request.cookies.get(SESSION_COOKIE, "")
-        person = self.identity.signed_in_user(cookie_value)
+        person = self.identity.signed_in_user(
+            cookie_value,
+            ip_address=resolve_client_ip(request),
+            user_agent=client_user_agent(request),
+        )
         if person is None:
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         request.state.signed_in_person = person
@@ -181,10 +220,34 @@ class _Surfaces:
         password: Annotated[str, Form()],
     ) -> Response:
         """Open a session, or say the one sentence that tells nothing apart."""
-        cookie_value = self.identity.log_in(username=username, password=password)
-        if cookie_value is None:
+        config = web_auth_config(request)
+        ip_address = resolve_client_ip(request)
+        if (
+            login_attempt_budget(
+                self.identity.attempts,
+                ip_address=ip_address,
+                username=username,
+                config=config,
+            )
+            is not None
+        ):
             return self._login(request, refused=True)
-        return self._signed_in(cookie_value)
+        account = self.identity.account_named(username)
+        outcome = judge_credentials(
+            password,
+            None if account is None else _credentials(account),
+            hasher=config.password_hasher,
+        )
+        if outcome is not LoginOutcome.ADMITTED or account is None:
+            self.identity.note_failed_login(ip_address=ip_address, username=username)
+            return self._login(request, refused=True)
+        return self._signed_in(
+            self.identity.open_session(
+                account.as_user(),
+                ip_address=ip_address,
+                user_agent=client_user_agent(request),
+            ),
+        )
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
@@ -220,6 +283,8 @@ class _Surfaces:
             cookie_value = self.identity.create_first_admin(
                 username=username,
                 password=password,
+                ip_address=resolve_client_ip(request),
+                user_agent=client_user_agent(request),
             )
         except FirstStartClosedError:
             # Another first start won the race between the count and the write.
@@ -253,7 +318,7 @@ def create_lobby(
     identity: Identity,
     decks: Decks,
     pages: Pages,
-    secure_cookies: bool,
+    auth: InstalledAuth,
     fetch_hook: APIRouter | None,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose.
@@ -265,10 +330,11 @@ def create_lobby(
         identity=identity,
         decks=decks,
         pages=pages,
-        secure_cookies=secure_cookies,
+        secure_cookies=auth.secure_cookies,
         hook_is_armed=fetch_hook is not None,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)

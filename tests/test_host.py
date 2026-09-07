@@ -26,6 +26,7 @@ from presentator.adapters.identity import (
 from presentator.adapters.secrets import secret_box
 from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import HOOKS_PATH
+from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.host import main
 from presentator.host.config import (
     SECRET_LENGTH,
@@ -45,6 +46,10 @@ _ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
 _ANOTHER_SOURCE_NAME = "more-talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
+_PEER = "127.0.0.1"
+_FORWARDED_CLIENT = "203.0.113.10"
+_ANOTHER_CLIENT = "198.51.100.20"
+_WRONG_WORDS = "guessed"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
@@ -110,6 +115,111 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
     assert len(served) == 1
     assert TestClient(served[0]).get("/login").is_success
+
+
+def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
+    """A browser whose ASGI peer is an address, so a proxy list can trust it."""
+    return TestClient(instance.lobby, follow_redirects=False, client=(peer, 50000))
+
+
+def an_admin_signed_out(instance: Instance) -> TestClient:
+    """The real stack with its admin created and its session ended."""
+    lobby = a_browser(instance)
+    lobby.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+    )
+    lobby.post("/logout")
+    return lobby
+
+
+def spend_the_address_budget(lobby: TestClient, *, forwarded: str) -> None:
+    """Refuse under distinct names, so only this address is spent."""
+    for index in range(FAILURES_BEFORE_THROTTLE):
+        lobby.post(
+            "/login",
+            data={"username": f"nobody-{index}", "password": _WRONG_WORDS},
+            headers={"x-forwarded-for": forwarded},
+        )
+
+
+def post_from_the_tunnel(lobby: TestClient) -> Response:
+    """First start as the tunnel's browser: https Origin on an http connection."""
+    host = str(lobby.base_url).removeprefix("http://").rstrip("/")
+    return lobby.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+        headers={
+            "origin": f"https://{host}",
+            "sec-fetch-site": "same-origin",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+
+@pytest.mark.usefixtures("environment")
+def test_without_trusted_proxies_the_login_budget_keys_on_the_peer() -> None:
+    lobby = an_admin_signed_out(a_real_instance())
+    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
+
+    still_the_peer = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _ANOTHER_CLIENT},
+    )
+
+    assert still_the_peer.status_code == HTTPStatus.OK
+    assert SESSION_COOKIE not in still_the_peer.cookies
+
+
+def test_a_trusted_proxy_makes_the_forwarded_client_the_one_the_budget_counts(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
+    lobby = an_admin_signed_out(a_real_instance())
+    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
+
+    same_client = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _FORWARDED_CLIENT},
+    )
+    other_client = lobby.post(
+        "/login",
+        data={"username": _PERSON, "password": _TYPED_WORDS},
+        headers={"x-forwarded-for": _ANOTHER_CLIENT},
+    )
+
+    assert same_client.status_code == HTTPStatus.OK
+    assert other_client.status_code == HTTPStatus.SEE_OTHER
+
+
+def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", "not-an-address")
+
+    with pytest.raises(ConfigurationError, match="trusted_proxies"):
+        load_settings()
+
+
+def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    refused = post_from_the_tunnel(a_browser(a_real_instance()))
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
+    accepted = post_from_the_tunnel(a_browser(a_real_instance()))
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 @pytest.mark.usefixtures("environment")

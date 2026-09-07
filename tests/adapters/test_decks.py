@@ -41,7 +41,7 @@ from presentator.contracts.decks import (
     SourceRunFailure,
     SourceRunOutcome,
 )
-from presentator.contracts.models import Credentials, Role, User
+from presentator.contracts.models import Account, Role, User
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -277,7 +277,12 @@ def a_database_written_before_sources(tmp_path: Path) -> Path:
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
     SqliteUserStore(database).add_first_account(
-        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
     )
     apply_schema(database, _DECKS_BEFORE_SOURCES)
     kept = a_deck()
@@ -301,7 +306,12 @@ def an_instance_that_was_set_up(tmp_path: Path) -> Path:
     create_identity_tables(database)
     create_deck_tables(database)
     SqliteUserStore(database).add_first_account(
-        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
     )
     return database
 
@@ -546,7 +556,12 @@ def test_a_sources_table_written_before_this_column_gains_it_and_keeps_its_row(
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
     SqliteUserStore(database).add_first_account(
-        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
     )
     apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
     with rows(database) as cursor:
@@ -734,7 +749,12 @@ def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(
     sources.seed()
     before_first_start = sources.all()
     SqliteUserStore(database).add_first_account(
-        Credentials(user=_OWNER, password_hash=_A_STORED_HASH),
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
     )
     sources.seed()
     sources.seed()
