@@ -217,9 +217,7 @@ def test_a_deck_page_stands_behind_the_lobbys_header(lobby: TestClient) -> None:
     assert TEXT.log_out in page
 
 
-def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found(
-    lobby: TestClient,
-) -> None:
+def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None:
     store = a_deck_store(built_talk=_BUILT_TALK)
     signed_in = a_signed_in_lobby(store=store, source=a_configured_source(_ADDRESS))
 

@@ -65,7 +65,7 @@ WHERE slug = ? AND removed_at IS NULL
 """
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
-_UNREADABLE_MANIFEST: Final = "folder %s carries no readable title and keeps its current listing: %s"
+_UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
 
 _log = logging.getLogger(__name__)
 
