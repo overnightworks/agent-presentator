@@ -1,7 +1,0 @@
-claim_id = "9381c663d10c48738a0524bd37776562"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "c520c55526d8c01af44775b58324f19bd714ffed"
-branch = "fix/pr-check-pin"
-scope = [".github/workflows/pr-check.yml"]
-opened_commit = "df0597a2a07c6e8b4a375bf751c2b81210161078"
