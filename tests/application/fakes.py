@@ -177,10 +177,14 @@ class FakeDeckStore:
         self.kept[deck.slug] = replace(
             deck,
             active_build=None if standing is None else standing.active_build,
+            pdf_export=None if standing is None else standing.pdf_export,
         )
 
     def put_active_build(self, slug: str, *, directory: Path) -> None:
         self.kept[slug] = replace(self.kept[slug], active_build=directory)
+
+    def put_pdf_export(self, slug: str, *, file: Path) -> None:
+        self.kept[slug] = replace(self.kept[slug], pdf_export=file)
 
     def get(self, slug: str) -> Deck | None:
         return None if slug in self.removed else self.kept.get(slug)

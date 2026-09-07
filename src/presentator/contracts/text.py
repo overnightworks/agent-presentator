@@ -36,5 +36,6 @@ class LobbyText:
     deck_not_built_explanation: str
     deck_presenter_view: str
     deck_projector_view: str
+    deck_pdf: str
     deck_unknown_title: str
     deck_unknown_explanation: str

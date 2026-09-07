@@ -95,6 +95,9 @@ msgstr "Presenter view"
 msgid "deck_projector_view"
 msgstr "Projector view"
 
+msgid "deck_pdf"
+msgstr "PDF"
+
 msgid "deck_unknown_title"
 msgstr "No such deck"
 

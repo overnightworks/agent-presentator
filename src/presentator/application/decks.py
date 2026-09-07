@@ -17,6 +17,18 @@ from presentator.ports.decks import DeckFolders, DeckStore, SourceStore
 # A person compares the commit on the page with the one their push wrote, and
 # reads it off the screen; the first characters are what git itself shows.
 _SHORT_COMMIT: Final = 7
+# A folder's name is one path element and stays one word of a header value.
+_NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
+_NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
+
+
+def _is_a_plain_folder_name(candidate: str) -> bool:
+    """Whether the candidate is a folder's own name and nothing besides."""
+    return (
+        candidate not in _NAMES_NO_FOLDER
+        and candidate.isprintable()
+        and not _NEVER_IN_A_FOLDER_NAME.intersection(candidate)
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -71,12 +83,25 @@ class Decks:
             source=self.source_address(),
             commit=deck.commit[:_SHORT_COMMIT],
             built=deck.active_build is not None,
+            exported=deck.pdf_export is not None,
         )
 
     def built_talk(self, slug: str) -> Path | None:
         """The directory the deck's talk is delivered from, while one is built."""
         deck = self.store.get(slug)
         return None if deck is None else deck.active_build
+
+    def exported_pdf(self, slug: str) -> Path | None:
+        """The file the deck's PDF is handed over as, while one is exported.
+
+        A slug that is not a folder's plain name names no deck here: the export
+        is offered under that name, so a separator, a quote, or a line break in
+        it would otherwise reach the answer's own header.
+        """
+        if not _is_a_plain_folder_name(slug):
+            return None
+        deck = self.store.get(slug)
+        return None if deck is None else deck.pdf_export
 
     def source_address(self) -> str | None:
         """The git address an empty list names, while one is configured."""
@@ -109,6 +134,7 @@ class Decks:
                     owner_id=source.owner_id,
                     commit=folder.commit,
                     active_build=None,
+                    pdf_export=None,
                 ),
             )
         self.store.mark_removed_except(
