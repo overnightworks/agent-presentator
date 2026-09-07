@@ -112,8 +112,8 @@ def build_instance(settings: Settings) -> Instance:
             build_timeout=build_bound,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
-        # The bound the toolchain is given is the bound the refresh waits for:
-        # an attempt older than it belongs to a run this process no longer has.
+        # One toolchain step's bound, which is what the refresh needs: it never
+        # reads a live build, only what a process that is gone left behind.
         build_bound=build_bound,
         clock=SystemClock(),
     )

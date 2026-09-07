@@ -286,8 +286,9 @@ class Decks:
 
         The commit is the whole change check: a push moves one folder's commit,
         so only that deck is built again and the other talks are left alone. A
-        commit that was already tried is not tried again either, so a deck that
-        cannot build costs one build and not one per refresh until it is
+        folder standing at the commit its talk was built from needs no build at
+        all, and a commit that was already tried is not tried again, so a deck
+        that cannot build costs one build and not one per refresh until it is
         pushed again. A deck is built out of the mirror of its own source, so a
         source's walk passes over the decks another source carried.
         """
@@ -295,16 +296,32 @@ class Decks:
             if deck.source_id != source.id:
                 continue
             self._give_up_on_a_build_that_never_returned(deck)
+            standing = deck.build
+            if standing is not None and standing.commit == deck.commit:
+                self._deliver_the_standing_talk_again(deck, standing)
+                continue
             if self._was_already_tried(deck):
                 continue
             self._switch_over(deck, source)
 
+    def _deliver_the_standing_talk_again(self, deck: Deck, standing: Build) -> None:
+        """Make the talk that stands this commit's talk again, building nothing.
+
+        Reverting a broken push is how a person undoes it in git (line 16): the
+        folder is back at the commit the standing talk was built from, so that
+        talk is current again and the failure recorded against the push that
+        was reverted goes with the one statement a successful switch writes.
+        Its build time does not move, because that build is the one that ran.
+        A deck that carries no attempt is left alone, so an unchanged deck
+        costs a refresh no write at all.
+        """
+        if deck.attempt is None:
+            return
+        self.store.put_build(deck.slug, standing)
+
     def _was_already_tried(self, deck: Deck) -> bool:
-        """Whether this deck's commit already became a talk or already failed."""
-        return any(
-            tried is not None and tried.commit == deck.commit
-            for tried in (deck.build, deck.attempt)
-        )
+        """Whether a build was already started for the commit the folder carries."""
+        return deck.attempt is not None and deck.attempt.commit == deck.commit
 
     def _give_up_on_a_build_that_never_returned(self, deck: Deck) -> None:
         """Call an attempt that outlived the build bound failed, not running.
@@ -312,7 +329,10 @@ class Decks:
         Builds follow one another inside one refresh, so an attempt still
         saying it runs when the next refresh reads it belongs to a process that
         is gone — the server was restarted while it built. Nobody may read that
-        as a deck building for ever, and it left no words to show.
+        as a deck building for ever, and it left no words to show. The bound is
+        one toolchain step's, not the whole walk's, on purpose: no live build
+        is ever read here, so the bound only has to be too long for a leftover
+        to be mistaken for one that just began.
         """
         attempt = deck.attempt
         if attempt is None or attempt.outcome is not BuildOutcome.RUNNING:

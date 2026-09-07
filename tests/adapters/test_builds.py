@@ -366,10 +366,11 @@ def test_without_a_toolchain_on_the_machine_there_is_no_build(
 
     built = builds.build(deck, source=source)
 
-    assert isinstance(built, BuildFailure)
-    assert built.text is not None
-    assert _TOOLCHAIN_PROGRAM in built.text
+    # What the operating system says names paths of this host, so it stays in
+    # the log; the page is told that this build left no words.
+    assert built == BuildFailure(text=None)
     assert EXAMPLE_SLUG in caplog.text
+    assert _TOOLCHAIN_PROGRAM in caplog.text
 
 
 def test_a_commit_the_mirror_cannot_read_the_deck_at_builds_nothing(

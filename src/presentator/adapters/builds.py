@@ -158,8 +158,12 @@ class SlidevBuilds:
                 start_new_session=True,
             )
         except OSError as unavailable:
+            # A toolchain that cannot be started is this host's fault, and what
+            # the operating system says about it names paths of this host; the
+            # deck's page is told that no words came back, and the log keeps
+            # them.
             _log.error(_TOOLCHAIN_UNAVAILABLE, step, deck.slug, unavailable)
-            return BuildFailure(text=bounded_failure(str(unavailable)))
+            return BuildFailure(text=None)
         with process:
             try:
                 _, stderr = process.communicate(

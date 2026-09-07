@@ -471,6 +471,42 @@ def test_a_build_that_works_again_leaves_no_failure_behind() -> None:
     assert _listed_states(decks) == [DeckState.READY]
 
 
+def test_a_revert_to_the_talk_that_stands_is_ready_again_without_building() -> None:
+    builder = FakeBuildRunner()
+    clock = FrozenClock(instant=_NOW)
+    mirror = carrying(a_folder("kundenfeedback"))
+    decks = decks_over(
+        mirror=mirror,
+        fakes=DecksFakes(builder=builder, clock=clock),
+    )
+    decks.refresh()
+    standing = decks.built_talk("kundenfeedback")
+
+    clock.advance(by=timedelta(minutes=10))
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
+    builder.fails = True
+    builder.says = _WHAT_THE_TOOLCHAIN_SAID
+    decks.refresh()
+    while_the_push_was_broken = page_of(decks, "kundenfeedback")
+    tried_before_the_revert = list(builder.built)
+
+    clock.advance(by=timedelta(minutes=5))
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback"),)
+    decks.refresh()
+
+    reverted = page_of(decks, "kundenfeedback")
+    assert while_the_push_was_broken.state is DeckState.FAILED
+    assert reverted.state is DeckState.READY
+    assert reverted.attempt is None
+    assert reverted.commit == _SHORT_COMMIT
+    # The talk that stands is the one that was built before the broken push:
+    # its own build time, and no second run of the toolchain.
+    assert reverted.built_ago == timedelta(minutes=15)
+    assert decks.built_talk("kundenfeedback") == standing
+    assert builder.built == tried_before_the_revert
+    assert _listed_states(decks) == [DeckState.READY]
+
+
 def test_a_build_that_died_with_the_server_is_failed_at_the_next_refresh() -> None:
     builder = FakeBuildRunner()
     decks = decks_over(
