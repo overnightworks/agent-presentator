@@ -14,8 +14,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.adapters.decks import SqliteDeckStore
-from presentator.adapters.identity import SqliteUserStore
+from presentator.adapters.decks import (
+    ConfiguredSource,
+    SqliteDeckStore,
+    SqliteSourceStore,
+)
+from presentator.adapters.identity import (
+    SqliteUserStore,
+    TokenIdentifierFactory,
+)
+from presentator.adapters.secrets import secret_box
 from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import HOOKS_PATH
 from presentator.host import main
@@ -37,6 +45,9 @@ _ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
 _ANOTHER_SOURCE_NAME = "more-talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
+_WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
+_CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
+_ANOTHER_INSTANCE_KEY = "the key another instance carries"
 
 
 @pytest.fixture
@@ -220,6 +231,76 @@ def call_the_hook(lobby: TestClient, *, carrying: str) -> Response:
         f"{HOOKS_PATH}/{_SOURCE_NAME}",
         headers={"authorization": f"Bearer {carrying}"},
     )
+
+
+def sources_over(
+    database: Path, *, instance_key: str = _INSTANCE_KEY
+) -> SqliteSourceStore:
+    """The real source store over the instance's file, keyed as it says.
+
+    What the instance itself writes is keyed by its own instance key; another
+    key stands for a row this installation did not write.
+    """
+    return SqliteSourceStore(
+        database=database,
+        configured=ConfiguredSource(
+            name=_SOURCE_NAME,
+            url=None,
+            ref="main",
+            credential_reference=None,
+            accounts=SqliteUserStore(database),
+        ),
+        identifiers=TokenIdentifierFactory(),
+        box=secret_box(instance_key),
+    )
+
+
+def test_a_source_that_names_an_environment_variable_fetches_while_it_is_there(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_CREDENTIAL", _CREDENTIAL_VARIABLE)
+    environment.delenv(_CREDENTIAL_VARIABLE, raising=False)
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    asyncio.run(instance.poller.tick())
+    while_the_variable_was_unset = lobby.get("/").text
+
+    environment.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    asyncio.run(instance.poller.tick())
+    after_it_was_set = lobby.get("/").text
+
+    assert EXAMPLE_TITLE not in while_the_variable_was_unset
+    assert EXAMPLE_TITLE in after_it_was_set
+
+
+def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    asyncio.run(instance.poller.tick())
+    database = tmp_path / "presentator.sqlite3"
+    stored = sources_over(database).all()[0]
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    sources_over(database, instance_key=_ANOTHER_INSTANCE_KEY).put_credential(
+        stored.id,
+        _WHAT_THE_GIT_HOST_EXPECTS,
+    )
+    asyncio.run(instance.poller.tick())
+    while_the_row_held_what_this_key_cannot_open = lobby.get("/").text
+
+    sources_over(database).put_credential(stored.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    asyncio.run(instance.poller.tick())
+    after_this_instance_wrote_it = lobby.get("/").text
+
+    assert EXAMPLE_TITLE not in while_the_row_held_what_this_key_cannot_open
+    assert EXAMPLE_TITLE in after_this_instance_wrote_it
 
 
 def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(

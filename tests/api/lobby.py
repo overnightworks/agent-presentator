@@ -114,7 +114,7 @@ def a_configured_source(url: str) -> Source:
         name="decks",
         url=url,
         ref="main",
-        credential_reference=None,
+        secret_location=None,
         owner_id=ADMIN,
     )
 
