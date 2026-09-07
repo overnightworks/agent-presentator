@@ -8,6 +8,7 @@ version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
     "babel==2.18.0",
+    "cryptography==50.0.1",
     "fastapi==0.141.1",
     "jinja2==3.1.6",
     "pwdlib[argon2]==0.3.1",
@@ -100,6 +101,8 @@ convention = "google"
 "tests/conftest.py" = ["S404", "S603", "S607"]
 # Asks the real `git` whether it accepts the credential configuration it is given.
 "tests/gitmirror/test_mirror.py" = ["S404", "S603", "S607"]
+# Asks the same of the credential a source's own row carries.
+"tests/adapters/test_decks.py" = ["S404", "S603", "S607"]
 
 [tool.importlinter]
 root_packages = ["presentator", "gitmirror"]
@@ -227,5 +230,24 @@ source_modules = [
 forbidden_modules = ["pwdlib", "sqlite3"]
 as_packages = true
 # The host composes the adapter that owns them, so the legal chain runs through
+# it; only naming the library in a layer above is the violation.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "encryption-library"
+name = "Only adapters import the encryption library"
+type = "forbidden"
+# ADR 0013: every parameter of the encryption stands in the adapter that owns
+# it, so a layer above asks a port or is handed bytes it cannot read.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["cryptography"]
+as_packages = true
+# The host composes the adapter that owns it, so the legal chain runs through
 # it; only naming the library in a layer above is the violation.
 allow_indirect_imports = true
