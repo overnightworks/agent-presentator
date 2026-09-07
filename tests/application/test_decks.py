@@ -10,6 +10,7 @@ from presentator.application.decks import Decks
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    Deck,
     DeckFolder,
     ListedDeck,
     Source,
@@ -36,6 +37,7 @@ _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
 _BUILT_TALK = Path("/var/lib/presentator/builds/kundenfeedback/a3f19c2")
+_EXPORTED_PDF = Path("/var/lib/presentator/exports/kundenfeedback/a3f19c2.pdf")
 
 
 def a_folder(
@@ -67,6 +69,24 @@ def decks_over(
         store=FakeDeckStore() if store is None else store,
         clock=FrozenClock(instant=_NOW),
     )
+
+
+def a_store_holding_an_export(slug: str) -> FakeDeckStore:
+    """A store that would hand a PDF over for that slug, however it is written."""
+    store = FakeDeckStore()
+    store.put(
+        Deck(
+            slug=slug,
+            title="Kundenfeedback",
+            changed_at=_NOW,
+            owner_id=_OWNER,
+            commit=_COMMIT,
+            active_build=None,
+            pdf_export=None,
+        ),
+    )
+    store.put_pdf_export(slug, file=_EXPORTED_PDF)
+    return store
 
 
 def refreshed(decks: Decks) -> tuple[ListedDeck, ...]:
@@ -143,14 +163,16 @@ def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
     assert page.source == _SOURCE.url
     assert page.commit == _SHORT_COMMIT
     assert not page.built
+    assert not page.exported
 
 
-def test_a_slug_no_folder_carries_has_no_page_and_no_talk() -> None:
+def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
     decks = decks_over(a_folder("kundenfeedback"))
     decks.refresh()
 
     assert decks.page("never-pushed") is None
     assert decks.built_talk("never-pushed") is None
+    assert decks.exported_pdf("never-pushed") is None
 
 
 def test_a_built_deck_offers_its_talk_and_says_it_is_ready() -> None:
@@ -166,15 +188,48 @@ def test_a_built_deck_offers_its_talk_and_says_it_is_ready() -> None:
     assert decks.built_talk("kundenfeedback") == _BUILT_TALK
 
 
-def test_taking_a_pushed_deck_in_again_leaves_its_built_talk_standing() -> None:
+def test_an_exported_deck_hands_its_pdf_over_and_says_so_on_its_page() -> None:
+    store = FakeDeckStore()
+    decks = decks_over(a_folder("kundenfeedback"), store=store)
+    decks.refresh()
+
+    store.put_pdf_export("kundenfeedback", file=_EXPORTED_PDF)
+    page = decks.page("kundenfeedback")
+
+    assert page is not None
+    assert page.exported
+    assert decks.exported_pdf("kundenfeedback") == _EXPORTED_PDF
+
+
+@pytest.mark.parametrize(
+    "slug",
+    [
+        "deck/with-a-separator",
+        "deck\\with-a-separator",
+        'deck"with-a-quote',
+        "deck\nwith-a-line-break",
+        "..",
+        "",
+    ],
+    ids=["separator", "backslash", "quote", "line break", "one folder up", "nothing"],
+)
+def test_a_slug_that_is_no_folders_own_name_hands_over_no_pdf(slug: str) -> None:
+    decks = decks_over(store=a_store_holding_an_export(slug))
+
+    assert decks.exported_pdf(slug) is None
+
+
+def test_taking_a_pushed_deck_in_again_leaves_what_it_delivers_standing() -> None:
     store = FakeDeckStore()
     decks = decks_over(a_folder("kundenfeedback"), store=store)
     decks.refresh()
     store.put_active_build("kundenfeedback", directory=_BUILT_TALK)
+    store.put_pdf_export("kundenfeedback", file=_EXPORTED_PDF)
 
     decks.refresh()
 
     assert decks.built_talk("kundenfeedback") == _BUILT_TALK
+    assert decks.exported_pdf("kundenfeedback") == _EXPORTED_PDF
 
 
 def test_a_deck_page_names_no_source_while_none_is_configured() -> None:

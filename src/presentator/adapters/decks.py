@@ -38,16 +38,18 @@ CREATE TABLE IF NOT EXISTS decks (
     owner_id TEXT NOT NULL REFERENCES users(id),
     commit_sha TEXT NOT NULL,
     active_build TEXT,
+    pdf_export TEXT,
     removed_at TEXT
 );
 """
-# The build pointer is left out of the insert's update list on purpose: taking
-# a deck in again must not unpresent the talk that already stands (line 16).
-# Whether the row is marked removed is left out too: that mark is
-# `mark_removed_except`'s alone, cleared there when the folder is carried again.
+# Neither delivery pointer is written by this statement, on purpose: taking a
+# deck in again must not unpresent the talk that already stands, nor take away
+# the PDF that is already downloadable (line 16). Whether the row is marked
+# removed is left out too: that mark is `mark_removed_except`'s alone, cleared
+# there when the folder is carried again.
 _PUT_DECK: Final = """
-INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha, active_build)
-VALUES (?, ?, ?, ?, ?, NULL)
+INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(slug) DO UPDATE SET
     title = excluded.title,
     changed_at = excluded.changed_at,
@@ -55,14 +57,13 @@ ON CONFLICT(slug) DO UPDATE SET
     commit_sha = excluded.commit_sha
 """
 _PUT_ACTIVE_BUILD: Final = "UPDATE decks SET active_build = ? WHERE slug = ?"
+_PUT_PDF_EXPORT: Final = "UPDATE decks SET pdf_export = ? WHERE slug = ?"
 _ALL_DECKS: Final = """
-SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
+SELECT slug, title, changed_at, owner_id, commit_sha, active_build, pdf_export
+FROM decks
 WHERE removed_at IS NULL
 """
-_ONE_DECK: Final = """
-SELECT slug, title, changed_at, owner_id, commit_sha, active_build FROM decks
-WHERE slug = ? AND removed_at IS NULL
-"""
+_ONE_DECK: Final = f"{_ALL_DECKS} AND slug = ?"
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
 _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
@@ -222,6 +223,11 @@ class SqliteDeckStore:
         with rows(self.database) as cursor:
             cursor.execute(_PUT_ACTIVE_BUILD, (str(directory), slug))
 
+    def put_pdf_export(self, slug: str, *, file: Path) -> None:
+        """Point the deck at the file its PDF is handed over as."""
+        with rows(self.database) as cursor:
+            cursor.execute(_PUT_PDF_EXPORT, (str(file), slug))
+
     def get(self, slug: str) -> Deck | None:
         """Read the one deck row that slug names, while its folder is still there."""
         with rows(self.database) as cursor:
@@ -252,16 +258,21 @@ class SqliteDeckStore:
         return tuple(_deck(row) for row in found)
 
 
-def _deck(row: tuple[str, str, str, str, str, str | None]) -> Deck:
-    slug, title, changed_at, owner_id, commit, active_build = row
+def _deck(row: tuple[str, str, str, str, str, str | None, str | None]) -> Deck:
+    slug, title, changed_at, owner_id, commit, active_build, pdf_export = row
     return Deck(
         slug=slug,
         title=title,
         changed_at=datetime.fromisoformat(changed_at),
         owner_id=owner_id,
         commit=commit,
-        active_build=None if active_build is None else Path(active_build),
+        active_build=_path(active_build),
+        pdf_export=_path(pdf_export),
     )
+
+
+def _path(stored: str | None) -> Path | None:
+    return None if stored is None else Path(stored)
 
 
 def _title(manifest: bytes, *, folder: str) -> str:

@@ -135,13 +135,14 @@ mirrored from, and the short commit that folder was read at, so before speaking
 a person sees which state the delivered talk stands at. The build time joins
 them with the slice that builds.
 
-Where a deck's built talk stands is one column on the deck's row. Only putting
-a build moves it, and taking the deck in from Git again leaves it standing, so
-a new push never unpresents the talk that already works. Nothing writes that
-column yet — the build itself, its states, and the PDF are open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) — so a deck
-page says no talk has been built from it yet and offers no view rather than a
-dead link.
+Where a deck's built talk stands, and which file its PDF is handed over as, are
+two columns on the deck's row. Only putting one of them moves it, and taking the
+deck in from Git again leaves both standing, so a new push never unpresents the
+talk that already works and never takes away the PDF that already downloads.
+Nothing writes those columns yet — the build itself, its states, and the export
+are open on [#8](https://github.com/overnightworks/agent-presentator/issues/8) —
+so a deck page says no talk has been built from it yet and offers no view rather
+than a dead link.
 
 While a build is pointed at, the projector view is `/deck/<folder>/` and the
 presenter view `/deck/<folder>/presenter/`, both delivered out of that
@@ -155,3 +156,13 @@ leave the build directory — through `..`, through percent-encoded separators, 
 through a symlink out of it — is refused. Every signed-in person may hold every
 deck; a deck still belongs to the account that owns its source, and
 per-person visibility is not ruled for this phase.
+
+`/deck/<folder>/pdf` hands the file that row names over as `application/pdf`,
+to be saved under the deck's folder name, and the page offers that download
+only while the column is set. An address with nothing behind it — no file put
+yet, or one that is gone from disk — answers the lobby's own not-found page
+rather than a traceback, and a signed-out request answers the login like every
+other address. The saved name is derived from the folder name alone, and a slug
+that is no folder's own name — carrying a separator, a quote, or a line break —
+hands over nothing at all, so nothing an address carries reaches a response
+header.
