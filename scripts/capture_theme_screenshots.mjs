@@ -23,6 +23,11 @@
  * bare specifier "playwright" unless PLAYWRIGHT_MODULE names another entry
  * point.
  *
+ * `setup` and `capture` create the first account and change themes, so the
+ * base URL must resolve to a loopback host (127.0.0.1, localhost, ::1) — a
+ * probe target — and the tool refuses, with no override, any other host so
+ * the operator's live stack can never be a valid target of this proof.
+ *
  * Usage:
  *   node scripts/capture_theme_screenshots.mjs setup --base-url <url> --out-dir <dir>
  *   node scripts/capture_theme_screenshots.mjs capture --base-url <url> --out-dir <dir>
@@ -52,6 +57,19 @@ const WIDTHS = [
 ];
 
 const THEMES = ["follow-system", "light", "dark"];
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+function refuseUnlessLoopback(baseUrl) {
+  const hostname = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (LOOPBACK_HOSTS.has(hostname)) return;
+  process.stderr.write(
+    `refusing ${baseUrl}: this proof creates the first account and changes themes, so it ` +
+      "only targets a loopback host (127.0.0.1, localhost, ::1) — the operator's live " +
+      "stack must never be a valid target of this proof, and there is no override\n",
+  );
+  process.exit(1);
+}
 
 function colorSchemeFor(theme) {
   return theme === "light" ? "dark" : "light";
@@ -237,6 +255,7 @@ async function main() {
   if (command === "setup" || command === "capture") {
     const baseUrl = requireArg("base-url");
     const outDir = requireArg("out-dir");
+    refuseUnlessLoopback(baseUrl);
     const { chromium } = await import(PLAYWRIGHT_MODULE);
     if (command === "setup") await runSetup(chromium, baseUrl, outDir);
     else await runCapture(chromium, baseUrl, outDir);
@@ -250,6 +269,10 @@ async function main() {
   }
   process.stderr.write("usage: capture_theme_screenshots.mjs setup|capture --base-url <url> --out-dir <dir>\n");
   process.stderr.write("       capture_theme_screenshots.mjs compare --before <dir> --after <dir>\n");
+  process.stderr.write(
+    "setup/capture create the first account and change themes, so --base-url must be a " +
+      "loopback host (127.0.0.1, localhost, ::1); no other host is ever accepted\n",
+  );
   process.exit(2);
 }
 
