@@ -1,8 +1,0 @@
-claim_id = "cbaaa3ac3cfe43aeb49185c232e4f3a9"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "41af717431a259e8bba45093129fe69b4058c194"
-branch = "claude/issue-46-source-row"
-scope = ["src/presentator", "tests", "docs/PRODUCT.md", "docs/OPERATIONS.md"]
-opened_commit = "f86e7a39de663938661be9363f684298704e48be"
-whole_reason = "One contract change reaches its port, its single caller and its adapter; half of it leaves a store that cannot be typed."
