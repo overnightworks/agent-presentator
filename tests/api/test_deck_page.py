@@ -27,6 +27,7 @@ _TITLE: Final = "Hello Co-Presenter"
 _COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT: Final = "a3f19c2"
 _ADDRESS: Final = "git@heimserver:decks.git"
+# What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
 _BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 _EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
 _PAGE: Final = f"/deck/{_SLUG}"
@@ -165,21 +166,31 @@ def test_a_deck_with_a_built_talk_opens_its_presenter_and_its_projector_view(
     lobby: TestClient,
 ) -> None:
     page = lobby.get(_PAGE).text
+    application = (_BUILT_TALK / "index.html").read_bytes()
 
     assert f'href="{_PRESENTER}"' in page
     assert f'href="{_PROJECTOR}"' in page
     assert ENGLISH.deck_state_ready in page
-    assert lobby.get(_PRESENTER).status_code == HTTPStatus.OK
-    assert lobby.get(_PROJECTOR).status_code == HTTPStatus.OK
+    projector = lobby.get(_PROJECTOR)
+    presenter = lobby.get(_PRESENTER)
+    assert projector.status_code == HTTPStatus.OK
+    assert presenter.status_code == HTTPStatus.OK
+    assert projector.content == application
+    assert presenter.content == application
 
 
 def test_a_talk_is_served_with_the_slide_in_the_address_it_was_left_at(
     lobby: TestClient,
 ) -> None:
-    projector = lobby.get(_PROJECTOR)
+    application = (_BUILT_TALK / "index.html").read_bytes()
+    slide = lobby.get(f"{_PROJECTOR}2")
+    presenter_slide = lobby.get(f"{_PRESENTER}2")
 
-    assert "location.hash" in projector.text
-    assert projector.headers["content-type"].startswith("text/html")
+    assert slide.status_code == HTTPStatus.OK
+    assert presenter_slide.status_code == HTTPStatus.OK
+    assert slide.content == application
+    assert presenter_slide.content == application
+    assert slide.headers["content-type"].startswith("text/html")
 
 
 def test_a_deck_with_an_exported_pdf_offers_it_for_download_on_its_page(
@@ -342,6 +353,40 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
     )
 
     assert "a talk" in signed_in.get(_PROJECTOR).text
+
+
+def test_a_nonsense_address_under_a_built_talk_is_the_application(
+    lobby: TestClient,
+) -> None:
+    application = (_BUILT_TALK / "index.html").read_bytes()
+    nonsense = lobby.get(f"{_PROJECTOR}this-slide-was-never-written")
+
+    assert nonsense.status_code == HTTPStatus.OK
+    assert nonsense.content == application
+    assert ENGLISH.deck_unknown_title not in nonsense.text
+
+
+def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
+    assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
+
+
+def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
+    tmp_path: Path,
+) -> None:
+    talk = tmp_path / "talk"
+    talk.mkdir()
+    (talk / "notes.txt").write_text("not an application", encoding="utf-8")
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk)),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    missing = signed_in.get(_PRESENTER)
+
+    assert missing.status_code == HTTPStatus.NOT_FOUND
+    assert "not an application" not in missing.text
 
 
 def test_a_deck_another_person_owns_is_held_by_anyone_signed_in() -> None:
