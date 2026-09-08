@@ -198,7 +198,10 @@ the address it was mirrored from, the short commit the talk it delivers was
 built from, and how long ago that build ran, so before speaking a person sees
 whether their push is in what will be on the screen. Until a build has switched
 anything over, the commit shown is the one the source last carried under that
-folder.
+folder. Beside the state, the page names the theme set this instance builds
+with — read from the toolchain project's own `package.json`, never typed a
+second time, and omitted rather than shown empty while that project cannot be
+read ([ADR 0014](decisions/0014-toolchain-owns-build-dependencies.md)).
 
 While a build runs, the page says so with the commit being built and how long
 it has been running, and the two views are shown locked rather than offered:

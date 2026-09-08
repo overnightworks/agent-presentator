@@ -169,3 +169,15 @@ class BuildRunner(Protocol):
         A deck is code (ADR 0005), so where a build says it wrote is checked
         rather than trusted before that place becomes an address.
         """
+
+
+class ToolchainThemes(Protocol):
+    """The theme names this instance's toolchain project carries (ADR 0014)."""
+
+    @abstractmethod
+    def names(self) -> tuple[str, ...] | None:
+        """Every theme name the toolchain builds with, or nothing while unreadable.
+
+        A deck page reads nothing as no row to show, never as an empty set
+        (R3).
+        """

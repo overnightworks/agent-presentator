@@ -6,6 +6,7 @@ stands here once, with the doubles and the accounts a test hands in.
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Final
 
 from fastapi import FastAPI
@@ -17,6 +18,7 @@ from webauth.liveness import IdleWindowLiveness
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
+from presentator.adapters.builds import PackageJsonThemes
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
@@ -42,6 +44,7 @@ from presentator.contracts.decks import (
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
+    DEFAULT_THEME_SET,
     CountingIdentifierFactory,
     FakeBuildRunner,
     FakeDeckFolders,
@@ -52,6 +55,7 @@ from tests.application.fakes import (
     FakeSessionRecordStore,
     FakeSourceRunStore,
     FakeSourceStore,
+    FakeToolchainThemes,
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
@@ -176,6 +180,10 @@ class GivenDecks:
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    themes: tuple[str, ...] | None = DEFAULT_THEME_SET
+    # Set only by a test proving the real reader end to end; every other test
+    # names `themes` and gets the fake above instead.
+    toolchain_project: Path | None = None
 
 
 NO_DECKS: Final = GivenDecks()
@@ -224,6 +232,11 @@ def a_lobby_app(
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
         source_runs=run_store,
+        toolchain_themes=(
+            PackageJsonThemes(project=given.toolchain_project)
+            if given.toolchain_project is not None
+            else FakeToolchainThemes(names_to_return=given.themes)
+        ),
         build_bound=BUILD_BOUND,
         clock=clock,
     )
