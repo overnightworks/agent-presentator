@@ -21,6 +21,7 @@ from copresenter.deck import Deck, load_deck
 from copresenter.speech import LocalSpeech, Speech, SpeechHealth
 
 _log = logging.getLogger("copresenter")
+_POLICY_VIOLATION = 1008
 
 
 class AskRequest(BaseModel):
@@ -42,7 +43,7 @@ def create_app(
     app = FastAPI(title="copresenter")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[settings.allowed_origin],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -77,6 +78,9 @@ def create_app(
     @app.websocket("/hear")
     async def hear(socket: WebSocket, language: str = "de") -> None:
         """Forward raw PCM to the speech service and JSON transcripts back."""
+        if _is_foreign_origin(socket, settings.allowed_origin):
+            await socket.close(code=_POLICY_VIOLATION)
+            return
         await socket.accept()
         try:
             upstream = await speech.open_hear(language)
@@ -127,6 +131,12 @@ def _speech_report(health: SpeechHealth, address: str) -> dict[str, object]:
         "speaking": {"model": health.speaking.model, "ready": health.speaking.ready},
         "hearing": {"model": health.hearing.model, "ready": health.hearing.ready},
     }
+
+
+def _is_foreign_origin(socket: WebSocket, allowed: str) -> bool:
+    """Cross-origin middleware does not see sockets; a browser names its page here."""
+    origin = socket.headers.get("origin")
+    return origin is not None and origin != allowed
 
 
 async def _pipe_hear(socket: WebSocket, upstream: object) -> None:

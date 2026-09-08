@@ -37,7 +37,7 @@ import uvicorn
 
 from copresenter.answer import CannedAnswerer
 from copresenter.app import compose
-from copresenter.config import Settings, load_settings
+from copresenter.config import Settings
 from copresenter.standin import create_standin
 from copresenter.wav import SAMPLE_RATE
 
@@ -614,6 +614,7 @@ def _start_copresenter(
     host: str,
     port: int,
     speech_url: str,
+    talk_origin: str,
     log_file: IO[str],
 ) -> subprocess.Popen[bytes]:
     env = _scrub_nested_session_env(os.environ.copy())
@@ -621,6 +622,7 @@ def _start_copresenter(
     env["COPRESENTER_PORT"] = str(port)
     env["COPRESENTER_SPEECH_URL"] = speech_url
     env["COPRESENTER_DECK"] = str(DECK)
+    env["COPRESENTER_ALLOWED_ORIGIN"] = talk_origin
     return subprocess.Popen(
         ["uv", "run", "copresenter"],
         cwd=COPRESENTER_DIR,
@@ -666,7 +668,12 @@ def _run_standin() -> int:
         speech_url = f"http://127.0.0.1:{speech_port}"
         present_url = f"http://127.0.0.1:{present_port}"
         speech_server = _serve(create_standin(), "127.0.0.1", speech_port)
-        settings = Settings(port=present_port, speech_url=speech_url, deck=DECK)
+        settings = Settings(
+            allowed_origin=f"http://127.0.0.1:{talk_port}",
+            port=present_port,
+            speech_url=speech_url,
+            deck=DECK,
+        )
         copresenter_server = _serve(
             compose(settings, answerer=CannedAnswerer()),
             "127.0.0.1",
@@ -719,20 +726,21 @@ def _report_real(result: dict[str, object]) -> int:
 
 
 def _run_real() -> int:
-    speech_url = load_settings().speech_url.rstrip("/")
+    host = "127.0.0.1"
+    present_port = _free_port()
+    talk_port = _free_port()
+    talk_origin = f"http://{host}:{talk_port}"
+    speech_url = Settings(allowed_origin=talk_origin).speech_url.rstrip("/")
     blocked = _real_preflight(speech_url)
     if blocked is not None:
         sys.stderr.write(f"{blocked}\n")
         return 1
-    host = "127.0.0.1"
-    present_port = _free_port()
-    talk_port = _free_port()
     present_url = f"http://{host}:{present_port}"
     httpd = None
     proc = None
     log_file = COPRESENTER_LOG.open("w", encoding="utf-8")
     try:
-        proc = _start_copresenter(host, present_port, speech_url, log_file)
+        proc = _start_copresenter(host, present_port, speech_url, talk_origin, log_file)
         _wait_http(f"{present_url}/who")
         who = httpx.get(f"{present_url}/who", timeout=_WHO_TIMEOUT).json()
         if not _claude_provider(who):

@@ -14,6 +14,7 @@ from copresenter.speech import SpeechHealth, SpeechModel
 from copresenter.wav import tone
 
 EXAMPLE_DECK = Path(__file__).resolve().parents[2] / "examples" / "copresenter-deck"
+ALLOWED_ORIGIN = "https://talk.test"
 
 
 class FakeSpeech:
@@ -56,7 +57,11 @@ def fake_speech():
 
 @pytest.fixture
 def app(example_deck, fake_speech):
-    settings = Settings(deck=EXAMPLE_DECK, speech_url="http://speech.test")
+    settings = Settings(
+        allowed_origin=ALLOWED_ORIGIN,
+        deck=EXAMPLE_DECK,
+        speech_url="http://speech.test",
+    )
     return create_app(
         settings,
         deck=example_deck,
