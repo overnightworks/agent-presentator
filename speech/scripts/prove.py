@@ -11,6 +11,7 @@ import fcntl
 import json
 import os
 import socket
+import statistics
 import subprocess
 import sys
 import threading
@@ -37,6 +38,7 @@ ENGLISH = (
 SECOND = "Die nächste Folie bitte."
 LOCK_PATH = Path("/tmp/probe-stack.lock")
 GERMAN_WAV_PATH = Path("/tmp/issue-83-voice/german.wav")
+MEASURE_REPETITIONS = 5
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
 PIPER_FIRST_BYTE_LIMIT_S = 0.5
@@ -293,7 +295,7 @@ def _prove_one_speak(
     *,
     limit: float,
     label: str,
-) -> tuple[bytes, float]:
+) -> tuple[bytes, float, float]:
     wav, ttfa, total = _speak_measured(base, text, language=language)
     rate, pcm = _pcm_from_wav(wav)
     duration = (len(pcm) / 2) / rate
@@ -315,19 +317,54 @@ def _prove_one_speak(
     if duration < 1.0:
         message = f"{label} produced too little audio to be a sentence"
         raise SystemExit(message)
-    return wav, ttfa
+    return wav, ttfa, rtf
+
+
+def _prove_speak_medians(
+    base: str,
+    text: str,
+    language: str,
+    *,
+    limit: float,
+    label: str,
+) -> tuple[bytes, float, float]:
+    """Speak the same sentence MEASURE_REPETITIONS times; print and return medians."""
+    wavs: list[bytes] = []
+    ttfas: list[float] = []
+    rtfs: list[float] = []
+    for rep in range(1, MEASURE_REPETITIONS + 1):
+        wav, ttfa, rtf = _prove_one_speak(
+            base,
+            text,
+            language,
+            limit=limit,
+            label=f"{label}_rep{rep}",
+        )
+        wavs.append(wav)
+        ttfas.append(ttfa)
+        rtfs.append(rtf)
+    median_ttfa = statistics.median(ttfas)
+    median_rtf = statistics.median(rtfs)
+    print(
+        f"{label}_median",
+        f"first_byte_s={median_ttfa:.3f}",
+        f"rtf={median_rtf:.2f}",
+        f"limit_s={limit:.1f}",
+        f"n={MEASURE_REPETITIONS}",
+    )
+    return wavs[-1], median_ttfa, median_rtf
 
 
 def _prove_speak(base: str, model: str) -> tuple[bytes, bool]:
     limit = _first_byte_limit(model)
-    german, ttfa_de = _prove_one_speak(
+    german, ttfa_de, _rtf_de = _prove_speak_medians(
         base,
         SENTENCE,
         "de",
         limit=limit,
         label="speak_wire_de",
     )
-    _prove_one_speak(base, ENGLISH, "en", limit=limit, label="speak_wire_en")
+    _prove_speak_medians(base, ENGLISH, "en", limit=limit, label="speak_wire_en")
     over = ttfa_de > limit
     if over:
         print(

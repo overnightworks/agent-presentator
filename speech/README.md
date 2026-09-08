@@ -33,44 +33,48 @@ Piper runs on the CPU. Chatterbox Multilingual V3 and Whisper large-v3 float16
 share the 3090 when Chatterbox is selected. Together they fit beside the
 display processes.
 
-Measured on this RTX 3090 (24 GB), German sentence of 14 words,
-`scripts/prove.py`, 08.09.2026, Piper default:
+Measured on this RTX 3090 (24 GB), one German sentence (14 words) and one
+English sentence (15 words), `scripts/prove.py`, 5 repetitions each, median
+reported, 08.09.2026. The operator's live speech process (Piper + Whisper,
+~6.4 GB) was resident on the card throughout both runs and was not stopped.
+
+Piper default:
 
 | What | Number |
 | --- | --- |
-| Time to first byte of `/speak` (wire, first HTTP body byte) | 0.216 s (`speaking.streams` is `false`; Piper allows the first byte when the sentence is done; limit 0.5 s) |
-| Total `/speak` | 0.226 s |
-| WAV duration / RMS | 5.515 s / 0.173 (not silence) |
-| First partial transcript | 0.968 s (frame 7 of 100 ms frames), while frames were still being sent |
-| Final transcript | matched the spoken sentence at 9.354 s |
-| Second utterance on the same socket | `"Die nächste Folie bitte."` at 3.027 s, no reload |
-| Card before load | 1557 MiB |
-| Card with both resident | 5437 MiB |
-| Hearing footprint | ~3880 MiB GPU |
+| Time to first byte of `/speak` (wire, German, median of 5) | 0.216 s (`speaking.streams` is `false`; Piper allows the first byte when the sentence is done; limit 0.5 s) |
+| Time to first byte (English, median of 5) | 0.210 s |
+| Real-time factor (German / English, median of 5) | 25.4× / 24.2× |
+| WAV RMS | not silence on every repetition |
+| First partial transcript | 1.116 s (frame 8 of 100 ms frames), while frames were still being sent |
+| Final transcript | matched the spoken sentence at 9.559 s |
+| Second utterance on the same socket | `"Die nächste Folie bitte."` at 3.267 s, no reload |
+| Card before this process | 6437 MiB |
+| Card with both resident (before any `/speak` call) | 10311 MiB |
+| Hearing footprint | ~3874 MiB GPU |
 | Speaking footprint | 0 MiB GPU (CPU / ONNX) |
 
-Measured again with `SPEECH_SPEAKING_MODEL=ResembleAI/chatterbox`, same
-sentence, same card, 08.09.2026. The operator's live speech process was also
-on the GPU (~4018 MiB) and was not stopped:
+`SPEECH_SPEAKING_MODEL=ResembleAI/chatterbox`, same sentences, same card:
 
 | What | Number |
 | --- | --- |
-| Time to first byte of `/speak` (wire, German) | 0.516 s (`speaking.streams` is `true`; limit 1.0 s) |
-| Time to first byte (English) | 0.495 s |
-| Total `/speak` / audio duration / RTF (German) | 5.947 s / 5.120 s / 0.86× |
-| WAV sample rate / RMS | 24 000 Hz / 0.128 (not silence) |
-| First partial transcript | 0.969 s (frame 7), while frames were still being sent |
-| Final transcript | matched the spoken sentence at 8.612 s |
+| Time to first byte of `/speak` (wire, German, median of 5) | 0.546 s (`speaking.streams` is `true`; limit 1.0 s) |
+| Time to first byte (English, median of 5) | 0.528 s |
+| Real-time factor (German / English, median of 5) | 0.82× / 0.82× |
+| WAV RMS | not silence on every repetition |
+| First partial transcript | 0.966 s (frame 7), while frames were still being sent |
+| Final transcript | matched the spoken sentence at 8.666 s |
 | Second `/speak` while the first streams | both WAVs distinct speech; the voice lock serialises generation |
-| Card before this process | 6158 MiB |
-| Card with Chatterbox + Whisper resident | 13333 MiB |
-| Chatterbox footprint | ~3560 MiB GPU |
-| Hearing footprint | ~3620 MiB GPU |
+| Card before this process | 6433 MiB |
+| Card with Chatterbox + Whisper resident (before any `/speak` call) | 13609 MiB |
+| Chatterbox + hearing footprint together | ~7176 MiB GPU (Chatterbox itself ~3.5 GB, matching #70's inference for a 0.5B model beside Whisper's ~3.9 GB) |
 
-A cold first German request, before CUDA kernels had run, took 1.362 s to the
-first byte. Load now synthesises a short German warmup so `ready` means the
-first real sentence is in budget. The German WAV from the proof is at
-`/tmp/issue-83-voice/german.wav` for the operator to judge.
+All ten repetitions (5 German, 5 English) stayed under the 1.0 s limit; the
+worst single repetition was 0.592 s. Load now synthesises a short German
+warmup so `ready` means the first real sentence is already in budget — a cold
+first request before that warmup existed took 1.362 s. `scripts/prove.py`
+writes the German WAV of the run it just proved to
+`/tmp/issue-83-voice/german.wav` for a listening judgment.
 
 CTranslate2 does not bundle CUDA. This project installs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` and preloads them at start.
 
