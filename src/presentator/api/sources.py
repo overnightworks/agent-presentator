@@ -96,6 +96,9 @@ class SourceView:
     address: str
     webhook_secret: str | None
     webhook_secret_held_elsewhere: bool
+    # A source on this box carries no secret at all, so its page offers
+    # neither the dots nor Renew: there is nothing there to renew.
+    carries_no_secret: bool
     runs: tuple[SourceRunRow, ...]
     decks: tuple[SourceDeckRow, ...]
 
@@ -336,6 +339,7 @@ class _Surfaces:
             address=self._hook_url(request, shown.name),
             webhook_secret=webhook_secret,
             webhook_secret_held_elsewhere=webhook_secret_held_elsewhere,
+            carries_no_secret=shown.access is AccessKind.FILE,
             runs=tuple(self._run_row(run, text) for run in shown.runs),
             decks=tuple(
                 SourceDeckRow(slug=deck.slug, title=deck.title) for deck in shown.decks

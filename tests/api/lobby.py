@@ -47,6 +47,7 @@ from tests.application.fakes import (
     FakeDeckFolders,
     FakeDeckStore,
     FakeInstanceSettingsStore,
+    FakeLocalMount,
     FakeLoginAttemptStore,
     FakePersonPreferencesStore,
     FakeSessionRecordStore,
@@ -226,6 +227,7 @@ def a_lobby_app(
         source_runs=run_store,
         build_bound=BUILD_BOUND,
         clock=clock,
+        local_mount=FakeLocalMount(),
     )
     # The list and the deck page read the store only; a test arranges what a
     # poll or the hook would already have taken in before anyone opened a page.

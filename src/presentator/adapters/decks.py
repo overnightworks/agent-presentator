@@ -27,6 +27,7 @@ from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     RECENT_SOURCE_RUNS,
+    AccessKind,
     Build,
     BuildAttempt,
     BuildOutcome,
@@ -39,7 +40,10 @@ from presentator.contracts.decks import (
     SourceRunFailure,
     SourceRunOutcome,
     SourceWrite,
+    access_kind_of,
+    local_mount_path_of,
 )
+from presentator.ports.decks import LocalMount
 from presentator.ports.identity import IdentifierFactory
 
 # A deck's source is nullable because a file written before sources were rows
@@ -202,6 +206,9 @@ _DeckRow = tuple[
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
 _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
+_OUTSIDE_MOUNT: Final = (
+    "source %s no longer resolves under the local mount, treated as unreadable"
+)
 _RECORD_SOURCE_RUN: Final = """
 INSERT INTO source_runs (source_id, at, outcome, commit_sha, reason)
 VALUES (?, ?, ?, ?, ?)
@@ -397,6 +404,37 @@ class SourceCredentials:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FilesystemLocalMount:
+    """Resolves a file-kind address against the real, mounted directory.
+
+    `local_mount_path_of` already rejects an address that cannot even name a
+    path; this is the one place that asks the real filesystem, because a
+    symlink or a mount whose target has since changed is invisible to a
+    lexical check. Both the address and the mount are resolved the way git
+    itself would open them — following every symlink, refusing what does not
+    exist — before either is trusted, so the answer is the real path, not the
+    operator's spelling of it, and a repository that no longer stands under
+    the mount is refused exactly as one that was never under it.
+    """
+
+    mount: Path
+
+    def canonical_repository(self, address: str) -> Path | None:
+        """The address's real path, resolved and confirmed under the mount."""
+        path = local_mount_path_of(address)
+        if path is None:
+            return None
+        try:
+            mount = self.mount.resolve(strict=True)
+            repository = Path(path).resolve(strict=True)
+        except OSError:
+            return None
+        if repository != mount and mount not in repository.parents:
+            return None
+        return repository
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceMirrors:
     """The bare mirrors this instance keeps, and how one of them is opened.
 
@@ -407,12 +445,24 @@ class SourceMirrors:
     directory: Path
     credentials: CredentialResolver
     pull_timeout: timedelta
+    local_mount: LocalMount
 
-    def of(self, source: Source) -> GitMirror:
-        """The mirror of that source, whether or not it has been pulled yet."""
+    def of(self, source: Source) -> GitMirror | None:
+        """The mirror of that source, or nothing when it no longer resolves.
+
+        A file-kind address that no longer resolves under the mount —
+        whatever moved it — is unreadable rather than a fetch of wherever it
+        now points.
+        """
+        url = source.url
+        if access_kind_of(url) is AccessKind.FILE:
+            canonical = self.local_mount.canonical_repository(url)
+            if canonical is None:
+                return None
+            url = str(canonical)
         return GitMirror(
             source=GitSource(
-                url=source.url,
+                url=url,
                 ref=source.ref,
                 # The source's own id is the anchor, because the row is what
                 # knows whether a secret stands; the resolver reads it there.
@@ -438,6 +488,13 @@ class MirroredDeckFolders:
     def folders(self, source: Source) -> SourcePoll:
         """Poll for every top-level folder at the newest commit, or why not."""
         mirror = self.mirrors.of(source)
+        if mirror is None:
+            _log.warning(_OUTSIDE_MOUNT, source.url)
+            return SourcePoll(
+                folders=None,
+                commit=None,
+                failure=SourceRunFailure.FAILED,
+            )
         connection = mirror.connect()
         revision = connection.revision
         if revision is None:

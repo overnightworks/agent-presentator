@@ -122,6 +122,7 @@ elsewhere here do not apply, and compose adds the two the sandbox is:
 | `PRESENTATOR_DATABASE` | `/data/database/presentator.sqlite3` |
 | `PRESENTATOR_MIRRORS` | `/data/mirrors` |
 | `PRESENTATOR_BUILDS` | `/data/builds` |
+| `PRESENTATOR_LOCAL_SOURCES_MOUNT` | `/data/local-sources` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
 | `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
@@ -212,10 +213,19 @@ git config --global --add safe.directory "$PRESENTATOR_LOCAL_SOURCES/talks.git"
 
 added under Settings · Sources with `/data/local-sources/talks.git` as its
 file address, "on this box" as the access kind, and no secret — one is
-refused there. A later change reaches the instance the way every other
-source's does: `git -C ~/talks push box main`, then the next poll
+refused there. An address resolved and decoded the way git itself opens
+one — following a symlink, an encoded or literal `..` — has to still stand
+under the mount or it is refused the same way, at the moment it is added and
+at every fetch after. A later change reaches the instance the way every
+other source's does: `git -C ~/talks push box main`, then the next poll
 (`PRESENTATOR_SOURCE_POLL_SECONDS`) or *Fetch now* on the source's page takes
 in what moved.
+
+Everything under the mount is trusted as the operator: its repositories,
+their metadata (a `gitdir` file, `objects/info/alternates`, a symlink), and
+everyone who can write there. This is not a door for a repository somebody
+else controls — only for the operator's own folder, and pushing over SSH to
+this box (line 4a) is what a stranger's repository would still need.
 
 Three named volumes hold what has to survive the container: `database`,
 `mirrors` and `builds`, each under the name of the project — the directory

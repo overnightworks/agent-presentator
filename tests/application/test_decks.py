@@ -44,6 +44,7 @@ from tests.application.fakes import (
     FakeBuildRunner,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeLocalMount,
     FakeSourceRunStore,
     FakeSourceStore,
     FrozenClock,
@@ -118,6 +119,7 @@ class DecksFakes:
     builder: FakeBuildRunner = field(default_factory=FakeBuildRunner)
     source_runs: FakeSourceRunStore = field(default_factory=FakeSourceRunStore)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
+    local_mount: FakeLocalMount = field(default_factory=FakeLocalMount)
 
 
 def decks_over(
@@ -135,6 +137,7 @@ def decks_over(
         source_runs=resolved.source_runs,
         build_bound=_BUILD_BOUND,
         clock=resolved.clock,
+        local_mount=resolved.local_mount,
     )
 
 

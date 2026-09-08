@@ -6,16 +6,11 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Final
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
 DECK_PATH: Final = "/deck"
-# Where a host directory mounted read-only into the instance stands: the one
-# place a file-kind source's address may name, fixed rather than a setting,
-# because the mount point is this product's own invariant while the host
-# directory behind it is the deployment's own choice.
-LOCAL_SOURCES_MOUNT: Final = PurePosixPath("/data/local-sources")
 _FILE_SCHEME: Final = "file"
 # What a failed build may say on a page: the end of what its toolchain printed,
 # where the reason stands. A deck's own build can print without limit, and a
@@ -67,17 +62,33 @@ class AccessKind(StrEnum):
     FILE = "local-folder"
 
 
+# `file://` names no host but the machine that opens it; anything else in the
+# authority is a different machine's address wearing a local scheme, and git
+# itself ignores whatever stands there rather than refusing it, so this
+# refuses it instead of inheriting that silent ambiguity.
+_LOCAL_AUTHORITIES: Final = frozenset({"", "localhost"})
+
+
 def local_mount_path_of(url: str) -> PurePosixPath | None:
     """The address's path, normalized, when it names a file-kind source.
 
-    A file-kind address is either the `file://` scheme or a bare absolute
-    path; `..` is collapsed here, lexically, so a caller judging whether the
-    result still stands under `LOCAL_SOURCES_MOUNT` sees the path the address
-    actually reaches rather than one a `..` component could hide behind.
+    A file-kind address is either the `file://` scheme, whose authority must
+    be empty or `localhost`, or a bare absolute path. A `file://` path is
+    percent-decoded first, the way git itself decodes one before it opens it
+    — a bare path is not, because git never decodes one either. `..` is
+    collapsed lexically after that, so a caller judging whether the result
+    still stands under the mount sees the path the address actually reaches
+    rather than one a `..` component, encoded or not, could hide behind.
+    This is still a lexical answer: the one place that asks the real
+    filesystem — the only place a symlink or a mount that has since changed
+    can be caught — is the adapter that resolves it against the mount at
+    every use.
     """
     parsed = urlparse(url)
     if parsed.scheme == _FILE_SCHEME:
-        raw = parsed.path
+        if parsed.netloc not in _LOCAL_AUTHORITIES:
+            return None
+        raw = unquote(parsed.path)
     elif not parsed.scheme and url.startswith("/"):
         raw = url
     else:

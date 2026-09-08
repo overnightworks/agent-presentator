@@ -105,6 +105,12 @@ def bare_environment(
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PRESENTATOR_SECRET_KEY", raising=False)
     monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
+    # `remote`/`another_remote` (tests/conftest.py) write their bare
+    # repositories straight into `tmp_path`, the one directory every real
+    # git address these tests build stands under; naming it as the mount
+    # lets a `file://` fixture keep standing in for "any git remote" without
+    # every such test naming the mount for itself.
+    monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     return monkeypatch
 
 

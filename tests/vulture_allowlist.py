@@ -39,6 +39,7 @@ SourceView.secret_missing
 SourceView.address
 SourceView.webhook_secret
 SourceView.webhook_secret_held_elsewhere
+SourceView.carries_no_secret
 SourceView.runs
 SourceView.decks
 SourceRunRow.state

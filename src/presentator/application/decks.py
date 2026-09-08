@@ -21,7 +21,6 @@ from typing import Final
 from urllib.parse import urlparse
 
 from presentator.contracts.decks import (
-    LOCAL_SOURCES_MOUNT,
     SLIDES_FILE,
     AccessKind,
     Artefacts,
@@ -44,13 +43,13 @@ from presentator.contracts.decks import (
     SourceState,
     SourceWrite,
     access_kind_of,
-    local_mount_path_of,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
     BuildRunner,
     DeckFolders,
     DeckStore,
+    LocalMount,
     SourceRuns,
     SourceStore,
 )
@@ -110,19 +109,6 @@ class AddedSource:
     webhook_secret: str
 
 
-def _is_within_local_mount(url: str) -> bool:
-    """Whether the file-kind address this URL names still stands under the mount.
-
-    `local_mount_path_of` already collapsed any `..`, so a name that reads as
-    a sibling or an ancestor of the mount is caught here rather than handed to
-    git as an address to fetch.
-    """
-    path = local_mount_path_of(url)
-    return path is not None and (
-        path == LOCAL_SOURCES_MOUNT or LOCAL_SOURCES_MOUNT in path.parents
-    )
-
-
 def hash_webhook_secret(secret: str) -> bytes:
     """The only form a webhook secret is stored in: SHA-256, never the value."""
     return sha256(secret.encode()).digest()
@@ -151,10 +137,6 @@ def _refusal_for(
         (
             _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
             SourceRefusal.ACCESS_MISMATCH,
-        ),
-        (
-            access_kind_of(url) is AccessKind.FILE and not _is_within_local_mount(url),
-            SourceRefusal.OUTSIDE_MOUNT,
         ),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
@@ -213,6 +195,7 @@ class Decks:
     builder: BuildRunner
     source_runs: SourceRuns
     clock: Clock
+    local_mount: LocalMount
     # How long a build may take before the refresh stops believing it is still
     # running: a process that died with the server leaves its attempt behind,
     # and nobody may read that as building for ever.
@@ -278,12 +261,14 @@ class Decks:
         """Replace that source's access secret. Nothing of the value is returned.
 
         A blank value is not stored: the caller shows the form again. A name
-        nobody stored is not a source to renew.
+        nobody stored is not a source to renew. A source on this box carries
+        no secret at all, the same rule creation enforces, so renewing one is
+        refused rather than quietly given a credential its own kind refuses.
         """
         if not secret.strip():
             return False
         source = self._named(name)
-        if source is None:
+        if source is None or access_kind_of(source.url) is AccessKind.FILE:
             return False
         self.sources.put_credential(source.id, secret)
         return True
@@ -313,19 +298,32 @@ class Decks:
 
         The webhook secret is generated here and returned in the clear so the
         created screen can show it once; only its hash is stored. The access
-        secret is handed to the store and never returned.
+        secret is handed to the store and never returned. A file-kind address
+        is resolved against the real mount before it is stored, so the row
+        always carries the address git will actually open — a symlink or a
+        `..` an operator's own spelling carried never reaches the row, and
+        two spellings of the one real repository collide as the duplicate
+        they are.
         """
         named = name.strip()
         address = url.strip()
+        existing = self.sources.all()
         refused = _refusal_for(
             name=named,
             url=address,
             access=access,
             secret=secret,
-            existing=self.sources.all(),
+            existing=existing,
         )
         if refused is not None:
             return refused
+        if access_kind_of(address) is AccessKind.FILE:
+            canonical = self.local_mount.canonical_repository(address)
+            if canonical is None:
+                return SourceRefusal.OUTSIDE_MOUNT
+            address = str(canonical)
+            if any(source.url == address for source in existing):
+                return SourceRefusal.DUPLICATE_URL
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
         stored = self.sources.add(
             SourceWrite(

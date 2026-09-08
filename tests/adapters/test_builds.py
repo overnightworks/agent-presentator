@@ -30,7 +30,7 @@ from presentator.adapters.builds import (
     SlidevBuilds,
     the_daemon_of_this_machine,
 )
-from presentator.adapters.decks import SourceMirrors
+from presentator.adapters.decks import FilesystemLocalMount, SourceMirrors
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
     SLIDES_FILE,
@@ -486,6 +486,7 @@ def builds_under(
             directory=tmp_path / "mirrors",
             credentials=OpenCredentials(),
             pull_timeout=_A_GENEROUS_BOUND,
+            local_mount=FilesystemLocalMount(mount=tmp_path),
         ),
         output_megabytes=output_megabytes,
     )
@@ -504,7 +505,9 @@ def builds_ready_for(
         toolchain=toolchain if toolchain is not None else on_this_machine(tmp_path),
         output_megabytes=output_megabytes,
     )
-    assert builds.mirrors.of(source).connect().revision is not None
+    mirror = builds.mirrors.of(source)
+    assert mirror is not None
+    assert mirror.connect().revision is not None
     return builds
 
 

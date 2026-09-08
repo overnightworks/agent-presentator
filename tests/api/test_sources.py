@@ -12,7 +12,6 @@ from presentator.api.hooks import hook_address
 from presentator.api.preferences import SETTINGS
 from presentator.api.sources import ACCESS, NEW, SOURCES, WEBHOOK
 from presentator.contracts.decks import (
-    LOCAL_SOURCES_MOUNT,
     MANIFEST_FILE,
     SLIDES_FILE,
     Deck,
@@ -40,7 +39,7 @@ from tests.api.lobby import (
     a_user_store,
     an_account,
 )
-from tests.application.fakes import FakeDeckStore
+from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
 _ADDRESS = "git@heimserver:decks.git"
 _OTHER_ADDRESS = "https://gitlab.example.invalid/decks.git"
@@ -495,7 +494,7 @@ def test_the_add_form_offers_a_folder_on_this_box_option() -> None:
 
 def test_creating_a_source_on_this_box_accepts_a_file_address_under_the_mount() -> None:
     lobby = a_signed_in_lobby()
-    url = f"{LOCAL_SOURCES_MOUNT}/talks.git"
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
 
     the_created_page(
         lobby,
@@ -510,7 +509,7 @@ def test_creating_a_source_on_this_box_accepts_a_file_address_under_the_mount() 
 
 def test_a_secret_is_refused_for_a_source_on_this_box() -> None:
     lobby = a_signed_in_lobby()
-    url = f"{LOCAL_SOURCES_MOUNT}/talks.git"
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
 
     refused = create_source(lobby, url=url, access="file", secret=_READ_ONLY)
 
@@ -888,6 +887,17 @@ def test_a_source_without_a_stored_secret_says_so_on_its_page() -> None:
     assert ENGLISH.source_secret_dots in page
 
 
+def test_a_source_on_this_box_offers_neither_dots_nor_renew_on_its_page() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    the_created_page(lobby, create_source(lobby, url=url, access="file", secret=""))
+    page = lobby.get(f"{SOURCES}/talks").text
+
+    assert "data-renew-access" not in page
+    assert ENGLISH.source_access_local in page
+
+
 def test_fetch_now_from_the_source_page_refreshes_it_and_stays() -> None:
     configured = a_configured_source(_ADDRESS)
     lobby = a_signed_in_lobby(
@@ -969,6 +979,22 @@ def test_a_blank_access_renewal_comes_back_without_storing_and_without_the_value
     assert refused.status_code == HTTPStatus.OK
     assert ENGLISH.source_refused_secret in refused.text
     assert _READ_ONLY not in refused.text
+
+
+def test_renewing_the_access_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+
+    refused = lobby.post(ACCESS.format(name="talks"), data={"secret": _READ_ONLY})
+
+    assert refused.status_code == HTTPStatus.OK
+    assert _READ_ONLY not in refused.text
+    page = lobby.get(f"{SOURCES}/talks").text
+    assert "data-renew-access" not in page
 
 
 def test_the_source_page_never_derives_dot_count_from_a_secret() -> None:
