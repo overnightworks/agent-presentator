@@ -1,0 +1,7 @@
+claim_id = "61b578295b014c53be6796cee3eae5b4"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "ac8a8c2ebf9af00bb5e022d51353700438f86c4f"
+branch = "codex/issue-77-hearing-result"
+scope = ["docs/VISION.md", "speech/README.md"]
+opened_commit = "d23914a15bd8494ce5287ecfaec7b9dfaf4326af"
