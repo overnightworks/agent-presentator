@@ -121,6 +121,11 @@ def _first_final(events: list[dict[str, object]]) -> dict[str, object] | None:
     return None
 
 
+def frames_remain_unsent(pcm: bytes, next_offset: int) -> bool:
+    """True when at least one PCM frame after next_offset has not been sent."""
+    return next_offset < len(pcm)
+
+
 async def _send_pcm(
     websocket: websockets.ClientConnection,
     pcm: bytes,
@@ -151,6 +156,7 @@ async def _hear_utterance(
     for offset in range(0, len(pcm), frame_bytes):
         await websocket.send(pcm[offset : offset + frame_bytes])
         frames_sent += 1
+        next_offset = offset + frame_bytes
         await _drain(websocket, events, timeout=0.02)
         await asyncio.sleep(FRAME_SECONDS)
         await _drain(websocket, events, timeout=0.02)
@@ -160,7 +166,7 @@ async def _hear_utterance(
                 partial = found
                 partial_at = time.perf_counter() - started
                 partial_frame = frames_sent
-                still_sending = True
+                still_sending = frames_remain_unsent(pcm, next_offset)
     silence = bytes(int(SILENCE_SECONDS * sample_rate * 2))
     await _send_pcm(websocket, silence, sample_rate, events)
     deadline = time.monotonic() + 8
