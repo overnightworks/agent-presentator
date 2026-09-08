@@ -1,7 +1,0 @@
-claim_id = "8f374f9bd97a4e00a8416473bccdb5f8"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "4c831d065ae0ef67f915f87985c0dcd36ff874b3"
-branch = "fix/ca-certificates"
-scope = ["Dockerfile", ".github/workflows/ci.yml", "docs/OPERATIONS.md"]
-opened_commit = "bf3b58819440ef7fe3c420c3a6869638b60af61a"
