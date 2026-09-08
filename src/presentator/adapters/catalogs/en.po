@@ -351,6 +351,21 @@ msgstr ""
 msgid "source_refused_secret"
 msgstr "A source needs a secret."
 
+msgid "source_refused_not_checked"
+msgstr "Check connection again — the URL or secret changed since the last check."
+
+msgid "source_check_reachable"
+msgstr "Reachable — repository read, head {commit}."
+
+msgid "source_check_refused"
+msgstr "Refused — the host would not accept the secret."
+
+msgid "source_check_unreachable"
+msgstr "Unreachable — the host did not answer."
+
+msgid "source_check_failed"
+msgstr "Failed — the host answered, but not with the repository."
+
 msgid "source_access_heading"
 msgstr "Access to the Git"
 

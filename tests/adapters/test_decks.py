@@ -12,6 +12,7 @@ import pytest
 from gitmirror.mirror import credential_arguments, unattended_environment
 from gitmirror.model import CredentialReference, CredentialResolver
 from presentator.adapters.decks import (
+    MirroredConnectionChecker,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -468,6 +469,30 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.UNREACHABLE
     assert "unreachable" in caplog.text
+
+
+def test_a_reachable_check_answers_the_full_commit(remote: GitRemote) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+    checker = MirroredConnectionChecker(check_timeout=_A_GENEROUS_BOUND)
+
+    checked = checker.check(url=remote.url, ref=MAIN_BRANCH, secret="")
+
+    assert checked.failure is None
+    assert checked.commit == remote.head
+    assert checked.detail is None
+
+
+def test_an_unreachable_check_names_its_own_failure_without_a_commit() -> None:
+    checker = MirroredConnectionChecker(check_timeout=_A_GENEROUS_BOUND)
+
+    checked = checker.check(
+        url="http://host.example.invalid/repo.git",
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is SourceRunFailure.UNREACHABLE
+    assert checked.commit is None
 
 
 def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(

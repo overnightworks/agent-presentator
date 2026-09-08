@@ -24,6 +24,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import (
+    MirroredConnectionChecker,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -48,7 +49,7 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
-from presentator.adapters.secrets import secret_box
+from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
@@ -105,10 +106,11 @@ def build_instance(settings: Settings) -> Instance:
         identifiers=identifiers,
         box=box,
     )
+    source_timeout = timedelta(seconds=settings.source_timeout_seconds)
     mirrors = SourceMirrors(
         directory=settings.mirrors,
         credentials=SourceCredentials(database=settings.database, box=box),
-        pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
+        pull_timeout=source_timeout,
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
@@ -122,9 +124,15 @@ def build_instance(settings: Settings) -> Instance:
             build_timeout=build_bound,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
+        # The same bound a scheduled pull takes: Check connection asks the
+        # same remote for the same one thing, just without writing it down.
+        checker=MirroredConnectionChecker(check_timeout=source_timeout),
         # One toolchain step's bound, which is what the refresh needs: it never
         # reads a live build, only what a process that is gone left behind.
         build_bound=build_bound,
+        fingerprint_key=connection_fingerprint_key(
+            settings.secret_key.get_secret_value(),
+        ),
         clock=SystemClock(),
     )
     pages = Pages(

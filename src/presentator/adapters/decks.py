@@ -14,7 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Final
 
-from gitmirror.mirror import GitMirror
+from gitmirror.mirror import GitMirror, check_connection
 from gitmirror.model import (
     ConnectionState,
     CredentialReference,
@@ -30,6 +30,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -426,6 +427,33 @@ class SourceMirrors:
             directory=self.directory / f"{sha256(source.url.encode()).hexdigest()}.git",
             credentials=self.credentials,
             pull_timeout=self.pull_timeout,
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MirroredConnectionChecker:
+    """Probes a form's own URL and secret through `ls-remote`, storing nothing."""
+
+    check_timeout: timedelta
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        """No failure and the head commit when reachable, or which failure and why."""
+        probed = check_connection(
+            url=url,
+            ref=ref,
+            secret=secret or None,
+            timeout=self.check_timeout,
+        )
+        if probed.state is ConnectionState.READY:
+            return ConnectionCheckResult(
+                failure=None,
+                commit=probed.commit,
+                detail=None,
+            )
+        return ConnectionCheckResult(
+            failure=_FAILURE_BY_CONNECTION_STATE[probed.state],
+            commit=None,
+            detail=probed.detail,
         )
 
 

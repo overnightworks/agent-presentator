@@ -12,6 +12,7 @@ import pytest
 from presentator.application.decks import (
     AddedSource,
     Decks,
+    NewSourceDraft,
     SourceRefusal,
     access_kind_of,
 )
@@ -22,6 +23,7 @@ from presentator.contracts.decks import (
     AccessKind,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     DeckPage,
@@ -42,6 +44,7 @@ from tests.application.fakes import (
     BUILDS_ROOT,
     PATIENCE,
     FakeBuildRunner,
+    FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
     FakeSourceRunStore,
@@ -76,6 +79,7 @@ _SHORT_LATER_COMMIT = "b7c1d9e"
 # only ever given up on where a test says so.
 _BUILD_BOUND = timedelta(minutes=5)
 _WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
+_FINGERPRINT_KEY = b"what only this test's instance signs a fingerprint with"
 
 
 def a_folder(
@@ -117,6 +121,7 @@ class DecksFakes:
     store: FakeDeckStore = field(default_factory=FakeDeckStore)
     builder: FakeBuildRunner = field(default_factory=FakeBuildRunner)
     source_runs: FakeSourceRunStore = field(default_factory=FakeSourceRunStore)
+    checker: FakeConnectionChecker = field(default_factory=FakeConnectionChecker)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
 
 
@@ -133,7 +138,9 @@ def decks_over(
         store=resolved.store,
         builder=resolved.builder,
         source_runs=resolved.source_runs,
+        checker=resolved.checker,
         build_bound=_BUILD_BOUND,
+        fingerprint_key=_FINGERPRINT_KEY,
         clock=resolved.clock,
     )
 
@@ -1023,13 +1030,37 @@ def _add(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> AddedSource | SourceRefusal:
+    checked = decks.check_connection(url=url, secret=secret)
     return decks.add_source(
-        name=name,
-        url=url,
-        access=access,
-        secret=secret,
+        NewSourceDraft(
+            name=name,
+            url=url,
+            access=access,
+            secret=secret,
+            fingerprint=checked.fingerprint or "",
+        ),
         owner_id=_OWNER,
     )
+
+
+def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> None:
+    reachable = decks_over().check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    refused = decks_over(
+        fakes=DecksFakes(
+            checker=FakeConnectionChecker(
+                answer=ConnectionCheckResult(
+                    failure=SourceRunFailure.REFUSED,
+                    commit=None,
+                    detail=None,
+                ),
+            ),
+        ),
+    ).check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+
+    assert reachable.failure is None
+    assert reachable.fingerprint is not None
+    assert refused.failure is SourceRunFailure.REFUSED
+    assert refused.fingerprint is None
 
 
 def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> None:
@@ -1222,6 +1253,49 @@ def test_a_duplicate_name_or_url_is_refused() -> None:
         is SourceRefusal.DUPLICATE_NAME
     )
     assert _add(decks, name="other") is SourceRefusal.DUPLICATE_URL
+
+
+_A_DIFFERENT_SECRET = "a-different-secret-" + "than-was-checked"
+
+
+def test_a_source_never_checked_for_these_values_is_refused() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_HTTPS_URL,
+            access="https",
+            secret=_READ_ONLY,
+            fingerprint="",
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert store.all() == ()
+
+
+def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+    checked = decks.check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    assert checked.fingerprint is not None
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_HTTPS_URL,
+            access="https",
+            secret=_A_DIFFERENT_SECRET,
+            fingerprint=checked.fingerprint,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert store.all() == ()
 
 
 def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:

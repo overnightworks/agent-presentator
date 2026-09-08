@@ -18,6 +18,7 @@ from typing import Final
 from gitmirror.model import (
     Change,
     Connection,
+    ConnectionCheck,
     ConnectionState,
     CredentialResolver,
     GitSource,
@@ -79,6 +80,16 @@ _UNREACHABLE: Final = Connection(state=ConnectionState.UNREACHABLE, revision=Non
 _CREDENTIAL_UNRESOLVABLE: Final = Connection(
     state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
     revision=None,
+)
+_REFUSED_CHECK: Final = ConnectionCheck(
+    state=ConnectionState.REFUSED,
+    commit=None,
+    detail=None,
+)
+_UNREACHABLE_CHECK: Final = ConnectionCheck(
+    state=ConnectionState.UNREACHABLE,
+    commit=None,
+    detail=None,
 )
 # git's own words for a login the far end named and turned down, lowercased so
 # a case git happens to pick never hides the match. A bare 403 is deliberately
@@ -221,6 +232,57 @@ class GitMirror:
             message = f"git {' '.join(arguments)}: {completed.stderr.decode().strip()}"
             raise MirrorError(message)
         return completed.stdout
+
+
+def check_connection(
+    *,
+    url: str,
+    ref: str,
+    secret: str | None,
+    timeout: timedelta,
+) -> ConnectionCheck:
+    """Ask the remote for one ref's head, without ever writing a mirror to disk.
+
+    `ls-remote` alone tells an admin whether the server can read the
+    repository before Add source stores anything, through the same
+    credential helper, environment, and classifier `_pull` uses.
+    """
+    if secret is not None:
+        try:
+            _reject_unsafe_secret(secret)
+        except InvalidCredentialError:
+            return _REFUSED_CHECK
+    try:
+        probed = subprocess.run(
+            [
+                _git_executable(),
+                *credential_arguments(secret),
+                "ls-remote",
+                "--exit-code",
+                url,
+                f"refs/heads/{ref}",
+            ],
+            capture_output=True,
+            check=False,
+            env=unattended_environment(secret),
+            timeout=timeout.total_seconds(),
+        )
+    except subprocess.TimeoutExpired:
+        return _UNREACHABLE_CHECK
+    if probed.returncode != 0:
+        stderr = probed.stderr.decode(errors="replace").strip()
+        sanitized = _sanitized(stderr, secret=secret)
+        return ConnectionCheck(
+            state=connection_state_for_failure(stderr),
+            commit=None,
+            detail=sanitized.splitlines()[0] if sanitized else None,
+        )
+    commit, _, _ = probed.stdout.decode().strip().partition("\t")
+    return ConnectionCheck(
+        state=ConnectionState.READY,
+        commit=commit or None,
+        detail=None,
+    )
 
 
 def _git_executable() -> str:

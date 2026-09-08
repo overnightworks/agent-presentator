@@ -1,5 +1,6 @@
 """Settings · Sources, driven the way a browser drives them."""
 
+import logging
 import re
 from datetime import timedelta
 from http import HTTPStatus
@@ -10,10 +11,11 @@ from httpx2 import Response
 
 from presentator.api.hooks import hook_address
 from presentator.api.preferences import SETTINGS
-from presentator.api.sources import ACCESS, NEW, SOURCES, WEBHOOK
+from presentator.api.sources import ACCESS, CHECK, NEW, SOURCES, WEBHOOK
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     Source,
@@ -54,6 +56,7 @@ _SHORT_ACCESS = "zz-short-token"
 _LONG_ACCESS = f"long-{_READ_ONLY}-and-then-some"
 _SECRET_DOT_ROWS = 2
 _HOOK_SECRET = re.compile(r"data-hook-secret>([^<]+)<")
+_FINGERPRINT = re.compile(r'name="fingerprint"\s+value="([^"]*)"')
 
 
 def another_source() -> Source:
@@ -359,6 +362,27 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     assert posting.headers["location"] == "/login"
 
 
+def check_source(
+    client: TestClient,
+    *,
+    url: str = _HTTPS_URL,
+    access: str = "https",
+    secret: str = _READ_ONLY,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    return client.post(
+        CHECK,
+        data={"name": "talks", "url": url, "access": access, "secret": secret},
+        headers=headers,
+    )
+
+
+def fingerprint_of(checked: Response) -> str:
+    """The proof a reachable Check response carries in its hidden field."""
+    found = _FINGERPRINT.search(checked.text)
+    return found.group(1) if found else ""
+
+
 def create_source(
     client: TestClient,
     *,
@@ -367,9 +391,17 @@ def create_source(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> Response:
+    """Check the same values first, the way the form itself now requires."""
+    proven = fingerprint_of(check_source(client, url=url, access=access, secret=secret))
     return client.post(
         NEW,
-        data={"name": name, "url": url, "access": access, "secret": secret},
+        data={
+            "name": name,
+            "url": url,
+            "access": access,
+            "secret": secret,
+            "fingerprint": proven,
+        },
     )
 
 
@@ -462,7 +494,23 @@ def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
     assert ENGLISH.source_access_deploy_key not in page
 
 
-def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
+def _button_tag_of(page: str, label: str) -> str:
+    """One button's own opening tag, so its `disabled` state can be read."""
+    before_label = page.split(f">{label}<", maxsplit=1)[0]
+    return before_label.rsplit("<button", 1)[1]
+
+
+def check_button_of(page: str) -> str:
+    return _button_tag_of(page, ENGLISH.source_check)
+
+
+def create_button_of(page: str) -> str:
+    return _button_tag_of(page, ENGLISH.source_create)
+
+
+def test_the_add_form_ships_https_live_ssh_disabled_check_live_create_disabled() -> (
+    None
+):
     page = a_signed_in_lobby().get(NEW).text
 
     assert ENGLISH.sources_add in page
@@ -474,11 +522,125 @@ def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
     assert 'name="access" value="https"' in page
     assert "checked" in page
     assert ENGLISH.source_check in page
-    assert f">{ENGLISH.source_check}<" in page
-    assert "disabled" in page
+    assert "disabled" not in check_button_of(page)
     assert ENGLISH.source_create in page
+    assert "disabled" in create_button_of(page)
     assert 'name="secret"' in page
     assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+_A_REFUSED_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.REFUSED,
+    commit=None,
+    detail=None,
+)
+_AN_UNREACHABLE_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.UNREACHABLE,
+    commit=None,
+    detail=None,
+)
+_A_FAILED_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.FAILED,
+    commit=None,
+    detail="fatal: repository https://git.example.invalid/talks.git/ not found",
+)
+
+
+def test_a_reachable_check_shows_the_commit_and_enables_create() -> None:
+    lobby = a_signed_in_lobby()
+
+    checked = check_source(lobby, secret=_READ_ONLY)
+
+    assert checked.status_code == HTTPStatus.OK
+    assert ENGLISH.source_check_reachable.format(commit=_COMMIT[:7]) in checked.text
+    assert _READ_ONLY not in checked.text
+    assert fingerprint_of(checked)
+    assert "disabled" not in create_button_of(checked.text)
+
+
+_A_TOKEN_THE_HOST_REFUSES = "a-token-" + "the-host-does-not-want"
+
+
+def test_a_refused_check_shows_its_banner_and_leaves_create_disabled() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_A_REFUSED_CHECK))
+
+    checked = check_source(lobby, secret=_A_TOKEN_THE_HOST_REFUSES)
+
+    assert ENGLISH.source_check_refused in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_an_unreachable_check_shows_its_banner_and_leaves_create_disabled() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_AN_UNREACHABLE_CHECK))
+
+    checked = check_source(lobby)
+
+    assert ENGLISH.source_check_unreachable in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_a_failed_check_shows_gits_own_sanitised_first_line() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_A_FAILED_CHECK))
+
+    checked = check_source(lobby)
+
+    assert ENGLISH.source_check_failed in checked.text
+    assert _A_FAILED_CHECK.detail is not None
+    assert _A_FAILED_CHECK.detail in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_the_secret_never_appears_in_a_check_response_or_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    lobby = a_signed_in_lobby()
+
+    checked = check_source(lobby, secret=_READ_ONLY)
+
+    assert _READ_ONLY not in checked.text
+    assert all(_READ_ONLY not in record.message for record in caplog.records)
+
+
+def test_a_fingerprint_from_different_values_is_refused_and_writes_no_row() -> None:
+    lobby = a_signed_in_lobby()
+    checked = check_source(lobby, url=_HTTPS_URL, secret=_READ_ONLY)
+    proven_for_a_different_url = fingerprint_of(checked)
+
+    tampered = lobby.post(
+        NEW,
+        data={
+            "name": "talks",
+            "url": "https://git.example.invalid/a-different-repository.git",
+            "access": "https",
+            "secret": _READ_ONLY,
+            "fingerprint": proven_for_a_different_url,
+        },
+    )
+
+    assert tampered.status_code == HTTPStatus.OK
+    assert ENGLISH.source_refused_not_checked in tampered.text
+    assert ENGLISH.sources_empty_title in lobby.get(SOURCES).text
+
+
+def test_only_an_admin_reaches_check_connection(instance: Lobby) -> None:
+    signed_in_as(instance, NEIGHBOUR)
+
+    assert check_source(instance.client).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_check_connection_from_another_site_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = check_source(
+        lobby,
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
 def test_creating_a_source_stores_it_fetches_it_and_shows_address_and_secret() -> None:

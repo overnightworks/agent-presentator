@@ -54,7 +54,10 @@ beyond what a start does itself, so an older shape a start cannot upgrade is
 still a file to delete and set up again.
 
 An instance starts with no source. An admin adds one under Settings · Sources
-with a name, a Git URL, HTTPS token access, and the read-only secret. The name
+with a name, a Git URL, HTTPS token access, and the read-only secret; *Check
+connection* probes that URL and secret the same way before anything is
+stored, and *Create* stays disabled until a check just answered reachable for
+the exact values still in the form. The name
 is lowercase letters, digits and hyphens, at most 64 characters, unique; the
 URL is unique too, and must not carry a password in its userinfo — that belongs
 in the Secret field. A user name in the URL is optional: when the URL names

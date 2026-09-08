@@ -13,6 +13,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildFailure,
+    ConnectionCheckResult,
     Deck,
     Source,
     SourcePoll,
@@ -67,6 +68,14 @@ class DeckFolders(Protocol):
         folders and names why, while a read that found no folder carries an
         empty tuple and says every deck is gone.
         """
+
+
+class ConnectionChecker(Protocol):
+    """Probes an unsaved source's URL and secret, writing nothing to disk."""
+
+    @abstractmethod
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        """What answered: no failure and the head commit, or which failure and why."""
 
 
 class SourceRuns(Protocol):

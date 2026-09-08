@@ -5,6 +5,7 @@ become the talk that is delivered, and what a deck page says is decided here;
 git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
+import hmac
 import logging
 import re
 import secrets
@@ -27,6 +28,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckPage,
     DeckState,
@@ -46,6 +48,7 @@ from presentator.contracts.decks import (
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
     BuildRunner,
+    ConnectionChecker,
     DeckFolders,
     DeckStore,
     SourceRuns,
@@ -88,6 +91,7 @@ class SourceRefusal(StrEnum):
     USERINFO = "password-in-url"
     ACCESS_MISMATCH = "access-mismatch"
     BLANK_ACCESS = "missing-secret"
+    NOT_CHECKED = "not-checked"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -96,6 +100,17 @@ class AddedSource:
 
     source: Source
     webhook_secret: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NewSourceDraft:
+    """What a person typed toward one new source, before it is checked or stored."""
+
+    name: str
+    url: str
+    access: str
+    secret: str
+    fingerprint: str
 
 
 def access_kind_of(url: str) -> AccessKind | None:
@@ -120,14 +135,13 @@ def hash_webhook_secret(secret: str) -> bytes:
 
 
 def _refusal_for(
+    draft: NewSourceDraft,
     *,
-    name: str,
-    url: str,
-    access: str,
-    secret: str,
+    proven: bool,
     existing: tuple[Source, ...],
 ) -> SourceRefusal | None:
     """The reason this draft cannot be stored, or nothing when it can."""
+    name, url, access, secret = draft.name, draft.url, draft.access, draft.secret
     checks = (
         (
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
@@ -139,10 +153,22 @@ def _refusal_for(
             access != _HTTPS_ACCESS or access_kind_of(url) is not AccessKind.HTTPS,
             SourceRefusal.ACCESS_MISMATCH,
         ),
+        (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
     return next((reason for matched, reason in checks if matched), None)
+
+
+def _connection_fingerprint(key: bytes, *, url: str, ref: str, secret: str) -> str:
+    """The proof Create later checks the posted values against.
+
+    Signed rather than merely hashed: an unsigned digest of these same three
+    values is trivial for a client to forge without ever calling Check.
+    """
+    secret_hash = sha256(secret.encode()).digest()
+    message = b"\0".join((url.encode(), ref.encode(), secret_hash))
+    return hmac.new(key, message, sha256).hexdigest()
 
 
 def _source_state_of(run: SourceRun) -> SourceState:
@@ -195,11 +221,15 @@ class Decks:
     store: DeckStore
     builder: BuildRunner
     source_runs: SourceRuns
+    checker: ConnectionChecker
     clock: Clock
     # How long a build may take before the refresh stops believing it is still
     # running: a process that died with the server leaves its attempt behind,
     # and nobody may read that as building for ever.
     build_bound: timedelta
+    # Signs a Check-connection fingerprint, so a form cannot forge one for a
+    # URL and secret it never actually proved reachable.
+    fingerprint_key: bytes
     _one_at_a_time: Lock = field(default_factory=Lock)
 
     def refresh(self) -> None:
@@ -283,28 +313,58 @@ class Decks:
         self.sources.put_hook_secret_hash(name, hash_webhook_secret(webhook_secret))
         return webhook_secret
 
+    def check_connection(self, *, url: str, secret: str) -> ConnectionCheckResult:
+        """Probe the Add form's own URL and secret, writing nothing down.
+
+        Every added source takes the one ref this instance follows; a check
+        that answered a different ref would prove nothing Create relies on. A
+        commit the probe found is shortened the way every other page shows
+        one, so a reachable check and a stored source read alike.
+        """
+        address = url.strip()
+        probed = self.checker.check(url=address, ref=_ADDED_REF, secret=secret)
+        if probed.failure is not None:
+            return probed
+        return ConnectionCheckResult(
+            failure=None,
+            commit=None if probed.commit is None else probed.commit[:_SHORT_COMMIT],
+            detail=None,
+            fingerprint=_connection_fingerprint(
+                self.fingerprint_key,
+                url=address,
+                ref=_ADDED_REF,
+                secret=secret,
+            ),
+        )
+
     def add_source(
         self,
+        draft: NewSourceDraft,
         *,
-        name: str,
-        url: str,
-        access: str,
-        secret: str,
         owner_id: str,
     ) -> AddedSource | SourceRefusal:
         """Store a source with its secrets, fetch it once, return the webhook secret.
 
         The webhook secret is generated here and returned in the clear so the
         created screen can show it once; only its hash is stored. The access
-        secret is handed to the store and never returned.
+        secret is handed to the store and never returned. A source is stored
+        only for the exact URL and secret a Check connection already proved
+        reachable, never on the fingerprint of a different pair.
         """
-        named = name.strip()
-        address = url.strip()
+        named = draft.name.strip()
+        address = draft.url.strip()
+        proven = compare_digest(
+            draft.fingerprint,
+            _connection_fingerprint(
+                self.fingerprint_key,
+                url=address,
+                ref=_ADDED_REF,
+                secret=draft.secret,
+            ),
+        )
         refused = _refusal_for(
-            name=named,
-            url=address,
-            access=access,
-            secret=secret,
+            replace(draft, name=named, url=address),
+            proven=proven,
             existing=self.sources.all(),
         )
         if refused is not None:
@@ -316,7 +376,7 @@ class Decks:
                 url=address,
                 ref=_ADDED_REF,
                 owner_id=owner_id,
-                access_secret=secret,
+                access_secret=draft.secret,
                 hook_secret_hash=hash_webhook_secret(webhook_secret),
             ),
         )

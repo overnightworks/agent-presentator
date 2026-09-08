@@ -347,13 +347,29 @@ main code {
   border-color: var(--busy);
 }
 
-[data-banner="failed"] {
+[data-banner="failed"],
+[data-banner="refused"],
+[data-banner="unreachable"] {
   background-color: var(--fail-soft);
   border-color: var(--fail);
 }
 
-[data-banner="failed"] [data-lead] {
+[data-banner="failed"] [data-lead],
+[data-banner="refused"] [data-lead],
+[data-banner="unreachable"] [data-lead] {
   color: var(--fail);
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+[data-banner="reachable"] {
+  background-color: var(--ok-soft);
+  border-color: var(--ok);
+}
+
+[data-banner="reachable"] [data-lead] {
+  color: var(--ok);
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;

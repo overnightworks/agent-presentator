@@ -34,6 +34,7 @@ from presentator.application.identity import (
 )
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import (
+    ConnectionCheckResult,
     DeckFolder,
     Source,
     SourceRun,
@@ -42,8 +43,10 @@ from presentator.contracts.decks import (
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
+    A_REACHABLE_CHECK,
     CountingIdentifierFactory,
     FakeBuildRunner,
+    FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
     FakeInstanceSettingsStore,
@@ -63,6 +66,9 @@ NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
 # No route test waits for a build, so the bound only has to be longer than the
 # ages the tests arrange.
 BUILD_BOUND: Final = timedelta(minutes=5)
+# What this lobby signs a Check connection fingerprint with; no test reads
+# this value, only the fingerprint a real Check response carries.
+_FINGERPRINT_KEY: Final = b"what only this test's lobby signs a fingerprint with"
 CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
@@ -176,6 +182,7 @@ class GivenDecks:
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    checked: ConnectionCheckResult = A_REACHABLE_CHECK
 
 
 NO_DECKS: Final = GivenDecks()
@@ -224,7 +231,9 @@ def a_lobby_app(
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
         source_runs=run_store,
+        checker=FakeConnectionChecker(answer=given.checked),
         build_bound=BUILD_BOUND,
+        fingerprint_key=_FINGERPRINT_KEY,
         clock=clock,
     )
     # The list and the deck page read the store only; a test arranges what a

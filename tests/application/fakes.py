@@ -18,6 +18,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildFailure,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -43,6 +44,13 @@ PATIENCE: Final = timedelta(seconds=5)
 # most tests only care about the folders a source carries, never these two.
 _A_FETCHED_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _AN_UNNAMED_FAILURE: Final = SourceRunFailure.UNREACHABLE
+# What Check connection finds when no test says otherwise: the form's own
+# happy path, so a test unrelated to the probe itself never has to arrange it.
+A_REACHABLE_CHECK: Final = ConnectionCheckResult(
+    failure=None,
+    commit=_A_FETCHED_COMMIT[:7],
+    detail=None,
+)
 
 
 @dataclass
@@ -366,6 +374,16 @@ class FakeSourceRunStore:
     def recent(self, source_id: str) -> tuple[SourceRun, ...]:
         found = [run for run in reversed(self.recorded) if run.source_id == source_id]
         return tuple(found[:RECENT_SOURCE_RUNS])
+
+
+@dataclass
+class FakeConnectionChecker:
+    """Answers the one canned result a test wired, whatever it was asked."""
+
+    answer: ConnectionCheckResult = A_REACHABLE_CHECK
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        return self.answer
 
 
 @dataclass

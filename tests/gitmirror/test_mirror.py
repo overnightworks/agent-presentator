@@ -21,6 +21,7 @@ import pytest
 from gitmirror.mirror import (
     CREDENTIAL_USER_NAME,
     GitMirror,
+    check_connection,
     connection_state_for_failure,
     credential_arguments,
     unattended_environment,
@@ -737,3 +738,115 @@ def test_a_machine_without_git_refuses_to_mirror(
 
     with pytest.raises(GitUnavailableError):
         a_mirror("file:///nowhere.git", directory=tmp_path).connect()
+
+
+def test_a_reachable_check_answers_with_the_heads_full_commit(
+    remote: GitRemote,
+) -> None:
+    bare = _prepared_bare_repo(remote)
+    expected = _basic_auth(CREDENTIAL_USER_NAME, _WHAT_THE_RESOLVER_ANSWERS)
+    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
+        checked = check_connection(
+            url=url,
+            ref=MAIN_BRANCH,
+            secret=_WHAT_THE_RESOLVER_ANSWERS,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.state is ConnectionState.READY
+    assert checked.commit == remote.head
+    assert checked.detail is None
+    assert served.authorization == expected
+
+
+def test_a_checks_wrong_secret_is_refused(remote: GitRemote) -> None:
+    bare = _prepared_bare_repo(remote)
+    expected = _basic_auth(CREDENTIAL_USER_NAME, "the-secret-the-host-actually-wants")
+    with _dumb_http_remote(bare, expected_authorization=expected) as (url, _served):
+        checked = check_connection(
+            url=url,
+            ref=MAIN_BRANCH,
+            secret=_WHAT_THE_RESOLVER_ANSWERS,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.state is ConnectionState.REFUSED
+    assert checked.commit is None
+
+
+def test_a_check_of_a_host_that_answers_something_else_is_named_failed() -> None:
+    with _responding_remote(
+        status=HTTPStatus.NOT_FOUND,
+        body=b"Repository not found.\n",
+    ) as url:
+        checked = check_connection(
+            url=url,
+            ref=MAIN_BRANCH,
+            secret=None,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.state is ConnectionState.FAILED
+    assert checked.commit is None
+    assert checked.detail
+    assert "\n" not in checked.detail
+
+
+def test_a_check_of_an_unresolvable_host_is_named_unreachable() -> None:
+    checked = check_connection(
+        url=_AN_UNRESOLVABLE_HOST,
+        ref=MAIN_BRANCH,
+        secret=None,
+        timeout=_A_GENEROUS_BOUND,
+    )
+
+    assert checked.state is ConnectionState.UNREACHABLE
+    assert checked.commit is None
+
+
+def test_a_check_that_runs_past_its_bound_is_named_unreachable(
+    remote: GitRemote,
+) -> None:
+    remote.commit(_A_DECK, at=_PUSHED_AT)
+
+    checked = check_connection(
+        url=remote.url,
+        ref=MAIN_BRANCH,
+        secret=None,
+        timeout=_NO_BUDGET_AT_ALL,
+    )
+
+    assert checked.state is ConnectionState.UNREACHABLE
+    assert checked.commit is None
+
+
+def test_a_check_of_a_branch_nobody_pushed_is_failed_without_a_detail_line(
+    remote: GitRemote,
+) -> None:
+    bare = _prepared_bare_repo(remote)
+    with _dumb_http_remote(bare) as (url, _served):
+        checked = check_connection(
+            url=url,
+            ref="a-branch-nobody-pushed",
+            secret=None,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.state is ConnectionState.FAILED
+    assert checked.commit is None
+    assert checked.detail is None
+
+
+_A_SECRET_WITH_A_NEWLINE = "with" + "\na newline"
+
+
+def test_a_checks_control_character_secret_is_refused_before_it_reaches_git() -> None:
+    checked = check_connection(
+        url=_AN_UNRESOLVABLE_HOST,
+        ref=MAIN_BRANCH,
+        secret=_A_SECRET_WITH_A_NEWLINE,
+        timeout=_A_GENEROUS_BOUND,
+    )
+
+    assert checked.state is ConnectionState.REFUSED
+    assert checked.commit is None
