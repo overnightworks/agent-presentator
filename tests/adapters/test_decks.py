@@ -1048,6 +1048,7 @@ def test_promoting_a_missing_or_foreign_draft_creates_no_source(
     assert promoted is None
     assert sources.all() == ()
     if minted is not None:
+        assert draft_owner is not None
         assert drafts.bind(minted.id, owner_id=draft_owner) == minted
 
 
