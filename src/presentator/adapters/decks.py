@@ -480,6 +480,13 @@ class SourceMirrors:
         )
 
 
+# The only access kinds the checker knows how to probe; anything else — no
+# scheme it recognises, or SSH, which the form does not offer yet — is
+# refused before a single argument reaches git, never handed to it on the
+# chance a probe might make sense of it.
+_PROBED_ACCESS_KINDS: Final = frozenset({AccessKind.HTTPS, AccessKind.FILE})
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MirroredConnectionChecker:
     """Probes a form's own URL and secret through `ls-remote`, storing nothing."""
@@ -493,10 +500,16 @@ class MirroredConnectionChecker:
         A file-kind address is resolved against the real mount first, the
         same way a stored source's own mirror is: one outside it is refused
         without ever reaching `ls-remote`, because no host answered no and no
-        host failed to answer — the mount itself declined to open it.
+        host failed to answer — the mount itself declined to open it. An
+        access kind the checker does not probe is refused the same way.
         """
+        kind = access_kind_of(url)
+        if kind not in _PROBED_ACCESS_KINDS:
+            return ConnectionCheckResult(
+                failure=SourceRunFailure.REFUSED, commit=None, detail=None
+            )
         resolved = url
-        if access_kind_of(url) is AccessKind.FILE:
+        if kind is AccessKind.FILE:
             canonical = self.local_mount.canonical_repository(url)
             if canonical is None:
                 return ConnectionCheckResult(

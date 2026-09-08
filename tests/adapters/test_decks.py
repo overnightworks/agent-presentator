@@ -496,12 +496,34 @@ def a_checker(
 
 def test_an_unreachable_check_names_its_own_failure_without_a_commit() -> None:
     checked = a_checker().check(
-        url="http://host.example.invalid/repo.git",
+        url="https://host.example.invalid/repo.git",
         ref=MAIN_BRANCH,
         secret="",
     )
 
     assert checked.failure is SourceRunFailure.UNREACHABLE
+    assert checked.commit is None
+
+
+def test_a_check_of_an_access_kind_it_does_not_probe_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An SSH address is refused outright, never handed to git at all.
+
+    The form offers no SSH radio yet, so nothing this checker probes should
+    ever run `git` against one; a `PATH` with no git on it proves that: a
+    call that reached `subprocess.run` would raise `GitUnavailableError`
+    instead of answering refused.
+    """
+    monkeypatch.setenv("PATH", "")
+
+    checked = a_checker().check(
+        url="ssh://git@host.example.invalid/repo.git",
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is SourceRunFailure.REFUSED
     assert checked.commit is None
 
 

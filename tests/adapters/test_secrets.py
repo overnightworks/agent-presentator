@@ -71,3 +71,16 @@ def test_a_different_instance_key_answers_a_different_fingerprint_key() -> None:
     assert connection_fingerprint_key(_INSTANCE_KEY) != connection_fingerprint_key(
         _ANOTHER_INSTANCE_KEY,
     )
+
+
+def test_the_fingerprint_key_never_matches_the_secret_boxs_own_key() -> None:
+    box = secret_box(_INSTANCE_KEY)
+    fingerprint_material = urlsafe_b64encode(connection_fingerprint_key(_INSTANCE_KEY))
+    fingerprint_box = Fernet(fingerprint_material)
+
+    assert (
+        box.decrypt(fingerprint_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode()))
+        is None
+    )
+    with pytest.raises(InvalidToken):
+        fingerprint_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))

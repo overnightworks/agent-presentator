@@ -792,6 +792,43 @@ def test_a_check_of_a_host_that_answers_something_else_is_named_failed() -> None
     assert "\n" not in checked.detail
 
 
+def test_a_failed_checks_detail_hides_userinfo_the_remote_reflects_back() -> None:
+    reflected = (
+        "retry at https://mirror-user:mirror-secret@mirror.example.invalid/repo.git"
+    )
+    with _responding_remote(
+        status=HTTPStatus.FORBIDDEN,
+        body=reflected.encode(),
+    ) as url:
+        checked = check_connection(
+            url=url,
+            ref=MAIN_BRANCH,
+            secret=None,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.detail is not None
+    assert "mirror-user:mirror-secret" not in checked.detail
+    assert "***" in checked.detail
+
+
+def test_a_failed_checks_detail_hides_the_secret_the_remote_reflects_back() -> None:
+    with _responding_remote(
+        status=HTTPStatus.FORBIDDEN,
+        body=f"token rejected: {_WHAT_THE_RESOLVER_ANSWERS}".encode(),
+    ) as url:
+        checked = check_connection(
+            url=url,
+            ref=MAIN_BRANCH,
+            secret=_WHAT_THE_RESOLVER_ANSWERS,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.detail is not None
+    assert _WHAT_THE_RESOLVER_ANSWERS not in checked.detail
+    assert "***" in checked.detail
+
+
 def test_a_check_of_an_unresolvable_host_is_named_unreachable() -> None:
     checked = check_connection(
         url=_AN_UNRESOLVABLE_HOST,
