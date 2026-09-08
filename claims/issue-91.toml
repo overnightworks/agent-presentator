@@ -1,0 +1,8 @@
+claim_id = "252a59e4cb50470785170a358d0e04f0"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "4c831d065ae0ef67f915f87985c0dcd36ff874b3"
+branch = "claude/issue-91-stage"
+scope = ["copresenter", "examples/copresenter-deck", "docs/OPERATIONS.md"]
+opened_commit = "8108ba20c730907c36857c0a20fef8a1c833135c"
+whole_reason = "The origin rule, the configurable address and the deck's overlay are one path from the laptop to the answer."
