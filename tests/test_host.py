@@ -31,6 +31,7 @@ from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.contracts.decks import SourceWrite
 from presentator.host import main
 from presentator.host.config import (
+    NO_BOUND_AT_ALL,
     ConfigurationError,
     load_settings,
 )
@@ -72,12 +73,11 @@ case "$1" in
     version) echo "1.52";;
     info) echo "{_A_DRIVER}";;
     image) echo "sha256:the-image";;
-    run)
-        case "$*" in
-            *storage-opt*) exit 0;;
-            *) echo "there is no such deck" >&2; exit 1;;
-        esac
-        ;;
+    create) exit 0;;
+    start) exit 0;;
+    rm) exit 0;;
+    ps) ;;
+    run) echo "there is no such deck" >&2; exit 1;;
 esac
 """
 _A_DAEMON_TOO_OLD_TO_BUILD_ON = f"""#!/bin/sh
@@ -91,7 +91,8 @@ case "$1" in
     version) echo "1.52";;
     info) echo "{_A_DRIVER}";;
     image) echo "sha256:the-image";;
-    run) echo "this driver takes no size" >&2; exit 125;;
+    create) echo "this driver takes no size" >&2; exit 125;;
+    rm) exit 0;;
 esac
 """
 
@@ -297,17 +298,28 @@ def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
         main.build_instance(load_settings())
 
 
-def test_an_instance_told_to_do_without_that_bound_starts_and_says_so(
+def test_an_instance_told_in_as_many_words_to_do_without_it_starts_and_says_so(
     environment: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
-    environment.setenv("PRESENTATOR_BUILD_DISK", "")
+    environment.setenv("PRESENTATOR_BUILD_DISK", NO_BOUND_AT_ALL)
 
     main.build_instance(load_settings())
 
     assert "build_disk" in caplog.text
+
+
+def test_an_instance_whose_disk_bound_came_out_blank_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    # A value nobody watched interpolate is not a decision to build without
+    # the one bound on what a deck writes beside its talk.
+    environment.setenv("PRESENTATOR_BUILD_DISK", "  ")
+
+    with pytest.raises(ConfigurationError, match="build_disk"):
+        load_settings()
 
 
 def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_view(

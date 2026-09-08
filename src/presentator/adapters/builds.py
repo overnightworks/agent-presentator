@@ -22,7 +22,6 @@ import os
 import select
 import shutil
 import signal
-import stat
 import subprocess
 from abc import abstractmethod
 from collections.abc import Callable
@@ -94,6 +93,10 @@ _SCRATCH_IS_EVERYONES: Final = "mode=1777"
 # it; a Slidev export and its browser stay far below this.
 _PROCESSES_AT_MOST: Final = 512
 _CONTAINER_PREFIX: Final = "presentator"
+# What the one container that asks about a size is called and needs: it runs
+# nothing, so it needs nothing, and its name says which start asked.
+_A_SIZE: Final = "a-size"
+_A_PROBE_NEEDS: Final = "64m"
 # Whether a container's own filesystem can be held to a size is not read off
 # the driver's name: overlay2 takes one over xfs with project quotas and
 # refuses it everywhere else, and a wrong guess either leaves a build unbounded
@@ -112,6 +115,11 @@ _READ_AT_ONCE: Final = 64 * 1024
 _TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
 _A_MEGABYTE: Final = 1024 * 1024
 _OWNER_MAY_ENTER: Final = 0o700
+# A descriptor pinned to a directory nobody may read is still that directory;
+# this is the name the running kernel gives it, and the one way its mode can be
+# changed without naming a path a build could have exchanged underneath.
+_THE_DESCRIPTOR_ITSELF: Final = "/proc/self/fd/{descriptor}"
+_HERE: Final = "."
 # Adding up what a build wrote is walking a tree that build filled, so it is
 # bounded like everything else it touches: a talk is hundreds of files, and
 # adding up even a hundred thousand of them is a moment's work. Past either
@@ -127,6 +135,12 @@ _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
 _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
 _CONTAINER_STAYED: Final = "the container of %s of deck %s could not be removed: %s"
 _RUN_STAYED: Final = "what build %s left could not be taken away"
+_STILL_RUNNING: Final = "whether a container of build %s still runs is unknown: %s"
+_LEFT_AS_IT_LIES: Final = (
+    "a container of build %s may still be running, so what it left is taken"
+    " away as it lies rather than opened first"
+)
+_PROBE_STAYED: Final = "the container %s that asked about a size stayed: %s"
 _TOO_MUCH_WRITTEN: Final = "deck %s wrote %s MB, which is more than a build may leave"
 _UNACCOUNTABLE: Final = "what the build of deck %s wrote could not be added up: %s"
 _TOOK_TOO_LONG_TO_ADD_UP: Final = (
@@ -254,6 +268,15 @@ class DeckToolchain(Protocol):
         that could not be started at all, hand back no words.
         """
 
+    @abstractmethod
+    def nothing_of_it_runs(self, place: BuildPlace) -> bool:
+        """Whether nothing this build started can still be writing in there.
+
+        What a build left is only safe to take in hand once nothing of that
+        build is still there to change it under this server's hands. An
+        answer nobody could get is a no.
+        """
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ContainerToolchain:
@@ -333,6 +356,24 @@ class ContainerToolchain:
             ),
         )
 
+    def nothing_of_it_runs(self, place: BuildPlace) -> bool:
+        """Whether the daemon still has a container of this run's on its feet."""
+        try:
+            asked = subprocess.run(
+                [_DOCKER, "ps", "--quiet", "--filter", f"name={place.run.name}"],
+                check=False,
+                capture_output=True,
+                env=_a_client_environment(),
+                timeout=min(self.bound, _REMOVAL_WITHIN).total_seconds(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as unanswered:
+            _log.warning(_STILL_RUNNING, place.run, unanswered)
+            return False
+        if asked.returncode != 0:
+            _log.warning(_STILL_RUNNING, place.run, _tail(asked.stderr))
+            return False
+        return not asked.stdout.strip()
+
     def _removed(self, container: str, step: BuildStep) -> None:
         """Take down what a step that was given up on left running.
 
@@ -341,21 +382,11 @@ class ContainerToolchain:
         A daemon that will not answer about it is named in the log rather than
         waited on, because every later build stands behind this one.
         """
-        try:
-            removal = subprocess.run(
-                [_DOCKER, "rm", "--force", container],
-                check=False,
-                capture_output=True,
-                env=_a_client_environment(),
-                # Never longer than the step it belongs to was allowed to
-                # take: every later build waits behind this one call.
-                timeout=min(self.bound, _REMOVAL_WITHIN).total_seconds(),
-            )
-        except (OSError, subprocess.TimeoutExpired) as stayed:
+        # Never longer than the step it belongs to was allowed to take: every
+        # later build waits behind this one call.
+        stayed = _taken_down(container, within=min(self.bound, _REMOVAL_WITHIN))
+        if stayed is not None:
             _log.error(_CONTAINER_STAYED, step.name, step.slug, stayed)
-            return
-        if removal.returncode != 0:
-            _log.error(_CONTAINER_STAYED, step.name, step.slug, _tail(removal.stderr))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -370,6 +401,11 @@ class HostToolchain:
 
     project: Path
     bound: timedelta
+
+    def nothing_of_it_runs(self, place: BuildPlace) -> bool:
+        """Nothing does: a step of this build was waited for where it was killed."""
+        del place
+        return True
 
     def ran(self, step: BuildStep) -> BuildFailure | None:
         """Run that step out of this machine's own toolchain project."""
@@ -409,6 +445,27 @@ class SlidevBuilds:
             return Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
         self._taken_away(place)
         return broke
+
+    def _taken_away(self, place: BuildPlace) -> None:
+        """Take away what a build that did not finish left, however it left it.
+
+        Nothing points at it and nothing ever will, and the directory the deck
+        delivers from is not touched; cleaning up the ones that were pointed at
+        is line 20. A deck's own code wrote in this tree and may have closed a
+        directory behind it, so the modes are given back first — but only once
+        nothing of that build is running any more, because opening a directory
+        for a build that is still writing in it is opening it for the build.
+        Whether the tree really went is then read off the filesystem, and one
+        that stayed is named in the log rather than passed over, because it is
+        this machine filling up.
+        """
+        if self.toolchain.nothing_of_it_runs(place):
+            _opened_again(place.here)
+        else:
+            _log.warning(_LEFT_AS_IT_LIES, place.run)
+        shutil.rmtree(place.here, ignore_errors=True)
+        if place.here.exists():
+            _log.warning(_RUN_STAYED, place.run)
 
     def holds(self, artefacts: Artefacts) -> bool:
         """Whether both artefacts really stand under the root builds are kept in."""
@@ -514,22 +571,6 @@ class SlidevBuilds:
             ),
         )
 
-    def _taken_away(self, place: BuildPlace) -> None:
-        """Take away what a build that did not finish left, however it left it.
-
-        Nothing points at it and nothing ever will, and the directory the deck
-        delivers from is not touched; cleaning up the ones that were pointed at
-        is line 20. A deck's own code wrote in this tree and may have closed a
-        directory behind it, so the modes are given back first. Whether the
-        tree really went is then read off the filesystem, and one that stayed
-        is named in the log rather than passed over, because it is this machine
-        filling up.
-        """
-        _opened_again(place.here)
-        shutil.rmtree(place.here, ignore_errors=True)
-        if place.here.exists():
-            _log.warning(_RUN_STAYED, place.run)
-
     def _exported(self, deck: Deck, *, source: Source, into: Path) -> bool:
         """Write the deck's tree at its commit out of the mirror, as files."""
         try:
@@ -569,21 +610,37 @@ def the_daemon_of_this_machine(*, image: str, disk: str | None) -> Daemon:
 def _a_size_is_taken(image: str, disk: str) -> bool:
     """Whether this machine really bounds a container's own filesystem.
 
-    One container that does nothing but be started under that bound: a driver
-    that cannot hold it says so here, once, instead of failing every build of
-    every deck.
+    One container of this instance's own, bounded like a build's and doing
+    nothing at all: a machine that cannot hold it says so here, once, instead
+    of failing every build of every deck. It is made and started under a name
+    of this start's, so that a machine which never answers leaves a container
+    this call takes down rather than one nobody knows about.
     """
+    probe = f"{_CONTAINER_PREFIX}-{_A_SIZE}-{os.getpid()}"
+    if not _the_client_did(
+        "create",
+        f"--name={probe}",
+        *_SEALED,
+        f"--entrypoint={_NOTHING_AT_ALL}",
+        f"--memory={_A_PROBE_NEEDS}",
+        f"--pids-limit={_PROCESSES_AT_MOST}",
+        f"--storage-opt=size={disk}",
+        image,
+    ):
+        return False
+    try:
+        return _the_client_did("start", "--attach", probe)
+    finally:
+        stayed = _taken_down(probe, within=_REMOVAL_WITHIN)
+        if stayed is not None:
+            _log.error(_PROBE_STAYED, probe, stayed)
+
+
+def _the_client_did(*arguments: str) -> bool:
+    """Whether that one call to the client came back saying it worked."""
     try:
         asked = subprocess.run(
-            [
-                _DOCKER,
-                "run",
-                "--rm",
-                *_SEALED,
-                f"--storage-opt=size={disk}",
-                image,
-                _NOTHING_AT_ALL,
-            ],
+            [_DOCKER, *arguments],
             check=False,
             capture_output=True,
             env=_a_client_environment(),
@@ -596,6 +653,23 @@ def _a_size_is_taken(image: str, disk: str) -> bool:
         _log.warning(_NO_SIZE_IS_TAKEN, _tail(asked.stderr))
         return False
     return True
+
+
+def _taken_down(container: str, *, within: timedelta) -> str | None:
+    """Take that container down, and say what stood in the way if it stayed."""
+    try:
+        removal = subprocess.run(
+            [_DOCKER, "rm", "--force", container],
+            check=False,
+            capture_output=True,
+            env=_a_client_environment(),
+            timeout=within.total_seconds(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as stayed:
+        return str(stayed)
+    if removal.returncode != 0:
+        return _tail(removal.stderr)
+    return None
 
 
 def _what_the_client_said(*arguments: str) -> str:
@@ -691,15 +765,20 @@ def _the_end_of_what_it_printed(
     leave — a machine is filled while a build runs, not when it ends.
     """
     ends_by = monotonic() + bound.total_seconds()
+    accounted_at = monotonic()
     said = b""
     while True:
-        left = ends_by - monotonic()
-        if left <= 0:
+        now = monotonic()
+        if now >= ends_by:
             return _HowItWent(said=said, refused=None, in_time=False)
-        refused = step.watched()
-        if refused is not None:
-            return _HowItWent(said=said, refused=refused, in_time=True)
-        waited_for = min(left, _ACCOUNTED_EVERY.total_seconds())
+        if now >= accounted_at:
+            refused = step.watched()
+            if refused is not None:
+                return _HowItWent(said=said, refused=refused, in_time=True)
+            # On its own turn, whatever the step is printing: a build that
+            # talks without stopping would otherwise be counted at every word.
+            accounted_at = monotonic() + _ACCOUNTED_EVERY.total_seconds()
+        waited_for = max(min(ends_by, accounted_at) - monotonic(), 0.0)
         if not select.select([printed], [], [], waited_for)[0]:
             continue
         printed_now = printed.read(_READ_AT_ONCE)
@@ -724,20 +803,26 @@ def _ended_within(process: subprocess.Popen[bytes], ends_by: float) -> bool:
 def _added_up(directory: Path, *, ends_by: float) -> _Added:
     """Add up what one run has written into that directory, so far.
 
-    Every name in it was written by a deck's own build, so none of them is
-    followed: a link is counted as the name it is and never as what it points
-    at, which may be anything of this machine. The walk stops at the first
-    entry it cannot read, at the entry it may not go past, and at the moment it
-    may not run past — a talk this server cannot add up is one it refuses,
-    never one it guesses at.
+    Every name in it was written by a deck's own build, so nothing here is
+    reached by its path: the root is opened once, and every directory inside
+    it is opened from the descriptor of the one that holds it, as a directory
+    and never through a link. A name that is not a real directory by the time
+    it is opened is refused rather than followed — between one look and the
+    next a build can make a name into anything, and a descriptor is the one
+    thing it cannot exchange. A link is counted as the name it is, the walk
+    stops at the first entry it cannot read, and it stops at the entry and at
+    the moment it may not go past: a talk this server could not add up is one
+    it refuses, never one it guesses at.
     """
-    held, entries, left_to_read = 0, 0, [directory]
-    while left_to_read:
-        if monotonic() > ends_by:
-            return _Added(megabytes=0, entries=entries, unreadable=None, in_time=False)
-        try:
-            with os.scandir(left_to_read.pop()) as inside:
-                for entry in inside:
+    root = _a_directory_of_its_own(directory)
+    if root is None:
+        return _Added(megabytes=0, entries=0, unreadable=str(directory), in_time=True)
+    held, entries, still_open = 0, 0, [root]
+    try:
+        while still_open:
+            holder = still_open.pop()
+            try:
+                for entry in os.scandir(holder):
                     entries += 1
                     if entries > _ENTRIES_AT_MOST:
                         return _Added(
@@ -746,19 +831,29 @@ def _added_up(directory: Path, *, ends_by: float) -> _Added:
                             unreadable=None,
                             in_time=True,
                         )
-                    if entry.is_symlink():
-                        continue
+                    if monotonic() > ends_by:
+                        return _Added(
+                            megabytes=0,
+                            entries=entries,
+                            unreadable=None,
+                            in_time=False,
+                        )
                     if entry.is_dir(follow_symlinks=False):
-                        left_to_read.append(Path(entry.path))
-                    else:
+                        still_open.append(_opened_within(entry.name, held_by=holder))
+                    elif not entry.is_symlink():
                         held += entry.stat(follow_symlinks=False).st_size
-        except OSError as unreadable:
-            return _Added(
-                megabytes=0,
-                entries=entries,
-                unreadable=str(unreadable),
-                in_time=True,
-            )
+            except OSError as unreadable:
+                return _Added(
+                    megabytes=0,
+                    entries=entries,
+                    unreadable=str(unreadable),
+                    in_time=True,
+                )
+            finally:
+                os.close(holder)
+    finally:
+        for holder in still_open:
+            os.close(holder)
     return _Added(
         megabytes=held // _A_MEGABYTE,
         entries=entries,
@@ -767,32 +862,84 @@ def _added_up(directory: Path, *, ends_by: float) -> _Added:
     )
 
 
+def _opened_within(name: str, *, held_by: int) -> int:
+    """That name as a directory of its own, opened from the one holding it.
+
+    The open is the whole check: it refuses a link and it refuses anything
+    that is not a directory, at the moment it happens, so nothing a build does
+    in between can turn the name it read into a way out of this run.
+    """
+    return os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        dir_fd=held_by,
+    )
+
+
+def _a_directory_of_its_own(directory: Path) -> int | None:
+    """That directory as a descriptor, or nothing where it is not one."""
+    try:
+        return os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+
+
 def _opened_again(tree: Path) -> None:
     """Give back the modes a build may have taken from its own leftovers.
 
-    The walk is top-down, so a directory closed behind a build is opened
-    before this walk asks what is inside it, and it walks into no link. Every
-    name is changed from the directory that holds it rather than by its path,
-    and only after that directory said the name is a directory and not a link:
-    what a build left as a link may point anywhere on this machine, and this
-    is the one place that would open it.
+    Every directory is pinned as a descriptor before anything is done to it,
+    and the mode is changed through that descriptor rather than through the
+    name it had, which a build may since have made into a link to anything of
+    this machine's. A directory a build closed cannot be opened for reading at
+    all, so it is pinned without reading it and opened again through itself.
     """
-    for inside, directories, _ in os.walk(tree):
-        holder = os.open(inside, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    pinned = _pinned(tree)
+    while pinned:
+        holder = pinned.pop()
         try:
-            for closed in directories:
-                _opened(closed, held_by=holder)
+            _let_the_owner_back_into(holder, and_pin=pinned)
         finally:
             os.close(holder)
 
 
-def _opened(name: str, *, held_by: int) -> None:
-    """Open that one name where it stands, and no link that carries it."""
+def _let_the_owner_back_into(holder: int, *, and_pin: list[int]) -> None:
+    """Open that one directory to its owner again, and pin the ones in it."""
     with suppress(OSError):
-        # A name already gone, or one this server may not change: whether the
-        # tree really went is read off the tree afterwards, never from here.
-        if stat.S_ISDIR(os.lstat(name, dir_fd=held_by).st_mode):
-            os.chmod(name, _OWNER_MAY_ENTER, dir_fd=held_by)
+        # A descriptor pinned without reading rights cannot be changed
+        # directly; this is where the running kernel lets its owner name it.
+        Path(_THE_DESCRIPTOR_ITSELF.format(descriptor=holder)).chmod(_OWNER_MAY_ENTER)
+        readable = os.open(_HERE, os.O_RDONLY | os.O_DIRECTORY, dir_fd=holder)
+        try:
+            _pin_the_directories_in(readable, and_pin=and_pin)
+        finally:
+            os.close(readable)
+
+
+def _pin_the_directories_in(readable: int, *, and_pin: list[int]) -> None:
+    """Pin every directory of that one, and no name that is not one.
+
+    Each is pinned as it is found, so a listing that breaks off halfway still
+    leaves the caller holding what it has to let go of again.
+    """
+    with suppress(OSError):
+        for entry in os.scandir(readable):
+            if entry.is_dir(follow_symlinks=False):
+                with suppress(OSError):
+                    and_pin.append(
+                        os.open(
+                            entry.name,
+                            os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=readable,
+                        ),
+                    )
+
+
+def _pinned(tree: Path) -> list[int]:
+    """That tree's own directory as a descriptor, where it still is one."""
+    try:
+        return [os.open(tree, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)]
+    except OSError:
+        return []
 
 
 def _a_container_for(step: BuildStep) -> str:

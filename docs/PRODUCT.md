@@ -303,7 +303,10 @@ standing; so does a build that wants more time, memory, processes, or disk than
 one build may have. A talk larger than an instance keeps, or holding more files
 than it counts, stops the step that is writing it where it stands, because a
 machine is filled while a build runs and not when it ends; adding that talk up
-follows no link a build left and stops at anything it cannot read.
+reaches nothing by its name, follows no link a build left, and stops at
+anything it cannot read. What a build writes into a file it has unlinked no
+scan can see: there the step's own time and its memory are the bound, and the
+container's exit frees it.
 
 That is what an instance is, and an instance that cannot have it does not
 start: without the image and the volume it builds in, on a daemon too old to

@@ -285,6 +285,7 @@ What one build may take is bounded on every side it has:
 | Its own filesystem | `PRESENTATOR_BUILD_DISK` (`8g`) | Writing past it fails inside the build |
 | The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The step still running is stopped there, in this server's own words on the page, and what it wrote is taken away |
 | The files that talk holds | 100 000, a constant | The same, in the same words |
+| What it writes into a file it has unlinked | Nothing counts it | No scan can see such a file, so the step's time and the memory bound above are what limit it, and the container's exit frees it |
 
 The talk is added up while the build runs, not only when it ends, because a
 machine is filled long before a build is over; a step that has written past
@@ -296,20 +297,23 @@ cannot read rather than passing over it.
 The filesystem bound is Docker's `--storage-opt size`, which some storage
 drivers take and others refuse — overlay2 takes one over xfs with project
 quotas and refuses it over ext4. Which this machine is is not guessed from a
-name: at every start the server runs one bounded container that does nothing,
-and if the daemon refuses it the instance refuses to start, naming the driver.
-On such a machine — overlay2 over ext4 is the common one — the way to run is to
-say so, by leaving `PRESENTATOR_BUILD_DISK` empty in `.env`:
+name: at every start the server makes and starts one container of its own,
+bounded like a build's and running nothing at all, and takes it down again; if
+the daemon refuses that container the instance refuses to start, naming the
+driver. On such a machine — overlay2 over ext4 is the common one — the way to
+run is to say so in as many words:
 
 ```sh
-printf 'PRESENTATOR_BUILD_DISK=\n' >> .env
+printf 'PRESENTATOR_BUILD_DISK=none\n' >> .env
 ```
 
-Then nothing but the time a step may take bounds what a build writes beside its
-talk, the log says so at every start, and the talk bound above is what stands
-between a deck and this machine. The same start also refuses a daemon that does
-not carry the build image at all, so an instance that could build no deck says
-so before it serves one.
+Only that word does it. A value that came out blank is refused at the start,
+because an interpolation nobody watched is not a decision. With `none` the log
+says at every start that nothing but the time a step may take bounds what a
+build writes beside its talk, and the talk bound above is what stands between a
+deck and this machine. The same start also refuses a daemon that does not carry
+the build image at all, so an instance that could build no deck says so before
+it serves one.
 
 The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
 instance and puts the server in the `docker` group, so the server may ask the

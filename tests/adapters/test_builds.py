@@ -15,6 +15,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from errno import ELOOP
 from pathlib import Path
 
 import pytest
@@ -233,6 +234,68 @@ chmod 500 "$(dirname "$(dirname "$(dirname "$out")")")"
 echo "the deck does not build" >&2
 exit 1
 """
+_A_TOOLCHAIN_THAT_BUILDS_BESIDE_ITSELF = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+case "$out" in
+    *.pdf) printf '%%PDF-1.7' > "$out";;
+    *)
+        mkdir -p "$out" "$out/../beside-it" "$out/../beside-it-too"
+        printf 'a talk' > "$out/index.html"
+        ;;
+esac
+"""
+_A_TOOLCHAIN_THAT_TAKES_ITS_OWN_TALK_AWAY = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+case "$out" in
+    *.pdf) printf '%%PDF-1.7' > "$out"; rm -rf "$(dirname "$out")";;
+    *) mkdir -p "$out"; printf 'a talk' > "$out/index.html";;
+esac
+"""
+_A_TOOLCHAIN_THAT_TAKES_THE_WHOLE_RUN_AWAY = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+rm -rf "$(dirname "$(dirname "$out")")"
+echo "the deck does not build" >&2
+exit 1
+"""
+_A_TOOLCHAIN_THAT_CLOSES_WHAT_IT_BUILT = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+case "$out" in
+    *.pdf) printf '%%PDF-1.7' > "$out";;
+    *)
+        mkdir -p "$out/closed"
+        printf 'a talk' > "$out/index.html"
+        chmod 000 "$out/closed"
+        ;;
+esac
+"""
 _A_TOOLCHAIN_THAT_CLOSES_WHAT_IT_WROTE = """#!/bin/sh
 out=""
 while [ $# -gt 0 ]; do
@@ -268,6 +331,25 @@ sleep 60
 _A_DOCKER_THAT_WILL_NOT_ANSWER = """#!/bin/sh
 sleep 60
 """
+# One that builds nothing and cannot say whether a container of that build is
+# still on its feet, and one whose own probe container will not go away.
+_A_DOCKER_THAT_CANNOT_SAY_WHAT_RUNS = """#!/bin/sh
+case "$1" in
+    ps) echo "the daemon is not answering" >&2; exit 1;;
+    rm) exit 0;;
+    *) echo "the deck does not build" >&2; exit 1;;
+esac
+"""
+_A_DAEMON_WHOSE_PROBE_STAYS = """#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "overlay2";;
+    image) echo "sha256:the-image-of-this-deployment";;
+    create) exit 0;;
+    start) exit 0;;
+    rm) echo "there is no such container" >&2; exit 1;;
+esac
+"""
 _RECORDED_REMOVAL = "removed"
 # The daemon stand-ins, for the one question this server asks before it serves.
 _A_DAEMON_THAT_ANSWERS = """#!/bin/sh
@@ -275,7 +357,10 @@ case "$1" in
     version) echo "{api}";;
     info) echo "{driver}";;
     image) echo "sha256:the-image-of-this-deployment";;
-    run) printf 'one\\n' >> "{tried}"; exit {size};;
+    create) printf 'one\\n' >> "{tried}"; exit {size};;
+    start) exit 0;;
+    rm) exit 0;;
+    ps) ;;
 esac
 """
 _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE = """#!/bin/sh
@@ -283,7 +368,9 @@ case "$1" in
     version) echo "1.52";;
     info) echo "overlay2";;
     image) echo "sha256:the-image-of-this-deployment";;
-    run) sleep 60;;
+    create) exit 0;;
+    start) sleep 60;;
+    rm) printf '%s\\n' "$*" >> "{removed}";;
 esac
 """
 _A_DAEMON_WITHOUT_THE_IMAGE = """#!/bin/sh
@@ -963,7 +1050,7 @@ def test_a_talk_of_more_files_than_a_build_may_leave_is_refused_too(
     tmp_path: Path,
 ) -> None:
     machine.setattr(builds_module, "_ENTRIES_AT_MOST", _A_TALK_OF_TWO_FILES)
-    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS_BESIDE_ITSELF)
     builds = builds_ready_for(tmp_path, source)
 
     built = builds.build(a_deck(remote), source=source)
@@ -1000,7 +1087,7 @@ def test_a_talk_holding_something_this_server_cannot_read_is_refused(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_CLOSES_WHAT_IT_WROTE)
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_CLOSES_WHAT_IT_BUILT)
     builds = builds_ready_for(tmp_path, source)
 
     built = builds.build(a_deck(remote), source=source)
@@ -1238,11 +1325,21 @@ def test_a_machine_that_will_not_answer_about_a_size_bounds_nothing(
     # Asking may not become the hold-up: a machine that says nothing is a
     # machine that bounds nothing, and this instance is told so at once.
     machine.setattr(builds_module, "_DAEMON_ANSWERS_WITHIN", _A_SHORT_ANSWER)
-    with_docker(machine, tmp_path, _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE)
+    removed = tmp_path / _RECORDED_REMOVAL
+    with_docker(
+        machine,
+        tmp_path,
+        _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE.format(removed=removed),
+    )
 
     daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
 
     assert not daemon.bounds_a_container_filesystem
+    # The container that was asked is taken down even where the asking never
+    # came back, so a start leaves nothing of its own behind.
+    taken_down = removed.read_text(encoding="utf-8").split()
+    assert taken_down[:2] == ["rm", "--force"]
+    assert taken_down[2].startswith("presentator-a-size-")
 
 
 @pytest.mark.parametrize(
@@ -1291,3 +1388,94 @@ def test_without_a_client_on_the_machine_no_daemon_answers(
 
     with pytest.raises(DaemonRefusedError):
         the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
+
+
+def test_a_talk_that_is_gone_by_the_time_it_is_added_up_is_refused(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_TAKES_ITS_OWN_TALK_AWAY)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # A build that took its own talk away left nothing to add up and nothing
+    # to deliver; what was written is not guessed at.
+    assert built == BuildFailure(text=None)
+    assert EXAMPLE_SLUG in caplog.text
+
+
+def test_a_run_that_took_itself_away_leaves_the_next_build_nothing_to_do(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_TAKES_THE_WHOLE_RUN_AWAY)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert isinstance(built, BuildFailure)
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_name_that_is_no_longer_a_directory_when_it_is_opened_is_refused(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A build turning one of its own directories into a link between the
+    # moment it is read and the moment it is opened cannot be arranged on
+    # demand; what that leaves is an open that fails, and this is that.
+    def a_link_by_now(name: str, *, held_by: int) -> int:
+        del name, held_by
+        raise OSError(ELOOP, "the name is a link now")
+
+    machine.setattr(builds_module, "_opened_within", a_link_by_now)
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # Refused, and never followed: nothing of this machine was added up.
+    assert built == BuildFailure(text=None)
+    assert EXAMPLE_SLUG in caplog.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_leavings_of_a_build_that_may_still_run_are_taken_away_as_they_lie(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with_docker(machine, tmp_path, _A_DOCKER_THAT_CANNOT_SAY_WHAT_RUNS)
+    builds = builds_ready_for(tmp_path, source, toolchain=in_a_container())
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # Opening a directory for a build that may still be writing in it is
+    # opening it for that build, so nothing is opened and the log says so.
+    assert isinstance(built, BuildFailure)
+    assert "may still be running" in caplog.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_probe_container_that_would_not_go_away_is_named_in_the_log(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with_docker(machine, tmp_path, _A_DAEMON_WHOSE_PROBE_STAYS)
+
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
+
+    assert daemon.bounds_a_container_filesystem
+    assert "presentator-a-size-" in caplog.text

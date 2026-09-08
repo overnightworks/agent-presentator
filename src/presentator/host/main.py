@@ -68,6 +68,7 @@ from presentator.application.identity import (
 )
 from presentator.application.preferences import Preferences
 from presentator.host.config import (
+    NO_BOUND_AT_ALL,
     Settings,
     WhereBuildsRun,
     cannot_start,
@@ -84,11 +85,12 @@ _WITHOUT_A_SANDBOX = (
 _NOTHING_BOUNDS_A_BUILD = (
     "this machine's %s storage driver does not take a size for a container's own"
     " filesystem, so a build could fill this machine with what it writes beside"
-    " its talk. Leave build_disk empty to run without that bound knowingly"
+    f" its talk. Set build_disk to {NO_BOUND_AT_ALL} to run without that bound"
+    " knowingly"
 )
 _UNBOUNDED_BY_CHOICE = (
-    "build_disk is empty, so nothing but the time a step may take bounds what one"
-    " build writes into its own container"
+    f"build_disk is {NO_BOUND_AT_ALL}, so nothing but the time a step may take"
+    " bounds what one build writes into its own container"
 )
 
 _log = logging.getLogger(__name__)
