@@ -561,32 +561,32 @@ def test_a_reachable_check_shows_the_commit_and_enables_create() -> None:
 _A_TOKEN_THE_HOST_REFUSES = "a-token-" + "the-host-does-not-want"
 
 
-def test_a_refused_check_shows_its_banner_and_leaves_create_disabled() -> None:
+def test_a_refused_check_reads_the_same_word_the_source_list_uses() -> None:
     lobby = a_signed_in_lobby(GivenDecks(checked=_A_REFUSED_CHECK))
 
     checked = check_source(lobby, secret=_A_TOKEN_THE_HOST_REFUSES)
 
-    assert ENGLISH.source_check_refused in checked.text
+    assert ENGLISH.source_run_refused in checked.text
     assert not fingerprint_of(checked)
     assert "disabled" in create_button_of(checked.text)
 
 
-def test_an_unreachable_check_shows_its_banner_and_leaves_create_disabled() -> None:
+def test_an_unreachable_check_reads_the_same_word_the_source_list_uses() -> None:
     lobby = a_signed_in_lobby(GivenDecks(checked=_AN_UNREACHABLE_CHECK))
 
     checked = check_source(lobby)
 
-    assert ENGLISH.source_check_unreachable in checked.text
+    assert ENGLISH.source_run_unreachable in checked.text
     assert not fingerprint_of(checked)
     assert "disabled" in create_button_of(checked.text)
 
 
-def test_a_failed_check_shows_gits_own_sanitised_first_line() -> None:
+def test_a_failed_check_reads_the_same_word_plus_gits_sanitised_first_line() -> None:
     lobby = a_signed_in_lobby(GivenDecks(checked=_A_FAILED_CHECK))
 
     checked = check_source(lobby)
 
-    assert ENGLISH.source_check_failed in checked.text
+    assert ENGLISH.source_run_failed in checked.text
     assert _A_FAILED_CHECK.detail is not None
     assert _A_FAILED_CHECK.detail in checked.text
     assert not fingerprint_of(checked)

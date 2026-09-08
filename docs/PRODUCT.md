@@ -31,13 +31,14 @@ report.
 
 ### Running an instance
 
-One image carries the packaged server, the Slidev toolchain it spawns and the
-Chromium the PDF export drives, and one compose file starts it with the
-database, the mirrors and the built talks in named volumes: a `docker compose
-down` and the next `up` find the accounts, the sources, the decks and the talks
-that were built, and build nothing again. Nothing is reachable from beyond this
-machine yet — the tunnel, the service that survives a reboot, and the first
-login from the laptop are
+One image carries the Slidev toolchain and the Chromium the PDF export drives,
+and is what every deck's build runs in; a second, built on top of it, carries
+the packaged server as well. One compose file builds both and starts the server
+with the database, the mirrors and the built talks in named volumes: a `docker
+compose down` and the next `up` find the accounts, the sources, the decks and
+the talks that were built, and build nothing again. Nothing is reachable from
+beyond this machine yet — the tunnel, the service that survives a reboot, and
+the first login from the laptop are
 [#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
 instance is started, upgraded and backed up, and what a fresh one must be
 given, is [OPERATIONS.md](OPERATIONS.md).
@@ -199,7 +200,10 @@ the address it was mirrored from, the short commit the talk it delivers was
 built from, and how long ago that build ran, so before speaking a person sees
 whether their push is in what will be on the screen. Until a build has switched
 anything over, the commit shown is the one the source last carried under that
-folder.
+folder. Beside the state, the page names the theme set this instance builds
+with — read from the toolchain project's own `package.json`, never typed a
+second time, and omitted rather than shown empty while that project cannot be
+read ([ADR 0014](decisions/0014-toolchain-owns-build-dependencies.md)).
 
 While a build runs, the page says so with the commit being built and how long
 it has been running, and the two views are shown locked rather than offered:
@@ -271,15 +275,12 @@ restarted mid-build — and is counted failed once it is older than
 `PRESENTATOR_BUILD_TIMEOUT_SECONDS`, so nothing reads as building for ever.
 
 A build writes the deck's tree at its commit out of the bare mirror into a
-temporary working directory — nothing is ever checked out into the mirror —
-and runs the Slidev toolchain over it from `PRESENTATOR_TOOLCHAIN` as a
-subprocess: `slidev build` against the address the talk is delivered under,
-then `slidev export` for the PDF. Both write into a directory of that run's own
-under `PRESENTATOR_BUILDS`, which nothing points at while it is being written.
-Each step runs inside `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and with an
-environment holding nothing but `PATH` and `HOME`, so neither a source's
-read-only secret nor this instance's key is in reach of what a deck's build
-runs.
+directory of that run's own under `PRESENTATOR_BUILDS` — nothing is ever
+checked out into the mirror — and runs the Slidev toolchain over it: `slidev
+build` against the address the talk is delivered under, then `slidev export`
+for the PDF. Both write into that same run's directory, which nothing points at
+while it is being written. Each step runs inside
+`PRESENTATOR_BUILD_TIMEOUT_SECONDS`.
 
 Only when both artefacts exist, and only after they are resolved and found to
 stand under the builds root, does one statement switch the four columns over.
@@ -296,14 +297,33 @@ the directory a deck delivers from is never removed, so a request that read the 
 pointer still finds a directory. Cleaning up the builds that were pointed at is
 open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
-**A deck is code, and it is not sandboxed yet.** The Vue components a deck
-carries execute on this host during the build, with this process's rights over
-the filesystem and the network. Bounded today are the environment the child is
-given, the time it may take, and where its result may stand; the container with
-no network and nothing of the server mounted
-([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a) is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
-lands, a deck source is as trusted as the machine.
+**A deck is code, and its build runs in a container of its own.** The server
+asks its machine's daemon for a container per step
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a): no network,
+every capability dropped, none of this server's environment, and nothing of
+this machine's filesystem but the deck's own tree, read-only, and the directory
+that run writes — both of them directories of one volume, named after the run
+rather than after anything a deck's author chose. A component that reads a file
+the deck does not carry, or opens a connection, fails the build with the
+toolchain's own words on the deck page, while the talk that stood keeps
+standing; so does a build that wants more time, memory, processes, or disk than
+one build may have. A talk larger than an instance keeps, or holding more files
+than it counts, stops the step that is writing it where it stands, because a
+machine is filled while a build runs and not when it ends; adding that talk up
+reaches nothing by its name, follows no link a build left, and stops at
+anything it cannot read. What a build writes into a file it has unlinked no
+scan can see: there the step's own time and its memory are the bound, and the
+container's exit frees it.
+
+That is what an instance is, and an instance that cannot have it does not
+start: without the image and the volume it builds in, on a daemon too old to
+give a container one directory of a volume, on one that does not carry the
+build image, or on a machine that will not hold a container's own filesystem to
+a size unless the operator says to do without that bound, the composition
+refuses and says which. Building on this machine instead is one explicit
+setting, for a development run, and it costs the sandbox altogether. The price
+of the sandbox is the docker socket, which [OPERATIONS.md](OPERATIONS.md)
+names.
 
 ### Local speech
 

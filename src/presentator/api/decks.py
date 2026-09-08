@@ -79,6 +79,7 @@ class _DeckPage:
             # beside them is the last good build's file and stays offered.
             views_open=page.state is not DeckState.BUILDING,
             banner=self._banner(page, text),
+            builds_with=self._builds_with(page.themes, text),
         )
 
     def _banner(self, page: DeckPage, text: LobbyText) -> Banner | None:
@@ -145,6 +146,21 @@ class _DeckPage:
             _UNKNOWN_DECK_TEMPLATE,
             status=HTTPStatus.NOT_FOUND,
         )
+
+    def _builds_with(
+        self,
+        themes: tuple[str, ...] | None,
+        text: LobbyText,
+    ) -> str | None:
+        """What this instance's toolchain carries, or nothing while unreadable (R3).
+
+        Names only, never a path or a version (R4): the toolchain project's
+        `package.json` is read no further than its theme package names.
+        """
+        if themes is None:
+            return None
+        separator = text.deck_theme_separator
+        return text.deck_builds_with.format(themes=separator.join(themes))
 
     def _when_it_was_built(
         self,

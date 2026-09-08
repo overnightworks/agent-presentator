@@ -495,11 +495,13 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
 
 
 def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanner:
-    """What Check connection shows for that probe: its own words and its proof.
+    """What Check connection shows for that probe, in the source list's own words.
 
     The four banners keep the four states the probe itself can answer with,
     never folded into the sources list's own coarser `SourceState` — a wrong
-    token and a dead host must read apart here, not both as one error.
+    token and a dead host must read apart here, not both as one error. Their
+    words are exactly `_run_reason`'s own, so a check and a recorded run read
+    alike; only `failed` carries git's own sanitised line beneath it.
     """
     if checked.failure is None:
         return CheckBanner(
@@ -508,21 +510,10 @@ def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanne
             detail=None,
             fingerprint=checked.fingerprint,
         )
-    if checked.failure is SourceRunFailure.FAILED:
-        return CheckBanner(
-            state=checked.failure.value,
-            message=text.source_check_failed,
-            detail=checked.detail,
-            fingerprint=None,
-        )
-    message = {
-        SourceRunFailure.REFUSED: text.source_check_refused,
-        SourceRunFailure.UNREACHABLE: text.source_check_unreachable,
-    }[checked.failure]
     return CheckBanner(
         state=checked.failure.value,
-        message=message,
-        detail=None,
+        message=_run_reason(checked.failure, text),
+        detail=checked.detail if checked.failure is SourceRunFailure.FAILED else None,
         fingerprint=None,
     )
 

@@ -50,6 +50,8 @@ class LobbyText:
     deck_state_failed: str
     deck_state_never_built: str
     deck_built: str
+    deck_builds_with: str
+    deck_theme_separator: str
     deck_not_built_explanation: str
     deck_building_explanation: str
     deck_building_label: str
@@ -123,9 +125,6 @@ class LobbyText:
     source_refused_secret: str
     source_refused_not_checked: str
     source_check_reachable: str
-    source_check_refused: str
-    source_check_unreachable: str
-    source_check_failed: str
     source_access_heading: str
     source_webhook_heading: str
     source_recent_runs: str

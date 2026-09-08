@@ -248,6 +248,13 @@ main code {
   text-transform: uppercase;
 }
 
+/* The toolchain's theme set (ADR 0014) reads as one sentence, not a row of
+ * chips: it stays a plain paragraph so any set size wraps like prose (R6).
+ */
+[data-builds-with] {
+  color: var(--ink-soft);
+}
+
 /* The picture marks the state with a shape of its own before its word: a
  * filled dot for a talk that stands, a ring turning while one builds, a
  * triangle where one broke, and a dashed square where none has ever run. The

@@ -914,6 +914,12 @@
     color: var(--ink-faint);
   }
 
+  .builds-with {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+
   .sha {
     font-family: var(--mono);
     font-size: 12.5px;
@@ -2959,7 +2965,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Ready <span class="w">1024 px</span></div>
-          <p class="board-note">Status names source, short sha, and build time — before you speak, you see whether your last push made it in and which repository it came from (line 7). The source name links to the source. Three ways out, each exactly once. Start arrives with M1 (the co-presenter run); M0 has only the two views.</p>
+          <p class="board-note">Status names source, short sha, and build time — before you speak, you see whether your last push made it in and which repository it came from (line 7). The source name links to the source. Three ways out, each exactly once. Start arrives with M1 (the co-presenter run); M0 has only the two views. Beside status, one line names the themes this instance builds with (ADR 0014) — names only, one wrapped sentence, gone from the page while the toolchain project cannot be read.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/deck/agenten-fabrik</div>
@@ -2989,6 +2995,7 @@
                   <span class="state state--ok"><span class="glyph"></span>ready</span>
                   <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">a3f19c2</span><span>built 12 minutes ago</span></span>
                 </div>
+                <p class="builds-with">Builds with: apple-basic, bricks, default, seriph, shibainu</p>
               </div>
               <div class="actions">
                 <span class="btn btn--primary">
@@ -3042,6 +3049,7 @@
                   <span class="state state--busy"><span class="glyph"></span>building</span>
                   <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">c40b7e1</span><span>built 2 days ago</span></span>
                 </div>
+                <p class="builds-with">Builds with: apple-basic, bricks, default, seriph, shibainu</p>
               </div>
               <div class="banner banner--busy">
                 <span class="glyph" style="border-radius:50%; border:2px solid var(--busy); border-top-color: transparent; animation: turn 1.1s linear infinite;"></span>
@@ -3102,6 +3110,7 @@
                   <span class="state state--fail"><span class="glyph"></span>failed</span>
                   <span class="stand"><span class="lbl">Status</span><a class="qlink" href="#quelle-firmen-gitlab">firmen-gitlab</a><span class="sep">·</span><span class="sha">a3f19c2</span><span>built yesterday at 19:04</span></span>
                 </div>
+                <p class="builds-with">Builds with: apple-basic, bricks, default, seriph, shibainu</p>
               </div>
               <div class="banner banner--fail">
                 <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>

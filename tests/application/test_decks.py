@@ -49,6 +49,7 @@ from tests.application.fakes import (
     FakeDeckStore,
     FakeSourceRunStore,
     FakeSourceStore,
+    FakeToolchainThemes,
     FrozenClock,
     HeldDeckFolders,
 )
@@ -122,6 +123,7 @@ class DecksFakes:
     builder: FakeBuildRunner = field(default_factory=FakeBuildRunner)
     source_runs: FakeSourceRunStore = field(default_factory=FakeSourceRunStore)
     checker: FakeConnectionChecker = field(default_factory=FakeConnectionChecker)
+    toolchain_themes: FakeToolchainThemes = field(default_factory=FakeToolchainThemes)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
 
 
@@ -139,6 +141,7 @@ def decks_over(
         builder=resolved.builder,
         source_runs=resolved.source_runs,
         checker=resolved.checker,
+        toolchain_themes=resolved.toolchain_themes,
         build_bound=_BUILD_BOUND,
         fingerprint_key=_FINGERPRINT_KEY,
         clock=resolved.clock,
@@ -271,6 +274,31 @@ def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
     assert (page.slug, page.title) == ("kundenfeedback", "Kundenfeedback Q3")
     assert page.source == _SOURCE.url
     assert page.commit == _SHORT_COMMIT
+
+
+def test_a_deck_page_names_the_themes_the_toolchain_carries() -> None:
+    themes = ("apple-basic", "default", "seriph")
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(toolchain_themes=FakeToolchainThemes(names_to_return=themes)),
+    )
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+
+    assert page.themes == themes
+
+
+def test_a_deck_page_names_no_themes_while_the_toolchain_cannot_be_read() -> None:
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(toolchain_themes=FakeToolchainThemes(names_to_return=None)),
+    )
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+
+    assert page.themes is None
 
 
 def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:

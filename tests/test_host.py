@@ -31,11 +31,17 @@ from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.contracts.decks import SourceWrite
 from presentator.host import main
 from presentator.host.config import (
+    NO_BOUND_AT_ALL,
     ConfigurationError,
     load_settings,
 )
 from presentator.host.main import Instance
-from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, GitRemote
+from tests.conftest import (
+    EXAMPLE_SLUG,
+    EXAMPLE_TITLE,
+    GitRemote,
+    with_the_program,
+)
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
@@ -54,6 +60,41 @@ _WRONG_WORDS = "guessed"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
+_A_HALF_NAMED_SANDBOX = "named-here-but-not-beside-it"
+_THE_BUILD_IMAGE = "the-build-image-of-this-deployment"
+_THE_BUILDS_VOLUME = "the-builds-volume-of-this-deployment"
+_THE_VERSION_A_SUBPATH_NEEDS = "1.45"
+_A_DRIVER = "overlay2"
+# A `docker` this test wrote: one daemon that carries the image and bounds a
+# container's own filesystem but builds no deck, one too old to keep a build
+# inside its own directory, and one that will not run a container under a size.
+_A_DAEMON_THAT_BUILDS_NOTHING = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    create) exit 0;;
+    start) exit 0;;
+    rm) exit 0;;
+    ps) ;;
+    run) echo "there is no such deck" >&2; exit 1;;
+esac
+"""
+_A_DAEMON_TOO_OLD_TO_BUILD_ON = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.44";;
+    info) echo "{_A_DRIVER}";;
+esac
+"""
+_A_DAEMON_THAT_TAKES_NO_SIZE = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    create) echo "this driver takes no size" >&2; exit 125;;
+    rm) exit 0;;
+esac
+"""
 
 
 @pytest.fixture
@@ -70,6 +111,10 @@ def bare_environment(
 @pytest.fixture
 def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     bare_environment.setenv("PRESENTATOR_SECRET_KEY", _INSTANCE_KEY)
+    # These tests are about the lobby this root composes, not about where a
+    # deck's code runs; the development run is what asks nothing of a daemon,
+    # and the tests below that are about the sandbox say so themselves.
+    bare_environment.setenv("PRESENTATOR_BUILD_RUNNER", "host")
     return bare_environment
 
 
@@ -210,6 +255,101 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
 
     with pytest.raises(ConfigurationError, match="trusted_proxies"):
         load_settings()
+
+
+@pytest.mark.parametrize(
+    "half",
+    [None, "PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],
+    ids=["neither of them", "an image without a volume", "a volume without an image"],
+)
+def test_an_instance_that_does_not_say_what_builds_a_deck_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    half: str | None,
+) -> None:
+    # Nothing said about where a build runs is a build in a container, and a
+    # container this environment does not name is no instance at all.
+    environment.delenv("PRESENTATOR_BUILD_RUNNER")
+    if half is not None:
+        environment.setenv(half, _A_HALF_NAMED_SANDBOX)
+
+    with pytest.raises(ConfigurationError, match="build_image and build_volume"):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_TOO_OLD_TO_BUILD_ON)
+
+    with pytest.raises(ConfigurationError, match=_THE_VERSION_A_SUBPATH_NEEDS):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+
+    # Nothing bounding what a build writes beside its talk is not something an
+    # instance may find out about after it has served a deck.
+    with pytest.raises(ConfigurationError, match=_A_DRIVER):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_told_in_as_many_words_to_do_without_it_starts_and_says_so(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+    environment.setenv("PRESENTATOR_BUILD_DISK", NO_BOUND_AT_ALL)
+
+    main.build_instance(load_settings())
+
+    assert "build_disk" in caplog.text
+
+
+def test_an_instance_whose_disk_bound_came_out_blank_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    # A value nobody watched interpolate is not a decision to build without
+    # the one bound on what a deck writes beside its talk.
+    environment.setenv("PRESENTATOR_BUILD_DISK", "  ")
+
+    with pytest.raises(ConfigurationError, match="build_disk"):
+        load_settings()
+
+
+def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_view(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_BUILDS_NOTHING)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    asyncio.run(instance.poller.tick())
+    page = lobby.get(f"/deck/{EXAMPLE_SLUG}")
+
+    assert page.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE in page.text
+    assert f"/deck/{EXAMPLE_SLUG}/presenter/" not in page.text
+
+
+def a_container_run(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    docker: str,
+) -> None:
+    """An instance that builds every deck in a container, on that daemon."""
+    environment.setenv("PRESENTATOR_BUILD_RUNNER", "container")
+    environment.setenv("PRESENTATOR_BUILD_IMAGE", _THE_BUILD_IMAGE)
+    environment.setenv("PRESENTATOR_BUILD_VOLUME", _THE_BUILDS_VOLUME)
+    with_the_program(environment, tmp_path, "docker", docker)
 
 
 def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(

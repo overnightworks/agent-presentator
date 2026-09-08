@@ -538,6 +538,20 @@ class FakeBuildRunner:
         )
 
 
+# What most tests need from the toolchain set, without naming a real one.
+DEFAULT_THEME_SET: Final = ("default",)
+
+
+@dataclass
+class FakeToolchainThemes:
+    """A toolchain theme set a test names, standing in for `package.json`."""
+
+    names_to_return: tuple[str, ...] | None = DEFAULT_THEME_SET
+
+    def names(self) -> tuple[str, ...] | None:
+        return self.names_to_return
+
+
 def some_words(*, language_tag: str, language_name: str) -> LobbyText:
     """A catalog whose every word is its own field name, in a named language."""
     named = LobbyText(**{field.name: field.name for field in fields(LobbyText)})

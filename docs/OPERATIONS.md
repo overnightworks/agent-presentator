@@ -16,8 +16,13 @@ one address inside five minutes regardless of name, are throttled; the page
 says the same sentence it says for a wrong password. A session lasts twelve
 idle hours and slides forward on every request; logging out deletes the row.
 
+A deck is code, so an instance builds every deck in a container of its own and
+refuses to start where it cannot ("Building the decks"). A run from a checkout,
+on a machine whose decks are all your own, is the one place that says otherwise:
+
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
+export PRESENTATOR_BUILD_RUNNER=host
 uv run agent-presentator
 ```
 
@@ -100,11 +105,20 @@ wait for an answer nobody will give.
 
 ## Running it as a container
 
-`Dockerfile` builds one image: the packaged server, the Slidev toolchain it
-spawns, and the Chromium that toolchain exports a PDF with. `compose.yaml`
-starts it. Five of the settings this file names are not a deployment's choice
-inside a container but a fact of the image's own filesystem and network, so the
-image sets them and their defaults elsewhere here do not apply:
+`Dockerfile` builds two images, and the first is a layer of the second: the
+Slidev toolchain with the Chromium it exports a PDF with, which is what a
+deck's own build runs in, and the whole instance on top of it. `compose.yaml`
+starts the instance and builds both:
+
+```sh
+docker compose --profile images build
+```
+
+Without that profile only the instance is built, and the sandbox image stays as
+it was; "Building the decks" says what it is for. Five of the settings this
+file names are not a deployment's choice inside a container but a fact of the
+image's own filesystem and network, so the image sets them and their defaults
+elsewhere here do not apply, and compose adds the two the sandbox is:
 
 | Setting | In this image |
 | --- | --- |
@@ -113,15 +127,20 @@ image sets them and their defaults elsewhere here do not apply:
 | `PRESENTATOR_BUILDS` | `/data/builds` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
+| `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
+| `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
 
 Overriding one of the three paths in `.env` moves that state out of its volume,
 which is how an instance loses what it writes; every other setting is the
 operator's as before.
 
-`PRESENTATOR_SECRET_KEY` is the only value a fresh instance must be given, and
-compose refuses to start the service without it, naming it. Everything else is
-optional and reaches the container through `.env` beside `compose.yaml` — a
-file this repository never writes and git never sees.
+`PRESENTATOR_SECRET_KEY` and `PRESENTATOR_DOCKER_GROUP` are the values a fresh
+instance must be given, and compose refuses to start the service without either
+of them, naming it. The second is the numeric id of this machine's `docker`
+group — `getent group docker | cut -d: -f3` — because the server asks the
+daemon for a container for every build and a group id is not a name.
+Everything else is optional and reaches the container through `.env` beside
+`compose.yaml` — a file this repository never writes and git never sees.
 `PRESENTATOR_SOURCE_CREDENTIAL` is not a setting, so a line that names it does
 nothing in `.env` or in the shell. A value exported in the shell reaches
 compose itself, but the container is handed nothing but that file and the key.
@@ -155,7 +174,11 @@ what each further variable does and what a refused one costs. The first start
 offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
 
 Three named volumes hold what has to survive the container: `database`,
-`mirrors` and `builds`, under the name of the directory compose runs in.
+`mirrors` and `builds`, each under the name of the project — the directory
+compose runs in, unless `COMPOSE_PROJECT_NAME` says otherwise. The server is
+handed that same derived name for the builds volume, because it gives it to the
+daemon for every build, so one machine can carry a second instance without the
+two building into each other.
 `docker compose down` keeps them, and the next `up` finds the accounts, the
 sources, the decks and the talks that were built, with nothing built again.
 `docker compose down -v` deletes them, which is the one command that loses an
@@ -165,7 +188,7 @@ An upgrade is the new tree, the image again, and the service again; a start
 changes the tables it finds in place, as above:
 
 ```sh
-git pull && docker compose build && docker compose up -d
+git pull && docker compose --profile images build && docker compose up -d
 ```
 
 A backup is the database volume and the builds volume: a deck standing at the
@@ -207,9 +230,13 @@ Every refresh builds the decks whose commit moved. That needs a Node toolchain
 on the machine: `pnpm` on `PATH`, and a project whose dependencies are
 installed carrying Slidev — this repository's `frontend/`, installed with
 `pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
-A deck may name the official themes that project already carries — `default`,
-`seriph`, `apple-basic`, `bricks`, and `shibainu`; any other theme is a
-decision for the toolchain, not the deck.
+A deck may name a theme or an addon only from what that project already
+carries; widening the set is a change to `frontend/package.json`, not a
+decision a deck's own push gets to make
+([ADR 0014](decisions/0014-toolchain-owns-build-dependencies.md)). That
+project's `package.json` is the set's one owner, and a deck's own page names
+it, so an operator does not read this file to learn what a deck may build
+with.
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
@@ -227,13 +254,87 @@ Builds are kept per deck and per run, and none is ever deleted, so
 `PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
 ([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20).
 
-**A deck is code, and the build is not sandboxed yet.** A deck's own Vue
-components run on this machine during the build, as the user the server runs
-as. The build's environment carries nothing but `PATH` and `HOME`, so no secret
-of this instance is in reach through the environment; anything else that user
-can read or reach, a deck's build can too. Until the sandbox lands
-([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 14a),
-configure only deck sources you would run code from.
+**A deck is code, and its build runs in a container of its own.** That is what
+an instance does, and it takes two names to do it: `PRESENTATOR_BUILD_IMAGE`,
+the image the toolchain stands in, and `PRESENTATOR_BUILD_VOLUME`, the volume
+`PRESENTATOR_BUILDS` is a directory of. Compose sets both. An instance missing
+either of them does not start, and says which. The one way to build on this
+machine instead is `PRESENTATOR_BUILD_RUNNER=host`, where a deck's Vue
+components execute as the server process, with its rights over every file and
+the network: that is a development run on a machine whose decks are all your
+own, and `compose.yaml` never sets it.
+
+Docker Engine 26 or newer is required (API 1.45), because giving a container
+one directory of a volume is what keeps a build out of every other deck's
+talk. An instance whose daemon is older refuses to start and names the version;
+the client is pinned to it besides, so a daemon swapped underneath a running
+instance refuses the call rather than mounting more than it was asked for.
+
+Every step of a build is then a container the server asks this machine's daemon
+for: no network at all, every capability dropped, no new privilege from a
+setuid program, and none of this server's environment — no key, no source
+secret, not even the variables it was started with. What the build can reach of
+this machine's filesystem is two directories of the builds volume: the deck's
+own tree, read-only, and the directory that run writes its talk and its PDF
+into, neither of them named after anything a deck's author chose. Everything
+else it writes is the container's own and goes with it. It runs as the image's
+unprivileged user. A deck that reads a file it does not carry, or opens a
+connection, fails the build with the toolchain's own words on the deck page,
+and the talk that stood before it keeps standing. No seccomp or AppArmor
+profile of this repository's own stands behind that: with no network, no
+capability and nothing of this host mounted, Docker's default profiles already
+deny what there is to deny. The container's own root is left writable because
+Slidev's PDF export writes its dependency cache inside the toolchain it runs
+from; that filesystem is the image's and lives as long as the one build.
+
+What one build may take is bounded on every side it has:
+
+| Bound | Setting | What happens at it |
+| --- | --- | --- |
+| Time, per step | `PRESENTATOR_BUILD_TIMEOUT_SECONDS` (`300`) | The step is killed and its container taken down; the page says the build was given up on |
+| Memory | `PRESENTATOR_BUILD_MEMORY` (`4g`) | The kernel ends the build, and the toolchain's own words say so |
+| Processes | 512, a constant | The container may spawn no more |
+| Its own filesystem | `PRESENTATOR_BUILD_DISK` (`8g`) | Writing past it fails inside the build |
+| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The step still running is stopped there, in this server's own words on the page, and what it wrote is taken away |
+| The files that talk holds | 100 000, a constant | The same, in the same words |
+| What it writes into a file it has unlinked | Nothing counts it | No scan can see such a file, so the step's time and the memory bound above are what limit it, and the container's exit frees it |
+
+The talk is added up while the build runs, not only when it ends, because a
+machine is filled long before a build is over; a step that has written past
+either bound does not get to finish. Nothing in a run's own directory is
+followed while that happens: a link a build leaves counts as the name it is,
+never as what it points at, and adding up stops at the first entry this server
+cannot read rather than passing over it.
+
+The filesystem bound is Docker's `--storage-opt size`, which some storage
+drivers take and others refuse — overlay2 takes one over xfs with project
+quotas and refuses it over ext4. Which this machine is is not guessed from a
+name: at every start the server makes and starts one container of its own,
+bounded like a build's and running nothing at all, and takes it down again; if
+the daemon refuses that container the instance refuses to start, naming the
+driver. On such a machine — overlay2 over ext4 is the common one — the way to
+run is to say so in as many words:
+
+```sh
+printf 'PRESENTATOR_BUILD_DISK=none\n' >> .env
+```
+
+Only that word does it. A value that came out blank is refused at the start,
+because an interpolation nobody watched is not a decision. With `none` the log
+says at every start that nothing but the time a step may take bounds what a
+build writes beside its talk, and the talk bound above is what stands between a
+deck and this machine. The same start also refuses a daemon that does not carry
+the build image at all, so an instance that could build no deck says so before
+it serves one.
+
+The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
+instance and puts the server in the `docker` group, so the server may ask the
+daemon for any container this machine could run — an authority wider than the
+one it uses, and the reason `PRESENTATOR_DOCKER_GROUP` exists. A machine whose
+decks are all the operator's own can trade it the other way with
+`PRESENTATOR_BUILD_RUNNER=host`, which keeps the socket out of the container
+and runs every deck's code as the server; an instance serving a repository
+somebody else can push to does not.
 
 **A talk authored for another Slidev setup needs work before it builds here.**
 Proven by pushing the operator's own March 2026 talk through a deployed
@@ -241,8 +342,9 @@ instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
 a deck folder carries no dependencies of its own, so a theme, addon, or
 plugin the talk's original `package.json` installed builds only if
 `frontend/` already carries it too — the operator's talk named
-`@slidev/theme-seriph`, one of the official themes above, so once that theme
-landed the build reached the deck's own content. A slide deck's own Vue
+`@slidev/theme-seriph`, which the toolchain project already carried, so the
+build reached the deck's own content without a change to that project. A
+slide deck's own Vue
 components and global layers (`global-bottom.vue` and its kind) run again in
 this build, so a component wired to a service the deck does not bring with
 it — the operator's talk carried an AI overlay calling a chat backend from
@@ -377,6 +479,7 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
           {"context": "Python: architecture, lint, types"},
           {"context": "Python: tests"},
           {"context": "Frontend: lint, types, tests, deck build"},
+          {"context": "Container image"},
           {"context": "Secret scan"},
           {"context": "pr-check"},
           {"context": "SonarCloud scan"}
@@ -393,10 +496,6 @@ No bypass actor exists: an administrator is subject to the same gates, and
 repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
-
-The `Container image` job that proves the image still builds is not in that
-list yet. Adding it is a ruleset change of its own, sent as the same body
-through the `PUT` above; until then a red image build does not hold a merge.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has
