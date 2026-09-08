@@ -1,8 +1,0 @@
-claim_id = "9881028699534a0888642d32cd25ee54"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "370e452c3597733d6c70babb1dbb664753653111"
-branch = "claude/issue-74-speech"
-scope = ["speech", "scripts/check_root_layout.py"]
-opened_commit = "a77fad35676c277a4651abe97d0455705c7acd47"
-whole_reason = "A voice and ears that nobody can reach are not a service."
