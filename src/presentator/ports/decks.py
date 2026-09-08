@@ -98,12 +98,14 @@ class DeckFolders(Protocol):
         """
 
     @abstractmethod
-    def forget(self, source: Source) -> None:
-        """Delete this source's mirror from disk, resolvable or not.
+    def forget(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone.
 
         A source whose mount or host has since gone away still has a mirror
         to delete; nothing to delete is fine too, so a name asked about twice
-        deletes the same nothing calmly.
+        answers true calmly. A path that survives the attempt answers false,
+        so a caller that must not go on believing a mirror was cleared can
+        stop rather than take that on faith.
         """
 
 
@@ -191,14 +193,17 @@ class DeckStore(Protocol):
         """
 
     @abstractmethod
-    def remove_for_source(self, source_id: str) -> tuple[Deck, ...]:
-        """Delete every deck row this source has ever carried, and hand them back.
+    def for_source(self, source_id: str) -> tuple[Deck, ...]:
+        """Every deck row this source has ever carried, marked removed or not.
 
-        Every row, marked removed or not: a folder dropped earlier kept its
-        row and its built talk for exactly this moment, so a source going
-        away takes both kinds with it. The rows are returned so the built
-        directory of each can be taken off disk too.
+        Read-only: a folder dropped earlier kept its row and its built talk,
+        so this is the whole set a removal counts and cleans disk against,
+        never only the ones the list still shows.
         """
+
+    @abstractmethod
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every deck row this source has ever carried, marked removed or not."""
 
 
 class BuildRunner(Protocol):
@@ -228,11 +233,14 @@ class BuildRunner(Protocol):
         """
 
     @abstractmethod
-    def remove(self, directory: Path) -> None:
-        """Take that run's whole directory off disk, given the talk it delivered.
+    def remove(self, directory: Path) -> bool:
+        """Take that run's whole directory off disk, and say whether it is gone.
 
         Not only the two files a deck's page ever pointed at: the run's own
         directory carried what the deck's own code wrote alongside them, too.
+        A directory that survives the attempt answers false, so a caller
+        that must not go on believing a build was cleared can stop rather
+        than take that on faith.
         """
 
 

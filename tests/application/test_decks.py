@@ -13,6 +13,8 @@ from presentator.application.decks import (
     AddedSource,
     Decks,
     SourceRefusal,
+    SourceRemovalRefusal,
+    SourceRemovalStale,
     access_kind_of,
 )
 from presentator.contracts.decks import (
@@ -1415,6 +1417,28 @@ def test_renewing_a_name_this_instance_does_not_have_does_nothing() -> None:
     assert store.secrets == {}
 
 
+def _confirmed(
+    decks: Decks,
+    name: str,
+) -> SourceRemoval | SourceRemovalRefusal | SourceRemovalStale | None:
+    """Confirm a removal the way a person who just saw the ask step would.
+
+    The ask step's own counts travel back exactly as the form carries them;
+    a name this instance does not have is unaffected by what is passed.
+    """
+    preview = decks.removal(name)
+    expected = (
+        SourceRemoval(name=name, deck_count=0, run_count=0)
+        if preview is None
+        else preview
+    )
+    return decks.remove_source(
+        name,
+        expected_deck_count=expected.deck_count,
+        expected_run_count=expected.run_count,
+    )
+
+
 def test_removal_names_the_source_and_its_deck_and_run_counts() -> None:
     run_store = FakeSourceRunStore()
     decks = decks_over(
@@ -1429,9 +1453,22 @@ def test_removal_names_the_source_and_its_deck_and_run_counts() -> None:
     assert removal == SourceRemoval(name=_SOURCE.name, deck_count=2, run_count=1)
 
 
+def test_removal_counts_a_deck_marked_removed_the_same_as_a_listed_one() -> None:
+    mirror = carrying(a_folder("kundenfeedback"), a_folder("knowledge-fabric"))
+    decks = decks_over(mirror=mirror, sources=having(_SOURCE))
+    decks.refresh()
+    mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback"),)
+    decks.refresh()
+
+    removal = decks.removal(_SOURCE.name)
+
+    assert removal == SourceRemoval(name=_SOURCE.name, deck_count=2, run_count=2)
+    assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+
+
 def test_removal_of_a_name_this_instance_does_not_have_is_nothing() -> None:
     assert decks_over().removal("no-such-source") is None
-    assert decks_over().remove_source("no-such-source") is None
+    assert _confirmed(decks_over(), "no-such-source") is None
 
 
 def test_removal_does_not_change_anything_until_remove_source_is_called() -> None:
@@ -1455,7 +1492,7 @@ def test_removing_a_source_deletes_its_rows_forgets_its_mirror_and_its_builds() 
     assert built is not None
     assert built.build is not None
 
-    removed = decks.remove_source(_SOURCE.name)
+    removed = _confirmed(decks, _SOURCE.name)
 
     assert removed == SourceRemoval(name=_SOURCE.name, deck_count=1, run_count=1)
     assert store.all() == ()
@@ -1478,7 +1515,7 @@ def test_removing_a_source_leaves_another_sources_decks_and_runs_alone() -> None
     decks = decks_over(sources=store, mirror=carried, fakes=fakes)
     decks.refresh()
 
-    decks.remove_source(_SOURCE.name)
+    _confirmed(decks, _SOURCE.name)
 
     assert store.all() == (_ANOTHER_SOURCE,)
     assert [deck.slug for deck in fakes.store.all()] == ["knowledge-fabric"]
@@ -1492,7 +1529,7 @@ def test_after_removal_the_same_name_and_url_can_be_added_again() -> None:
     added = _add(decks)
     assert isinstance(added, AddedSource)
 
-    decks.remove_source(added.source.name)
+    _confirmed(decks, added.source.name)
     re_added = _add(decks)
 
     assert isinstance(re_added, AddedSource)
@@ -1501,7 +1538,71 @@ def test_after_removal_the_same_name_and_url_can_be_added_again() -> None:
     assert store.all() == (re_added.source,)
 
 
-def test_removing_a_source_waits_for_a_refresh_already_in_flight() -> None:
+def test_a_stale_confirm_is_refused_and_deletes_nothing() -> None:
+    store = having(_SOURCE)
+    mirror = carrying(a_folder("kundenfeedback"))
+    decks = decks_over(sources=store, mirror=mirror)
+    decks.refresh()
+    stale = decks.removal(_SOURCE.name)
+    assert stale is not None
+    mirror.carried[_SOURCE.id] = (
+        a_folder("kundenfeedback"),
+        a_folder("knowledge-fabric"),
+    )
+    decks.refresh()
+
+    outcome = decks.remove_source(
+        _SOURCE.name,
+        expected_deck_count=stale.deck_count,
+        expected_run_count=stale.run_count,
+    )
+
+    assert outcome == SourceRemovalStale(
+        current=SourceRemoval(name=_SOURCE.name, deck_count=2, run_count=2),
+    )
+    assert store.all() == (_SOURCE,)
+    assert {deck.slug for deck in decks.listed()} == {
+        "knowledge-fabric",
+        "kundenfeedback",
+    }
+
+
+@pytest.mark.parametrize(
+    ("stuck_mirror", "stuck_build"),
+    [
+        pytest.param(True, False, id="mirror stuck"),
+        pytest.param(False, True, id="build stuck"),
+    ],
+)
+def test_a_stuck_mirror_or_build_refuses_the_removal_and_deletes_nothing(
+    *,
+    stuck_mirror: bool,
+    stuck_build: bool,
+) -> None:
+    store = having(_SOURCE)
+    mirror = FakeDeckFolders(
+        carried={_SOURCE.id: (a_folder("kundenfeedback"),)},
+        stuck=frozenset({_SOURCE.id}) if stuck_mirror else frozenset(),
+    )
+    builder = FakeBuildRunner()
+    fakes = DecksFakes(builder=builder)
+    decks = decks_over(sources=store, mirror=mirror, fakes=fakes)
+    decks.refresh()
+    if stuck_build:
+        built = fakes.store.get("kundenfeedback")
+        assert built is not None
+        assert built.build is not None
+        builder.stuck = frozenset({built.build.directory})
+
+    outcome = _confirmed(decks, _SOURCE.name)
+
+    assert outcome is SourceRemovalRefusal.DISK_LEFTOVER
+    assert store.all() == (_SOURCE,)
+    assert fakes.store.all() != ()
+    assert mirror.forgotten == [_SOURCE.id]
+
+
+def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> None:
     held = HeldDeckFolders(found=(a_folder("kundenfeedback"),))
     store = having(_SOURCE)
     decks = decks_over(mirror=held, sources=store)
@@ -1509,8 +1610,18 @@ def test_removing_a_source_waits_for_a_refresh_already_in_flight() -> None:
     refreshing.start()
     assert held.entered.wait(PATIENCE.total_seconds())
 
-    removed: list[SourceRemoval | None] = []
-    removing = Thread(target=lambda: removed.append(decks.remove_source(_SOURCE.name)))
+    outcome: list[SourceRemoval | SourceRemovalRefusal | SourceRemovalStale | None] = []
+
+    def remove_now() -> None:
+        outcome.append(
+            decks.remove_source(
+                _SOURCE.name,
+                expected_deck_count=0,
+                expected_run_count=0,
+            ),
+        )
+
+    removing = Thread(target=remove_now)
     removing.start()
     removing.join(timeout=0.05)
     still_waiting = removing.is_alive()
@@ -1522,8 +1633,12 @@ def test_removing_a_source_waits_for_a_refresh_already_in_flight() -> None:
 
     assert still_waiting
     assert untouched == (_SOURCE,)
-    assert removed == [SourceRemoval(name=_SOURCE.name, deck_count=1, run_count=1)]
-    assert store.all() == ()
+    assert outcome == [
+        SourceRemovalStale(
+            current=SourceRemoval(name=_SOURCE.name, deck_count=1, run_count=1),
+        ),
+    ]
+    assert store.all() == (_SOURCE,)
 
 
 def test_https_and_ssh_urls_name_their_access_kind() -> None:

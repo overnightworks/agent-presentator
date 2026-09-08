@@ -369,8 +369,8 @@ class SourceRemoval:
     """What removing a source takes with it: its name, its decks, its runs.
 
     Read before anything is deleted, so a confirm can name this and a person
-    can still say no (#93 R1); the same value stands for what the list then
-    reports as gone, because nothing changes between the two.
+    can still say no; the same value stands for what the list then reports
+    as gone, because nothing changes between the two.
     """
 
     name: str

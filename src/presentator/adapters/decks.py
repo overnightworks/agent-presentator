@@ -222,6 +222,7 @@ _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listin
 _OUTSIDE_MOUNT: Final = (
     "source %s no longer resolves under the local mount, treated as unreadable"
 )
+_MIRROR_STAYED: Final = "the mirror of source %s could not be taken away"
 _RECORD_SOURCE_RUN: Final = """
 INSERT INTO source_runs (source_id, at, outcome, commit_sha, reason)
 VALUES (?, ?, ?, ?, ?)
@@ -495,14 +496,22 @@ class SourceMirrors:
             pull_timeout=self.pull_timeout,
         )
 
-    def remove(self, source: Source) -> None:
-        """Delete this source's mirror from disk, resolvable or not.
+    def remove(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone.
 
         The directory is named off the address alone (`_directory_of`), so
         this goes whether or not `of` could still open it — a mount that
-        vanished must not leave the mirror it once carried behind.
+        vanished must not leave the mirror it once carried behind. A path
+        that survives the attempt is named in the log, because a caller that
+        must not delete a source's row while its mirror still stands needs
+        to know, not just be told.
         """
-        shutil.rmtree(self._directory_of(source), ignore_errors=True)
+        directory = self._directory_of(source)
+        shutil.rmtree(directory, ignore_errors=True)
+        if directory.exists():
+            _log.warning(_MIRROR_STAYED, source.name)
+            return False
+        return True
 
     def _directory_of(self, source: Source) -> Path:
         """Where this source's mirror stands.
@@ -518,9 +527,9 @@ class MirroredDeckFolders:
 
     mirrors: SourceMirrors
 
-    def forget(self, source: Source) -> None:
-        """Delete this source's mirror from disk, resolvable or not."""
-        self.mirrors.remove(source)
+    def forget(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone."""
+        return self.mirrors.remove(source)
 
     def folders(self, source: Source) -> SourcePoll:
         """Poll for every top-level folder at the newest commit, or why not."""
@@ -677,13 +686,16 @@ class SqliteDeckStore:
             found = cursor.execute(_ALL_DECKS).fetchall()
         return tuple(_deck(row) for row in found)
 
-    def remove_for_source(self, source_id: str) -> tuple[Deck, ...]:
-        """Delete every deck row this source has ever carried, and hand them back."""
+    def for_source(self, source_id: str) -> tuple[Deck, ...]:
+        """Read every deck row this source has ever carried, marked removed or not."""
         with rows(self.database) as cursor:
-            cursor.execute("BEGIN IMMEDIATE")
             found = cursor.execute(_DECKS_OF_SOURCE, (source_id,)).fetchall()
-            cursor.execute(_REMOVE_DECKS_OF_SOURCE, (source_id,))
         return tuple(_deck(row) for row in found)
+
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every deck row this source has ever carried, marked removed or not."""
+        with rows(self.database) as cursor:
+            cursor.execute(_REMOVE_DECKS_OF_SOURCE, (source_id,))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

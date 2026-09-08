@@ -103,6 +103,27 @@ class SourceRefusal(StrEnum):
     OUTSIDE_MOUNT = "outside-local-mount"
 
 
+class SourceRemovalRefusal(StrEnum):
+    """Why a confirmed removal did not delete anything."""
+
+    # The mirror or a built directory survived the attempt to take it away;
+    # disk goes first, so no row is touched while either still stands.
+    DISK_LEFTOVER = "disk-leftover"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceRemovalStale:
+    """A confirm whose counts no longer match what removal would take.
+
+    Nothing was deleted: a refresh moved the numbers between the confirm
+    being shown and being posted, so the fresh count travels back for the
+    confirm to be shown again rather than a person's earlier yes reaching
+    past what they actually agreed to.
+    """
+
+    current: SourceRemoval
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AddedSource:
     """A source that was just written, carrying the webhook secret shown once."""
@@ -292,51 +313,75 @@ class Decks:
         """What removing that source would take with it, or nothing if unknown.
 
         Read-only: nothing changes until `remove_source` is called with the
-        same name, once a person has seen this and confirmed it (#93 R1).
+        same name, once a person has seen this and confirmed it (R1).
         """
         source = self._named(name)
         if source is None:
             return None
         return self._preview(source)
 
-    def remove_source(self, name: str) -> SourceRemoval | None:
+    def remove_source(
+        self,
+        name: str,
+        *,
+        expected_deck_count: int,
+        expected_run_count: int,
+    ) -> SourceRemoval | SourceRemovalRefusal | SourceRemovalStale | None:
         """Delete that source, its decks, its runs, and everything they built.
 
         Waits for a refresh already under way rather than racing it, so
         nothing of this source's decks is still building when their
-        directories go (#93 R1); the moment this returns, the same URL is
-        free to be added again as a new source (#93 R2), and every byte its
-        mirror and its builds held is gone from disk, not only the rows that
-        pointed at them (#93 R3).
+        directories go (R1). The counts a person confirmed are compared
+        against the same count read again here, inside the lock: a refresh
+        that changed them since the confirm was shown is not deleted under a
+        number nobody actually confirmed, and a fresh count is handed back so
+        the confirm can be shown again. Disk goes first: the mirror and every
+        built directory are taken away before a row is touched, and if either
+        survives the attempt nothing is deleted — the source stays exactly as
+        it was, so its URL stays taken rather than a leftover on disk becoming
+        an address a later add silently reopens with a new secret (R3). Only
+        once the disk is confirmed clean does deleting the rows free the URL
+        to be added again (R2).
         """
         source = self._named(name)
         if source is None:
             return None
         with self._one_at_a_time:
-            # Read within the same critical section a refresh writes in, so
-            # the count reported is exactly what this call deletes, never a
-            # snapshot a concurrent refresh has since moved past.
-            preview = self._preview(source)
-            removed_decks = self.store.remove_for_source(source.id)
-            for deck in removed_decks:
-                if deck.build is not None:
-                    self.builder.remove(deck.build.directory)
-            self.folders.forget(source)
+            carried = self.store.for_source(source.id)
+            preview = self._preview_of(source, carried)
+            if (
+                preview.deck_count != expected_deck_count
+                or preview.run_count != expected_run_count
+            ):
+                return SourceRemovalStale(current=preview)
+            mirror_gone = self.folders.forget(source)
+            builds_gone = [
+                self.builder.remove(deck.build.directory)
+                for deck in carried
+                if deck.build is not None
+            ]
+            if not mirror_gone or not all(builds_gone):
+                return SourceRemovalRefusal.DISK_LEFTOVER
+            self.store.remove_for_source(source.id)
             self.source_runs.remove_for_source(source.id)
             self.sources.remove(source.id)
         return preview
 
     def _preview(self, source: Source) -> SourceRemoval:
-        """What removing this source would take with it, read but not touched.
+        """What removing this source would take with it, read but not touched."""
+        return self._preview_of(source, self.store.for_source(source.id))
+
+    def _preview_of(self, source: Source, carried: tuple[Deck, ...]) -> SourceRemoval:
+        """The same preview, over decks already read, so a caller reuses one read.
 
         `recent` is every run the source has: the table itself keeps no more
-        than that bound per source.
+        than that bound per source. `carried` is every deck this source has
+        ever carried, marked removed or not, because that is the set a
+        removal actually deletes (`DeckStore.for_source`).
         """
         return SourceRemoval(
             name=source.name,
-            deck_count=sum(
-                1 for deck in self.store.all() if deck.source_id == source.id
-            ),
+            deck_count=len(carried),
             run_count=len(self.source_runs.recent(source.id)),
         )
 

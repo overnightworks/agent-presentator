@@ -604,15 +604,79 @@ def test_removing_a_sources_mirror_deletes_it_from_disk(
     mirror.connect()
     assert mirror.directory.exists()
 
-    mirrors.remove(source)
+    gone = mirrors.remove(source)
 
+    assert gone is True
     assert not mirror.directory.exists()
 
 
 def test_removing_a_mirror_that_was_never_fetched_deletes_nothing_calmly(
     tmp_path: Path,
 ) -> None:
-    mirrors_under(tmp_path).remove(a_source("git@example.invalid:never-fetched.git"))
+    gone = mirrors_under(tmp_path).remove(
+        a_source("git@example.invalid:never-fetched.git"),
+    )
+
+    assert gone is True
+
+
+def test_a_mirror_whose_parent_refuses_the_delete_is_reported_not_gone(
+    remote: GitRemote,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The one signal a caller that must not drop a row while this stands needs.
+
+    A directory removed cannot be told from one already gone by the disk
+    alone, so the parent is closed rather than the mirror itself: the mirror
+    empties out normally and only the last step, taking its own name out of
+    the parent, is refused.
+    """
+    remote.commit_example_deck(at=_PUSHED_AT)
+    mirrors = mirrors_under(tmp_path)
+    source = a_source(remote.url)
+    mirror = mirrors.of(source)
+    assert mirror is not None
+    mirror.connect()
+    parent = mirror.directory.parent
+    # Read and traverse stay open, so `exists()` can still tell; only the
+    # write bit a delete needs is closed.
+    parent.chmod(0o500)
+    try:
+        with caplog.at_level(logging.WARNING):
+            gone = mirrors.remove(source)
+    finally:
+        parent.chmod(0o700)
+
+    assert gone is False
+    assert mirror.directory.exists()
+    assert source.name in caplog.text
+
+
+def test_a_real_git_source_can_be_added_removed_and_added_again(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    folders = MirroredDeckFolders(mirrors=mirrors_under(tmp_path))
+
+    first = sources.add(a_write(name=_SOURCE_NAME, url=remote.url))
+    assert first is not None
+    first_poll = folders.folders(first)
+    assert first_poll.folders is not None
+
+    mirror_gone = folders.forget(first)
+    sources.remove(first.id)
+    second = sources.add(a_write(name=_SOURCE_NAME, url=remote.url))
+
+    assert mirror_gone is True
+    assert second is not None
+    assert second.id != first.id
+    second_poll = folders.folders(second)
+    assert second_poll.folders is not None
+    assert second_poll.commit == first_poll.commit
 
 
 def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
@@ -1058,9 +1122,10 @@ def test_removing_a_sources_decks_takes_every_row_marked_removed_or_not(
         at=_NOTICED_GONE_AT,
     )
 
-    removed = store.remove_for_source(_SOURCE_ID)
+    carried = store.for_source(_SOURCE_ID)
+    store.remove_for_source(_SOURCE_ID)
 
-    assert {deck.slug for deck in removed} == {"kundenfeedback", "knowledge-fabric"}
+    assert {deck.slug for deck in carried} == {"kundenfeedback", "knowledge-fabric"}
     assert store.all() == (a_deck("agenten-fabrik", source_id=_ANOTHER_SOURCE_ID),)
     with rows(tmp_path / "presentator.sqlite3") as cursor:
         left = cursor.execute(

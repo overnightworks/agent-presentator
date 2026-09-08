@@ -448,8 +448,26 @@ msgstr "Remove {name}?"
 
 msgid "source_remove_confirm_body"
 msgstr ""
-"{decks} decks and their built talks and {runs} runs go with it; the URL "
-"can be added again."
+"{decks} {deck_word} and {talk_word} and {runs} {run_word} go with it; the "
+"URL can be added again."
+
+msgid "source_remove_deck_singular"
+msgstr "deck"
+
+msgid "source_remove_deck_plural"
+msgstr "decks"
+
+msgid "source_remove_talk_singular"
+msgstr "its built talk"
+
+msgid "source_remove_talk_plural"
+msgstr "their built talks"
+
+msgid "source_remove_run_singular"
+msgstr "run"
+
+msgid "source_remove_run_plural"
+msgstr "runs"
 
 msgid "source_remove_cancel"
 msgstr "Cancel"
@@ -457,7 +475,12 @@ msgstr "Cancel"
 msgid "source_remove_confirm"
 msgstr "Remove"
 
+msgid "source_remove_refused"
+msgstr ""
+"The mirror or a build directory could not be removed, so nothing was "
+"deleted."
+
 msgid "source_removed"
 msgstr ""
-"{name} is gone, with its {decks} decks and {runs} runs; its URL can be "
-"added again."
+"{name} is gone, with its {decks} {deck_word} and {runs} {run_word}; its "
+"URL can be added again."

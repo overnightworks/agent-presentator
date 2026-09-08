@@ -151,8 +151,15 @@ class LobbyText:
     source_remove_button: str
     source_remove_confirm_title: str
     source_remove_confirm_body: str
+    source_remove_deck_singular: str
+    source_remove_deck_plural: str
+    source_remove_talk_singular: str
+    source_remove_talk_plural: str
+    source_remove_run_singular: str
+    source_remove_run_plural: str
     source_remove_cancel: str
     source_remove_confirm: str
+    source_remove_refused: str
     source_removed: str
 
 

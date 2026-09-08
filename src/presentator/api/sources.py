@@ -17,7 +17,13 @@ from webauth.proxies import request_is_https
 from presentator.api.hooks import hook_address
 from presentator.api.pages import Pages
 from presentator.api.preferences import SETTINGS
-from presentator.application.decks import AddedSource, Decks, SourceRefusal
+from presentator.application.decks import (
+    AddedSource,
+    Decks,
+    SourceRefusal,
+    SourceRemovalRefusal,
+    SourceRemovalStale,
+)
 from presentator.contracts.decks import (
     AccessKind,
     ShownSourceRun,
@@ -108,11 +114,18 @@ class SourceView:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SourceRemovalView:
-    """The confirm page's read model: the source's name and one sentence."""
+    """The confirm page's read model: the source's name, one sentence, its counts.
+
+    The counts travel back with the confirm's own form (R1): a person's yes
+    is good for exactly the numbers they saw, never a later one silently
+    read fresh at the moment their yes is spent.
+    """
 
     name: str
     title: str
     body: str
+    deck_count: int
+    run_count: int
 
 
 class _ShownOperation(StrEnum):
@@ -316,19 +329,48 @@ class _Surfaces:
             removal=_removal_view(removal, text),
         )
 
-    def confirm_removal(self, request: Request, name: str) -> Response:
-        """Delete the source and everything only it owned, then say what went."""
+    def confirm_removal(
+        self,
+        request: Request,
+        name: str,
+        deck_count: Annotated[int, Form()] = -1,
+        run_count: Annotated[int, Form()] = -1,
+    ) -> Response:
+        """Delete the source and everything only it owned, then say what went.
+
+        The counts a person confirmed travel back in the form; a mismatch at
+        the moment this runs is not deleted, it shows the confirm again with
+        the numbers as they stand now. A mirror or a build that would not go
+        stops this too, before any row is touched, and the source's own page
+        says so.
+        """
         if not _signed_in(request).is_admin:
             return _refused()
-        removed = self.decks.remove_source(name)
-        if removed is None:
+        outcome = self.decks.remove_source(
+            name,
+            expected_deck_count=deck_count,
+            expected_run_count=run_count,
+        )
+        if outcome is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
         text = self.pages.appearance(request).text
-        self._removed_once[_session_id(request)] = text.source_removed.format(
-            name=removed.name,
-            decks=removed.deck_count,
-            runs=removed.run_count,
-        )
+        if isinstance(outcome, SourceRemovalStale):
+            return self.pages.page(
+                request,
+                "source_remove.html",
+                removal=_removal_view(outcome.current, text),
+            )
+        if outcome is SourceRemovalRefusal.DISK_LEFTOVER:
+            shown = self.decks.shown_source(name)
+            if shown is None:
+                return Response(status_code=HTTPStatus.NOT_FOUND)
+            return self.pages.page(
+                request,
+                "source.html",
+                source=self._view(request, shown, text, webhook_secret=None),
+                refused=text.source_remove_refused,
+            )
+        self._removed_once[_session_id(request)] = _removed_sentence(outcome, text)
         return RedirectResponse(SOURCES, status_code=HTTPStatus.SEE_OTHER)
 
     def _form(
@@ -435,9 +477,50 @@ def _removal_view(removal: SourceRemoval, text: LobbyText) -> SourceRemovalView:
         title=text.source_remove_confirm_title.format(name=removal.name),
         body=text.source_remove_confirm_body.format(
             decks=removal.deck_count,
+            deck_word=_counted(
+                removal.deck_count,
+                singular=text.source_remove_deck_singular,
+                plural=text.source_remove_deck_plural,
+            ),
+            talk_word=_counted(
+                removal.deck_count,
+                singular=text.source_remove_talk_singular,
+                plural=text.source_remove_talk_plural,
+            ),
             runs=removal.run_count,
+            run_word=_counted(
+                removal.run_count,
+                singular=text.source_remove_run_singular,
+                plural=text.source_remove_run_plural,
+            ),
+        ),
+        deck_count=removal.deck_count,
+        run_count=removal.run_count,
+    )
+
+
+def _removed_sentence(removal: SourceRemoval, text: LobbyText) -> str:
+    """The list's one line naming what a finished removal took with it."""
+    return text.source_removed.format(
+        name=removal.name,
+        decks=removal.deck_count,
+        deck_word=_counted(
+            removal.deck_count,
+            singular=text.source_remove_deck_singular,
+            plural=text.source_remove_deck_plural,
+        ),
+        runs=removal.run_count,
+        run_word=_counted(
+            removal.run_count,
+            singular=text.source_remove_run_singular,
+            plural=text.source_remove_run_plural,
         ),
     )
+
+
+def _counted(count: int, *, singular: str, plural: str) -> str:
+    """The catalog's word for this count: one word or the other, never a rule."""
+    return singular if count == 1 else plural
 
 
 def _state_word(state: SourceState, text: LobbyText) -> str:

@@ -19,6 +19,7 @@ from presentator.api.sources import (
     SOURCES,
     WEBHOOK,
 )
+from presentator.application.decks import Decks
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
@@ -76,9 +77,9 @@ def another_source() -> Source:
     )
 
 
-def a_folder() -> DeckFolder:
+def a_folder(name: str = "kundenfeedback") -> DeckFolder:
     return DeckFolder(
-        name="kundenfeedback",
+        name=name,
         file_names=_A_DECK,
         title="A talk",
         changed_at=NOW - timedelta(minutes=2),
@@ -137,13 +138,32 @@ def ask_removal(
     return client.post(REMOVE.format(name=name), headers=headers)
 
 
+_DECK_COUNT_FIELD = re.compile(r'name="deck_count" value="(\d+)"')
+_RUN_COUNT_FIELD = re.compile(r'name="run_count" value="(\d+)"')
+
+
 def confirm_removal(
     client: TestClient,
     name: str,
     *,
     headers: dict[str, str] | None = None,
 ) -> Response:
-    return client.post(REMOVE_CONFIRMED.format(name=name), headers=headers)
+    """Confirm a removal the way a person who just saw the ask step would.
+
+    The confirm form's hidden counts are read off the ask step's own answer
+    first, exactly as a browser would carry them; an ask that was refused or
+    found nothing leaves none to carry, and the confirmed POST answers that
+    the same way on its own.
+    """
+    asked = ask_removal(client, name, headers=headers)
+    data: dict[str, str] = {}
+    deck_count = _DECK_COUNT_FIELD.search(asked.text)
+    run_count = _RUN_COUNT_FIELD.search(asked.text)
+    if deck_count is not None:
+        data["deck_count"] = deck_count.group(1)
+    if run_count is not None:
+        data["run_count"] = run_count.group(1)
+    return client.post(REMOVE_CONFIRMED.format(name=name), data=data, headers=headers)
 
 
 @pytest.fixture
@@ -1125,10 +1145,53 @@ def test_asking_to_remove_a_source_shows_the_confirm_and_deletes_nothing() -> No
 
     assert asked.status_code == HTTPStatus.OK
     assert ENGLISH.source_remove_confirm_title.format(name=source.name) in asked.text
-    assert ENGLISH.source_remove_confirm_body.format(decks=1, runs=1) in asked.text
     assert ENGLISH.source_remove_cancel in asked.text
     assert ENGLISH.source_remove_confirm in asked.text
+    assert 'class="btn"' in asked.text
+    assert 'class="btn btn--primary"' in asked.text
     assert f'href="{SOURCES}/{source.name}"' in lobby.get(SOURCES).text
+
+
+def test_the_confirm_sentence_is_singular_for_one_deck_and_one_run() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source, folders=(a_folder(),)))
+
+    asked = ask_removal(lobby, source.name)
+
+    assert (
+        ENGLISH.source_remove_confirm_body.format(
+            decks=1,
+            deck_word=ENGLISH.source_remove_deck_singular,
+            talk_word=ENGLISH.source_remove_talk_singular,
+            runs=1,
+            run_word=ENGLISH.source_remove_run_singular,
+        )
+        in asked.text
+    )
+
+
+def test_the_confirm_sentence_is_plural_for_more_than_one_deck_or_run() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(
+        GivenDecks(
+            source=source,
+            folders=(a_folder("kundenfeedback"), a_folder("knowledge-fabric")),
+        ),
+    )
+    fetch(lobby, source.name)
+
+    asked = ask_removal(lobby, source.name)
+
+    assert (
+        ENGLISH.source_remove_confirm_body.format(
+            decks=2,
+            deck_word=ENGLISH.source_remove_deck_plural,
+            talk_word=ENGLISH.source_remove_talk_plural,
+            runs=2,
+            run_word=ENGLISH.source_remove_run_plural,
+        )
+        in asked.text
+    )
 
 
 def test_confirming_removal_deletes_the_source_and_notices_the_list() -> None:
@@ -1141,8 +1204,98 @@ def test_confirming_removal_deletes_the_source_and_notices_the_list() -> None:
     assert confirmed.headers["location"] == SOURCES
     listed = lobby.get(SOURCES).text
     assert f'href="{SOURCES}/{source.name}"' not in listed
-    assert ENGLISH.source_removed.format(name=source.name, decks=1, runs=1) in listed
+    assert (
+        ENGLISH.source_removed.format(
+            name=source.name,
+            decks=1,
+            deck_word=ENGLISH.source_remove_deck_singular,
+            runs=1,
+            run_word=ENGLISH.source_remove_run_singular,
+        )
+        in listed
+    )
     assert lobby.get(f"{SOURCES}/{source.name}").status_code == HTTPStatus.NOT_FOUND
+
+
+def test_a_stuck_mirror_refuses_the_removal_and_the_page_says_so() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source, stuck_mirror=True))
+
+    confirmed = confirm_removal(lobby, source.name)
+
+    assert confirmed.status_code == HTTPStatus.OK
+    assert ENGLISH.source_remove_refused in confirmed.text
+    assert f'href="{SOURCES}/{source.name}"' in lobby.get(SOURCES).text
+
+
+def test_a_source_gone_between_the_refusal_and_the_page_is_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row this call itself never touched can still vanish under another one.
+
+    A refusal never deletes a row, so the name it just refused to remove
+    stays a source of this instance's own — except for whatever a second,
+    concurrent request did to it in between, which this route answers the
+    same way it answers any other name it does not have.
+    """
+
+    def gone(self: Decks, name: str) -> None:
+        del self, name
+
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source, stuck_mirror=True))
+    monkeypatch.setattr(Decks, "shown_source", gone)
+
+    confirmed = confirm_removal(lobby, source.name)
+
+    assert confirmed.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_a_stale_confirm_shows_a_fresh_one_and_deletes_nothing() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source, folders=(a_folder(),)))
+    stale = ask_removal(lobby, source.name)
+    stale_decks = _DECK_COUNT_FIELD.search(stale.text)
+    stale_runs = _RUN_COUNT_FIELD.search(stale.text)
+    assert stale_decks is not None
+    assert stale_runs is not None
+    fetch(lobby, source.name)
+
+    confirmed = lobby.post(
+        REMOVE_CONFIRMED.format(name=source.name),
+        data={"deck_count": stale_decks.group(1), "run_count": stale_runs.group(1)},
+    )
+
+    assert confirmed.status_code == HTTPStatus.OK
+    assert (
+        ENGLISH.source_remove_confirm_title.format(name=source.name) in confirmed.text
+    )
+    assert f'href="{SOURCES}/{source.name}"' in lobby.get(SOURCES).text
+
+
+def test_get_on_either_remove_address_is_not_allowed_and_writes_nothing() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source))
+
+    ask_get = lobby.get(REMOVE.format(name=source.name))
+    confirm_get = lobby.get(REMOVE_CONFIRMED.format(name=source.name))
+
+    assert ask_get.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert confirm_get.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert f'href="{SOURCES}/{source.name}"' in lobby.get(SOURCES).text
+
+
+def test_a_webhook_for_a_removed_sources_name_is_not_found() -> None:
+    source = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=source))
+
+    confirm_removal(lobby, source.name)
+    called = lobby.post(
+        hook_address(source.name),
+        headers={"authorization": "Bearer whatever-the-old-secret-was"},
+    )
+
+    assert called.status_code == HTTPStatus.NOT_FOUND
 
 
 @pytest.mark.parametrize("step", ["ask", "confirm"])
