@@ -40,6 +40,7 @@ class ConnectionState(StrEnum):
 
     READY = "ready"
     CREDENTIAL_UNRESOLVABLE = "credential-unresolvable"
+    REFUSED = "refused"
     UNREACHABLE = "unreachable"
 
 

@@ -35,6 +35,7 @@ from presentator.contracts.decks import (
     ShownAttempt,
     Source,
     SourceRun,
+    SourceRunFailure,
     SourceRunOutcome,
     SourceState,
     SourceWrite,
@@ -139,6 +140,20 @@ def _refusal_for(
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
     return next((reason for matched, reason in checks if matched), None)
+
+
+def _source_state_of(run: SourceRun) -> SourceState:
+    """The one word the sources list says, read off a run and its reason.
+
+    A refused login is the one reason the list speaks by name, so a valid
+    token and a dead host no longer read the same; every other reason a run
+    can carry still folds into error.
+    """
+    if run.outcome is SourceRunOutcome.SUCCESS:
+        return SourceState.REACHABLE
+    if run.reason is SourceRunFailure.REFUSED:
+        return SourceState.REFUSED
+    return SourceState.ERROR
 
 
 def _is_a_plain_folder_name(candidate: str) -> bool:
@@ -393,11 +408,7 @@ class Decks:
             name=source.name,
             url=source.url,
             access=access_kind_of(source.url),
-            state=(
-                SourceState.REACHABLE
-                if run.outcome is SourceRunOutcome.SUCCESS
-                else SourceState.ERROR
-            ),
+            state=_source_state_of(run),
             age=now - run.at,
         )
 

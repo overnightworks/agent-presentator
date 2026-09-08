@@ -1,12 +1,18 @@
 """The mirror against a real bare repository in a temporary directory."""
 
+import logging
 import subprocess
+import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
 
 from gitmirror.mirror import (
+    CREDENTIAL_USER_NAME,
     GitMirror,
     credential_arguments,
     unattended_environment,
@@ -34,6 +40,8 @@ _A_DECK = {
     "hello-deck/slides.md": "# Hello\n",
     "README.md": "not a deck\n",
 }
+_LOOPBACK = "127.0.0.1"
+_LEAKED_USERINFO = "leaked-user:leaked-password"
 
 
 class NoSecretAnywhere:
@@ -48,6 +56,36 @@ class OneKnownSecret:
 
     def resolve(self, reference: CredentialReference) -> str | None:
         return f"{_WHAT_THE_RESOLVER_ANSWERS} for {reference.name}"
+
+
+class _RefusingHandler(BaseHTTPRequestHandler):
+    """Every request meets the 401 a host gives a token it turns down.
+
+    git bails out on the response code before it ever asks for a repository,
+    so a handler this thin is the whole remote a real git needs to prove what
+    its own words say about a login the far end refused.
+    """
+
+    def do_GET(self) -> None:
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="git"')
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        """Silence; the assertion is what a test reports, not the socket chatter."""
+
+
+@pytest.fixture
+def refusing_remote() -> Iterator[str]:
+    """A local HTTP server that answers 401 to every request, port picked free."""
+    server = HTTPServer((_LOOPBACK, 0), _RefusingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://{_LOOPBACK}:{server.server_port}/repo.git"
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 def a_mirror(
@@ -211,20 +249,51 @@ def test_a_credential_reference_that_resolves_to_nothing_stops_the_pull(
     assert connection.revision is None
 
 
-def test_a_resolved_credential_reaches_git_without_riding_on_its_command_line() -> None:
-    arguments = credential_arguments(_WHAT_THE_RESOLVER_ANSWERS)
+def _fill(request: str) -> str:
+    """What git's own credential protocol answers for that request on stdin.
 
-    answered = subprocess.run(
+    Driving `git credential fill` against the helper's actual `-c` options is
+    the cheapest honest proof of the protocol: it is real git merging the
+    helper's answer into a real credential, the same merge `git fetch` itself
+    performs before it ever opens a connection.
+    """
+    arguments = credential_arguments(_WHAT_THE_RESOLVER_ANSWERS)
+    return subprocess.run(
         ["git", *arguments, "credential", "fill"],
         capture_output=True,
         check=True,
         env=unattended_environment(_WHAT_THE_RESOLVER_ANSWERS),
-        input="protocol=https\nhost=git.example\nusername=token-user\n\n",
+        input=request,
         text=True,
-    )
+    ).stdout
 
-    assert f"password={_WHAT_THE_RESOLVER_ANSWERS}" in answered.stdout
+
+def test_a_resolved_credential_reaches_git_without_riding_on_its_command_line() -> None:
+    arguments = credential_arguments(_WHAT_THE_RESOLVER_ANSWERS)
+
+    answered = _fill("protocol=https\nhost=git.example\nusername=token-user\n\n")
+
+    assert f"password={_WHAT_THE_RESOLVER_ANSWERS}" in answered
     assert _WHAT_THE_RESOLVER_ANSWERS not in " ".join(arguments)
+
+
+def test_the_helper_keeps_a_user_name_the_url_already_carries() -> None:
+    # Verified with real git: a helper that answers `username=` unconditionally
+    # overrides the request's own, so the helper must only fill a gap.
+    answered = _fill("protocol=https\nhost=git.example\nusername=token-user\n\n")
+
+    assert answered.splitlines() == [
+        "protocol=https",
+        "host=git.example",
+        "username=token-user",
+        f"password={_WHAT_THE_RESOLVER_ANSWERS}",
+    ]
+
+
+def test_the_helper_answers_a_user_name_when_the_url_carries_none() -> None:
+    answered = _fill("protocol=https\nhost=git.example\n\n")
+
+    assert f"username={CREDENTIAL_USER_NAME}" in answered
 
 
 def test_git_runs_without_the_machine_settings_that_could_hang_or_leak_it() -> None:
@@ -273,6 +342,49 @@ def test_a_resolved_credential_tells_an_unreachable_remote_from_a_missing_secret
     connection = resolved.connect()
 
     assert connection.state is ConnectionState.UNREACHABLE
+
+
+def test_a_login_the_host_turns_down_is_named_refused_not_unreachable(
+    refusing_remote: str,
+    tmp_path: Path,
+) -> None:
+    refused = a_mirror(
+        refusing_remote,
+        directory=tmp_path,
+        credential=_TOKEN_REFERENCE,
+        resolver=OneKnownSecret(),
+    )
+
+    connection = refused.connect()
+
+    assert connection.state is ConnectionState.REFUSED
+    assert connection.revision is None
+
+
+def test_a_failed_pull_logs_gits_words_with_the_urls_userinfo_hidden(
+    refusing_remote: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="gitmirror.mirror")
+    leaking_url = refusing_remote.replace("//", f"//{_LEAKED_USERINFO}@")
+    refused = a_mirror(
+        leaking_url,
+        directory=tmp_path,
+        credential=_TOKEN_REFERENCE,
+        resolver=OneKnownSecret(),
+    )
+
+    refused.connect()
+
+    leaked_name, _, leaked_password = _LEAKED_USERINFO.partition(":")
+    [record] = caplog.records
+    assert record.levelname == "WARNING"
+    assert "***" in record.message
+    assert leaked_name not in record.message
+    assert leaked_password not in record.message
+    assert _WHAT_THE_RESOLVER_ANSWERS not in record.message
+    assert "authentication" in record.message.lower()
 
 
 def test_reading_a_path_the_commit_does_not_carry_is_refused(

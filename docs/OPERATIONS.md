@@ -68,8 +68,10 @@ export PRESENTATOR_SOURCE_CREDENTIAL="DECKS_TOKEN"
 export DECKS_TOKEN="…"
 ```
 
-The user name belongs in the URL, because only the operator knows which name
-the host expects beside a token.
+A user name in the URL is optional: when the URL names one the mirror keeps
+it, and when it does not the mirror answers a user name of its own so a host
+that insists on one still reaches the token; a token the host turns down shows
+as refused, never as unreachable.
 
 That variable is one of the two forms a source's row can anchor. The other is
 the encrypted column the row itself carries, which the page for adding a source

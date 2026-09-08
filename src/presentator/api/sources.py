@@ -184,6 +184,7 @@ def _state_word(state: SourceState, text: LobbyText) -> str:
     return {
         SourceState.REACHABLE: text.source_state_reachable,
         SourceState.ERROR: text.source_state_error,
+        SourceState.REFUSED: text.source_state_refused,
         SourceState.NEVER_FETCHED: text.source_state_never_fetched,
     }[state]
 

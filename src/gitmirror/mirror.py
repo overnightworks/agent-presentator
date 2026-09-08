@@ -5,7 +5,9 @@ prompt suppression an unattended server needs, so this package spawns it rather
 than binding a second git implementation (ADR 0010).
 """
 
+import logging
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -26,11 +28,21 @@ from gitmirror.model import (
 )
 
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
-# git asks a helper for the password of an https remote, and answering out of
-# the child's environment keeps the secret off the command line and off disk.
-# The user name belongs in the source URL: only the operator knows which name
-# the host expects beside a read-only token.
-_CREDENTIAL_HELPER: Final = f'!f() {{ echo "password=${_CREDENTIAL_VARIABLE}"; }}; f'
+# GitHub, GitLab, and every other host that hands out a read-only token accept
+# any user name beside it, so an operator whose URL names none still reaches a
+# host that insists on one. A URL that does name one keeps it: verified with a
+# real git that a helper's `username=` answer always wins over the request's
+# own, so the helper reads the request on stdin and only fills the gap.
+CREDENTIAL_USER_NAME: Final = "token"
+# git asks a helper for the credentials of an https remote, and answering out
+# of the child's environment keeps the secret off the command line and off
+# disk. `grep` reads the request git writes to stdin before it reads the
+# helper's own stdout, which is where a `username=` line already stands when
+# the URL named one.
+_CREDENTIAL_HELPER: Final = (
+    '!f() { grep -q "^username=" || echo "username='
+    f'{CREDENTIAL_USER_NAME}"; echo "password=${_CREDENTIAL_VARIABLE}"; }}; f'
+)
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
@@ -52,10 +64,29 @@ _LAST_CHANGE: Final = "--format=%H %cI"
 _BETWEEN_THEM: Final = " "
 _GIT_MISSING: Final = "git is required to mirror a source"
 _UNREACHABLE: Final = Connection(state=ConnectionState.UNREACHABLE, revision=None)
+_REFUSED: Final = Connection(state=ConnectionState.REFUSED, revision=None)
 _CREDENTIAL_UNRESOLVABLE: Final = Connection(
     state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
     revision=None,
 )
+# git's own words for a login the far end turned down, lowercased so a case
+# git happens to pick never hides the match. Anything else a fetch can fail
+# with — a host that never answers, a name that resolves to nothing — stays
+# unreachable instead.
+_AUTHENTICATION_WORDS: Final = (
+    "authentication failed",
+    "invalid username or token",
+    "could not read username",
+    "could not read password",
+    "error: 401",
+    "error: 403",
+)
+# Only the scheme and the host stand in a log line; a user name or a password
+# git's own transport carried in the URL never does, even though the secret
+# itself only ever reaches git through the environment and cannot appear here.
+_USERINFO: Final = re.compile(r"://[^/@]*@")
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -144,7 +175,13 @@ class GitMirror:
             # A remote nobody can reach must not hold the page that asked for it.
             return _UNREACHABLE
         if pulled.returncode != 0:
-            return _UNREACHABLE
+            stderr = pulled.stderr.decode(errors="replace").strip()
+            _log.warning(
+                "git fetch of %s failed: %s",
+                _without_userinfo(self.source.url),
+                stderr,
+            )
+            return _REFUSED if _names_authentication(stderr) else _UNREACHABLE
         return Connection(
             state=ConnectionState.READY,
             revision=Revision(
@@ -191,6 +228,17 @@ def unattended_environment(secret: str | None) -> dict[str, str]:
     inherited = {name: os.environ[name] for name in _INHERITED if name in os.environ}
     carried = {} if secret is None else {_CREDENTIAL_VARIABLE: secret}
     return {**inherited, **_UNATTENDED, **carried}
+
+
+def _names_authentication(stderr: str) -> bool:
+    """Whether a failed fetch's own words say the far end turned the login down."""
+    lowered = stderr.lower()
+    return any(word in lowered for word in _AUTHENTICATION_WORDS)
+
+
+def _without_userinfo(url: str) -> str:
+    """That URL with any embedded user name or password hidden."""
+    return _USERINFO.sub("://***@", url)
 
 
 def _tree_entry(line: str) -> TreeEntry:

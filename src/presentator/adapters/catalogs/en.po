@@ -217,6 +217,9 @@ msgstr "reachable"
 msgid "source_state_error"
 msgstr "Error"
 
+msgid "source_state_refused"
+msgstr "Refused"
+
 msgid "source_state_never_fetched"
 msgstr "never fetched"
 

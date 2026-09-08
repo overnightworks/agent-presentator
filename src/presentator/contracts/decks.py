@@ -111,6 +111,7 @@ class SourceRunFailure(StrEnum):
     """
 
     CREDENTIAL_UNRESOLVABLE = "credential-unresolvable"
+    REFUSED = "refused"
     UNREACHABLE = "unreachable"
 
 
@@ -243,14 +244,16 @@ class ListedDeck:
 class SourceState(StrEnum):
     """What the sources list says a source is, read off its newest run.
 
-    No run is never-fetched, a successful run is reachable, and a failed run
-    is error — whatever typed reason the failure carried. The reason is not a
-    word this list speaks, so a credential the instance could not resolve
-    never becomes a word on the board.
+    No run is never-fetched, a successful run is reachable, and most failures
+    read as error, whatever typed reason the failure carried — a credential
+    the instance could not resolve never becomes a word on the board. A
+    refused login is the one reason worth its own word: it tells an operator
+    holding a working host and a bad token apart from one who holds neither.
     """
 
     REACHABLE = "reachable"
     ERROR = "error"
+    REFUSED = "refused"
     NEVER_FETCHED = "never-fetched"
 
 

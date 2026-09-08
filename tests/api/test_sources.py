@@ -231,6 +231,31 @@ def test_a_failed_newest_run_reads_error_and_never_the_credential_word() -> None
     assert SourceRunFailure.CREDENTIAL_UNRESOLVABLE.value not in page
 
 
+def test_a_refused_login_reads_refused_rather_than_error() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=5),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.REFUSED,
+                    ),
+                ),
+            ),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.source_state_refused in page
+    assert 'data-state="refused"' in page
+    assert ENGLISH.source_state_error not in page
+
+
 def test_fetch_now_refreshes_that_one_source_and_returns_to_the_list() -> None:
     configured = a_configured_source(_ADDRESS)
     other = another_source()
