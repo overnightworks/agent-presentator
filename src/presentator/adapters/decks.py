@@ -14,7 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Final
 
-from gitmirror.mirror import GitMirror
+from gitmirror.mirror import GitMirror, check_connection
 from gitmirror.model import (
     ConnectionState,
     CredentialReference,
@@ -31,6 +31,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -476,6 +477,63 @@ class SourceMirrors:
             directory=self.directory / f"{sha256(source.url.encode()).hexdigest()}.git",
             credentials=self.credentials,
             pull_timeout=self.pull_timeout,
+        )
+
+
+# The only access kinds the checker knows how to probe; anything else — no
+# scheme it recognises, or SSH, which the form does not offer yet — is
+# refused before a single argument reaches git, never handed to it on the
+# chance a probe might make sense of it.
+_PROBED_ACCESS_KINDS: Final = frozenset({AccessKind.HTTPS, AccessKind.FILE})
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MirroredConnectionChecker:
+    """Probes a form's own URL and secret through `ls-remote`, storing nothing."""
+
+    check_timeout: timedelta
+    local_mount: LocalMount
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        """No failure and the head commit when reachable, or which failure and why.
+
+        A file-kind address is resolved against the real mount first, the
+        same way a stored source's own mirror is: one outside it is refused
+        without ever reaching `ls-remote`, because no host answered no and no
+        host failed to answer — the mount itself declined to open it. An
+        access kind the checker does not probe is refused the same way.
+        """
+        kind = access_kind_of(url)
+        if kind not in _PROBED_ACCESS_KINDS:
+            return ConnectionCheckResult(
+                failure=SourceRunFailure.REFUSED, commit=None, detail=None
+            )
+        resolved = url
+        if kind is AccessKind.FILE:
+            canonical = self.local_mount.canonical_repository(url)
+            if canonical is None:
+                return ConnectionCheckResult(
+                    failure=SourceRunFailure.REFUSED,
+                    commit=None,
+                    detail=None,
+                )
+            resolved = str(canonical)
+        probed = check_connection(
+            url=resolved,
+            ref=ref,
+            secret=secret or None,
+            timeout=self.check_timeout,
+        )
+        if probed.state is ConnectionState.READY:
+            return ConnectionCheckResult(
+                failure=None,
+                commit=probed.commit,
+                detail=None,
+            )
+        return ConnectionCheckResult(
+            failure=_FAILURE_BY_CONNECTION_STATE[probed.state],
+            commit=None,
+            detail=probed.detail,
         )
 
 

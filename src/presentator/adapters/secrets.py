@@ -1,8 +1,11 @@
-"""The one place a secret is turned into bytes a row may hold (ADR 0013).
+"""The one place this instance derives purpose-scoped keys from its own secret.
 
-Every parameter of the encryption stands here and nowhere else, so no caller
-picks a mode, a nonce or a key length; a caller hands in a secret and gets the
-bytes back, or hands in bytes and gets the secret back.
+Every parameter of the row's own encryption stands here and nowhere else
+(ADR 0013), so no caller picks a mode, a nonce or a key length; a caller hands
+in a secret and gets the bytes back, or hands in bytes and gets the secret
+back. A signature that never reaches disk, such as a Check-connection
+fingerprint's, still derives its key the same way: one instance secret, one
+purpose label apiece, so two purposes never share bytes.
 """
 
 from base64 import urlsafe_b64encode
@@ -20,6 +23,7 @@ _SALT: Final = b"presentator/secrets/v1"
 # What this key is for, so the instance key's other users — the session cookie's
 # HMAC among them — never derive the same bytes.
 _PURPOSE: Final = b"presentator/source-access-secret/v1"
+_FINGERPRINT_PURPOSE: Final = b"presentator/source-check-fingerprint/v1"
 _KEY_LENGTH: Final = 32
 
 
@@ -59,3 +63,18 @@ def secret_box(instance_key: str) -> SecretBox:
         info=_PURPOSE,
     ).derive(instance_key.encode())
     return SecretBox(cipher=Fernet(urlsafe_b64encode(derived)))
+
+
+def connection_fingerprint_key(instance_key: str) -> bytes:
+    """This instance's key for signing a Check-connection fingerprint.
+
+    Derived the same way as the secret box's own key, from the same operator
+    value, but under its own purpose label so the two never derive the same
+    bytes.
+    """
+    return HKDF(
+        algorithm=SHA256(),
+        length=_KEY_LENGTH,
+        salt=_SALT,
+        info=_FINGERPRINT_PURPOSE,
+    ).derive(instance_key.encode())

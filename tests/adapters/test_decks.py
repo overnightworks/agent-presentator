@@ -13,6 +13,7 @@ from gitmirror.mirror import credential_arguments, unattended_environment
 from gitmirror.model import CredentialReference, CredentialResolver
 from presentator.adapters.decks import (
     FilesystemLocalMount,
+    MirroredConnectionChecker,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -479,6 +480,85 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.UNREACHABLE
     assert "unreachable" in caplog.text
+
+
+def a_checker(
+    *,
+    local_mount: FilesystemLocalMount | None = None,
+) -> MirroredConnectionChecker:
+    """A checker for a test that never checks a file-kind address."""
+    unused_mount = FilesystemLocalMount(mount=Path("/nowhere-a-test-names"))
+    return MirroredConnectionChecker(
+        check_timeout=_A_GENEROUS_BOUND,
+        local_mount=unused_mount if local_mount is None else local_mount,
+    )
+
+
+def test_an_unreachable_check_names_its_own_failure_without_a_commit() -> None:
+    checked = a_checker().check(
+        url="https://host.example.invalid/repo.git",
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is SourceRunFailure.UNREACHABLE
+    assert checked.commit is None
+
+
+def test_a_check_of_an_access_kind_it_does_not_probe_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An SSH address is refused outright, never handed to git at all.
+
+    The form offers no SSH radio yet, so nothing this checker probes should
+    ever run `git` against one; a `PATH` with no git on it proves that: a
+    call that reached `subprocess.run` would raise `GitUnavailableError`
+    instead of answering refused.
+    """
+    monkeypatch.setenv("PATH", "")
+
+    checked = a_checker().check(
+        url="ssh://git@host.example.invalid/repo.git",
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is SourceRunFailure.REFUSED
+    assert checked.commit is None
+
+
+def test_a_reachable_file_check_answers_the_full_commit(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    checked = a_checker(local_mount=FilesystemLocalMount(mount=tmp_path)).check(
+        url=remote.url,
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is None
+    assert checked.commit == remote.head
+
+
+def test_a_file_check_outside_the_mount_is_refused_without_ever_running_git(
+    tmp_path: Path,
+) -> None:
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    outside = tmp_path / "database"
+    outside.mkdir()
+
+    checked = a_checker(local_mount=FilesystemLocalMount(mount=mount)).check(
+        url=f"file://{outside}",
+        ref=MAIN_BRANCH,
+        secret="",
+    )
+
+    assert checked.failure is SourceRunFailure.REFUSED
+    assert checked.commit is None
 
 
 @pytest.mark.parametrize(

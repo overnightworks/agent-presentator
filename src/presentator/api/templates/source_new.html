@@ -7,7 +7,13 @@
     <h1>{{ text.sources_add }}</h1>
   </header>
   {% include "settings_tabs.html" %}
-  {% if draft %}<p role="alert">{{ draft.reason }}</p>{% endif %}
+  {% if draft and draft.reason %}<p role="alert">{{ draft.reason }}</p>{% endif %}
+  {% if draft and draft.check %}
+  <aside data-banner="{{ draft.check.state }}">
+    <p data-lead>{{ draft.check.message }}</p>
+    {% if draft.check.detail %}<p><samp>{{ draft.check.detail }}</samp></p>{% endif %}
+  </aside>
+  {% endif %}
   <form method="post" action="/settings/sources/new">
     <label for="name">{{ text.source_name }}</label>
     <input id="name" name="name" required
@@ -41,8 +47,10 @@
     </details>
     <input id="secret" name="secret" type="password" autocomplete="off">
     <p>{{ text.source_webhook_later }}</p>
-    <button type="button" disabled>{{ text.source_check }}</button>
-    <button type="submit">{{ text.source_create }}</button>
+    <input type="hidden" name="fingerprint"
+           value="{% if draft and draft.check and draft.check.fingerprint %}{{ draft.check.fingerprint }}{% endif %}">
+    <button type="submit" formaction="/settings/sources/new/check">{{ text.source_check }}</button>
+    <button type="submit" {% if not (draft and draft.check and draft.check.fingerprint) %}disabled{% endif %}>{{ text.source_create }}</button>
   </form>
 </main>
 {% endblock %}

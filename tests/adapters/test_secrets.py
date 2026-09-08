@@ -5,7 +5,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
-from presentator.adapters.secrets import secret_box
+from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 
 # Exactly the thirty-two characters an instance key is at least, so the bytes
 # below are a usable Fernet key without any padding of their own.
@@ -59,3 +59,28 @@ def test_the_box_does_not_encrypt_with_the_cookie_signers_own_material() -> None
     assert box.decrypt(signers_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode())) is None
     with pytest.raises(InvalidToken):
         signers_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
+
+
+def test_the_same_instance_key_answers_the_same_fingerprint_key_every_time() -> None:
+    assert connection_fingerprint_key(_INSTANCE_KEY) == connection_fingerprint_key(
+        _INSTANCE_KEY,
+    )
+
+
+def test_a_different_instance_key_answers_a_different_fingerprint_key() -> None:
+    assert connection_fingerprint_key(_INSTANCE_KEY) != connection_fingerprint_key(
+        _ANOTHER_INSTANCE_KEY,
+    )
+
+
+def test_the_fingerprint_key_never_matches_the_secret_boxs_own_key() -> None:
+    box = secret_box(_INSTANCE_KEY)
+    fingerprint_material = urlsafe_b64encode(connection_fingerprint_key(_INSTANCE_KEY))
+    fingerprint_box = Fernet(fingerprint_material)
+
+    assert (
+        box.decrypt(fingerprint_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode()))
+        is None
+    )
+    with pytest.raises(InvalidToken):
+        fingerprint_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))

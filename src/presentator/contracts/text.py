@@ -125,6 +125,8 @@ class LobbyText:
     source_refused_password: str
     source_refused_access: str
     source_refused_secret: str
+    source_refused_not_checked: str
+    source_check_reachable: str
     source_refused_secret_not_allowed: str
     source_refused_outside_mount: str
     source_access_heading: str
