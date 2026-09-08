@@ -64,27 +64,35 @@ _A_HALF_NAMED_SANDBOX = "named-here-but-not-beside-it"
 _THE_BUILD_IMAGE = "the-build-image-of-this-deployment"
 _THE_BUILDS_VOLUME = "the-builds-volume-of-this-deployment"
 _THE_VERSION_A_SUBPATH_NEEDS = "1.45"
-_A_DRIVER_WITHOUT_A_SIZE = "overlay2"
-# A `docker` this test wrote: one daemon new enough to keep a build inside its
-# own directory and carrying no image to build with, one too old for that, and
-# one on a driver that cannot hold a container's own filesystem to a size.
-_A_DAEMON_THAT_BUILDS_NOTHING = """#!/bin/sh
+_A_DRIVER = "overlay2"
+# A `docker` this test wrote: one daemon that carries the image and bounds a
+# container's own filesystem but builds no deck, one too old to keep a build
+# inside its own directory, and one that will not run a container under a size.
+_A_DAEMON_THAT_BUILDS_NOTHING = f"""#!/bin/sh
 case "$1" in
     version) echo "1.52";;
-    info) echo "overlay2 xfs";;
-    *) echo "there is no such image" >&2; exit 1;;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    run)
+        case "$*" in
+            *storage-opt*) exit 0;;
+            *) echo "there is no such deck" >&2; exit 1;;
+        esac
+        ;;
 esac
 """
-_A_DAEMON_TOO_OLD_TO_BUILD_ON = """#!/bin/sh
+_A_DAEMON_TOO_OLD_TO_BUILD_ON = f"""#!/bin/sh
 case "$1" in
     version) echo "1.44";;
-    info) echo "overlay2 xfs";;
+    info) echo "{_A_DRIVER}";;
 esac
 """
-_A_DAEMON_ON_A_DRIVER_WITHOUT_A_SIZE = f"""#!/bin/sh
+_A_DAEMON_THAT_TAKES_NO_SIZE = f"""#!/bin/sh
 case "$1" in
     version) echo "1.52";;
-    info) echo "{_A_DRIVER_WITHOUT_A_SIZE} extfs";;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    run) echo "this driver takes no size" >&2; exit 125;;
 esac
 """
 
@@ -278,16 +286,29 @@ def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
         main.build_instance(load_settings())
 
 
-def test_a_daemon_that_cannot_bound_what_a_build_writes_is_named_at_the_start(
+def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+
+    # Nothing bounding what a build writes beside its talk is not something an
+    # instance may find out about after it has served a deck.
+    with pytest.raises(ConfigurationError, match=_A_DRIVER):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_told_to_do_without_that_bound_starts_and_says_so(
     environment: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    a_container_run(environment, tmp_path, _A_DAEMON_ON_A_DRIVER_WITHOUT_A_SIZE)
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+    environment.setenv("PRESENTATOR_BUILD_DISK", "")
 
     main.build_instance(load_settings())
 
-    assert _A_DRIVER_WITHOUT_A_SIZE in caplog.text
+    assert "build_disk" in caplog.text
 
 
 def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_view(

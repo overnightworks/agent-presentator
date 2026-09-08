@@ -45,6 +45,11 @@ def _a_real_secret(given: SecretStr) -> SecretStr:
     return given
 
 
+def _a_size_or_nothing(given: str | None) -> str | None:
+    """An empty size is no bound at all, which an operator may mean."""
+    return given or None
+
+
 def _a_proxy_list(given: str) -> str:
     """Refuse a list that is not addresses or networks."""
     TrustedProxies.parse(given)
@@ -72,9 +77,11 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     build_image: str | None = None
     build_volume: str | None = None
     # What one build may take of this machine, in Docker's own words for a size
-    # and in whole megabytes for the talk it may leave behind.
+    # and in whole megabytes for the talk it may leave behind. An empty disk is
+    # an instance that knowingly does without that bound, on a machine whose
+    # storage driver will not hold a container's own filesystem to one.
     build_memory: str = "4g"
-    build_disk: str | None = "8g"
+    build_disk: Annotated[str | None, AfterValidator(_a_size_or_nothing)] = "8g"
     build_output_megabytes: int = 300
     source_url: str | None = None
     source_ref: str = "main"

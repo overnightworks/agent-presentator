@@ -84,8 +84,13 @@ _WITHOUT_A_SANDBOX = (
     " build_runner=host, or name them"
 )
 _NOTHING_BOUNDS_A_BUILD = (
-    "the %s storage driver cannot hold a container's own filesystem to a size,"
-    " so what one build writes outside its talk is bounded by this machine alone"
+    "this machine's %s storage driver does not take a size for a container's own"
+    " filesystem, so a build could fill this machine with what it writes beside"
+    " its talk. Leave build_disk empty to run without that bound knowingly"
+)
+_UNBOUNDED_BY_CHOICE = (
+    "build_disk is empty, so nothing but the time a step may take bounds what one"
+    " build writes into its own container"
 )
 
 _log = logging.getLogger(__name__)
@@ -214,18 +219,20 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     if image is None or volume is None:
         raise cannot_start(_WITHOUT_A_SANDBOX)
     try:
-        daemon = the_daemon_of_this_machine()
+        daemon = the_daemon_of_this_machine(image=image, disk=settings.build_disk)
     except DaemonRefusedError as refused:
         raise cannot_start(str(refused)) from None
-    if not daemon.bounds_a_container_filesystem:
-        _log.warning(_NOTHING_BOUNDS_A_BUILD, daemon.storage_driver)
+    if settings.build_disk is None:
+        _log.warning(_UNBOUNDED_BY_CHOICE)
+    elif not daemon.bounds_a_container_filesystem:
+        # Never silently: a machine that cannot bound what a build writes
+        # beside its talk is one an operator agrees to in as many words.
+        raise cannot_start(_NOTHING_BOUNDS_A_BUILD % daemon.storage_driver)
     return ContainerToolchain(
         image=image,
         volume=volume,
         memory=settings.build_memory,
-        # A driver that cannot hold a container's filesystem to a size refuses
-        # the option rather than bounding it, and would fail every build.
-        disk=settings.build_disk if daemon.bounds_a_container_filesystem else None,
+        disk=settings.build_disk,
         bound=bound,
     )
 

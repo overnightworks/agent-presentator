@@ -22,6 +22,7 @@ import os
 import select
 import shutil
 import signal
+import stat
 import subprocess
 from abc import abstractmethod
 from collections.abc import Callable
@@ -93,20 +94,13 @@ _SCRATCH_IS_EVERYONES: Final = "mode=1777"
 # it; a Slidev export and its browser stay far below this.
 _PROCESSES_AT_MOST: Final = 512
 _CONTAINER_PREFIX: Final = "presentator"
-# Docker holds a container's own filesystem to a size on these drivers only;
-# on any other it refuses the option rather than bounding anything.
-_OVERLAY: Final = "overlay2"
-_XFS: Final = "xfs"
-_DRIVERS_THAT_BOUND_A_FILESYSTEM: Final = frozenset({"btrfs", "zfs"})
-_BACKING_FILESYSTEM: Final = "Backing Filesystem"
-# One line naming the driver and, where it has one, the filesystem it writes
-# on; the two together decide whether a container's own writes can be bounded.
-_THE_DRIVER: Final = (
-    "{{.Driver}}"
-    "{{range .DriverStatus}}"
-    f'{{{{if eq (index . 0) "{_BACKING_FILESYSTEM}"}}}} {{{{index . 1}}}}{{{{end}}}}'
-    "{{end}}"
-)
+# Whether a container's own filesystem can be held to a size is not read off
+# the driver's name: overlay2 takes one over xfs with project quotas and
+# refuses it everywhere else, and a wrong guess either leaves a build unbounded
+# or fails every build. This machine is asked by running one container that
+# does nothing, and the driver's name is only what the log tells the operator.
+_THE_DRIVER: Final = "{{.Driver}}"
+_NOTHING_AT_ALL: Final = "true"
 # Asking the daemon what it is, and taking down a container that outlived its
 # step, are calls to a socket on this machine; neither may hold the walk of
 # builds for longer than this.
@@ -118,6 +112,15 @@ _READ_AT_ONCE: Final = 64 * 1024
 _TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
 _A_MEGABYTE: Final = 1024 * 1024
 _OWNER_MAY_ENTER: Final = 0o700
+# Adding up what a build wrote is walking a tree that build filled, so it is
+# bounded like everything else it touches: a talk is hundreds of files, and
+# adding up even a hundred thousand of them is a moment's work. Past either
+# bound the build is refused rather than added up in the dark.
+_ENTRIES_AT_MOST: Final = 100_000
+_ADDING_UP_WITHIN: Final = timedelta(seconds=10)
+# How often a step is asked what it has written by now, so a build that fills
+# this machine is stopped while it runs rather than found out afterwards.
+_ACCOUNTED_EVERY: Final = timedelta(seconds=2)
 _UNREADABLE_DECK: Final = "deck %s cannot be read at %s: %s"
 _TOOLCHAIN_FAILED: Final = "%s of deck %s failed: %s"
 _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
@@ -125,10 +128,21 @@ _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
 _CONTAINER_STAYED: Final = "the container of %s of deck %s could not be removed: %s"
 _RUN_STAYED: Final = "what build %s left could not be taken away"
 _TOO_MUCH_WRITTEN: Final = "deck %s wrote %s MB, which is more than a build may leave"
+_UNACCOUNTABLE: Final = "what the build of deck %s wrote could not be added up: %s"
+_TOOK_TOO_LONG_TO_ADD_UP: Final = (
+    "what the build of deck %s wrote could not be added up inside %s"
+)
 # What a person reads on the deck page when no toolchain failed but the build
 # is refused all the same.
 _TOO_MUCH_FOR_A_PAGE: Final = (
     "The talk this build wrote is {written} MB; a build may leave at most {allowed} MB."
+)
+_TOO_MANY_FOR_A_PAGE: Final = (
+    "The talk this build wrote holds more than {allowed} files;"
+    " a build may leave fewer."
+)
+_NO_SIZE_IS_TAKEN: Final = (
+    "this machine does not run a container under a size for its own filesystem: %s"
 )
 _NO_CLIENT: Final = "no container client answers on this machine: {said}"
 _NO_DAEMON: Final = "this machine's container daemon did not answer: {said}"
@@ -146,23 +160,30 @@ class DaemonRefusedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Daemon:
-    """What this machine's container daemon is, in its own client's words."""
+    """What this machine's container daemon is, in its own client's words.
+
+    Whether it holds a container's own filesystem to a size is measured, not
+    read off a name: this machine was asked to run one bounded container that
+    does nothing, and it either did or said why not.
+    """
 
     api_version: str
     storage_driver: str
-    backing_filesystem: str
+    bounds_a_container_filesystem: bool
 
-    @property
-    def bounds_a_container_filesystem(self) -> bool:
-        """Whether this driver can hold a container's own writes to a size.
 
-        Docker takes a size on btrfs and zfs, and on overlay2 only over xfs
-        with project quotas. Asking any other driver for one is a refusal
-        rather than a bound, and a refusal would fail every build.
-        """
-        return self.storage_driver in _DRIVERS_THAT_BOUND_A_FILESYSTEM or (
-            self.storage_driver == _OVERLAY and self.backing_filesystem == _XFS
-        )
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Added:
+    """What adding up one run's talk found, and what stopped the adding up.
+
+    A pass that was stopped carries no size: it says how far it came, and the
+    caller refuses the build rather than believing a number nobody counted.
+    """
+
+    megabytes: int
+    entries: int
+    unreadable: str | None
+    in_time: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -194,6 +215,15 @@ class _HowItIsRun:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class _HowItWent:
+    """What a step printed, and what stopped it before it was done."""
+
+    said: bytes
+    refused: BuildFailure | None
+    in_time: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class BuildStep:
     """One Slidev command of one build, and the deck it is run for.
 
@@ -206,6 +236,10 @@ class BuildStep:
     slug: str
     name: str
     arguments: tuple[str, ...]
+    # Asked while the step runs: a build that has already written more than it
+    # may leave is stopped there, because by the time it ends this machine is
+    # full. It answers with what the deck's page will say, or with nothing.
+    watched: Callable[[], BuildFailure | None]
 
 
 class DeckToolchain(Protocol):
@@ -429,7 +463,13 @@ class SlidevBuilds:
         # build is never exported either.
         for name, arguments in steps:
             broke = self.toolchain.ran(
-                BuildStep(place=place, slug=deck.slug, name=name, arguments=arguments),
+                BuildStep(
+                    place=place,
+                    slug=deck.slug,
+                    name=name,
+                    arguments=arguments,
+                    watched=lambda: self._more_than_it_may_leave(deck, place),
+                ),
             )
             if broke is not None:
                 return broke
@@ -440,19 +480,36 @@ class SlidevBuilds:
         deck: Deck,
         place: BuildPlace,
     ) -> BuildFailure | None:
-        """Refuse a build whose talk is larger than one build may leave here.
+        """Refuse a build whose talk is more than one build may leave here.
 
         A deck's own code decides what its talk holds, and a talk this machine
-        cannot keep is a machine that stops keeping the others. No toolchain
-        failed, so the words the page shows are this server's own.
+        cannot keep is a machine that stops keeping the others. It is asked
+        while the build runs and once more when it is over, because a build
+        that fills this machine has filled it long before it ends. No toolchain
+        failed, so the words a page shows here are this server's own; what only
+        this host can act on stays in the log.
         """
-        written = _megabytes_under(place.here / _OUT)
-        if written <= self.output_megabytes:
+        added = _added_up(
+            place.here / _OUT,
+            ends_by=monotonic() + _ADDING_UP_WITHIN.total_seconds(),
+        )
+        if added.unreadable is not None:
+            _log.warning(_UNACCOUNTABLE, deck.slug, added.unreadable)
+            return BuildFailure(text=None)
+        if not added.in_time:
+            _log.warning(_TOOK_TOO_LONG_TO_ADD_UP, deck.slug, _ADDING_UP_WITHIN)
+            return BuildFailure(text=None)
+        if added.entries > _ENTRIES_AT_MOST:
+            _log.warning(_TOO_MUCH_WRITTEN, deck.slug, added.entries)
+            return BuildFailure(
+                text=_TOO_MANY_FOR_A_PAGE.format(allowed=_ENTRIES_AT_MOST),
+            )
+        if added.megabytes <= self.output_megabytes:
             return None
-        _log.warning(_TOO_MUCH_WRITTEN, deck.slug, written)
+        _log.warning(_TOO_MUCH_WRITTEN, deck.slug, added.megabytes)
         return BuildFailure(
             text=_TOO_MUCH_FOR_A_PAGE.format(
-                written=written,
+                written=added.megabytes,
                 allowed=self.output_megabytes,
             ),
         )
@@ -487,29 +544,65 @@ class SlidevBuilds:
         return True
 
 
-def the_daemon_of_this_machine() -> Daemon:
+def the_daemon_of_this_machine(*, image: str, disk: str | None) -> Daemon:
     """What the container daemon here is, refusing one no build may run on.
 
-    A daemon that cannot be asked, and one too old to keep a build inside its
-    own directory of a volume, are both refusals: an instance that builds decks
-    in containers does not start against either.
+    A daemon that cannot be asked, one too old to keep a build inside its own
+    directory of a volume, and one that does not carry the image every build
+    runs in are all refusals: an instance that cannot build a deck says so at
+    its start rather than once a deck is pushed. Whether it takes a size for a
+    container's own filesystem is asked here too, by running one.
     """
-    spoken = _what_the_client_said("version", "{{.Server.APIVersion}}")
+    spoken = _what_the_client_said("version", "--format", "{{.Server.APIVersion}}")
     if _as_numbers(spoken) < _MOUNT_SUBPATH_SINCE:
         raise DaemonRefusedError(_TOO_OLD.format(spoken=spoken))
-    driver, _, backing = _what_the_client_said("info", _THE_DRIVER).partition(" ")
+    driver = _what_the_client_said("info", "--format", _THE_DRIVER)
+    _what_the_client_said("image", "inspect", "--format", "{{.Id}}", image)
     return Daemon(
         api_version=spoken,
         storage_driver=driver,
-        backing_filesystem=backing,
+        bounds_a_container_filesystem=disk is not None
+        and _a_size_is_taken(image, disk),
     )
 
 
-def _what_the_client_said(about: str, template: str) -> str:
-    """Ask the client one question about the daemon, or refuse this machine."""
+def _a_size_is_taken(image: str, disk: str) -> bool:
+    """Whether this machine really bounds a container's own filesystem.
+
+    One container that does nothing but be started under that bound: a driver
+    that cannot hold it says so here, once, instead of failing every build of
+    every deck.
+    """
     try:
         asked = subprocess.run(
-            [_DOCKER, about, "--format", template],
+            [
+                _DOCKER,
+                "run",
+                "--rm",
+                *_SEALED,
+                f"--storage-opt=size={disk}",
+                image,
+                _NOTHING_AT_ALL,
+            ],
+            check=False,
+            capture_output=True,
+            env=_a_client_environment(),
+            timeout=_DAEMON_ANSWERS_WITHIN.total_seconds(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as unavailable:
+        _log.warning(_NO_SIZE_IS_TAKEN, unavailable)
+        return False
+    if asked.returncode != 0:
+        _log.warning(_NO_SIZE_IS_TAKEN, _tail(asked.stderr))
+        return False
+    return True
+
+
+def _what_the_client_said(*arguments: str) -> str:
+    """Ask the client one question about this machine, or refuse it."""
+    try:
+        asked = subprocess.run(
+            [_DOCKER, *arguments],
             check=False,
             capture_output=True,
             env=_the_environment_of_this_server(),
@@ -563,17 +656,20 @@ def _what_a_step_said(
             # The child holds the writing end now, and only this process
             # letting go of it lets the reading end ever see an end.
             os.close(writing)
-        said, in_time = _the_end_of_what_it_printed(printed, process, bound=how.bound)
-    if not in_time:
+        went = _the_end_of_what_it_printed(printed, process, step=step, bound=how.bound)
+    if went.refused is not None or not went.in_time:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         process.wait()
         how.given_up()
+        if went.refused is not None:
+            # What it wrote is the reason, and the watcher has said it.
+            return went.refused
         _log.warning(_TOOLCHAIN_TIMED_OUT, step.name, step.slug, how.bound)
         # What a step that was killed had printed is not shown: it is the words
         # of a run nobody waited for, and the page says so in its own sentence.
         return BuildFailure(text=None)
     if process.returncode != 0:
-        words = _tail(said)
+        words = _tail(went.said)
         _log.warning(_TOOLCHAIN_FAILED, step.name, step.slug, words)
         return BuildFailure(text=words or None)
     return None
@@ -583,23 +679,36 @@ def _the_end_of_what_it_printed(
     printed: IO[bytes],
     process: subprocess.Popen[bytes],
     *,
+    step: BuildStep,
     bound: timedelta,
-) -> tuple[bytes, bool]:
-    """The last of what a step printed, and whether it ended inside its bound.
+) -> _HowItWent:
+    """The last of what a step printed, and what stopped it before it was done.
 
     A deck's own build decides how much it prints, and a server that held all
     of it would be a server a deck can fill; only the end a page can show is
-    ever kept, however long the step goes on talking.
+    ever kept, however long the step goes on talking. The same wait is what
+    asks, at every turn, whether the build has by now written more than it may
+    leave — a machine is filled while a build runs, not when it ends.
     """
     ends_by = monotonic() + bound.total_seconds()
     said = b""
     while True:
         left = ends_by - monotonic()
-        if left <= 0 or not select.select([printed], [], [], left)[0]:
-            return said, False
+        if left <= 0:
+            return _HowItWent(said=said, refused=None, in_time=False)
+        refused = step.watched()
+        if refused is not None:
+            return _HowItWent(said=said, refused=refused, in_time=True)
+        waited_for = min(left, _ACCOUNTED_EVERY.total_seconds())
+        if not select.select([printed], [], [], waited_for)[0]:
+            continue
         printed_now = printed.read(_READ_AT_ONCE)
         if not printed_now:
-            return said, _ended_within(process, ends_by)
+            return _HowItWent(
+                said=said,
+                refused=None,
+                in_time=_ended_within(process, ends_by),
+            )
         said = (said + printed_now)[-_TAIL_BYTES:]
 
 
@@ -612,24 +721,78 @@ def _ended_within(process: subprocess.Popen[bytes], ends_by: float) -> bool:
     return True
 
 
-def _megabytes_under(directory: Path) -> int:
-    """How much of this machine that directory holds, following no link out."""
-    held = 0
-    for inside, _, files in os.walk(directory):
-        held += sum((Path(inside) / name).lstat().st_size for name in files)
-    return held // _A_MEGABYTE
+def _added_up(directory: Path, *, ends_by: float) -> _Added:
+    """Add up what one run has written into that directory, so far.
+
+    Every name in it was written by a deck's own build, so none of them is
+    followed: a link is counted as the name it is and never as what it points
+    at, which may be anything of this machine. The walk stops at the first
+    entry it cannot read, at the entry it may not go past, and at the moment it
+    may not run past — a talk this server cannot add up is one it refuses,
+    never one it guesses at.
+    """
+    held, entries, left_to_read = 0, 0, [directory]
+    while left_to_read:
+        if monotonic() > ends_by:
+            return _Added(megabytes=0, entries=entries, unreadable=None, in_time=False)
+        try:
+            with os.scandir(left_to_read.pop()) as inside:
+                for entry in inside:
+                    entries += 1
+                    if entries > _ENTRIES_AT_MOST:
+                        return _Added(
+                            megabytes=0,
+                            entries=entries,
+                            unreadable=None,
+                            in_time=True,
+                        )
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        left_to_read.append(Path(entry.path))
+                    else:
+                        held += entry.stat(follow_symlinks=False).st_size
+        except OSError as unreadable:
+            return _Added(
+                megabytes=0,
+                entries=entries,
+                unreadable=str(unreadable),
+                in_time=True,
+            )
+    return _Added(
+        megabytes=held // _A_MEGABYTE,
+        entries=entries,
+        unreadable=None,
+        in_time=True,
+    )
 
 
 def _opened_again(tree: Path) -> None:
     """Give back the modes a build may have taken from its own leftovers.
 
     The walk is top-down, so a directory closed behind a build is opened
-    before this walk asks what is inside it.
+    before this walk asks what is inside it, and it walks into no link. Every
+    name is changed from the directory that holds it rather than by its path,
+    and only after that directory said the name is a directory and not a link:
+    what a build left as a link may point anywhere on this machine, and this
+    is the one place that would open it.
     """
     for inside, directories, _ in os.walk(tree):
-        for closed in directories:
-            with suppress(OSError):
-                (Path(inside) / closed).chmod(_OWNER_MAY_ENTER)
+        holder = os.open(inside, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for closed in directories:
+                _opened(closed, held_by=holder)
+        finally:
+            os.close(holder)
+
+
+def _opened(name: str, *, held_by: int) -> None:
+    """Open that one name where it stands, and no link that carries it."""
+    with suppress(OSError):
+        # A name already gone, or one this server may not change: whether the
+        # tree really went is read off the tree afterwards, never from here.
+        if stat.S_ISDIR(os.lstat(name, dir_fd=held_by).st_mode):
+            os.chmod(name, _OWNER_MAY_ENTER, dir_fd=held_by)
 
 
 def _a_container_for(step: BuildStep) -> str:

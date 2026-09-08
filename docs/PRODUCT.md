@@ -302,14 +302,20 @@ rather than after anything a deck's author chose. A component that reads a file
 the deck does not carry, or opens a connection, fails the build with the
 toolchain's own words on the deck page, while the talk that stood keeps
 standing; so does a build that wants more time, memory, processes, or disk than
-one build may have, or that writes a talk larger than an instance keeps.
+one build may have. A talk larger than an instance keeps, or holding more files
+than it counts, stops the step that is writing it where it stands, because a
+machine is filled while a build runs and not when it ends; adding that talk up
+follows no link a build left and stops at anything it cannot read.
 
 That is what an instance is, and an instance that cannot have it does not
-start: without the image and the volume it builds in, or on a daemon too old to
-give a container one directory of a volume, the composition refuses and says
-which. Building on this machine instead is one explicit setting, for a
-development run, and it costs the sandbox altogether. The price of the sandbox
-is the docker socket, which [OPERATIONS.md](OPERATIONS.md) names.
+start: without the image and the volume it builds in, on a daemon too old to
+give a container one directory of a volume, on one that does not carry the
+build image, or on a machine that will not hold a container's own filesystem to
+a size unless the operator says to do without that bound, the composition
+refuses and says which. Building on this machine instead is one explicit
+setting, for a development run, and it costs the sandbox altogether. The price
+of the sandbox is the docker socket, which [OPERATIONS.md](OPERATIONS.md)
+names.
 
 ### Local speech
 

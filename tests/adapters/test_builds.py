@@ -8,6 +8,8 @@ denies it this machine, is proven by driving the real interface.
 """
 
 import os
+import stat
+import subprocess
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -16,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from presentator.adapters import builds as builds_module
 from presentator.adapters.builds import (
     ContainerToolchain,
     DaemonRefusedError,
@@ -55,6 +58,10 @@ _A_DISK_BOUND = "5g"
 _A_TALK_THIS_BIG_IS_FINE = 64
 _ONLY_A_MEGABYTE_MAY_BE_LEFT = 1
 _MEGABYTES_A_GREEDY_BUILD_WRITES = 3
+_A_TALK_OF_TWO_FILES = 2
+_WATCHED_OFTEN = timedelta(milliseconds=50)
+_CLOSED_TO_EVERYONE = 0o000
+_OWNER_MAY_ENTER = 0o700
 # Every process a container may hold, and the two mount points a build gets.
 _PROCESSES_AT_MOST = 512
 _DECK_IN = "deck"
@@ -63,6 +70,14 @@ _TALK = "talk"
 _PDF_FILE = "deck.pdf"
 _TOOLCHAIN_SCRATCH = "node_modules"
 _A_SLUG_WITH_PUNCTUATION = "a,deck:of-punctuation"
+_A_SLUG_OF_SPACES = "a deck of spaces"
+# What a command line may carry beside a space: nothing here reads any of it as
+# grammar, so nothing here may lose it.
+_ARGUMENTS_OF_EVERY_KIND = (
+    "--flag=a value",
+    'quoted "like this"',
+    "--network=none --cap-add=ALL",
+)
 _NO_BUDGET_AT_ALL = timedelta(0)
 _OWNER = "the-admin"
 _SOURCE_ID = "the-source-that-carried-it"
@@ -93,9 +108,15 @@ esac
 """
 # Where to write is baked in rather than read from the environment, because
 # the environment a build runs in is exactly what this stand-in is here to show.
+# Every argument is kept whole, ended by a nul, and every command by a record
+# separator: a stand-in that joined them with spaces would read two arguments
+# and one argument carrying a space as the same thing.
 _A_TOOLCHAIN_THAT_RECORDS = """#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> "{recorded}/command"
+for given in "$@"; do
+    printf '%s\\000' "$given" >> "{recorded}/command"
+done
+printf '\\036' >> "{recorded}/command"
 env | sort >> "{recorded}/environment"
 """
 _A_TOOLCHAIN_THAT_FAILS = """#!/bin/sh
@@ -124,8 +145,9 @@ _A_TOOLCHAIN_THAT_STOPS_TALKING_BUT_NOT_RUNNING = """#!/bin/sh
 exec 2>&-
 sleep 60
 """
-# Three megabytes of talk, for a test that allows one.
-_A_TOOLCHAIN_THAT_WRITES_TOO_MUCH = """#!/bin/sh
+# A talk of the size a test asks for, and a step that goes on running after it
+# wrote it: a build is stopped while it writes, not once it is done.
+_A_TOOLCHAIN_THAT_WRITES = """#!/bin/sh
 set -eu
 out=""
 while [ $# -gt 0 ]; do
@@ -136,13 +158,53 @@ while [ $# -gt 0 ]; do
 done
 a_megabyte=1048576
 case "$out" in
-    *.pdf) dd if=/dev/zero of="$out" bs=$a_megabyte count=1 2>/dev/null;;
+    *.pdf)
+        dd if=/dev/zero of="$out" bs=$a_megabyte count={pdf} 2>/dev/null
+        {and_then}
+        ;;
     *)
         mkdir -p "$out"
-        dd if=/dev/zero of="$out/index.html" bs=$a_megabyte count=2 2>/dev/null
+        dd if=/dev/zero of="$out/index.html" bs=$a_megabyte count={talk} 2>/dev/null
         ;;
 esac
 """
+_AND_THEN_IT_KEEPS_GOING = "sleep 60"
+_AND_THEN_IT_IS_DONE = ":"
+# A build that leaves a link where a file would be, pointing at something of
+# this machine's that is neither its to read nor its to have counted.
+_A_TOOLCHAIN_THAT_LEAVES_A_LINK_OUT = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+case "$out" in
+    *.pdf) printf '%%PDF-1.7' > "$out";;
+    *)
+        mkdir -p "$out"
+        printf 'a talk' > "$out/index.html"
+        ln -s "{outside}" "$out/a-way-out"
+        ;;
+esac
+"""
+_A_TOOLCHAIN_THAT_LEAVES_A_LINK_OUT_AND_FAILS = """#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+mkdir -p "$out"
+ln -s "{outside}" "$out/a-way-out"
+echo "the deck does not build" >&2
+exit 1
+"""
+_A_WAY_OUT = "a-way-out"
 # A deck's own code writes in the directory of its run, and may close a
 # directory behind it that the run's leftovers then have to be opened out of.
 # A development run gives a deck this server's own rights, so its build can
@@ -201,6 +263,23 @@ _A_DAEMON_THAT_ANSWERS = """#!/bin/sh
 case "$1" in
     version) echo "{api}";;
     info) echo "{driver}";;
+    image) echo "sha256:the-image-of-this-deployment";;
+    run) printf 'one\\n' >> "{tried}"; exit {size};;
+esac
+"""
+_A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE = """#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "overlay2";;
+    image) echo "sha256:the-image-of-this-deployment";;
+    run) sleep 60;;
+esac
+"""
+_A_DAEMON_WITHOUT_THE_IMAGE = """#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "overlay2";;
+    image) echo "no such image" >&2; exit 1;;
 esac
 """
 _A_DAEMON_THAT_WILL_NOT_SAY = """#!/bin/sh
@@ -210,7 +289,12 @@ exit 1
 _THE_VERSION_A_SUBPATH_NEEDS = "1.45"
 _A_DAEMON_NEW_ENOUGH = "1.52"
 _A_DAEMON_TOO_OLD = "1.44"
+_A_DRIVER = "overlay2"
+_IT_TAKES_A_SIZE = 0
+_IT_TAKES_NO_SIZE = 1
+_TRIED_A_SIZE = "tried-a-size"
 _A_REMOVAL_NEVER_WAITS_THIS_LONG = timedelta(seconds=20)
+_A_SHORT_ANSWER = timedelta(milliseconds=300)
 # A background child of its own, the way slidev export's own Chromium is a
 # child of slidev rather than of pnpm: only a kill of the whole group reaches
 # it, so the pid it wrote down is this test's proof.
@@ -407,10 +491,10 @@ def test_the_talk_is_built_against_the_address_it_is_delivered_under(
 
     builds_ready_for(tmp_path, source).build(a_deck(remote), source=source)
 
-    ran = (recorded / _RECORDED_COMMAND).read_text(encoding="utf-8").splitlines()
-    assert ran[0].startswith("exec slidev build ")
-    assert f"--base {talk_address(EXAMPLE_SLUG)}" in ran[0]
-    assert ran[1].startswith("exec slidev export ")
+    built, exported = _every_command_in(recorded)
+    assert built[:3] == ["exec", "slidev", "build"]
+    assert built[built.index("--base") + 1] == talk_address(EXAMPLE_SLUG)
+    assert exported[:3] == ["exec", "slidev", "export"]
 
 
 def test_a_build_carries_nothing_of_the_environment_this_server_runs_in(
@@ -642,13 +726,7 @@ def test_a_build_container_is_asked_for_exactly_these_arguments_and_no_others(
         source=source,
     )
 
-    ran = [
-        line.split(" ")
-        for line in (recorded / _RECORDED_COMMAND)
-        .read_text(encoding="utf-8")
-        .split("\n")
-        if line
-    ]
+    ran = _every_command_in(recorded)
     run = _the_run_of(ran[0])
     deck, out = run / _DECK_IN, run / _OUT
     # The whole command line of both steps, in order: nothing this server does
@@ -697,6 +775,15 @@ def a_container_run(run: Path, *, step: str, disk: str | None) -> list[str]:
     ]
 
 
+def _every_command_in(recorded: Path) -> list[list[str]]:
+    """Every command the stand-in was given, argument by argument as it got it."""
+    written = (recorded / _RECORDED_COMMAND).read_bytes()
+    return [
+        [given.decode() for given in one_command.split(b"\0")[:-1]]
+        for one_command in written.split(b"\036")[:-1]
+    ]
+
+
 def _a_mount_of(directory: Path, *, subpath: str, access: str) -> str:
     """One directory of the builds volume, at the path this server names it by."""
     return (
@@ -731,6 +818,41 @@ def test_the_client_speaks_only_the_version_that_keeps_a_build_in_its_own_place(
     assert _WHAT_THE_SERVER_HOLDS not in carried
 
 
+def test_a_folder_name_carrying_spaces_stays_one_argument_of_its_own(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # What a deck is delivered under is its folder's name, whatever is in it,
+    # and it reaches the toolchain as the one argument it is — which is also
+    # what makes the command line above provable at all.
+    remote.commit_example_deck(at=_PUSHED_AT, into=_A_SLUG_OF_SPACES)
+    recorded = recording(machine, tmp_path, _CONTAINER_PROGRAM)
+
+    builds_ready_for(tmp_path, source, toolchain=in_a_container()).build(
+        a_deck(remote, slug=_A_SLUG_OF_SPACES),
+        source=source,
+    )
+
+    built, _ = _every_command_in(recorded)
+    assert built[built.index("--base") + 1] == talk_address(_A_SLUG_OF_SPACES)
+
+
+def test_what_a_stand_in_writes_down_is_every_argument_as_it_got_it(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # The command lines above are only worth what this recording is worth: two
+    # arguments joined into one, or one carrying a space read as two, would
+    # otherwise pass for the same thing.
+    recorded = recording(machine, tmp_path, _CONTAINER_PROGRAM)
+
+    subprocess.run([_CONTAINER_PROGRAM, *_ARGUMENTS_OF_EVERY_KIND], check=True)
+
+    assert _every_command_in(recorded) == [list(_ARGUMENTS_OF_EVERY_KIND)]
+
+
 def test_no_argument_the_daemon_is_given_carries_a_name_somebody_else_chose(
     remote: GitRemote,
     source: Source,
@@ -745,12 +867,12 @@ def test_no_argument_the_daemon_is_given_carries_a_name_somebody_else_chose(
         source=source,
     )
 
-    ran = (recorded / _RECORDED_COMMAND).read_text(encoding="utf-8").split()
     # A folder name is its owner's to choose, and Docker reads commas and
     # colons as grammar; the name of a run is this server's own.
     told_the_daemon = [
         given
-        for given in ran
+        for command in _every_command_in(recorded)
+        for given in command
         if given.startswith(("--name=", "--mount=", "--tmpfs=", "--storage-opt="))
     ]
     assert told_the_daemon
@@ -763,11 +885,20 @@ def test_a_talk_larger_than_a_build_may_leave_is_refused_with_that_reason(
     machine: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    with_docker(machine, tmp_path, _A_TOOLCHAIN_THAT_WRITES_TOO_MUCH)
+    # Nothing is written until the last step, so no watch sees it: what the
+    # build left is added up once more when it is over.
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_WRITES.format(
+            talk=0,
+            pdf=_MEGABYTES_A_GREEDY_BUILD_WRITES,
+            and_then=_AND_THEN_IT_IS_DONE,
+        ),
+    )
     builds = builds_ready_for(
         tmp_path,
         source,
-        toolchain=in_a_container(),
         output_megabytes=_ONLY_A_MEGABYTE_MAY_BE_LEFT,
     )
 
@@ -778,6 +909,156 @@ def test_a_talk_larger_than_a_build_may_leave_is_refused_with_that_reason(
     assert f"{_MEGABYTES_A_GREEDY_BUILD_WRITES} MB" in built.text
     assert f"at most {_ONLY_A_MEGABYTE_MAY_BE_LEFT} MB" in built.text
     assert list(builds.builds.iterdir()) == []
+
+
+def test_a_build_that_has_written_too_much_is_stopped_where_it_stands(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # A machine is filled while a build runs, so the step that is still
+    # running when it happens does not get to finish.
+    machine.setattr(builds_module, "_ACCOUNTED_EVERY", _WATCHED_OFTEN)
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_WRITES.format(
+            talk=_MEGABYTES_A_GREEDY_BUILD_WRITES,
+            pdf=0,
+            and_then=_AND_THEN_IT_KEEPS_GOING,
+        ),
+    )
+    builds = builds_ready_for(
+        tmp_path,
+        source,
+        output_megabytes=_ONLY_A_MEGABYTE_MAY_BE_LEFT,
+    )
+
+    began = time.monotonic()
+    built = builds.build(a_deck(remote), source=source)
+
+    assert time.monotonic() - began < _A_GENEROUS_BOUND.total_seconds()
+    assert isinstance(built, BuildFailure)
+    assert built.text is not None
+    assert f"{_MEGABYTES_A_GREEDY_BUILD_WRITES} MB" in built.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_talk_of_more_files_than_a_build_may_leave_is_refused_too(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    machine.setattr(builds_module, "_ENTRIES_AT_MOST", _A_TALK_OF_TWO_FILES)
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert isinstance(built, BuildFailure)
+    assert built.text is not None
+    assert f"more than {_A_TALK_OF_TWO_FILES} files" in built.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_talk_that_cannot_be_added_up_in_time_is_refused_without_words(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    machine.setattr(builds_module, "_ADDING_UP_WITHIN", _NO_BUDGET_AT_ALL)
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # What this host could not do is nothing a deck's author could act on.
+    assert built == BuildFailure(text=None)
+    assert EXAMPLE_SLUG in caplog.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_talk_holding_something_this_server_cannot_read_is_refused(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_CLOSES_WHAT_IT_WROTE)
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # An entry nobody can read is a talk nobody added up, never a talk of none.
+    assert built == BuildFailure(text=None)
+    assert EXAMPLE_SLUG in caplog.text
+    assert list(builds.builds.iterdir()) == []
+
+
+def test_a_link_out_of_the_run_is_counted_as_the_name_it_is(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    outside, held = _something_of_this_machines(tmp_path)
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_LEAVES_A_LINK_OUT.format(outside=outside),
+    )
+    builds = builds_ready_for(
+        tmp_path,
+        source,
+        output_megabytes=_ONLY_A_MEGABYTE_MAY_BE_LEFT,
+    )
+
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
+
+    # What the link points at is megabytes of this machine, and none of them
+    # were followed, read or counted against the talk.
+    assert builds.holds(artefacts)
+    assert held.exists()
+
+
+def test_a_link_a_build_left_is_never_opened_when_its_leavings_go(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    outside, held = _something_of_this_machines(tmp_path)
+    outside.chmod(_CLOSED_TO_EVERYONE)
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_LEAVES_A_LINK_OUT_AND_FAILS.format(outside=outside),
+    )
+    builds = builds_ready_for(tmp_path, source)
+
+    built = builds.build(a_deck(remote), source=source)
+
+    # Taking a failed build's leavings away opens what that build closed; a
+    # directory of this machine it pointed at is not that build's to be opened.
+    assert isinstance(built, BuildFailure)
+    assert list(builds.builds.iterdir()) == []
+    assert stat.S_IMODE(outside.stat().st_mode) == _CLOSED_TO_EVERYONE
+    outside.chmod(_OWNER_MAY_ENTER)
+    assert held.exists()
+
+
+def _something_of_this_machines(tmp_path: Path) -> tuple[Path, Path]:
+    """A directory of this machine, and the megabytes it holds."""
+    outside = tmp_path / "of-this-machine"
+    outside.mkdir()
+    held = outside / "not-a-decks-business"
+    held.write_bytes(b"\0" * _MEGABYTES_A_GREEDY_BUILD_WRITES * 1024 * 1024)
+    return outside, held
 
 
 def test_a_build_container_past_its_bound_is_taken_down_rather_than_left_running(
@@ -879,47 +1160,104 @@ def _opened_again_afterwards(root: Path) -> Generator[None]:
         root.chmod(0o700)
 
 
-@pytest.mark.parametrize("driver", ["overlay2 xfs", "btrfs", "zfs"])
-def test_a_daemon_on_such_a_driver_can_hold_a_build_to_a_size(
+def a_daemon(
     machine: pytest.MonkeyPatch,
     tmp_path: Path,
-    driver: str,
-) -> None:
+    *,
+    api: str = _A_DAEMON_NEW_ENOUGH,
+    size: int = _IT_TAKES_A_SIZE,
+) -> Path:
+    """A `docker` that answers for this machine, and writes down what it ran."""
+    tried = tmp_path / _TRIED_A_SIZE
     with_docker(
         machine,
         tmp_path,
-        _A_DAEMON_THAT_ANSWERS.format(api=_A_DAEMON_NEW_ENOUGH, driver=driver),
+        _A_DAEMON_THAT_ANSWERS.format(
+            api=api,
+            driver=_A_DRIVER,
+            tried=tried,
+            size=size,
+        ),
     )
+    return tried
 
-    daemon = the_daemon_of_this_machine()
+
+def test_a_daemon_that_runs_a_container_under_a_size_can_bound_a_build(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_daemon(machine, tmp_path)
+
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
 
     assert daemon.api_version == _A_DAEMON_NEW_ENOUGH
+    assert daemon.storage_driver == _A_DRIVER
     assert daemon.bounds_a_container_filesystem
 
 
-@pytest.mark.parametrize("driver", ["overlay2 extfs", "vfs"])
-def test_a_daemon_on_any_other_driver_leaves_a_build_unbounded_there(
+def test_a_daemon_that_refuses_that_container_bounds_nothing(
     machine: pytest.MonkeyPatch,
     tmp_path: Path,
-    driver: str,
 ) -> None:
-    with_docker(
-        machine,
-        tmp_path,
-        _A_DAEMON_THAT_ANSWERS.format(api=_A_DAEMON_NEW_ENOUGH, driver=driver),
-    )
+    # Which driver takes a size is not read off its name: this machine is
+    # asked to run one bounded container, and it said no.
+    a_daemon(machine, tmp_path, size=_IT_TAKES_NO_SIZE)
 
-    assert not the_daemon_of_this_machine().bounds_a_container_filesystem
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
+
+    assert not daemon.bounds_a_container_filesystem
+
+
+def test_a_deployment_that_asks_for_no_size_has_this_machine_run_nothing(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tried = a_daemon(machine, tmp_path)
+
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=None)
+
+    assert not daemon.bounds_a_container_filesystem
+    assert not tried.exists()
+
+
+def test_a_machine_that_will_not_answer_about_a_size_bounds_nothing(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Asking may not become the hold-up: a machine that says nothing is a
+    # machine that bounds nothing, and this instance is told so at once.
+    machine.setattr(builds_module, "_DAEMON_ANSWERS_WITHIN", _A_SHORT_ANSWER)
+    with_docker(machine, tmp_path, _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE)
+
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
+
+    assert not daemon.bounds_a_container_filesystem
 
 
 @pytest.mark.parametrize(
     "docker",
     [
-        _A_DAEMON_THAT_ANSWERS.format(api=_A_DAEMON_TOO_OLD, driver="overlay2 xfs"),
-        _A_DAEMON_THAT_ANSWERS.format(api="not-a-version", driver="overlay2 xfs"),
+        _A_DAEMON_THAT_ANSWERS.format(
+            api=_A_DAEMON_TOO_OLD,
+            driver=_A_DRIVER,
+            tried="",
+            size=_IT_TAKES_A_SIZE,
+        ),
+        _A_DAEMON_THAT_ANSWERS.format(
+            api="not-a-version",
+            driver=_A_DRIVER,
+            tried="",
+            size=_IT_TAKES_A_SIZE,
+        ),
+        _A_DAEMON_WITHOUT_THE_IMAGE,
         _A_DAEMON_THAT_WILL_NOT_SAY,
     ],
-    ids=["one too old to keep a build in its place", "one talking nonsense", "none"],
+    ids=[
+        "one too old to keep a build in its place",
+        "one talking nonsense",
+        "one without the image every build runs in",
+        "none",
+    ],
 )
 def test_a_daemon_no_build_may_be_trusted_to_is_refused(
     machine: pytest.MonkeyPatch,
@@ -929,7 +1267,7 @@ def test_a_daemon_no_build_may_be_trusted_to_is_refused(
     with_docker(machine, tmp_path, docker)
 
     with pytest.raises(DaemonRefusedError):
-        the_daemon_of_this_machine()
+        the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
 
 
 def test_without_a_client_on_the_machine_no_daemon_answers(
@@ -941,4 +1279,4 @@ def test_without_a_client_on_the_machine_no_daemon_answers(
     machine.setenv("PATH", str(nothing_on_it))
 
     with pytest.raises(DaemonRefusedError):
-        the_daemon_of_this_machine()
+        the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)

@@ -16,8 +16,13 @@ one address inside five minutes regardless of name, are throttled; the page
 says the same sentence it says for a wrong password. A session lasts twelve
 idle hours and slides forward on every request; logging out deletes the row.
 
+A deck is code, so an instance builds every deck in a container of its own and
+refuses to start where it cannot ("Building the decks"). A run from a checkout,
+on a machine whose decks are all your own, is the one place that says otherwise:
+
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
+export PRESENTATOR_BUILD_RUNNER=host
 uv run agent-presentator
 ```
 
@@ -306,16 +311,33 @@ What one build may take is bounded on every side it has:
 | Memory | `PRESENTATOR_BUILD_MEMORY` (`4g`) | The kernel ends the build, and the toolchain's own words say so |
 | Processes | 512, a constant | The container may spawn no more |
 | Its own filesystem | `PRESENTATOR_BUILD_DISK` (`8g`) | Writing past it fails inside the build |
-| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The build is refused, in this server's own words on the page, and what it wrote is taken away |
+| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The step still running is stopped there, in this server's own words on the page, and what it wrote is taken away |
+| The files that talk holds | 100 000, a constant | The same, in the same words |
 
-The filesystem bound is Docker's `--storage-opt size`, which only some storage
-drivers take: btrfs, zfs, and overlay2 over xfs with project quotas. The server
-asks the daemon which driver it runs (`docker info --format '{{.Driver}}'`) and
-leaves the bound off where it would be refused, naming the driver in the log at
-startup; on such a machine — overlay2 over ext4, which is the common one — what
-a build writes outside its talk is bounded by the disk alone, and the talk
-bound above is what stands between a deck and this machine. Setting
-`PRESENTATOR_BUILD_DISK` empty leaves it off everywhere.
+The talk is added up while the build runs, not only when it ends, because a
+machine is filled long before a build is over; a step that has written past
+either bound does not get to finish. Nothing in a run's own directory is
+followed while that happens: a link a build leaves counts as the name it is,
+never as what it points at, and adding up stops at the first entry this server
+cannot read rather than passing over it.
+
+The filesystem bound is Docker's `--storage-opt size`, which some storage
+drivers take and others refuse — overlay2 takes one over xfs with project
+quotas and refuses it over ext4. Which this machine is is not guessed from a
+name: at every start the server runs one bounded container that does nothing,
+and if the daemon refuses it the instance refuses to start, naming the driver.
+On such a machine — overlay2 over ext4 is the common one — the way to run is to
+say so, by leaving `PRESENTATOR_BUILD_DISK` empty in `.env`:
+
+```sh
+printf 'PRESENTATOR_BUILD_DISK=\n' >> .env
+```
+
+Then nothing but the time a step may take bounds what a build writes beside its
+talk, the log says so at every start, and the talk bound above is what stands
+between a deck and this machine. The same start also refuses a daemon that does
+not carry the build image at all, so an instance that could build no deck says
+so before it serves one.
 
 The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
 instance and puts the server in the `docker` group, so the server may ask the
