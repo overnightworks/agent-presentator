@@ -196,6 +196,9 @@ class GivenDecks:
     runs: tuple[SourceRun, ...] = ()
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
+    # A source whose mirror this instance refuses to let go of, the way a
+    # real one left on a filesystem that refuses the delete would.
+    stuck_mirror: bool = False
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
     checked: ConnectionCheckResult = A_REACHABLE_CHECK
     themes: tuple[str, ...] | None = DEFAULT_THEME_SET
@@ -245,6 +248,11 @@ def a_lobby_app(
         folders=FakeDeckFolders(
             carried=carried,
             failures={} if given.failures is None else given.failures,
+            stuck=(
+                frozenset({given.source.id})
+                if given.stuck_mirror and given.source is not None
+                else frozenset()
+            ),
         ),
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),

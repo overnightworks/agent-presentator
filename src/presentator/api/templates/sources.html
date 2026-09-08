@@ -7,6 +7,7 @@
     <a href="/settings/sources/new">{{ text.sources_add }}</a>
   </header>
   {% include "settings_tabs.html" %}
+  {% if removed %}<p role="status">{{ removed }}</p>{% endif %}
   {% if sources %}
   <table data-sources>
     <thead>

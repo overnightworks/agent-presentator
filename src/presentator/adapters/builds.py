@@ -553,18 +553,19 @@ class SlidevBuilds:
         self._taken_away(place)
         return broke
 
-    def _taken_away(self, place: BuildPlace) -> None:
-        """Take away what a build that did not finish left, however it left it.
+    def _taken_away(self, place: BuildPlace) -> bool:
+        """Take away everything one run's directory holds, however it got there.
 
-        Nothing points at it and nothing ever will, and the directory the deck
-        delivers from is not touched; cleaning up the ones that were pointed at
-        is line 20. A deck's own code wrote in this tree and may have closed a
-        directory behind it, so the modes are given back first — but only once
-        nothing of that build is running any more, because opening a directory
-        for a build that is still writing in it is opening it for the build.
-        Whether the tree really went is then read off the filesystem, and one
-        that stayed is named in the log rather than passed over, because it is
-        this machine filling up.
+        Called both for a build that did not finish, where nothing points at
+        its directory and nothing ever will, and for one that did and is now
+        removed on purpose with the source that built it (`remove`). A deck's
+        own code wrote in this tree and may have closed a directory behind it,
+        so the modes are given back first — but only once nothing of that
+        build is running any more, because opening a directory for a build
+        that is still writing in it is opening it for the build. Whether the
+        tree really went is then read off the filesystem, and one that stayed
+        is named in the log and answered here as well, so a caller that must
+        know can act on it rather than believe a removal that did not happen.
         """
         if self.toolchain.nothing_of_it_runs(place):
             _opened_again(place.here)
@@ -573,6 +574,8 @@ class SlidevBuilds:
         shutil.rmtree(place.here, ignore_errors=True)
         if place.here.exists():
             _log.warning(_RUN_STAYED, place.run)
+            return False
+        return True
 
     def holds(self, artefacts: Artefacts) -> bool:
         """Whether both artefacts really stand under the root builds are kept in."""
@@ -581,6 +584,20 @@ class SlidevBuilds:
             written.exists() and written.resolve().is_relative_to(root)
             for written in (artefacts.directory, artefacts.pdf)
         )
+
+    def remove(self, directory: Path) -> bool:
+        """Take that run's whole directory off disk, or say it is still there.
+
+        Reuses the same cleanup a build that did not finish already gets: the
+        modes a deck's own code may have left are given back before the tree
+        goes, and what does not go is named rather than passed over.
+        """
+        return self._taken_away(self._place_of(directory))
+
+    def _place_of(self, directory: Path) -> BuildPlace:
+        """The run whose own directory that delivered talk was built into."""
+        here = directory.parents[1]
+        return BuildPlace(root=here.parent, run=Path(here.name))
 
     def _a_place_of_its_own(self) -> BuildPlace:
         """Where this run works: a directory of its own under the root.

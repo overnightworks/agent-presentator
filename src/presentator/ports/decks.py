@@ -57,6 +57,14 @@ class SourceStore(Protocol):
     def all(self) -> tuple[Source, ...]:
         """Every source this instance mirrors, in no promised order."""
 
+    @abstractmethod
+    def remove(self, source_id: str) -> None:
+        """Delete that source's own row.
+
+        Its decks and its runs are not this call's: `DeckStore` and
+        `SourceRuns` own those tables and are asked for them separately.
+        """
+
 
 class LocalMount(Protocol):
     """Resolves a file-kind source's address against the real mounted directory.
@@ -90,6 +98,17 @@ class DeckFolders(Protocol):
         empty tuple and says every deck is gone.
         """
 
+    @abstractmethod
+    def forget(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone.
+
+        A source whose mount or host has since gone away still has a mirror
+        to delete; nothing to delete is fine too, so a name asked about twice
+        answers true calmly. A path that survives the attempt answers false,
+        so a caller that must not go on believing a mirror was cleared can
+        stop rather than take that on faith.
+        """
+
 
 class ConnectionChecker(Protocol):
     """Probes an unsaved source's URL and secret, writing nothing to disk."""
@@ -112,7 +131,16 @@ class SourceRuns(Protocol):
 
     @abstractmethod
     def recent(self, source_id: str) -> tuple[SourceRun, ...]:
-        """That source's newest runs, newest first, no more than the page shows."""
+        """That source's newest runs, newest first, no more than the page shows.
+
+        The table itself keeps no more than this bound per source (`record`),
+        so this is every run the source has, not only a slice of a longer
+        history.
+        """
+
+    @abstractmethod
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every run this source has ever recorded."""
 
 
 class DeckStore(Protocol):
@@ -173,6 +201,19 @@ class DeckStore(Protocol):
         nothing about another's, so only the named source's decks are read.
         """
 
+    @abstractmethod
+    def for_source(self, source_id: str) -> tuple[Deck, ...]:
+        """Every deck row this source has ever carried, marked removed or not.
+
+        Read-only: a folder dropped earlier kept its row and its built talk,
+        so this is the whole set a removal counts and cleans disk against,
+        never only the ones the list still shows.
+        """
+
+    @abstractmethod
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every deck row this source has ever carried, marked removed or not."""
+
 
 class BuildRunner(Protocol):
     """Builds one deck's folder into the talk that deck delivers.
@@ -198,6 +239,17 @@ class BuildRunner(Protocol):
 
         A deck is code (ADR 0005), so where a build says it wrote is checked
         rather than trusted before that place becomes an address.
+        """
+
+    @abstractmethod
+    def remove(self, directory: Path) -> bool:
+        """Take that run's whole directory off disk, and say whether it is gone.
+
+        Not only the two files a deck's page ever pointed at: the run's own
+        directory carried what the deck's own code wrote alongside them, too.
+        A directory that survives the attempt answers false, so a caller
+        that must not go on believing a build was cleared can stop rather
+        than take that on faith.
         """
 
 

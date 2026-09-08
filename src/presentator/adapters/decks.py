@@ -6,6 +6,7 @@ between its vocabulary and the product's, and holds the deck table (ADR 0006).
 
 import json
 import logging
+import shutil
 import sqlite3
 import tomllib
 from dataclasses import dataclass
@@ -117,6 +118,7 @@ _ALL_SOURCES: Final = """
 SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id
 FROM sources
 """
+_REMOVE_SOURCE: Final = "DELETE FROM sources WHERE id = ?"
 # The ciphertext is written on its own: everything else about a source is what
 # the operator typed, while this is the one value the instance key can open.
 # A leftover environment reference is cleared so the row no longer names a
@@ -176,6 +178,17 @@ FROM decks
 WHERE removed_at IS NULL AND source_id IS NOT NULL
 """
 _ONE_DECK: Final = f"{_ALL_DECKS} AND slug = ?"
+# Every row this source ever carried, marked removed or not: a source going
+# away takes the decks it stopped carrying with it too, not only the ones
+# still listed.
+_DECKS_OF_SOURCE: Final = """
+SELECT slug, title, changed_at, owner_id, source_id, commit_sha,
+       active_build, pdf_export, built_commit, built_at,
+       attempt_commit, attempt_started_at, attempt_outcome, attempt_failure
+FROM decks
+WHERE source_id = ?
+"""
+_REMOVE_DECKS_OF_SOURCE: Final = "DELETE FROM decks WHERE source_id = ?"
 _MARK_REMOVED: Final = """
 UPDATE decks SET removed_at = ?
 WHERE removed_at IS NULL AND source_id = ?
@@ -210,6 +223,7 @@ _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listin
 _OUTSIDE_MOUNT: Final = (
     "source %s no longer resolves under the local mount, treated as unreadable"
 )
+_MIRROR_STAYED: Final = "the mirror of source %s could not be taken away"
 _RECORD_SOURCE_RUN: Final = """
 INSERT INTO source_runs (source_id, at, outcome, commit_sha, reason)
 VALUES (?, ?, ?, ?, ?)
@@ -230,6 +244,7 @@ WHERE source_id = ?
 ORDER BY id DESC
 LIMIT ?
 """
+_REMOVE_SOURCE_RUNS: Final = "DELETE FROM source_runs WHERE source_id = ?"
 _PRUNE_OLDER_RUNS: Final = """
 DELETE FROM source_runs
 WHERE source_id = ?
@@ -375,6 +390,11 @@ class SqliteSourceStore:
             found = cursor.execute(_ALL_SOURCES).fetchall()
         return tuple(_source(row) for row in found)
 
+    def remove(self, source_id: str) -> None:
+        """Delete that source's own row."""
+        with rows(self.database) as cursor:
+            cursor.execute(_REMOVE_SOURCE, (source_id,))
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SourceCredentials:
@@ -472,12 +492,34 @@ class SourceMirrors:
                 # rather than an anonymous fetch that would look like success.
                 credential=CredentialReference(name=source.id),
             ),
-            # A URL is not a directory name, and two sources must not share a
-            # mirror.
-            directory=self.directory / f"{sha256(source.url.encode()).hexdigest()}.git",
+            directory=self._directory_of(source),
             credentials=self.credentials,
             pull_timeout=self.pull_timeout,
         )
+
+    def remove(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone.
+
+        The directory is named off the address alone (`_directory_of`), so
+        this goes whether or not `of` could still open it — a mount that
+        vanished must not leave the mirror it once carried behind. A path
+        that survives the attempt is named in the log, because a caller that
+        must not delete a source's row while its mirror still stands needs
+        to know, not just be told.
+        """
+        directory = self._directory_of(source)
+        shutil.rmtree(directory, ignore_errors=True)
+        if directory.exists():
+            _log.warning(_MIRROR_STAYED, source.name)
+            return False
+        return True
+
+    def _directory_of(self, source: Source) -> Path:
+        """Where this source's mirror stands.
+
+        A URL is not a directory name, and two sources must not share one.
+        """
+        return self.directory / f"{sha256(source.url.encode()).hexdigest()}.git"
 
 
 # The only access kinds the checker knows how to probe; anything else — no
@@ -542,6 +584,10 @@ class MirroredDeckFolders:
     """Reads a source's folders out of a local bare mirror of its repository."""
 
     mirrors: SourceMirrors
+
+    def forget(self, source: Source) -> bool:
+        """Delete this source's mirror from disk, and say whether it is gone."""
+        return self.mirrors.remove(source)
 
     def folders(self, source: Source) -> SourcePoll:
         """Poll for every top-level folder at the newest commit, or why not."""
@@ -698,6 +744,17 @@ class SqliteDeckStore:
             found = cursor.execute(_ALL_DECKS).fetchall()
         return tuple(_deck(row) for row in found)
 
+    def for_source(self, source_id: str) -> tuple[Deck, ...]:
+        """Read every deck row this source has ever carried, marked removed or not."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(_DECKS_OF_SOURCE, (source_id,)).fetchall()
+        return tuple(_deck(row) for row in found)
+
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every deck row this source has ever carried, marked removed or not."""
+        with rows(self.database) as cursor:
+            cursor.execute(_REMOVE_DECKS_OF_SOURCE, (source_id,))
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SqliteSourceRunStore:
@@ -737,6 +794,11 @@ class SqliteSourceRunStore:
                 (source_id, RECENT_SOURCE_RUNS),
             ).fetchall()
         return tuple(_source_run(row) for row in found)
+
+    def remove_for_source(self, source_id: str) -> None:
+        """Delete every run this source has ever recorded."""
+        with rows(self.database) as cursor:
+            cursor.execute(_REMOVE_SOURCE_RUNS, (source_id,))
 
 
 def _source(row: _SourceRow) -> Source:
