@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ONE_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?$")
 
 
 class Settings(BaseSettings):
@@ -25,6 +28,18 @@ class Settings(BaseSettings):
     deck: Path = Path("examples/copresenter-deck")
     claude_model: str = "claude-sonnet-4-6"
     language: str = "de"
+
+    @field_validator("allowed_origin")
+    @classmethod
+    def _is_one_origin(cls, value: str) -> str:
+        """A browser's `Origin` is scheme, host and optional port, and nothing else."""
+        if not _ONE_ORIGIN.fullmatch(value):
+            message = (
+                "COPRESENTER_ALLOWED_ORIGIN is one origin, http(s)://host[:port] "
+                f"— no wildcard, credentials, path, query or fragment — not {value!r}"
+            )
+            raise ValueError(message)
+        return value
 
 
 def load_settings() -> Settings:

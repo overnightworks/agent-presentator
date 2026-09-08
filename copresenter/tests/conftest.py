@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from copresenter.answer import CannedAnswerer
 from copresenter.app import create_app
@@ -68,3 +69,9 @@ def app(example_deck, fake_speech):
         speech=fake_speech,
         answerer=CannedAnswerer(),
     )
+
+
+@pytest.fixture
+def client(app):
+    """A caller from the deck's own origin, which is the only one served."""
+    return TestClient(app, headers={"Origin": ALLOWED_ORIGIN})

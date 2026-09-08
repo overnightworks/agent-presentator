@@ -47,8 +47,7 @@ class EndingSpeech(FakeSpeech):
         return self.upstream
 
 
-def test_hear_reports_unavailable_when_speech_cannot_open(app) -> None:
-    client = TestClient(app)
+def test_hear_reports_unavailable_when_speech_cannot_open(client) -> None:
     with client.websocket_connect("/hear?language=de") as socket:
         payload = socket.receive_json()
 
@@ -68,7 +67,7 @@ def test_hear_proxy_closes_when_the_speech_socket_ends(example_deck) -> None:
         speech=speech,
         answerer=CannedAnswerer(),
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
     with (
         client.websocket_connect("/hear?language=de") as socket,
         pytest.raises(WebSocketDisconnect),

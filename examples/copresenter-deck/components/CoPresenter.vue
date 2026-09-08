@@ -7,13 +7,9 @@ const { currentSlideNo } = useNav()
 const LOCAL_COPRESENTER = 'http://127.0.0.1:3040'
 const LANGUAGE = 'de'
 
-function copresenterAddress() {
-  if (typeof window === 'undefined') return LOCAL_COPRESENTER
-  const asked = new URLSearchParams(window.location.search).get('copresenter')
-  return asked || window.COPRESENTER_URL || LOCAL_COPRESENTER
-}
-
-const COPRESENTER = copresenterAddress()
+// Only the deck names the service: a URL that could point the microphone
+// elsewhere would travel with a shared link.
+const COPRESENTER = (typeof window !== 'undefined' && window.COPRESENTER_URL) || LOCAL_COPRESENTER
 
 const on = ref(false)
 const heard = ref('')

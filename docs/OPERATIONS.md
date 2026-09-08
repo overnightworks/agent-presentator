@@ -298,20 +298,25 @@ COPRESENTER_ALLOWED_ORIGIN=https://presentator.hallucinai.de \
 The overlay rides in the deck: `global-bottom.vue` next to `slides.md` mounts
 `components/CoPresenter.vue` and sets `window.COPRESENTER_URL` to the address
 the browser can reach, `https://` there giving `wss://` for the hearing socket.
-The service answers exactly the origin `COPRESENTER_ALLOWED_ORIGIN` names — one
-origin, no list and no pattern — and refuses to start without it; a page from
-any other origin is refused, sockets included. That address is public through
-the same tunnel as the instance, one more ingress entry above the
-`http_status:404` catch-all, and one proxied DNS record:
+The deck is the only place that names it, so a shared talk URL cannot point the
+overlay — and with it the microphone — at another host. The service refuses to
+start unless `COPRESENTER_ALLOWED_ORIGIN` is one canonical origin, and every
+route and the hearing socket refuse a call whose `Origin` is missing or
+different, `/who` included. That address is public through the same tunnel as
+the instance, one more ingress entry above the `http_status:404` catch-all, and
+one proxied DNS record:
 
 ```
   - hostname: copresenter.hallucinai.de
     service: http://localhost:3040
 ```
 
-The co-presenter has no login of its own, so whoever reaches that name spends
-the operator's Claude session. Put a Cloudflare Access policy on the hostname,
-and take the ingress entry out again after the talk.
+`Origin` is a guard against other web pages, not authentication: a browser
+cannot forge it, but any native client can, so the gate keeps a second site out
+and nothing else. The co-presenter has no login of its own, so whoever reaches
+that name spends the operator's Claude session and the card. A Cloudflare Access
+policy on the hostname is what prevents that, and the ingress entry comes out
+again after the talk.
 
 ## The fetch-now hook
 

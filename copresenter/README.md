@@ -102,10 +102,10 @@ pnpm exec slidev ../examples/copresenter-deck/slides.md
 ```
 
 Open the talk and turn **Presenter** on. The overlay talks to
-`http://127.0.0.1:3040` unless the deck names another address: the deck's
-`global-bottom.vue` sets `window.COPRESENTER_URL`, and `?copresenter=<address>`
-on the talk URL overrides even that. An `https://` address carries the hearing
-socket over `wss://`.
+`http://127.0.0.1:3040` unless the deck's `global-bottom.vue` sets
+`window.COPRESENTER_URL`; the deck is the only place that names the address, so
+a shared talk URL cannot point the microphone somewhere else. An `https://`
+address carries the hearing socket over `wss://`.
 
 Copy `global-bottom.vue` and `components/CoPresenter.vue` into any other deck
 folder to take the overlay with you. A deck served from another machine sets
@@ -116,7 +116,7 @@ origin is what `COPRESENTER_ALLOWED_ORIGIN` must name.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `COPRESENTER_ALLOWED_ORIGIN` | none, required | The one origin whose pages may call this service, for example `https://presentator.hallucinai.de`. One origin, never a list and never a pattern: the process refuses to start without it and names it. |
+| `COPRESENTER_ALLOWED_ORIGIN` | none, required | The one origin whose pages may call this service, for example `https://presentator.hallucinai.de`. `scheme://host[:port]`, http or https, nothing else: a wildcard, a path, credentials or a missing value each refuse the start and name the reason. Every route and the hearing socket refuse a call whose `Origin` is missing or different, `/who` included. |
 | `COPRESENTER_HOST` | `127.0.0.1` | Bind address |
 | `COPRESENTER_PORT` | `3040` | Bind port |
 | `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
@@ -135,8 +135,9 @@ The stage needs `claude` on PATH with a login, and the speech service.
   separators and per-slide frontmatter are read.
 - Split abbreviations such as `z.B.` correctly.
 - Search a knowledge graph, the web, or anything outside the deck folder.
-- Authenticate callers. It answers one named origin; whoever reaches the
-  address asks Claude with the operator's login.
+- Authenticate callers. The origin gate stops other web pages, not a native
+  client that writes the header itself; whoever reaches the address asks Claude
+  with the operator's login. A public deployment needs a real gate in front.
 - Live inside the instance. Productising it is a later milestone.
 - Guarantee the real GPU speech service. If that process is not ready, run the
   stand-in and say so. `GET /who` reports which speech models answered.

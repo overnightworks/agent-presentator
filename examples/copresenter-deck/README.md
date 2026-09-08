@@ -15,7 +15,9 @@ if (typeof window !== 'undefined') {
 </script>
 ```
 
-`?copresenter=<address>` on the talk URL overrides that for one visit. The
-service only answers the origin its `COPRESENTER_ALLOWED_ORIGIN` names, so that
-value is the origin the deck is served from. How to run the service is
+The deck is the only place that names the address: a talk URL cannot redirect
+the overlay, so a shared link cannot send the microphone elsewhere. The service
+answers only the origin its `COPRESENTER_ALLOWED_ORIGIN` names — every route and
+the hearing socket — so that value is the origin the deck is served from. How to
+run the service is
 [`copresenter/README.md`](../../copresenter/README.md).

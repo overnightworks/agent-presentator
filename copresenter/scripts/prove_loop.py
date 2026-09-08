@@ -102,11 +102,11 @@ def _serve(app, host: str, port: int) -> uvicorn.Server:
     raise RuntimeError(message)
 
 
-def _wait_http(url: str) -> None:
+def _wait_http(url: str, headers: dict[str, str] | None = None) -> None:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         try:
-            httpx.get(url, timeout=1.0)
+            httpx.get(url, timeout=1.0, headers=headers)
             return
         except httpx.HTTPError:
             time.sleep(0.1)
@@ -439,7 +439,7 @@ def _chrome_path() -> str:
     raise RuntimeError(message)
 
 
-def _open_browser() -> tuple[object, object, object]:
+def _open_browser(present_url: str) -> tuple[object, object, object]:
     from playwright.sync_api import sync_playwright
 
     playwright = sync_playwright().start()
@@ -448,6 +448,7 @@ def _open_browser() -> tuple[object, object, object]:
         args=list(CHROME_ARGS),
     )
     context = browser.new_context(permissions=["microphone"])
+    context.add_init_script(f"window.COPRESENTER_URL = {json.dumps(present_url)}")
     return playwright, browser, context
 
 
@@ -525,12 +526,16 @@ def _emit(report: dict[str, object]) -> None:
     sys.stdout.write(text)
 
 
-def _browser_standin(talk_url: str, present_url: str) -> tuple[dict[str, object], bool]:
-    playwright, browser, context = _open_browser()
+def _browser_standin(
+    talk_url: str,
+    present_url: str,
+    talk_origin: str,
+) -> tuple[dict[str, object], bool]:
+    playwright, browser, context = _open_browser(present_url)
     try:
         page = context.new_page()
         result = _drive_against_speech(page, talk_url)
-        who = httpx.get(f"{present_url}/who", timeout=_WHO_TIMEOUT).json()
+        who = _who(present_url, talk_origin)
     finally:
         _close_browser(playwright, browser, context)
     loop = result["loop"]
@@ -590,15 +595,24 @@ def _drive_real_turn(page, frames: list[bytes]) -> dict[str, object]:
     }
 
 
-def _browser_real(talk_url: str, speech_url: str) -> dict[str, object]:
+def _browser_real(talk_url: str, present_url: str, speech_url: str) -> dict[str, object]:
     frames = _synthesize_question_frames(speech_url, QUESTION)
-    playwright, browser, context = _open_browser()
+    playwright, browser, context = _open_browser(present_url)
     try:
         page = context.new_page()
         page.goto(talk_url, wait_until="networkidle")
         return _drive_real_turn(page, frames)
     finally:
         _close_browser(playwright, browser, context)
+
+
+def _who(present_url: str, talk_origin: str) -> dict[str, object]:
+    response = httpx.get(
+        f"{present_url}/who",
+        timeout=_WHO_TIMEOUT,
+        headers={"Origin": talk_origin},
+    )
+    return response.json()
 
 
 def _scrub_nested_session_env(env: dict[str, str]) -> dict[str, str]:
@@ -667,9 +681,10 @@ def _run_standin() -> int:
         talk_port = _free_port()
         speech_url = f"http://127.0.0.1:{speech_port}"
         present_url = f"http://127.0.0.1:{present_port}"
+        talk_origin = f"http://127.0.0.1:{talk_port}"
         speech_server = _serve(create_standin(), "127.0.0.1", speech_port)
         settings = Settings(
-            allowed_origin=f"http://127.0.0.1:{talk_port}",
+            allowed_origin=talk_origin,
             port=present_port,
             speech_url=speech_url,
             deck=DECK,
@@ -680,11 +695,10 @@ def _run_standin() -> int:
             present_port,
         )
         _wait_http(f"{speech_url}/health")
-        _wait_http(f"{present_url}/who")
+        _wait_http(f"{present_url}/who", {"Origin": talk_origin})
         httpd = ThreadingHTTPServer(("127.0.0.1", talk_port), TalkHandler)
         Thread(target=httpd.serve_forever, daemon=True).start()
-        talk_url = f"http://127.0.0.1:{talk_port}/?copresenter={present_url}"
-        _report, ok = _browser_standin(talk_url, present_url)
+        _report, ok = _browser_standin(f"{talk_origin}/", present_url, talk_origin)
         return 0 if ok else 1
     finally:
         if httpd is not None:
@@ -741,8 +755,8 @@ def _run_real() -> int:
     log_file = COPRESENTER_LOG.open("w", encoding="utf-8")
     try:
         proc = _start_copresenter(host, present_port, speech_url, talk_origin, log_file)
-        _wait_http(f"{present_url}/who")
-        who = httpx.get(f"{present_url}/who", timeout=_WHO_TIMEOUT).json()
+        _wait_http(f"{present_url}/who", {"Origin": talk_origin})
+        who = _who(present_url, talk_origin)
         if not _claude_provider(who):
             report = {
                 "ran": "failed",
@@ -753,8 +767,7 @@ def _run_real() -> int:
             return 1
         httpd = ThreadingHTTPServer((host, talk_port), TalkHandler)
         Thread(target=httpd.serve_forever, daemon=True).start()
-        talk_url = f"http://{host}:{talk_port}/?copresenter={present_url}"
-        result = _browser_real(talk_url, speech_url)
+        result = _browser_real(f"{talk_origin}/", present_url, speech_url)
         result["who"] = who
         return _report_real(result)
     finally:
