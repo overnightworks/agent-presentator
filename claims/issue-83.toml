@@ -1,0 +1,8 @@
+claim_id = "bc11dbd7016a46fc9a1382fa066047ad"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "0950f7aff8be72da961ccc9bcba9837e6f0b9e63"
+branch = "claude/issue-83-voice"
+scope = ["speech"]
+opened_commit = "8d89a4b2a6165a37ac439caa44fa9901ba607a32"
+whole_reason = "the speech project is its own package: the second voice touches its service, config, tests and README"
