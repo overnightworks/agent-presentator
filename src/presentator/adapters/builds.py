@@ -45,11 +45,13 @@ from presentator.contracts.decks import (
     Source,
     bounded_failure,
     talk_address,
+    theme_names,
 )
 
 _TOOLCHAIN: Final = "pnpm"
 _SLIDEV: Final = "slidev"
 _DOCKER: Final = "docker"
+_PACKAGE_JSON: Final = "package.json"
 _BUILD: Final = "build"
 _EXPORT: Final = "export"
 # The three directories one run of the build owns: the deck's own tree as the
@@ -436,6 +438,31 @@ class HostToolchain:
                 given_up=_nothing_outlives_the_tree,
             ),
         )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PackageJsonThemes:
+    """The theme names read off the toolchain project's `package.json` (ADR 0014).
+
+    Read at every call rather than cached at start: the file is small, on this
+    machine's own disk, and read is far cheaper than the toolchain step it
+    stands beside. Caching it would need its own invalidation the moment an
+    operator swaps `PRESENTATOR_TOOLCHAIN`'s contents without a restart, for a
+    cost this read does not have.
+    """
+
+    project: Path
+
+    def names(self) -> tuple[str, ...] | None:
+        """This project's theme names, or nothing while its manifest cannot be read."""
+        try:
+            manifest = (self.project / _PACKAGE_JSON).read_text()
+            return theme_names(manifest)
+        except (OSError, ValueError):
+            # A missing project, an unreadable file, and malformed JSON are all
+            # "cannot read" here: none of them is a set to derive a guess from
+            # (R3), so a deck page reads any of them the same way, as no row.
+            return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

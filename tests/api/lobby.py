@@ -42,6 +42,7 @@ from presentator.contracts.decks import (
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
+    DEFAULT_THEME_SET,
     CountingIdentifierFactory,
     FakeBuildRunner,
     FakeDeckFolders,
@@ -52,6 +53,7 @@ from tests.application.fakes import (
     FakeSessionRecordStore,
     FakeSourceRunStore,
     FakeSourceStore,
+    FakeToolchainThemes,
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
@@ -176,6 +178,7 @@ class GivenDecks:
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    themes: tuple[str, ...] | None = DEFAULT_THEME_SET
 
 
 NO_DECKS: Final = GivenDecks()
@@ -224,6 +227,7 @@ def a_lobby_app(
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
         source_runs=run_store,
+        toolchain_themes=FakeToolchainThemes(names_to_return=given.themes),
         build_bound=BUILD_BOUND,
         clock=clock,
     )

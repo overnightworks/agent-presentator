@@ -50,6 +50,7 @@ class LobbyText:
     deck_state_failed: str
     deck_state_never_built: str
     deck_built: str
+    deck_builds_with: str
     deck_not_built_explanation: str
     deck_building_explanation: str
     deck_building_label: str

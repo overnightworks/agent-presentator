@@ -49,6 +49,7 @@ _RUNNING_FOR: Final = timedelta(seconds=40)
 _HOW_LONG_IT_HAS_RUN: Final = "40 seconds"
 _WHAT_THE_TOOLCHAIN_SAID: Final = "slides.md:41:3 Unexpected token in frontmatter"
 _A_DECK_THAT_WRITES_MARKUP: Final = "<script>alert('slides')</script>"
+_THEMES: Final = ("apple-basic", "bricks", "default", "seriph", "shibainu")
 
 
 def a_build(*, talk: Path = _BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
@@ -212,6 +213,40 @@ def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
     assert download.headers["content-type"] == _PDF_TYPE
     assert download.headers["content-disposition"] == _SAVED_AS
     assert download.content == _EXPORTED_PDF.read_bytes()
+
+
+def test_the_deck_page_names_the_themes_this_instance_builds_with() -> None:
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+            themes=_THEMES,
+        ),
+    )
+
+    page = signed_in.get(_PAGE).text
+
+    assert ENGLISH.deck_builds_with.format(themes=", ".join(_THEMES)) in page
+    start = page.index("data-builds-with")
+    row = page[start : page.index("</p>", start)]
+    assert all(theme in row for theme in _THEMES)
+    # Names only (R4): the row that carries them has no path and no version.
+    assert "/" not in row
+    assert not any(character.isdigit() for character in row)
+
+
+def test_the_deck_page_omits_the_row_while_the_toolchain_cannot_be_read() -> None:
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+            themes=None,
+        ),
+    )
+
+    page = signed_in.get(_PAGE).text
+
+    assert "data-builds-with" not in page
 
 
 def test_a_built_decks_page_says_how_long_ago_its_talk_was_built() -> None:

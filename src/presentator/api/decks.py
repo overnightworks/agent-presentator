@@ -33,6 +33,9 @@ _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = "{slug}.pdf"
 _APPLICATION: Final = "index.html"
+# Names only, separated the way a spoken list is (R4): not localized, because a
+# comma-and-space list is not a sentence a catalog carries a word for.
+_THEME_SEPARATOR: Final = ", "
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -79,6 +82,7 @@ class _DeckPage:
             # beside them is the last good build's file and stays offered.
             views_open=page.state is not DeckState.BUILDING,
             banner=self._banner(page, text),
+            builds_with=self._builds_with(page.themes, text),
         )
 
     def _banner(self, page: DeckPage, text: LobbyText) -> Banner | None:
@@ -145,6 +149,20 @@ class _DeckPage:
             _UNKNOWN_DECK_TEMPLATE,
             status=HTTPStatus.NOT_FOUND,
         )
+
+    def _builds_with(
+        self,
+        themes: tuple[str, ...] | None,
+        text: LobbyText,
+    ) -> str | None:
+        """What this instance's toolchain carries, or nothing while unreadable (R3).
+
+        Names only, never a path or a version (R4): the toolchain project's
+        `package.json` is read no further than its theme package names.
+        """
+        if themes is None:
+            return None
+        return text.deck_builds_with.format(themes=_THEME_SEPARATOR.join(themes))
 
     def _when_it_was_built(
         self,

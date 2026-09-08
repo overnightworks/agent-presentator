@@ -22,6 +22,7 @@ from presentator.adapters.builds import (
     DaemonRefusedError,
     DeckToolchain,
     HostToolchain,
+    PackageJsonThemes,
     SlidevBuilds,
     the_daemon_of_this_machine,
 )
@@ -155,6 +156,7 @@ def build_instance(settings: Settings) -> Instance:
             output_megabytes=settings.build_output_megabytes,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
+        toolchain_themes=PackageJsonThemes(project=settings.toolchain),
         # One toolchain step's bound, which is what the refresh needs: it never
         # reads a live build, only what a process that is gone left behind.
         build_bound=build_bound,

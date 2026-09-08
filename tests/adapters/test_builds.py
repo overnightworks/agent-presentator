@@ -27,6 +27,7 @@ from presentator.adapters.builds import (
     DaemonRefusedError,
     DeckToolchain,
     HostToolchain,
+    PackageJsonThemes,
     SlidevBuilds,
     the_daemon_of_this_machine,
 )
@@ -550,6 +551,26 @@ def recording(
         _A_TOOLCHAIN_THAT_RECORDS.format(recorded=recorded),
     )
     return recorded
+
+
+def test_the_themes_are_read_off_the_toolchain_projects_own_manifest(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "frontend"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"devDependencies": {"@slidev/theme-seriph": "0.25.0"}}',
+    )
+
+    assert PackageJsonThemes(project=project).names() == ("default", "seriph")
+
+
+def test_a_toolchain_project_this_server_cannot_read_names_no_themes(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "no-such-project"
+
+    assert PackageJsonThemes(project=missing).names() is None
 
 
 def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
