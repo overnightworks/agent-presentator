@@ -10,24 +10,33 @@ filesystem but the deck itself and the directory this run produces, and no
 environment of this server's. Running the toolchain on this host instead is the
 development answer, and there a deck's Vue components run with this process's
 rights.
+
+What a build may take is bounded on every side it has: the time it may run, the
+memory and processes its container may use, what it may write into its own
+filesystem and into its talk, and how much of what it prints this server ever
+holds.
 """
 
 import logging
 import os
+import select
 import shutil
 import signal
 import subprocess
 from abc import abstractmethod
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import Final, Protocol
+from time import monotonic
+from typing import IO, Final, Protocol
 
 from gitmirror.model import MirrorError, Revision
 from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
+    FAILURE_TEXT_LIMIT,
     SLIDES_FILE,
     Artefacts,
     BuildFailure,
@@ -52,6 +61,14 @@ _PDF_FILE: Final = "deck.pdf"
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
 _INHERITED: Final = ("PATH", "HOME")
+# Mounting one directory of a volume is what keeps a build inside its own run.
+# A daemon older than this ignores the subpath it cannot read and mounts the
+# whole volume — every deck's talk — into a deck's own container, so the client
+# is pinned to this version: an older daemon then refuses the call instead of
+# doing something wider than it was asked. A start against one is refused too.
+_MOUNT_SUBPATH_SINCE: Final = (1, 45)
+_PINNED_API: Final = "DOCKER_API_VERSION"
+_AS_A_VERSION: Final = ".".join(str(part) for part in _MOUNT_SUBPATH_SINCE)
 # What a build's container may not do, whatever a deck's own code tries: reach
 # any network, gain a capability, or take a privilege from a setuid program.
 # The image runs the toolchain as its own unprivileged user, so nothing here
@@ -76,13 +93,76 @@ _SCRATCH_IS_EVERYONES: Final = "mode=1777"
 # it; a Slidev export and its browser stay far below this.
 _PROCESSES_AT_MOST: Final = 512
 _CONTAINER_PREFIX: Final = "presentator"
+# Docker holds a container's own filesystem to a size on these drivers only;
+# on any other it refuses the option rather than bounding anything.
+_OVERLAY: Final = "overlay2"
+_XFS: Final = "xfs"
+_DRIVERS_THAT_BOUND_A_FILESYSTEM: Final = frozenset({"btrfs", "zfs"})
+_BACKING_FILESYSTEM: Final = "Backing Filesystem"
+# One line naming the driver and, where it has one, the filesystem it writes
+# on; the two together decide whether a container's own writes can be bounded.
+_THE_DRIVER: Final = (
+    "{{.Driver}}"
+    "{{range .DriverStatus}}"
+    f'{{{{if eq (index . 0) "{_BACKING_FILESYSTEM}"}}}} {{{{index . 1}}}}{{{{end}}}}'
+    "{{end}}"
+)
+# Asking the daemon what it is, and taking down a container that outlived its
+# step, are calls to a socket on this machine; neither may hold the walk of
+# builds for longer than this.
+_DAEMON_ANSWERS_WITHIN: Final = timedelta(seconds=20)
+_REMOVAL_WITHIN: Final = timedelta(seconds=30)
+_READ_AT_ONCE: Final = 64 * 1024
+# A page shows the end of what a build printed, so only that much of it is ever
+# held: four bytes is the longest one character can be.
+_TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
+_A_MEGABYTE: Final = 1024 * 1024
+_OWNER_MAY_ENTER: Final = 0o700
 _UNREADABLE_DECK: Final = "deck %s cannot be read at %s: %s"
 _TOOLCHAIN_FAILED: Final = "%s of deck %s failed: %s"
 _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
 _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
 _CONTAINER_STAYED: Final = "the container of %s of deck %s could not be removed: %s"
+_RUN_STAYED: Final = "what build %s left could not be taken away"
+_TOO_MUCH_WRITTEN: Final = "deck %s wrote %s MB, which is more than a build may leave"
+# What a person reads on the deck page when no toolchain failed but the build
+# is refused all the same.
+_TOO_MUCH_FOR_A_PAGE: Final = (
+    "The talk this build wrote is {written} MB; a build may leave at most {allowed} MB."
+)
+_NO_CLIENT: Final = "no container client answers on this machine: {said}"
+_NO_DAEMON: Final = "this machine's container daemon did not answer: {said}"
+_TOO_OLD: Final = (
+    "this machine's container daemon speaks {spoken},"
+    f" and a build needs {_AS_A_VERSION} to be given one directory of a volume"
+)
 
 _log = logging.getLogger(__name__)
+
+
+class DaemonRefusedError(RuntimeError):
+    """This machine's container daemon is not one a deck may be built on."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Daemon:
+    """What this machine's container daemon is, in its own client's words."""
+
+    api_version: str
+    storage_driver: str
+    backing_filesystem: str
+
+    @property
+    def bounds_a_container_filesystem(self) -> bool:
+        """Whether this driver can hold a container's own writes to a size.
+
+        Docker takes a size on btrfs and zfs, and on overlay2 only over xfs
+        with project quotas. Asking any other driver for one is a refusal
+        rather than a bound, and a refusal would fail every build.
+        """
+        return self.storage_driver in _DRIVERS_THAT_BOUND_A_FILESYSTEM or (
+            self.storage_driver == _OVERLAY and self.backing_filesystem == _XFS
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -101,6 +181,16 @@ class BuildPlace:
     def here(self) -> Path:
         """That run's own directory, as this server names it."""
         return self.root / self.run
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _HowItIsRun:
+    """How one runner starts a step, bounds it, and clears up after the bound."""
+
+    in_directory: Path | None
+    environment: dict[str, str]
+    bound: timedelta
+    given_up: Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -140,12 +230,14 @@ class ContainerToolchain:
     this filesystem is the deck's tree, read-only, and the directory this run
     writes into — both of them directories of the volume the builds root is,
     mounted at the very paths this server names them by. Everything else it
-    writes is the container's own and goes with it.
+    writes is the container's own and goes with it, within the size this
+    machine's storage driver can hold it to.
     """
 
     image: str
     volume: str
     memory: str
+    disk: str | None
     bound: timedelta
 
     def ran(self, step: BuildStep) -> BuildFailure | None:
@@ -163,8 +255,7 @@ class ContainerToolchain:
                 "--rm",
                 f"--name={container}",
                 *_SEALED,
-                f"--memory={self.memory}",
-                f"--pids-limit={_PROCESSES_AT_MOST}",
+                *self._bounds(),
                 *self._mounts(step.place, scratch=scratch),
                 self.image,
                 _TOOLCHAIN,
@@ -174,10 +265,20 @@ class ContainerToolchain:
                 *step.arguments,
             ),
             step=step,
-            in_directory=None,
-            bound=self.bound,
-            given_up=lambda: self._removed(container, step),
+            how=_HowItIsRun(
+                in_directory=None,
+                environment=_a_client_environment(),
+                bound=self.bound,
+                given_up=lambda: self._removed(container, step),
+            ),
         )
+
+    def _bounds(self) -> tuple[str, ...]:
+        """What one build may take of this machine: memory, processes, disk."""
+        held = (f"--memory={self.memory}", f"--pids-limit={_PROCESSES_AT_MOST}")
+        if self.disk is None:
+            return held
+        return (*held, f"--storage-opt=size={self.disk}")
 
     def _mounts(self, place: BuildPlace, *, scratch: Path) -> tuple[str, ...]:
         """The deck read-only in, its toolchain's scratch, and the run's own out."""
@@ -203,13 +304,22 @@ class ContainerToolchain:
 
         Killing the client that started a container leaves the container
         itself, and a deck's own code is exactly what does not stop when asked.
+        A daemon that will not answer about it is named in the log rather than
+        waited on, because every later build stands behind this one.
         """
-        removal = subprocess.run(
-            [_DOCKER, "rm", "--force", container],
-            check=False,
-            capture_output=True,
-            env=_the_environment_of_this_server(),
-        )
+        try:
+            removal = subprocess.run(
+                [_DOCKER, "rm", "--force", container],
+                check=False,
+                capture_output=True,
+                env=_a_client_environment(),
+                # Never longer than the step it belongs to was allowed to
+                # take: every later build waits behind this one call.
+                timeout=min(self.bound, _REMOVAL_WITHIN).total_seconds(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as stayed:
+            _log.error(_CONTAINER_STAYED, step.name, step.slug, stayed)
+            return
         if removal.returncode != 0:
             _log.error(_CONTAINER_STAYED, step.name, step.slug, _tail(removal.stderr))
 
@@ -220,9 +330,8 @@ class HostToolchain:
 
     A deck's own components then run with this server's rights over the
     filesystem and the network; only the environment, the time, and where the
-    result may stand are bounded. It is what a development run builds with;
-    `ContainerToolchain` is what an instance carrying anyone's decks builds
-    with.
+    result may stand are bounded. It is what a development run builds with, and
+    only a deployment that says so in as many words gets it.
     """
 
     project: Path
@@ -233,9 +342,12 @@ class HostToolchain:
         return _what_a_step_said(
             (_TOOLCHAIN, "exec", _SLIDEV, step.name, *step.arguments),
             step=step,
-            in_directory=self.project,
-            bound=self.bound,
-            given_up=_nothing_outlives_the_tree,
+            how=_HowItIsRun(
+                in_directory=self.project,
+                environment=_the_environment_of_this_server(),
+                bound=self.bound,
+                given_up=_nothing_outlives_the_tree,
+            ),
         )
 
 
@@ -246,6 +358,7 @@ class SlidevBuilds:
     builds: Path
     toolchain: DeckToolchain
     mirrors: SourceMirrors
+    output_megabytes: int
 
     def build(self, deck: Deck, *, source: Source) -> Artefacts | BuildFailure:
         """Build this deck at its commit, or say what came of it instead.
@@ -255,15 +368,12 @@ class SlidevBuilds:
         before is left where it stands. What the toolchain said about a failure
         travels back with it, because the deck's page shows it (line 9).
         """
-        place = self._a_place_of_its_own(deck)
+        place = self._a_place_of_its_own()
         broke = self._what_broke(deck, source=source, place=place)
         if broke is None:
             written = place.here / _OUT
             return Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
-        # Nothing points at what a build that did not finish left behind, and
-        # nothing ever will, so it goes; the directory the deck delivers from is
-        # not touched, and cleaning up the ones that were pointed at is line 20.
-        shutil.rmtree(place.here, ignore_errors=True)
+        self._taken_away(place)
         return broke
 
     def holds(self, artefacts: Artefacts) -> bool:
@@ -274,19 +384,19 @@ class SlidevBuilds:
             for written in (artefacts.directory, artefacts.pdf)
         )
 
-    def _a_place_of_its_own(self, deck: Deck) -> BuildPlace:
-        """Where this run works: a new directory under the root, under the slug.
+    def _a_place_of_its_own(self) -> BuildPlace:
+        """Where this run works: a directory of its own under the root.
 
-        The deck's tree and everything the run writes stand side by side in it,
-        because a toolchain running elsewhere is given those two directories
-        and nothing else of this filesystem.
+        Its name is this server's own and carries nothing of the deck, because
+        it becomes a container's name and a mount's subpath — and a folder name
+        somebody else chose would be somebody else's punctuation in a command
+        line of ours.
         """
         root = self.builds.absolute()
-        for_the_deck = root / deck.slug
-        for_the_deck.mkdir(parents=True, exist_ok=True)
-        run = Path(mkdtemp(prefix=f"{deck.commit}-", dir=for_the_deck))
+        root.mkdir(parents=True, exist_ok=True)
+        run = Path(mkdtemp(dir=root))
         (run / _OUT).mkdir()
-        return BuildPlace(root=root, run=run.relative_to(root))
+        return BuildPlace(root=root, run=Path(run.name))
 
     def _what_broke(
         self,
@@ -323,7 +433,45 @@ class SlidevBuilds:
             )
             if broke is not None:
                 return broke
-        return None
+        return self._more_than_it_may_leave(deck, place)
+
+    def _more_than_it_may_leave(
+        self,
+        deck: Deck,
+        place: BuildPlace,
+    ) -> BuildFailure | None:
+        """Refuse a build whose talk is larger than one build may leave here.
+
+        A deck's own code decides what its talk holds, and a talk this machine
+        cannot keep is a machine that stops keeping the others. No toolchain
+        failed, so the words the page shows are this server's own.
+        """
+        written = _megabytes_under(place.here / _OUT)
+        if written <= self.output_megabytes:
+            return None
+        _log.warning(_TOO_MUCH_WRITTEN, deck.slug, written)
+        return BuildFailure(
+            text=_TOO_MUCH_FOR_A_PAGE.format(
+                written=written,
+                allowed=self.output_megabytes,
+            ),
+        )
+
+    def _taken_away(self, place: BuildPlace) -> None:
+        """Take away what a build that did not finish left, however it left it.
+
+        Nothing points at it and nothing ever will, and the directory the deck
+        delivers from is not touched; cleaning up the ones that were pointed at
+        is line 20. A deck's own code wrote in this tree and may have closed a
+        directory behind it, so the modes are given back first. Whether the
+        tree really went is then read off the filesystem, and one that stayed
+        is named in the log rather than passed over, because it is this machine
+        filling up.
+        """
+        _opened_again(place.here)
+        shutil.rmtree(place.here, ignore_errors=True)
+        if place.here.exists():
+            _log.warning(_RUN_STAYED, place.run)
 
     def _exported(self, deck: Deck, *, source: Source, into: Path) -> bool:
         """Write the deck's tree at its commit out of the mirror, as files."""
@@ -339,51 +487,149 @@ class SlidevBuilds:
         return True
 
 
+def the_daemon_of_this_machine() -> Daemon:
+    """What the container daemon here is, refusing one no build may run on.
+
+    A daemon that cannot be asked, and one too old to keep a build inside its
+    own directory of a volume, are both refusals: an instance that builds decks
+    in containers does not start against either.
+    """
+    spoken = _what_the_client_said("version", "{{.Server.APIVersion}}")
+    if _as_numbers(spoken) < _MOUNT_SUBPATH_SINCE:
+        raise DaemonRefusedError(_TOO_OLD.format(spoken=spoken))
+    driver, _, backing = _what_the_client_said("info", _THE_DRIVER).partition(" ")
+    return Daemon(
+        api_version=spoken,
+        storage_driver=driver,
+        backing_filesystem=backing,
+    )
+
+
+def _what_the_client_said(about: str, template: str) -> str:
+    """Ask the client one question about the daemon, or refuse this machine."""
+    try:
+        asked = subprocess.run(
+            [_DOCKER, about, "--format", template],
+            check=False,
+            capture_output=True,
+            env=_the_environment_of_this_server(),
+            timeout=_DAEMON_ANSWERS_WITHIN.total_seconds(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as unavailable:
+        raise DaemonRefusedError(_NO_CLIENT.format(said=unavailable)) from None
+    if asked.returncode != 0:
+        raise DaemonRefusedError(_NO_DAEMON.format(said=_tail(asked.stderr)))
+    return asked.stdout.decode(errors="replace").strip()
+
+
+def _as_numbers(version: str) -> tuple[int, ...]:
+    """A daemon's version as numbers, refusing anything that is not one."""
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        raise DaemonRefusedError(_TOO_OLD.format(spoken=version)) from None
+
+
 def _what_a_step_said(
     command: tuple[str, ...],
     *,
     step: BuildStep,
-    in_directory: Path | None,
-    bound: timedelta,
-    given_up: Callable[[], None],
+    how: _HowItIsRun,
 ) -> BuildFailure | None:
     """Run one step's command line under the bound, and say what came of it."""
-    try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            cwd=in_directory,
-            env=_the_environment_of_this_server(),
-            # A step spawns processes of its own — pnpm runs slidev, and an
-            # export runs a browser under that — so only a session of its own
-            # lets the bound reach every one of them, not just the child this
-            # call started directly.
-            start_new_session=True,
-        )
-    except OSError as unavailable:
-        # A toolchain that cannot be started is this host's fault, and what the
-        # operating system says about it names paths of this host; the deck's
-        # page is told that no words came back, and the log keeps them.
-        _log.error(_TOOLCHAIN_UNAVAILABLE, step.name, step.slug, unavailable)
-        return BuildFailure(text=None)
-    with process:
+    reading, writing = os.pipe()
+    with os.fdopen(reading, "rb", buffering=0) as printed:
         try:
-            _, stderr = process.communicate(timeout=bound.total_seconds())
-        except subprocess.TimeoutExpired:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            process.wait()
-            given_up()
-            _log.warning(_TOOLCHAIN_TIMED_OUT, step.name, step.slug, bound)
-            # What a step that was killed had written so far is not read: the
-            # pipe is the killed tree's, and reading it would wait on the very
-            # processes the bound gave up on.
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=writing,
+                cwd=how.in_directory,
+                env=how.environment,
+                # A step spawns processes of its own — pnpm runs slidev, and an
+                # export runs a browser under that — so only a session of its
+                # own lets the bound reach every one of them, not just the
+                # child this call started directly.
+                start_new_session=True,
+            )
+        except OSError as unavailable:
+            # A toolchain that cannot be started is this host's fault, and what
+            # the operating system says about it names paths of this host; the
+            # deck's page is told that no words came back, and the log keeps
+            # them.
+            _log.error(_TOOLCHAIN_UNAVAILABLE, step.name, step.slug, unavailable)
             return BuildFailure(text=None)
+        finally:
+            # The child holds the writing end now, and only this process
+            # letting go of it lets the reading end ever see an end.
+            os.close(writing)
+        said, in_time = _the_end_of_what_it_printed(printed, process, bound=how.bound)
+    if not in_time:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        process.wait()
+        how.given_up()
+        _log.warning(_TOOLCHAIN_TIMED_OUT, step.name, step.slug, how.bound)
+        # What a step that was killed had printed is not shown: it is the words
+        # of a run nobody waited for, and the page says so in its own sentence.
+        return BuildFailure(text=None)
     if process.returncode != 0:
-        said = _tail(stderr)
-        _log.warning(_TOOLCHAIN_FAILED, step.name, step.slug, said)
-        return BuildFailure(text=said or None)
+        words = _tail(said)
+        _log.warning(_TOOLCHAIN_FAILED, step.name, step.slug, words)
+        return BuildFailure(text=words or None)
     return None
+
+
+def _the_end_of_what_it_printed(
+    printed: IO[bytes],
+    process: subprocess.Popen[bytes],
+    *,
+    bound: timedelta,
+) -> tuple[bytes, bool]:
+    """The last of what a step printed, and whether it ended inside its bound.
+
+    A deck's own build decides how much it prints, and a server that held all
+    of it would be a server a deck can fill; only the end a page can show is
+    ever kept, however long the step goes on talking.
+    """
+    ends_by = monotonic() + bound.total_seconds()
+    said = b""
+    while True:
+        left = ends_by - monotonic()
+        if left <= 0 or not select.select([printed], [], [], left)[0]:
+            return said, False
+        printed_now = printed.read(_READ_AT_ONCE)
+        if not printed_now:
+            return said, _ended_within(process, ends_by)
+        said = (said + printed_now)[-_TAIL_BYTES:]
+
+
+def _ended_within(process: subprocess.Popen[bytes], ends_by: float) -> bool:
+    """Whether the step's own process was over by then, once it stopped talking."""
+    try:
+        process.wait(timeout=max(ends_by - monotonic(), 0.0))
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
+def _megabytes_under(directory: Path) -> int:
+    """How much of this machine that directory holds, following no link out."""
+    held = 0
+    for inside, _, files in os.walk(directory):
+        held += sum((Path(inside) / name).lstat().st_size for name in files)
+    return held // _A_MEGABYTE
+
+
+def _opened_again(tree: Path) -> None:
+    """Give back the modes a build may have taken from its own leftovers.
+
+    The walk is top-down, so a directory closed behind a build is opened
+    before this walk asks what is inside it.
+    """
+    for inside, directories, _ in os.walk(tree):
+        for closed in directories:
+            with suppress(OSError):
+                (Path(inside) / closed).chmod(_OWNER_MAY_ENTER)
 
 
 def _a_container_for(step: BuildStep) -> str:
@@ -398,6 +644,11 @@ def _nothing_outlives_the_tree() -> None:
 def _the_environment_of_this_server() -> dict[str, str]:
     """The whole environment a step's own command line is run with."""
     return {name: os.environ[name] for name in _INHERITED if name in os.environ}
+
+
+def _a_client_environment() -> dict[str, str]:
+    """That, and the one version this server will speak to a daemon in."""
+    return {**_the_environment_of_this_server(), _PINNED_API: _AS_A_VERSION}
 
 
 def _tail(output: bytes) -> str:

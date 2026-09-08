@@ -5,6 +5,7 @@ adapter satisfies which port.
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -18,9 +19,11 @@ from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from presentator.adapters.builds import (
     ContainerToolchain,
+    DaemonRefusedError,
     DeckToolchain,
     HostToolchain,
     SlidevBuilds,
+    the_daemon_of_this_machine,
 )
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
@@ -66,8 +69,26 @@ from presentator.application.identity import (
     Identity,
 )
 from presentator.application.preferences import Preferences
-from presentator.host.config import Settings, load_settings
+from presentator.host.config import (
+    Settings,
+    WhereBuildsRun,
+    cannot_start,
+    load_settings,
+)
 from presentator.host.polling import SourcePoller
+
+_WITHOUT_A_SANDBOX = (
+    "build_image and build_volume say what a deck's build runs in and where it"
+    " writes, and a deck is code (line 14a): without both of them there is no"
+    " sandbox. Ask for the development run knowingly with"
+    " build_runner=host, or name them"
+)
+_NOTHING_BOUNDS_A_BUILD = (
+    "the %s storage driver cannot hold a container's own filesystem to a size,"
+    " so what one build writes outside its talk is bounded by this machine alone"
+)
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -142,6 +163,7 @@ def build_instance(settings: Settings) -> Instance:
             builds=settings.builds,
             toolchain=_what_builds_a_deck(settings, bound=build_bound),
             mirrors=mirrors,
+            output_megabytes=settings.build_output_megabytes,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
         # One toolchain step's bound, which is what the refresh needs: it never
@@ -178,19 +200,32 @@ def build_instance(settings: Settings) -> Instance:
 
 
 def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchain:
-    """A container of the build's own, or this machine's toolchain project.
+    """A container of the build's own, or this machine's own toolchain project.
 
-    A deck is code (line 14a), so an instance that is given an image and the
-    volume its builds root is a directory of runs every deck's build in a
-    container with no network and nothing of this server in it. Naming neither
-    is the development run, and the configuration refuses to name only one.
+    A deck is code (line 14a), so a build runs in a container unless this
+    deployment asked in as many words for the development run. The daemon that
+    would give it that container is asked what it is before anything is served,
+    because a daemon too old to keep a build inside its own directory is not
+    one this instance may run decks on at all.
     """
-    if settings.build_image is None or settings.build_volume is None:
+    if settings.build_runner is WhereBuildsRun.HOST:
         return HostToolchain(project=settings.toolchain, bound=bound)
+    image, volume = settings.build_image, settings.build_volume
+    if image is None or volume is None:
+        raise cannot_start(_WITHOUT_A_SANDBOX)
+    try:
+        daemon = the_daemon_of_this_machine()
+    except DaemonRefusedError as refused:
+        raise cannot_start(str(refused)) from None
+    if not daemon.bounds_a_container_filesystem:
+        _log.warning(_NOTHING_BOUNDS_A_BUILD, daemon.storage_driver)
     return ContainerToolchain(
-        image=settings.build_image,
-        volume=settings.build_volume,
+        image=image,
+        volume=volume,
         memory=settings.build_memory,
+        # A driver that cannot hold a container's filesystem to a size refuses
+        # the option rather than bounding it, and would fail every build.
+        disk=settings.build_disk if daemon.bounds_a_container_filesystem else None,
         bound=bound,
     )
 

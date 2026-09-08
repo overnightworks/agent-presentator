@@ -138,7 +138,7 @@ elsewhere here do not apply, and compose adds the two the sandbox is:
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
 | `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
-| `PRESENTATOR_BUILD_VOLUME` | `agent-presentator-builds`, set by `compose.yaml` |
+| `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
 
 Overriding one of the three paths in `.env` moves that state out of its volume,
 which is how an instance loses what it writes; every other setting is the
@@ -185,10 +185,12 @@ An instance without a source runs and lists nothing; the settings above say
 what each further variable does and what a refused one costs. The first start
 offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
 
-Three named volumes hold what has to survive the container: `database` and
-`mirrors` under the name of the directory compose runs in, and
-`agent-presentator-builds`, which carries a name of its own because the server
-hands that name to the daemon for every build.
+Three named volumes hold what has to survive the container: `database`,
+`mirrors` and `builds`, each under the name of the project — the directory
+compose runs in, unless `COMPOSE_PROJECT_NAME` says otherwise. The server is
+handed that same derived name for the builds volume, because it gives it to the
+daemon for every build, so one machine can carry a second instance without the
+two building into each other.
 `docker compose down` keeps them, and the next `up` finds the accounts, the
 sources, the decks and the talks that were built, with nothing built again.
 `docker compose down -v` deletes them, which is the one command that loses an
@@ -257,40 +259,66 @@ Builds are kept per deck and per run, and none is ever deleted, so
 `PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
 ([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20).
 
-**A deck is code, and its build runs in a container of its own.**
-`PRESENTATOR_BUILD_IMAGE` and `PRESENTATOR_BUILD_VOLUME` are what say so: the
-image the toolchain stands in, and the volume `PRESENTATOR_BUILDS` is a
-directory of. Compose sets both. An instance that names one without the other
-refuses to start, because the other half of a sandbox is this machine; naming
-neither is the development run, where a deck's Vue components execute as the
-server process with its rights over files and the network.
+**A deck is code, and its build runs in a container of its own.** That is what
+an instance does, and it takes two names to do it: `PRESENTATOR_BUILD_IMAGE`,
+the image the toolchain stands in, and `PRESENTATOR_BUILD_VOLUME`, the volume
+`PRESENTATOR_BUILDS` is a directory of. Compose sets both. An instance missing
+either of them does not start, and says which. The one way to build on this
+machine instead is `PRESENTATOR_BUILD_RUNNER=host`, where a deck's Vue
+components execute as the server process, with its rights over every file and
+the network: that is a development run on a machine whose decks are all your
+own, and `compose.yaml` never sets it.
+
+Docker Engine 26 or newer is required (API 1.45), because giving a container
+one directory of a volume is what keeps a build out of every other deck's
+talk. An instance whose daemon is older refuses to start and names the version;
+the client is pinned to it besides, so a daemon swapped underneath a running
+instance refuses the call rather than mounting more than it was asked for.
 
 Every step of a build is then a container the server asks this machine's daemon
 for: no network at all, every capability dropped, no new privilege from a
-setuid program, `PRESENTATOR_BUILD_MEMORY` (`4g`) of memory, at most 512
-processes, and none of this server's environment — no key, no source secret,
-not even the variables it was started with. What the build can reach of this
-machine's filesystem is two directories of the builds volume: the deck's own
-tree, read-only, and the directory that run writes its talk and its PDF into.
-Everything else it writes is the container's own and goes with it. It runs as
-the image's unprivileged user. Each step keeps the bound above, and a step that
-runs past it takes its container down rather than leaving it. A deck that reads
-a file it does not carry, or opens a connection, fails the build with the
-toolchain's own words on the deck page, and the talk that stood before it keeps
-standing. No seccomp or AppArmor profile of this repository's own stands behind
-that: with no network, no capability and nothing of this host mounted, Docker's
-default profiles already deny what there is to deny. The container's own root
-is left writable because Slidev's PDF export writes its dependency cache inside
-the toolchain it runs from; that filesystem is the image's and lives as long as
-the one build.
+setuid program, and none of this server's environment — no key, no source
+secret, not even the variables it was started with. What the build can reach of
+this machine's filesystem is two directories of the builds volume: the deck's
+own tree, read-only, and the directory that run writes its talk and its PDF
+into, neither of them named after anything a deck's author chose. Everything
+else it writes is the container's own and goes with it. It runs as the image's
+unprivileged user. A deck that reads a file it does not carry, or opens a
+connection, fails the build with the toolchain's own words on the deck page,
+and the talk that stood before it keeps standing. No seccomp or AppArmor
+profile of this repository's own stands behind that: with no network, no
+capability and nothing of this host mounted, Docker's default profiles already
+deny what there is to deny. The container's own root is left writable because
+Slidev's PDF export writes its dependency cache inside the toolchain it runs
+from; that filesystem is the image's and lives as long as the one build.
+
+What one build may take is bounded on every side it has:
+
+| Bound | Setting | What happens at it |
+| --- | --- | --- |
+| Time, per step | `PRESENTATOR_BUILD_TIMEOUT_SECONDS` (`300`) | The step is killed and its container taken down; the page says the build was given up on |
+| Memory | `PRESENTATOR_BUILD_MEMORY` (`4g`) | The kernel ends the build, and the toolchain's own words say so |
+| Processes | 512, a constant | The container may spawn no more |
+| Its own filesystem | `PRESENTATOR_BUILD_DISK` (`8g`) | Writing past it fails inside the build |
+| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The build is refused, in this server's own words on the page, and what it wrote is taken away |
+
+The filesystem bound is Docker's `--storage-opt size`, which only some storage
+drivers take: btrfs, zfs, and overlay2 over xfs with project quotas. The server
+asks the daemon which driver it runs (`docker info --format '{{.Driver}}'`) and
+leaves the bound off where it would be refused, naming the driver in the log at
+startup; on such a machine — overlay2 over ext4, which is the common one — what
+a build writes outside its talk is bounded by the disk alone, and the talk
+bound above is what stands between a deck and this machine. Setting
+`PRESENTATOR_BUILD_DISK` empty leaves it off everywhere.
 
 The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
 instance and puts the server in the `docker` group, so the server may ask the
 daemon for any container this machine could run — an authority wider than the
-one it uses, and the reason `PRESENTATOR_DOCKER_GROUP` exists. An instance
-whose every deck source is the operator's own may leave image and volume unset
-and keep the socket out of the container instead; an instance serving a
-repository somebody else can push to builds in the container.
+one it uses, and the reason `PRESENTATOR_DOCKER_GROUP` exists. A machine whose
+decks are all the operator's own can trade it the other way with
+`PRESENTATOR_BUILD_RUNNER=host`, which keeps the socket out of the container
+and runs every deck's code as the server; an instance serving a repository
+somebody else can push to does not.
 
 ## The fetch-now hook
 

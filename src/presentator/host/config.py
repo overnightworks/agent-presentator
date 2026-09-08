@@ -1,15 +1,10 @@
 """What varies by deployment; everything else is a constant beside its owner."""
 
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Final
 
-from pydantic import (
-    AfterValidator,
-    Field,
-    SecretStr,
-    ValidationError,
-    model_validator,
-)
+from pydantic import AfterValidator, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 from webauth.proxies import TrustedProxies
 
@@ -18,6 +13,17 @@ from webauth.proxies import TrustedProxies
 SECRET_LENGTH: Final = 32
 
 _REFUSED: Final = "this environment cannot start an instance"
+
+
+class WhereBuildsRun(StrEnum):
+    """Where the toolchain that builds a deck runs (line 14a).
+
+    A container of the build's own is what an instance is; this machine itself
+    is a development run, and a deployment gets it only by saying so.
+    """
+
+    CONTAINER = "container"
+    HOST = "host"
 
 
 class ConfigurationError(ValueError):
@@ -58,15 +64,18 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # A build that hangs would hold every later build behind it, so each step
     # of the toolchain is bounded.
     build_timeout_seconds: float = 300.0
-    # A deck is code, so an instance carrying anyone's decks builds each of
-    # them in a container of its own: the image the toolchain stands in, and
-    # the volume the builds root is a directory of. Both are facts of the
-    # deployment this repository's `compose.yaml` sets up; without them the
-    # toolchain runs on this machine, which is the development run.
+    # A deck is code, so every build runs in a container of its own: the image
+    # the toolchain stands in, and the volume the builds root is a directory
+    # of, are what a deployment names for it. Running the toolchain on this
+    # machine instead is a development run, and it takes saying so.
+    build_runner: WhereBuildsRun = WhereBuildsRun.CONTAINER
     build_image: str | None = None
     build_volume: str | None = None
-    # What one build may take of this machine's memory, in Docker's own words.
+    # What one build may take of this machine, in Docker's own words for a size
+    # and in whole megabytes for the talk it may leave behind.
     build_memory: str = "4g"
+    build_disk: str | None = "8g"
+    build_output_megabytes: int = 300
     source_url: str | None = None
     source_ref: str = "main"
     # The name the source answers to in its hook address, and the secret a call
@@ -91,21 +100,10 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
 
-    @model_validator(mode="after")
-    def sandboxed_or_not_at_all(self) -> "Settings":
-        """Refuse half a sandbox, because the other half of it is this machine.
 
-        A deployment naming the image but not the volume, or the volume but not
-        the image, would go on building every deck's own code here and say
-        nothing about it — the one failure a sandbox exists to prevent.
-        """
-        if (self.build_image is None) != (self.build_volume is None):
-            message = (
-                "build_image and build_volume are given together or not at all;"
-                " without both, a build runs the deck's own code on this machine"
-            )
-            raise ValueError(message)
-        return self
+def cannot_start(reason: str) -> ConfigurationError:
+    """The refusal an environment no instance can run on is answered with."""
+    return ConfigurationError(f"{_REFUSED}: {reason}")
 
 
 def load_settings() -> Settings:
@@ -120,17 +118,11 @@ def load_settings() -> Settings:
     except ValidationError as refused:
         # A refused value is often a real secret, and the library's own message
         # quotes it; only the field and the reason may leave this call.
-        raise ConfigurationError(_what_is_wrong(refused)) from None
+        raise cannot_start(_what_is_wrong(refused)) from None
 
 
 def _what_is_wrong(refused: ValidationError) -> str:
-    named = ", ".join(
-        f"{where}: {fault['msg']}" if (where := _where(fault["loc"])) else fault["msg"]
+    return ", ".join(
+        f"{'.'.join(str(part) for part in fault['loc'])}: {fault['msg']}"
         for fault in refused.errors()
     )
-    return f"{_REFUSED}: {named}"
-
-
-def _where(location: tuple[int | str, ...]) -> str:
-    """The field a refusal is about, or nothing where it is about all of them."""
-    return ".".join(str(part) for part in location)

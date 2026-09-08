@@ -36,7 +36,12 @@ from presentator.host.config import (
     load_settings,
 )
 from presentator.host.main import Instance
-from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, GitRemote
+from tests.conftest import (
+    EXAMPLE_SLUG,
+    EXAMPLE_TITLE,
+    GitRemote,
+    with_the_program,
+)
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
@@ -56,10 +61,32 @@ _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
 _A_HALF_NAMED_SANDBOX = "named-here-but-not-beside-it"
-# Neither exists on any machine this suite runs on, so a build that may only
-# happen in a container never happens at all.
-_NO_IMAGE_ON_THIS_MACHINE = "an-image-nothing-on-this-machine-carries"
-_NO_VOLUME_ON_THIS_MACHINE = "a-volume-nothing-on-this-machine-carries"
+_THE_BUILD_IMAGE = "the-build-image-of-this-deployment"
+_THE_BUILDS_VOLUME = "the-builds-volume-of-this-deployment"
+_THE_VERSION_A_SUBPATH_NEEDS = "1.45"
+_A_DRIVER_WITHOUT_A_SIZE = "overlay2"
+# A `docker` this test wrote: one daemon new enough to keep a build inside its
+# own directory and carrying no image to build with, one too old for that, and
+# one on a driver that cannot hold a container's own filesystem to a size.
+_A_DAEMON_THAT_BUILDS_NOTHING = """#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "overlay2 xfs";;
+    *) echo "there is no such image" >&2; exit 1;;
+esac
+"""
+_A_DAEMON_TOO_OLD_TO_BUILD_ON = """#!/bin/sh
+case "$1" in
+    version) echo "1.44";;
+    info) echo "overlay2 xfs";;
+esac
+"""
+_A_DAEMON_ON_A_DRIVER_WITHOUT_A_SIZE = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "{_A_DRIVER_WITHOUT_A_SIZE} extfs";;
+esac
+"""
 
 
 @pytest.fixture
@@ -76,6 +103,10 @@ def bare_environment(
 @pytest.fixture
 def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     bare_environment.setenv("PRESENTATOR_SECRET_KEY", _INSTANCE_KEY)
+    # These tests are about the lobby this root composes, not about where a
+    # deck's code runs; the development run is what asks nothing of a daemon,
+    # and the tests below that are about the sandbox say so themselves.
+    bare_environment.setenv("PRESENTATOR_BUILD_RUNNER", "host")
     return bare_environment
 
 
@@ -220,25 +251,51 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
 
 @pytest.mark.parametrize(
     "half",
-    ["PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],
-    ids=["an image without a volume", "a volume without an image"],
+    [None, "PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],
+    ids=["neither of them", "an image without a volume", "a volume without an image"],
 )
-def test_an_instance_naming_half_a_build_sandbox_refuses_to_start(
+def test_an_instance_that_does_not_say_what_builds_a_deck_refuses_to_start(
     environment: pytest.MonkeyPatch,
-    half: str,
+    half: str | None,
 ) -> None:
-    environment.setenv(half, _A_HALF_NAMED_SANDBOX)
+    # Nothing said about where a build runs is a build in a container, and a
+    # container this environment does not name is no instance at all.
+    environment.delenv("PRESENTATOR_BUILD_RUNNER")
+    if half is not None:
+        environment.setenv(half, _A_HALF_NAMED_SANDBOX)
 
     with pytest.raises(ConfigurationError, match="build_image and build_volume"):
-        load_settings()
+        main.build_instance(load_settings())
 
 
-def test_a_deck_an_instance_may_only_build_in_a_container_it_lacks_offers_no_view(
+def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_TOO_OLD_TO_BUILD_ON)
+
+    with pytest.raises(ConfigurationError, match=_THE_VERSION_A_SUBPATH_NEEDS):
+        main.build_instance(load_settings())
+
+
+def test_a_daemon_that_cannot_bound_what_a_build_writes_is_named_at_the_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_ON_A_DRIVER_WITHOUT_A_SIZE)
+
+    main.build_instance(load_settings())
+
+    assert _A_DRIVER_WITHOUT_A_SIZE in caplog.text
+
+
+def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_view(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    environment.setenv("PRESENTATOR_BUILD_IMAGE", _NO_IMAGE_ON_THIS_MACHINE)
-    environment.setenv("PRESENTATOR_BUILD_VOLUME", _NO_VOLUME_ON_THIS_MACHINE)
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_BUILDS_NOTHING)
     instance = a_polled_source(environment, remote)
     lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
@@ -249,6 +306,18 @@ def test_a_deck_an_instance_may_only_build_in_a_container_it_lacks_offers_no_vie
     assert page.status_code == HTTPStatus.OK
     assert EXAMPLE_TITLE in page.text
     assert f"/deck/{EXAMPLE_SLUG}/presenter/" not in page.text
+
+
+def a_container_run(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    docker: str,
+) -> None:
+    """An instance that builds every deck in a container, on that daemon."""
+    environment.setenv("PRESENTATOR_BUILD_RUNNER", "container")
+    environment.setenv("PRESENTATOR_BUILD_IMAGE", _THE_BUILD_IMAGE)
+    environment.setenv("PRESENTATOR_BUILD_VOLUME", _THE_BUILDS_VOLUME)
+    with_the_program(environment, tmp_path, "docker", docker)
 
 
 def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(

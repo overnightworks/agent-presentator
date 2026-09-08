@@ -292,17 +292,22 @@ the directory a deck delivers from is never removed, so a request that read the 
 pointer still finds a directory. Cleaning up the builds that were pointed at is
 open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
-**A deck is code, and its build runs in a container of its own.** Where an
-instance is given a build image and the volume its builds root is a directory
-of — which `compose.yaml` does — the server asks its machine's daemon for a
-container per step ([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line
-14a): no network, every capability dropped, a bound on memory and processes,
-none of this server's environment, and nothing of this machine's filesystem but
-the deck's own tree, read-only, and the directory that run writes. A component
-that reads a file the deck does not carry, or opens a connection, fails the
-build with the toolchain's own words on the deck page,
-while the talk that stood keeps standing. Naming neither image nor volume is
-the development run, where the toolchain is a subprocess of the server with its
-rights; naming one without the other refuses to start. The price is the docker
-socket, which [OPERATIONS.md](OPERATIONS.md) names.
+**A deck is code, and its build runs in a container of its own.** The server
+asks its machine's daemon for a container per step
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a): no network,
+every capability dropped, none of this server's environment, and nothing of
+this machine's filesystem but the deck's own tree, read-only, and the directory
+that run writes — both of them directories of one volume, named after the run
+rather than after anything a deck's author chose. A component that reads a file
+the deck does not carry, or opens a connection, fails the build with the
+toolchain's own words on the deck page, while the talk that stood keeps
+standing; so does a build that wants more time, memory, processes, or disk than
+one build may have, or that writes a talk larger than an instance keeps.
+
+That is what an instance is, and an instance that cannot have it does not
+start: without the image and the volume it builds in, or on a daemon too old to
+give a container one directory of a volume, the composition refuses and says
+which. Building on this machine instead is one explicit setting, for a
+development run, and it costs the sandbox altogether. The price of the sandbox
+is the docker socket, which [OPERATIONS.md](OPERATIONS.md) names.
 
