@@ -4,9 +4,9 @@ Audience: humans and agents storing a secret in this product, or handing one to
 `git`.
 
 - Status: ACCEPTED 2026-09-07 — the box, the ciphertext column and the resolver
-  that reads it exist; nothing writes a secret at a surface yet. The Add form
-  that fills the column (12.5) and its webhook secret, the end of the
-  environment-configured source (12.6), and the deploy key (12.7) are open on
+  that reads it exist; Add source writes the column; the source page renews
+  either secret; the environment-configured source is gone. The deploy key
+  (12.7) is open on
   [#8](https://github.com/overnightworks/agent-presentator/issues/8)
 - Date: 2026-09-07
 - Decision authority: the reviewed breakdown of #8 slice 12, recorded on
@@ -62,19 +62,15 @@ import-linter contract keeps `cryptography` out of every layer above
 
 ### The row says where its secret stands
 
-A source's row carries the ciphertext in a nullable column beside the
-`credential_reference` column, which keeps meaning an environment variable's
-name. One resolver answers at the pull, and it branches on **which column the
-row carries**, never on what a value looks like: ciphertext is opened with the
-box, a named variable is read from the environment, and the stored form wins
-where a row carries both. The environment form is what an instance configured
-from `PRESENTATOR_SOURCE_*` still runs on; it goes with that configuration,
-once a surface exists to re-enter a secret.
-
-Ciphertext another instance key wrote is refused rather than answered with
-whatever it decodes to. The pull reads that refusal as a credential it cannot
-resolve, records the run as failed, and leaves every deck listed — a source
-nobody can read says nothing about what it carries.
+A source's row carries the ciphertext in a nullable column. That is the one
+place a secret stands: the resolver opens it with the box, or answers with
+nothing while the column is empty. A leftover `credential_reference` naming
+an environment variable is not read. Ciphertext another instance key wrote is
+refused rather than answered with whatever it decodes to. The pull reads that
+refusal as a credential it cannot resolve, records the run as failed, and
+leaves every deck listed — a source nobody can read says nothing about what it
+carries. Renew on the source page is how a missing or unreadable secret is
+replaced.
 
 ### Where the plaintext goes
 

@@ -6,9 +6,8 @@ Every entry names the site that reaches it; an entry without one is an excuse.
 
 from presentator.api.auth import DeckRow
 from presentator.api.decks import Banner
-from presentator.api.sources import SourceRow
+from presentator.api.sources import SourceDeckRow, SourceRow, SourceRunRow, SourceView
 from presentator.contracts.text import LobbyText
-from presentator.host.config import Settings
 
 # `presentator/api/templates/home.html` renders it in the "Changed" column.
 DeckRow.changed
@@ -20,6 +19,26 @@ SourceRow.access
 SourceRow.state
 SourceRow.state_word
 SourceRow.fetched
+
+# `presentator/api/templates/source.html` renders the source page.
+SourceView.name
+SourceView.url
+SourceView.access
+SourceView.state
+SourceView.state_word
+SourceView.fetched
+SourceView.secret_missing
+SourceView.address
+SourceView.webhook_secret
+SourceView.runs
+SourceView.decks
+SourceRunRow.state
+SourceRunRow.state_word
+SourceRunRow.fetched
+SourceRunRow.commit
+SourceRunRow.reason
+SourceDeckRow.slug
+SourceDeckRow.title
 
 # `presentator/api/templates/deck.html` renders the build block out of these.
 Banner.lead
@@ -69,6 +88,17 @@ LobbyText.source_copy
 LobbyText.source_webhook_payload
 LobbyText.source_created_done
 LobbyText.source_created
-
-# Still loaded from the environment; the hook compares the per-source hash.
-Settings.source_hook_secret
+LobbyText.source_access_heading
+LobbyText.source_webhook_heading
+LobbyText.source_recent_runs
+LobbyText.source_decks
+LobbyText.source_reverse
+LobbyText.source_push_inbox
+LobbyText.source_later
+LobbyText.source_renew
+LobbyText.source_secret_dots
+LobbyText.source_secret_missing
+LobbyText.source_access_renew_info
+LobbyText.source_run_fetched
+LobbyText.source_run_unreachable
+LobbyText.source_run_secret

@@ -2,16 +2,16 @@
 
 import logging
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from gitmirror.mirror import credential_arguments, unattended_environment
 from gitmirror.model import CredentialReference, CredentialResolver
 from presentator.adapters.decks import (
-    ConfiguredSource,
-    EnvironmentCredentials,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -29,6 +29,7 @@ from presentator.adapters.secrets import SecretBox, secret_box
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
+    RECENT_SOURCE_RUNS,
     SLIDES_FILE,
     Build,
     BuildAttempt,
@@ -84,6 +85,14 @@ def a_box(*, instance_key: str = _INSTANCE_KEY) -> SecretBox:
     return secret_box(instance_key)
 
 
+@dataclass(frozen=True, slots=True)
+class OpenCredentials:
+    """A stand-in so a local bare remote can be pulled without a stored secret."""
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        return "unused-on-a-file-url"
+
+
 def a_resolver(
     database: Path,
     *,
@@ -93,7 +102,6 @@ def a_resolver(
     return SourceCredentials(
         database=database,
         box=a_box(instance_key=instance_key),
-        environment=EnvironmentCredentials(),
     )
 
 
@@ -116,7 +124,7 @@ def mirrors_under(
 ) -> SourceMirrors:
     return SourceMirrors(
         directory=tmp_path / "mirrors",
-        credentials=EnvironmentCredentials() if credentials is None else credentials,
+        credentials=OpenCredentials() if credentials is None else credentials,
         pull_timeout=timeout,
     )
 
@@ -207,31 +215,57 @@ def a_failed_run(*, source_id: str = _SOURCE_ID, at: datetime) -> SourceRun:
 def a_source_store(
     database: Path,
     *,
-    url: str | None = _ADDRESS,
-    name: str = _SOURCE_NAME,
-    credential: str | None = None,
     instance_key: str = _INSTANCE_KEY,
 ) -> SqliteSourceStore:
-    """The sources table of an instance configured with that address."""
+    """The sources table over that file."""
     return SqliteSourceStore(
         database=database,
-        configured=ConfiguredSource(
-            name=name,
-            url=url,
-            ref=MAIN_BRANCH,
-            credential_reference=credential,
-            accounts=SqliteUserStore(database),
-        ),
         identifiers=TokenIdentifierFactory(),
         box=a_box(instance_key=instance_key),
     )
 
 
-def a_seeded_source(database: Path, *, credential: str | None = None) -> Source:
-    """The one row an instance configured with that credential carries."""
-    store = a_source_store(database, credential=credential)
-    store.seed()
-    return store.all()[0]
+def add_a_source(
+    database: Path,
+    write: SourceWrite | None = None,
+    *,
+    instance_key: str = _INSTANCE_KEY,
+) -> Source:
+    """A stored source row this instance can open."""
+    added = a_source_store(database, instance_key=instance_key).add(
+        a_write(name=_SOURCE_NAME, url=_ADDRESS) if write is None else write,
+    )
+    assert added is not None
+    return added
+
+
+_A_LEFTOVER_ENVIRONMENT_SOURCE: Final = """
+INSERT INTO sources (id, name, url, ref, credential_reference, owner_id)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+
+
+def a_leftover_environment_source(
+    database: Path,
+    *,
+    source_id: str = _SOURCE_ID,
+    name: str = _SOURCE_NAME,
+    url: str = _ADDRESS,
+) -> Source:
+    """A row written when a source still named an environment variable."""
+    with rows(database) as cursor:
+        cursor.execute(
+            _A_LEFTOVER_ENVIRONMENT_SOURCE,
+            (
+                source_id,
+                name,
+                url,
+                MAIN_BRANCH,
+                _CREDENTIAL_VARIABLE,
+                _OWNER.id,
+            ),
+        )
+    return a_source_store(database).all()[0]
 
 
 # The deck table as this product wrote it before a source was a row of its own,
@@ -433,67 +467,18 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     assert "unreachable" in caplog.text
 
 
-def test_a_credential_reference_is_resolved_from_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, "what only this test wrote")
-    reference = CredentialReference(name=_CREDENTIAL_VARIABLE)
-
-    resolved = EnvironmentCredentials().resolve(reference)
-    monkeypatch.delenv(_CREDENTIAL_VARIABLE)
-
-    assert resolved == "what only this test wrote"
-    assert EnvironmentCredentials().resolve(reference) is None
-
-
-def test_a_credential_reference_the_environment_does_not_carry_stops_the_read(
-    monkeypatch: pytest.MonkeyPatch,
-    remote: GitRemote,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.delenv(_CREDENTIAL_VARIABLE, raising=False)
-    remote.commit_example_deck(at=_PUSHED_AT)
-    database = an_instance_that_was_set_up(tmp_path)
-    stored = a_seeded_source(database, credential=_CREDENTIAL_VARIABLE)
-
-    poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(stored)
-
-    assert poll.folders is None
-    assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
-
-
-def test_a_row_that_names_an_environment_variable_is_read_from_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
-    database = an_instance_that_was_set_up(tmp_path)
-
-    stored = a_seeded_source(database, credential=_CREDENTIAL_VARIABLE)
-
-    assert stored.secret_location is SecretLocation.ENVIRONMENT
-    assert (
-        a_resolver(database).resolve(CredentialReference(name=stored.id))
-        == _WHAT_THE_GIT_HOST_EXPECTS
-    )
-
-
 def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    sources = a_source_store(database)
-    sources.seed()
-    seeded = sources.all()[0]
-
-    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    stored = add_a_source(database)
 
     with rows(database) as cursor:
-        written = cursor.execute(_THE_RAW_COLUMN, (seeded.id,)).fetchone()[0]
+        written = cursor.execute(_THE_RAW_COLUMN, (stored.id,)).fetchone()[0]
     assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in written
-    assert sources.all()[0].secret_location is SecretLocation.STORED
+    assert stored.secret_location is SecretLocation.STORED
     assert (
-        a_resolver(database).resolve(CredentialReference(name=seeded.id))
+        a_resolver(database).resolve(CredentialReference(name=stored.id))
         == _WHAT_THE_GIT_HOST_EXPECTS
     )
 
@@ -502,13 +487,10 @@ def test_a_secret_another_instance_key_wrote_is_refused_rather_than_answered(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    sources = a_source_store(database)
-    sources.seed()
-    seeded = sources.all()[0]
-    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    stored = add_a_source(database)
 
     resolved = a_resolver(database, instance_key=_ANOTHER_INSTANCE_KEY).resolve(
-        CredentialReference(name=seeded.id),
+        CredentialReference(name=stored.id),
     )
 
     assert resolved is None
@@ -518,11 +500,11 @@ def test_a_source_carrying_no_secret_and_one_nobody_stored_answer_with_nothing(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    seeded = a_seeded_source(database)
+    leftover = a_leftover_environment_source(database)
     resolver = a_resolver(database)
 
-    assert seeded.secret_location is None
-    assert resolver.resolve(CredentialReference(name=seeded.id)) is None
+    assert leftover.secret_location is None
+    assert resolver.resolve(CredentialReference(name=leftover.id)) is None
     assert resolver.resolve(CredentialReference(name="no source of this name")) is None
 
 
@@ -530,12 +512,9 @@ def test_a_stored_secret_reaches_git_without_riding_on_its_command_line(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    sources = a_source_store(database)
-    sources.seed()
-    seeded = sources.all()[0]
-    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    stored = add_a_source(database)
 
-    resolved = a_resolver(database).resolve(CredentialReference(name=seeded.id))
+    resolved = a_resolver(database).resolve(CredentialReference(name=stored.id))
     assert resolved == _WHAT_THE_GIT_HOST_EXPECTS
     arguments = credential_arguments(resolved)
     answered = subprocess.run(
@@ -625,30 +604,29 @@ def test_adding_a_source_stores_the_secret_encrypted_and_the_webhook_hash(
     )
 
 
-def test_adding_a_source_does_not_rewrite_the_seeded_credential(
+def test_adding_a_source_does_not_rewrite_a_leftover_environment_row(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
     database = an_instance_that_was_set_up(tmp_path)
-    sources = a_source_store(database, credential=_CREDENTIAL_VARIABLE)
-    sources.seed()
-    seeded = sources.all()[0]
+    leftover = a_leftover_environment_source(database)
+    sources = a_source_store(database)
 
     added = sources.add(a_write())
 
     assert added is not None
     with rows(database) as cursor:
-        credential = cursor.execute(_THE_CREDENTIAL_COLUMN, (seeded.id,)).fetchone()[0]
-        encrypted = cursor.execute(_THE_ENCRYPTED_OF, (seeded.id,)).fetchone()[0]
-    kept = next(source for source in sources.all() if source.id == seeded.id)
+        credential = cursor.execute(
+            _THE_CREDENTIAL_COLUMN,
+            (leftover.id,),
+        ).fetchone()[0]
+        encrypted = cursor.execute(_THE_ENCRYPTED_OF, (leftover.id,)).fetchone()[0]
+    kept = next(source for source in sources.all() if source.id == leftover.id)
     assert credential == _CREDENTIAL_VARIABLE
     assert encrypted is None
-    assert kept.secret_location is SecretLocation.ENVIRONMENT
-    assert (
-        a_resolver(database).resolve(CredentialReference(name=seeded.id))
-        == _WHAT_THE_GIT_HOST_EXPECTS
-    )
+    assert kept.secret_location is None
+    assert a_resolver(database).resolve(CredentialReference(name=leftover.id)) is None
 
 
 def test_adding_a_source_with_a_name_or_url_already_stored_writes_nothing(
@@ -656,15 +634,14 @@ def test_adding_a_source_with_a_name_or_url_already_stored_writes_nothing(
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
     sources = a_source_store(database)
-    sources.seed()
-    seeded = sources.all()[0]
+    stored = add_a_source(database)
 
-    same_name = sources.add(a_write(name=seeded.name))
-    same_url = sources.add(a_write(url=seeded.url))
+    same_name = sources.add(a_write(name=stored.name))
+    same_url = sources.add(a_write(url=stored.url))
 
     assert same_name is None
     assert same_url is None
-    assert sources.all() == (seeded,)
+    assert sources.all() == (stored,)
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
@@ -796,7 +773,11 @@ def test_a_database_written_before_attempts_records_one(tmp_path: Path) -> None:
     database = a_database_written_before_sources(tmp_path)
 
     create_deck_tables(database)
-    a_source_store(database).seed()
+    with rows(database) as cursor:
+        cursor.execute(
+            "UPDATE decks SET source_id = ? WHERE slug = ?",
+            (_SOURCE_ID, "kundenfeedback"),
+        )
     store = SqliteDeckStore(database=database)
     store.put_attempt("kundenfeedback", an_attempt())
 
@@ -823,89 +804,26 @@ def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     assert kept.attempt == standing_attempt
 
 
-def test_the_configured_source_becomes_one_row_owned_by_the_first_admin(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "presentator.sqlite3"
-    create_identity_tables(database)
-    create_deck_tables(database)
-    sources = a_source_store(database)
-
-    sources.seed()
-    before_first_start = sources.all()
-    SqliteUserStore(database).add_first_account(
-        Account(
-            id=_OWNER.id,
-            username=_OWNER.username,
-            role=_OWNER.role,
-            password_hash=_A_STORED_HASH,
-        ),
-    )
-    sources.seed()
-    sources.seed()
-
-    assert before_first_start == ()
-    seeded = sources.all()
-    assert [(source.name, source.url, source.ref) for source in seeded] == [
-        (_SOURCE_NAME, _ADDRESS, MAIN_BRANCH),
-    ]
-    assert seeded[0].owner_id == _OWNER.id
-    assert seeded[0].secret_location is None
-
-
-def test_a_second_configured_address_is_a_second_source(tmp_path: Path) -> None:
+def test_an_instance_with_no_source_row_stores_none(tmp_path: Path) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    a_source_store(database).seed()
-
-    a_source_store(
-        database,
-        url=_ANOTHER_ADDRESS,
-        name=_ANOTHER_SOURCE_NAME,
-    ).seed()
-
-    assert {source.url for source in a_source_store(database).all()} == {
-        _ADDRESS,
-        _ANOTHER_ADDRESS,
-    }
-
-
-def test_an_address_under_a_name_another_source_answers_to_is_not_stored(
-    caplog: pytest.LogCaptureFixture,
-    tmp_path: Path,
-) -> None:
-    database = an_instance_that_was_set_up(tmp_path)
-    a_source_store(database).seed()
-
-    with caplog.at_level(logging.WARNING):
-        a_source_store(database, url=_ANOTHER_ADDRESS).seed()
-
-    assert [source.url for source in a_source_store(database).all()] == [_ADDRESS]
-    assert _SOURCE_NAME in caplog.text
-    assert _ANOTHER_ADDRESS not in caplog.text
-
-
-def test_an_instance_without_a_configured_url_stores_no_source(
-    tmp_path: Path,
-) -> None:
-    database = an_instance_that_was_set_up(tmp_path)
-
-    a_source_store(database, url=None).seed()
 
     assert a_source_store(database).all() == ()
 
 
-def test_a_database_written_before_sources_keeps_its_decks_and_names_the_seeded_one(
+def test_a_database_written_before_sources_keeps_its_deck_row(
     tmp_path: Path,
 ) -> None:
     database = a_database_written_before_sources(tmp_path)
 
     create_deck_tables(database)
-    sources = a_source_store(database)
-    sources.seed()
 
-    seeded = sources.all()
-    assert [source.url for source in seeded] == [_ADDRESS]
-    assert SqliteDeckStore(database=database).all() == (a_deck(source_id=seeded[0].id),)
+    with rows(database) as cursor:
+        found = cursor.execute(
+            "SELECT slug, title FROM decks WHERE slug = ?",
+            ("kundenfeedback",),
+        ).fetchone()
+    assert found == ("kundenfeedback", "Kundenfeedback")
+    assert SqliteDeckStore(database=database).all() == ()
 
 
 def test_a_folder_name_another_source_carries_is_not_taken_over(
@@ -1008,3 +926,109 @@ def test_the_newest_run_of_a_source_belongs_to_that_source_alone(
         source_id=_ANOTHER_SOURCE_ID,
         at=_PUSHED_AT,
     )
+
+
+def test_recording_a_run_keeps_only_the_newest_bound(tmp_path: Path) -> None:
+    store = a_source_run_store(tmp_path)
+    for index in range(RECENT_SOURCE_RUNS + 2):
+        store.record(
+            a_successful_run(at=_PUSHED_AT + timedelta(minutes=index)),
+        )
+
+    recent = store.recent(_SOURCE_ID)
+    with rows(tmp_path / "presentator.sqlite3") as cursor:
+        kept = cursor.execute(
+            "SELECT COUNT(*) FROM source_runs WHERE source_id = ?",
+            (_SOURCE_ID,),
+        ).fetchone()
+
+    assert len(recent) == RECENT_SOURCE_RUNS
+    assert recent[0].at == _PUSHED_AT + timedelta(minutes=RECENT_SOURCE_RUNS + 1)
+    assert kept == (RECENT_SOURCE_RUNS,)
+
+
+def test_a_leftover_environment_row_does_not_read_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    remote.commit_example_deck(at=_PUSHED_AT)
+    database = an_instance_that_was_set_up(tmp_path)
+    leftover = a_leftover_environment_source(database, url=remote.url)
+
+    poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(leftover)
+
+    assert leftover.secret_location is None
+    assert poll.folders is None
+    assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
+
+
+def test_renewing_the_access_secret_on_a_leftover_row_stores_ciphertext(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    leftover = a_leftover_environment_source(database)
+    sources = a_source_store(database)
+
+    sources.put_credential(leftover.id, _WHAT_THE_GIT_HOST_EXPECTS)
+
+    assert sources.all()[0].secret_location is SecretLocation.STORED
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=leftover.id))
+        == _WHAT_THE_GIT_HOST_EXPECTS
+    )
+    with rows(database) as cursor:
+        named = cursor.execute(_THE_CREDENTIAL_COLUMN, (leftover.id,)).fetchone()[0]
+    assert named is None
+
+
+def test_a_pre_change_file_whose_row_only_names_an_environment_variable_stays(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    database = tmp_path / "presentator.sqlite3"
+    create_identity_tables(database)
+    SqliteUserStore(database).add_first_account(
+        Account(
+            id=_OWNER.id,
+            username=_OWNER.username,
+            role=_OWNER.role,
+            password_hash=_A_STORED_HASH,
+        ),
+    )
+    apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
+    with rows(database) as cursor:
+        cursor.execute(
+            _A_SOURCE_BEFORE_ENCRYPTION,
+            (
+                _SOURCE_ID,
+                _SOURCE_NAME,
+                _ADDRESS,
+                MAIN_BRANCH,
+                _CREDENTIAL_VARIABLE,
+                _OWNER.id,
+            ),
+        )
+
+    create_deck_tables(database)
+    leftover = a_source_store(database).all()[0]
+
+    assert leftover.id == _SOURCE_ID
+    assert leftover.secret_location is None
+    assert a_resolver(database).resolve(CredentialReference(name=leftover.id)) is None
+
+
+def test_replacing_the_webhook_hash_leaves_the_previous_digest_behind(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    stored = add_a_source(database, a_write(name=_SOURCE_NAME, url=_ADDRESS))
+    sources = a_source_store(database)
+    replacement = b"\x22" * 32
+
+    assert sources.put_hook_secret_hash(stored.name, replacement)
+    assert sources.hook_secret_hash(stored.name) == replacement
+    assert sources.hook_secret_hash("no-such-source") is None
+    assert not sources.put_hook_secret_hash("no-such-source", replacement)

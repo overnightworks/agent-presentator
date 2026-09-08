@@ -10,13 +10,15 @@ import os
 import shutil
 import stat
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from gitmirror.model import CredentialReference
 from presentator.adapters.builds import SlidevBuilds
-from presentator.adapters.decks import EnvironmentCredentials, SourceMirrors
+from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
     Artefacts,
@@ -41,6 +43,15 @@ _RECORDED_ENVIRONMENT = "environment"
 _A_BUILT_PAGE = "index.html"
 _TOOLCHAIN_PROGRAM = "pnpm"
 _WHAT_A_TALK_SAYS = "a talk"
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCredentials:
+    """A stand-in so a local bare remote can be pulled without a stored secret."""
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        return "unused-on-a-file-url"
+
 
 _A_TOOLCHAIN_THAT_BUILDS = """#!/bin/sh
 set -eu
@@ -135,7 +146,7 @@ def builds_under(
         toolchain=working,
         mirrors=SourceMirrors(
             directory=tmp_path / "mirrors",
-            credentials=EnvironmentCredentials(),
+            credentials=OpenCredentials(),
             pull_timeout=_A_GENEROUS_BOUND,
         ),
         build_timeout=build_timeout,

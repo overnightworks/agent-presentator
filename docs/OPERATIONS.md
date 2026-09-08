@@ -48,65 +48,40 @@ carried a webhook-secret hash gains that column. There is no migration tool
 beyond what a start does itself, so an older shape a start cannot upgrade is
 still a file to delete and set up again.
 
-The deck source is `PRESENTATOR_SOURCE_URL`, with `PRESENTATOR_SOURCE_REF`
-(`main`), `PRESENTATOR_SOURCE_NAME` (`decks`, its name and the name in its hook
-address),
-`PRESENTATOR_SOURCE_POLL_SECONDS` (`300`) and
-`PRESENTATOR_SOURCE_TIMEOUT_SECONDS` (`20`). Without a URL the
-instance runs and its deck list stays empty. A private remote adds
-`PRESENTATOR_SOURCE_CREDENTIAL`, which holds the *name* of the environment
-variable carrying the read-only secret, never the secret:
+An instance starts with no source. An admin adds one under Settings · Sources
+with a name, a Git URL, HTTPS token access, and the read-only secret. The name
+is lowercase letters, digits and hyphens, at most 64 characters, unique; the
+URL is unique too, and must not carry a password in its userinfo — that belongs
+in the Secret field. The access kind is derived from the URL scheme (`https://`
+is a token; `http://` is refused; `git@` and `ssh://` are a deploy key, not yet
+offered on the form). The secret is stored encrypted in the source's row and
+read with the instance key at every pull. Ciphertext this instance's key cannot
+open is refused rather than handed to `git`: that source's fetch fails and its
+decks stay listed. Keep `PRESENTATOR_SECRET_KEY` with the database backup — the
+file alone restores no working source.
 
-```sh
-export PRESENTATOR_SOURCE_URL="https://token-user@git.example/decks.git"
-export PRESENTATOR_SOURCE_CREDENTIAL="DECKS_TOKEN"
-export DECKS_TOKEN="…"
-```
+A source that still names only an environment variable — a row written before
+this instance stored secrets itself — stays listed and keeps its decks. Fetch
+fails until the operator opens that source's page and presses *Renew secret*.
+`PRESENTATOR_SOURCE_URL`, `_REF`, `_NAME`, `_CREDENTIAL` and `_HOOK_SECRET` are
+not settings; leaving them in the environment does nothing.
 
-The user name belongs in the URL, because only the operator knows which name
-the host expects beside a token.
+The source's own page is `/settings/sources/<name>`: state and fetched age,
+Fetch now, the access secret as a fixed run of dots with Renew, the webhook
+address with Copy and its own Renew, the newest three runs with the commit as
+evidence, and the decks that come from here. Renewing the access secret takes a
+new value and shows nothing back. Renewing the webhook secret shows the new
+value exactly once.
 
-That variable is one of the two forms a source's row can anchor. The other is
-the encrypted column the row itself carries, which the page for adding a source
-fills; a row carrying it is read with the instance key at every pull, and
-the environment variable is what a row that has none still names. Ciphertext
-this instance's key cannot open is refused rather than handed to `git`: that
-source's fetch fails and its decks stay listed. Keep
-`PRESENTATOR_SECRET_KEY` with the database backup — the file alone restores no
-working source.
-
-That configuration is written into the instance's `sources` table: once at
-every start and again at the beginning of every refresh, so an instance whose
-admin is created after it started carries its source too. The URL identifies
-the row, so this writes nothing after the first time. Changing
-`PRESENTATOR_SOURCE_URL` therefore adds a second source rather than replacing
-the first — removing one is not built yet — and a new URL under the name
-another source already answers to is refused with a line in the log, because a
-name is unique. Adding a source on the Settings page writes a new row and
-does not rewrite the seeded source's credential.
-
-An admin adds a source under Settings · Sources with a name, a Git URL, HTTPS
-token access, and the read-only secret. The name is lowercase letters, digits
-and hyphens, at most 64 characters, unique; the URL is unique too, and must
-not carry a password in its userinfo — that belongs in the Secret field. The
-access kind is derived from the URL scheme (`https://` is a token; `http://` is
-refused; `git@` and `ssh://` are a deploy key, not yet offered on the form).
-The secret is stored encrypted. SSH deploy keys are not offered yet.
-
-The server polls the source every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task
-beside the routes, and never twice at once; opening the deck list reads the
-database and pulls nothing. A pull is bounded by
-`PRESENTATOR_SOURCE_TIMEOUT_SECONDS`, after which that tick ends without the
-source rather than holding the next one. `git` runs with a minimal
+The server polls every source every `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`)
+on a task beside the routes, and never twice at once; opening the deck list
+reads the database and pulls nothing. A pull is bounded by
+`PRESENTATOR_SOURCE_TIMEOUT_SECONDS` (`20`), after which that tick ends without
+the source rather than holding the next one. `git` runs with a minimal
 environment: terminal prompting off, the global and system git configuration
 neutralised, any inherited credential helper cleared, and `ssh` in batch mode
 with its own connect timeout — so nothing on the machine can turn a pull into a
 wait for an answer nobody will give.
-
-Replacing the secret of an environment-configured source means changing the
-environment of the running process, so today it takes a restart. A rotation
-path without one is open work on
-[ADR 0010](decisions/0010-git-sources-mirror.md), together with the fetch log.
 
 ## Building the decks
 
@@ -140,24 +115,19 @@ configure only deck sources you would run code from.
 
 Adding a source creates `POST /sources/<name>/fetch` for that source and shows
 its webhook secret exactly once. The secret is generated, shown on that
-screen, stored only as a SHA-256 hash, and never shown again. The call carries
-the secret as `Authorization: Bearer …` or as `X-Gitlab-Token`, and nothing
-else: no payload is read, which is what lets any host or a `post-receive` hook
-call it ([ADR 0010](decisions/0010-git-sources-mirror.md)). A wrong secret, a
-missing one, an unknown source, a trailing slash, and any other path under
-`/sources/` all answer `404` with an empty body. Only that `POST` is open:
-every other method there leads to the login like any other address. A source
-that still comes from the environment has no webhook secret until it is added
-on the page; the poll still fetches it.
+screen, stored only as a SHA-256 hash, and never shown again until Renew mints
+another. The call carries the secret as `Authorization: Bearer …` or as
+`X-Gitlab-Token`, and nothing else: no payload is read, which is what lets any
+host or a `post-receive` hook call it
+([ADR 0010](decisions/0010-git-sources-mirror.md)). A wrong secret, a missing
+one, an unknown source, a trailing slash, and any other path under `/sources/`
+all answer `404` with an empty body. Only that `POST` is open: every other
+method there leads to the login like any other address.
 
 ```sh
 curl -X POST -H "Authorization: Bearer <the-secret-shown-once>" \
   https://<your-address>/sources/decks/fetch
 ```
-
-`PRESENTATOR_SOURCE_HOOK_SECRET` is still read at start — an empty, blank, or
-shorter-than-32-character value refuses to start — but it no longer opens an
-address; the per-source secret the created screen shows does.
 
 That path needs a Cloudflare Access bypass policy for `/sources/*` — a git host
 has no browser to pass the outer door with — while every other address stays

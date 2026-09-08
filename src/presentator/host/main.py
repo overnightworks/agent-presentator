@@ -24,8 +24,6 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import (
-    ConfiguredSource,
-    EnvironmentCredentials,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -104,28 +102,12 @@ def build_instance(settings: Settings) -> Instance:
     )
     sources = SqliteSourceStore(
         database=settings.database,
-        configured=ConfiguredSource(
-            name=settings.source_name,
-            url=settings.source_url,
-            ref=settings.source_ref,
-            credential_reference=settings.source_credential,
-            accounts=accounts,
-        ),
         identifiers=identifiers,
         box=box,
     )
-    # A file written before sources were rows carries decks that name none, so
-    # the row they belong to is written before the first page reads them; on an
-    # empty instance there is no admin to own it yet, and the refresh that runs
-    # after first start writes it then.
-    sources.seed()
     mirrors = SourceMirrors(
         directory=settings.mirrors,
-        credentials=SourceCredentials(
-            database=settings.database,
-            box=box,
-            environment=EnvironmentCredentials(),
-        ),
+        credentials=SourceCredentials(database=settings.database, box=box),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
