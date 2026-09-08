@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
+from urllib.parse import urlencode
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -81,6 +82,16 @@ NEIGHBOUR: Final = "anna"
 ADMIN: Final = "the-admin"
 SOURCE_ID: Final = "the-source-the-instance-carries"
 TYPED_WORDS: Final = "the words only this test types"
+# A real browser always sends both: navigation prefers text/html, and a
+# same-site request carries Sec-Fetch-Site since Chrome 76 and Firefox 90. A
+# test proving the JSON-client half of the redirect, or a header-less
+# request, overrides these explicitly (issue #105).
+A_BROWSERS_HEADERS: Final = {"accept": "text/html", "sec-fetch-site": "same-origin"}
+
+
+def login_asking_for(path: str) -> str:
+    """Where the guard sends a signed-out browser that asked for `path`."""
+    return f"/login?{urlencode({'next': path})}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +170,7 @@ def a_web_auth(*, hasher: ReversibleHasher) -> WebAuthConfig:
         login_lockout_window_seconds=failure_seconds,
         login_rate_window_seconds=failure_seconds,
         session_cookie_name=SESSION_COOKIE,
+        cookie_samesite="lax",
         session_cache=None,
     )
 
@@ -292,7 +304,23 @@ def a_lobby(
         catalogs=catalogs,
         given=given,
     )
-    return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
+    client = TestClient(lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS)
+    return Lobby(client=client, clock=clock)
+
+
+def a_lobby_that_claims_no_origin_of_its_own(
+    *,
+    users: FakeUserStore | None = None,
+) -> Lobby:
+    """A browser old enough to omit Sec-Fetch-Site, for a test that names its own.
+
+    `a_lobby`'s client already claims `Sec-Fetch-Site: same-origin` so most
+    tests never have to; a test proving what an absent or a foreign claim
+    does needs a client that makes no claim of its own to be overridden.
+    """
+    lobby, clock = a_lobby_app(users=users)
+    client = TestClient(lobby, follow_redirects=False, headers={"accept": "text/html"})
+    return Lobby(client=client, clock=clock)
 
 
 def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:

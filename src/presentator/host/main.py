@@ -265,6 +265,7 @@ def _web_auth_config(
         login_lockout_window_seconds=failure_seconds,
         login_rate_window_seconds=failure_seconds,
         session_cookie_name=SESSION_COOKIE,
+        cookie_samesite="lax",
         session_cache=None,
     )
 

@@ -16,6 +16,14 @@ one address inside five minutes regardless of name, are throttled; the page
 says the same sentence it says for a wrong password. A session lasts twelve
 idle hours and slides forward on every request; logging out deletes the row.
 
+The cookie's `SameSite`, the guard against a form another site submitted, and
+the redirect a signed-out browser gets are `webauth`'s mechanism now, not this
+repository's own (issue #105, amends
+[ADR 0003](decisions/0003-libraries-for-models-and-auth.md)). The one
+behaviour that changed: a `same-site` or `none` `Sec-Fetch-Site` POST, which
+the old guard let through, is refused now, matching `Origin`-only refusal for
+everything but same-origin.
+
 A deck is code, so an instance builds every deck in a container of its own and
 refuses to start where it cannot ("Building the decks"). A run from a checkout,
 on a machine whose decks are all your own, is the one place that says otherwise:
@@ -41,11 +49,13 @@ is correct for a direct run. Behind the tunnel of
 [ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
 connects from localhost, so that peer is `127.0.0.1` and every login through
 the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
-(`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`.
-Without it no form is accepted at all: the browser sends `Origin: https://…`
-while the app sees the tunnel connection as http, so the origins never match.
-The list is required for the product to work behind the tunnel, not only for
-a sharper budget. `127.0.0.1` is the answer for a direct run, where the tunnel
+(`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`
+and gives each real address its own budget instead of sharing the tunnel's
+one. The guard against another site's form does not depend on this list: it
+reads the browser's own `Sec-Fetch-Site` first, which needs no proxy to be
+trusted (issue #105), and only a browser too old to send it falls back to
+`Origin` against the allowed hosts. `127.0.0.1` is the answer for a direct
+run, where the tunnel
 client and the server share one loopback; a container has a network of its own
 and sees that same client as its gateway, which the section after this one
 names.
@@ -161,9 +171,10 @@ docker compose up -d
 ```
 
 Without that line the instance answers every request against the connection it
-has — http, and one login budget for the whole tunnel — so a browser's
-`Origin: https://…` matches nothing and no form is accepted. After a change to
-the subnet, what the running container's gateway really is:
+has — http, and one login budget for the whole tunnel; the form guard itself
+still passes a real browser, which sends `Sec-Fetch-Site` regardless of what
+proxy the connection came through. After a change to the subnet, what the
+running container's gateway really is:
 
 ```sh
 docker compose ps -q presentator | xargs docker inspect \

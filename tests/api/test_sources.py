@@ -25,6 +25,7 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role
 from tests.api.lobby import (
+    A_BROWSERS_HEADERS,
     ADMIN,
     ENGLISH,
     NEIGHBOUR,
@@ -40,6 +41,7 @@ from tests.api.lobby import (
     a_signed_in_lobby,
     a_user_store,
     an_account,
+    login_asking_for,
 )
 from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
@@ -344,7 +346,7 @@ def test_fetch_now_from_another_site_is_refused(instance: Lobby) -> None:
     refused = fetch(
         instance.client,
         "decks",
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -357,9 +359,9 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     posting = fetch(lobby.client, "decks")
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login"
+    assert reading.headers["location"] == login_asking_for(SOURCES)
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == "/login"
+    assert posting.headers["location"] == login_asking_for(_FETCH.format(name="decks"))
 
 
 def check_source(
@@ -418,8 +420,8 @@ def two_admin_sessions() -> tuple[TestClient, TestClient]:
             an_account(NEIGHBOUR, role=Role.ADMIN),
         ),
     )
-    creator = TestClient(app, follow_redirects=False)
-    other = TestClient(app, follow_redirects=False)
+    creator = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
+    other = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
     creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
     other.post("/login", data={"username": NEIGHBOUR, "password": TYPED_WORDS})
     return creator, other
@@ -640,7 +642,7 @@ def test_check_connection_from_another_site_is_refused() -> None:
 
     refused = check_source(
         lobby,
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -903,7 +905,7 @@ def test_add_source_from_another_site_is_refused() -> None:
             "access": "https",
             "secret": _READ_ONLY,
         },
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -916,9 +918,9 @@ def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
     posting = create_source(lobby.client)
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login"
+    assert reading.headers["location"] == login_asking_for(NEW)
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == "/login"
+    assert posting.headers["location"] == login_asking_for(NEW)
 
 
 def a_deck_from(source: Source) -> Deck:
@@ -1209,7 +1211,7 @@ def test_source_page_posts_from_another_site_are_refused(
     refused = instance.client.post(
         path,
         data={"secret": _READ_ONLY, "stay": "page"},
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN

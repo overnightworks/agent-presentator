@@ -2,12 +2,14 @@
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
 
-from presentator.api.auth import SESSION_COOKIE
+from presentator.api import auth as auth_module
+from presentator.api.auth import SESSION_COOKIE, NoAudit, NoLiveSessions
 from presentator.api.hooks import hook_address
 from presentator.application.identity import (
     FAILURE_WINDOW,
@@ -17,11 +19,14 @@ from presentator.application.identity import (
 from presentator.contracts.models import Account, Role
 from tests.api.lobby import (
     ENGLISH,
+    NOW,
     TYPED_WORDS,
     USERNAME,
     Lobby,
     a_lobby,
+    a_lobby_that_claims_no_origin_of_its_own,
     a_user_store,
+    login_asking_for,
 )
 from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
 
@@ -49,7 +54,7 @@ def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
     answer = lobby.client.get("/")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == login_asking_for("/")
 
 
 def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None:
@@ -242,7 +247,7 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     answer = lobby.client.get("/deck/knowledge-fabric")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == login_asking_for("/deck/knowledge-fabric")
 
 
 def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
@@ -263,17 +268,21 @@ def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
     ],
 )
 def test_a_first_start_another_site_submitted_is_refused(
-    lobby: Lobby,
     headers: dict[str, str],
 ) -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+
     refused = lobby.set_up_admin(headers=headers)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert lobby.client.get("/setup").status_code == HTTPStatus.OK
 
 
-def test_a_login_another_site_submitted_is_refused(signed_in_lobby: Lobby) -> None:
-    refused = signed_in_lobby.log_in(headers={"origin": "https://another.example"})
+def test_a_login_another_site_submitted_is_refused() -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+    lobby.set_up_admin()
+
+    refused = lobby.log_in(headers={"origin": "https://another.example"})
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
@@ -282,7 +291,7 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == "/login"
+    assert asked.headers["location"] == login_asking_for(hook_address("talks"))
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
@@ -297,6 +306,56 @@ def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
     created = lobby.set_up_admin(headers={"sec-fetch-site": "same-origin"})
 
     assert created.status_code == HTTPStatus.SEE_OTHER
+
+
+def test_a_json_client_that_is_not_signed_in_gets_401_not_a_redirect(
+    lobby: Lobby,
+) -> None:
+    asked = lobby.client.get("/", headers={"accept": "application/json"})
+
+    assert asked.status_code == HTTPStatus.UNAUTHORIZED
+    assert "location" not in asked.headers
+
+
+@pytest.mark.parametrize("fetch_site", ["same-site", "none"])
+def test_a_same_site_or_schemeless_form_post_is_refused(
+    lobby: Lobby,
+    fetch_site: str,
+) -> None:
+    refused = lobby.set_up_admin(headers={"sec-fetch-site": fetch_site})
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
+
+
+def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+
+    refused = lobby.set_up_admin()
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_the_guard_fails_loud_if_the_library_ever_admitted_a_dead_store(
+    lobby: Lobby,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`NoLiveSessions` guarantees `current_user_dependency` always refuses.
+
+    A store that admits nothing cannot honestly return a person, so a
+    successful call would mean the guarantee broke; this proves the guard
+    would rather crash than sign a visitor in on that broken promise.
+    """
+
+    class _AlwaysAdmits:
+        def current_user(self, *args: object, **kwargs: object) -> object:
+            del args, kwargs
+            return object()
+
+    monkeypatch.setattr(auth_module, "_LOGIN_REFUSAL", _AlwaysAdmits())
+
+    with pytest.raises(AssertionError):
+        lobby.client.get("/")
 
 
 def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
@@ -350,7 +409,7 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert walked_out.headers["location"] == "/login"
+    assert walked_out.headers["location"] == login_asking_for("/static/../deck/a-deck/")
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
@@ -387,3 +446,50 @@ def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
     assert ENGLISH.wordmark in page
     assert ENGLISH.log_out not in page
     assert USERNAME not in page
+
+
+def _touch() -> None:
+    NoLiveSessions().touch(object(), ip_address="", user_agent="", now=NOW)
+
+
+def _create() -> None:
+    NoLiveSessions().create("a-user", NOW, ip_address="", user_agent="")
+
+
+def _delete() -> None:
+    NoLiveSessions().delete("a-session")
+
+
+def _delete_for_user() -> None:
+    NoLiveSessions().delete_for_user("a-user")
+
+
+def _prune_overflow() -> None:
+    NoLiveSessions().prune_overflow("a-user", 1)
+
+
+def _session_identity_changed() -> None:
+    NoAudit().session_identity_changed(object())
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        _touch,
+        _create,
+        _delete,
+        _delete_for_user,
+        _prune_overflow,
+        _session_identity_changed,
+    ],
+)
+def test_the_sessionless_store_never_carries_a_session_lifecycle_of_its_own(
+    call: Callable[[], None],
+) -> None:
+    """`Identity` owns opening, touching, and ending a session (ADR 0003).
+
+    A call into any of these means something routed session lifecycle
+    through the login-refusal store instead, which is always a defect.
+    """
+    with pytest.raises(NotImplementedError):
+        call()

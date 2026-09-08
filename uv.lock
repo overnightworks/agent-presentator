@@ -39,7 +39,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "overnightworks-webauth", url = "https://github.com/overnightworks/webauth/releases/download/v0.2.0/overnightworks_webauth-0.2.0-py3-none-any.whl" },
+    { name = "overnightworks-webauth", url = "https://github.com/overnightworks/webauth/releases/download/v0.3.0/overnightworks_webauth-0.3.0-py3-none-any.whl" },
     { name = "pwdlib", extras = ["argon2"], specifier = "==0.3.1" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -752,15 +752,15 @@ wheels = [
 
 [[package]]
 name = "overnightworks-webauth"
-version = "0.2.0"
-source = { url = "https://github.com/overnightworks/webauth/releases/download/v0.2.0/overnightworks_webauth-0.2.0-py3-none-any.whl" }
+version = "0.3.0"
+source = { url = "https://github.com/overnightworks/webauth/releases/download/v0.3.0/overnightworks_webauth-0.3.0-py3-none-any.whl" }
 dependencies = [
     { name = "bcrypt" },
     { name = "fastapi" },
     { name = "pydantic" },
 ]
 wheels = [
-    { url = "https://github.com/overnightworks/webauth/releases/download/v0.2.0/overnightworks_webauth-0.2.0-py3-none-any.whl", hash = "sha256:25a3fe0b68ed128d42a552406f8d0ed5cdb8fd3558e1907d0263766e691e5f7f" },
+    { url = "https://github.com/overnightworks/webauth/releases/download/v0.3.0/overnightworks_webauth-0.3.0-py3-none-any.whl", hash = "sha256:59bd858511bdc47ece90323cc683af7d2aa64446e5c9e0501552c4508ef33288" },
 ]
 
 [package.metadata]

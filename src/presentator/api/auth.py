@@ -7,22 +7,26 @@ and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 
 import posixpath
 from dataclasses import dataclass
+from datetime import datetime
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, NoReturn
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
+from webauth.dependencies import LoginRedirect, current_user_dependency
 from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
-from webauth.proxies import client_user_agent, request_is_https, resolve_client_ip
+from webauth.middleware.csrf import CsrfOriginMiddleware
+from webauth.policies import CsrfPolicy, PathRules
+from webauth.proxies import client_user_agent, resolve_client_ip
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.pages import Pages, state_word
-from presentator.api.preferences import preference_routes
+from presentator.api.preferences import ACCOUNT, SETTINGS, THEME, preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import IDLE_WINDOW, Identity
@@ -65,7 +69,121 @@ _SETUP: Final = "/setup"
 # stylesheet has to render the login and setup pages themselves, so it is
 # public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
-_SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
+# The asked-for path a signed-out browser is sent back to after logging in;
+# the app named no query of its own for this before, so the redirect carries
+# the library's default name (webauth #16).
+_ASKED_FOR_PATH_PARAM: Final = "next"
+_A_SESSIONLESS_STORE_ADMITTED_A_SESSION: Final = (
+    "current_user_dependency admitted a session from a store that never has one"
+)
+_SESSION_LIFECYCLE_IS_IDENTITYS: Final = (
+    "opening, touching, and ending a session stays Identity's own (ADR 0003);"
+    " this store only feeds current_user_dependency its confirmed refusal"
+)
+
+
+class NoLiveSessions:
+    """Feeds `current_user_dependency` only the shape of its own refusal.
+
+    `Identity.signed_in_user` has already decided nobody is signed in before
+    this store is ever asked (ADR 0003 keeps that decision here); a store
+    that never admits a session is what makes the library's redirect-or-401
+    choice — the asked-for path, the Accept negotiation — run for real
+    without this app re-implementing it (issue #105).
+    """
+
+    def load(self, session_id: str) -> None:
+        """Admit no session, ever, so the caller's refusal is always genuine."""
+        del session_id
+
+    def touch(
+        self,
+        record: object,
+        *,
+        ip_address: str,
+        user_agent: str,
+        now: datetime,
+    ) -> NoReturn:
+        """Refuse: `load` never admits a session for this to renew."""
+        del record, ip_address, user_agent, now
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+    def create(
+        self,
+        user_id: str,
+        expires_at: datetime,
+        *,
+        ip_address: str,
+        user_agent: str,
+    ) -> NoReturn:
+        """Refuse: `Identity.open_session` is where a session begins."""
+        del user_id, expires_at, ip_address, user_agent
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+    def delete(self, session_id: str) -> NoReturn:
+        """Refuse: `Identity.log_out` is where a session ends."""
+        del session_id
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+    def delete_for_user(self, user_id: str) -> NoReturn:
+        """Refuse: this store never named a user's sessions to end them all."""
+        del user_id
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+    def prune_overflow(self, user_id: str, max_sessions: int) -> NoReturn:
+        """Refuse: this store never named a user's sessions to cap them."""
+        del user_id, max_sessions
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+
+class NoAudit:
+    """The identity-drift audit `current_user_dependency` asks for.
+
+    Never reached: the confirmed-refusal call this app makes raises before
+    any audit sink is read.
+    """
+
+    def session_identity_changed(self, event: object) -> NoReturn:
+        """Refuse: `NoLiveSessions` never loads a session to compare drift on."""
+        del event
+        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
+
+
+_NO_LIVE_SESSIONS: Final = NoLiveSessions()
+_NO_AUDIT: Final = NoAudit()
+# `session_store` and `audit_sink` are FastAPI `Depends()` defaults this app
+# never asks the framework to resolve: `_login_redirect_or_refusal` calls
+# `current_user` directly, passing `_NO_LIVE_SESSIONS`/`_NO_AUDIT` itself, so
+# these lambdas only satisfy `current_user_dependency`'s own signature.
+_LOGIN_REFUSAL: Final = current_user_dependency(
+    session_store=lambda: _NO_LIVE_SESSIONS,
+    audit_sink=lambda: _NO_AUDIT,
+    on_authenticated=lambda _user: None,
+    login_redirect=LoginRedirect(_LOGIN, _ASKED_FOR_PATH_PARAM),
+)
+_CSRF_POLICY: Final = CsrfPolicy(
+    protected=PathRules(
+        exact=frozenset({_LOGIN, _LOGOUT, _SETUP, ACCOUNT, THEME}),
+        prefixes=(SETTINGS,),
+    ),
+)
+
+
+def _login_redirect_or_refusal(request: Request) -> Response:
+    """The library's own choice for a request with no live session.
+
+    A browser preferring HTML gets 302 to `/login` carrying the asked-for
+    path as `next`; anything else gets 401 (webauth.dependencies.LoginRedirect).
+    """
+    try:
+        _LOGIN_REFUSAL.current_user(
+            request,
+            sessions=_NO_LIVE_SESSIONS,
+            audit=_NO_AUDIT,
+        )
+    except HTTPException as refused:
+        return Response(status_code=refused.status_code, headers=refused.headers)
+    raise AssertionError(_A_SESSIONLESS_STORE_ADMITTED_A_SESSION)
 
 
 async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -84,15 +202,6 @@ def _is_a_stylesheet(path: str) -> bool:
     return path.startswith(_INSIDE_STATIC) and posixpath.normpath(path).startswith(
         _INSIDE_STATIC,
     )
-
-
-def _comes_from_elsewhere(request: Request) -> bool:
-    origin = request.headers.get("origin")
-    if origin is not None:
-        scheme = "https" if request_is_https(request) else "http"
-        return origin != f"{scheme}://{request.url.netloc}"
-    fetch_site = request.headers.get("sec-fetch-site")
-    return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -123,23 +232,6 @@ class _Surfaces:
     pages: Pages
     secure_cookies: bool
 
-    async def same_origin_only(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        """Refuse a form another site submitted.
-
-        `webauth.middleware.csrf.CsrfOriginMiddleware` checks Origin against a
-        host allowlist and does not read Sec-Fetch-Site, so a cross-site POST
-        this instance's own Origin header could not describe would pass it.
-        The ruled refusal is Origin and Sec-Fetch-Site against this request's
-        own origin (issue #8), which is what this guard still does.
-        """
-        if self._is_a_foreign_form(request):
-            return Response(status_code=HTTPStatus.FORBIDDEN)
-        return await call_next(request)
-
     async def only_signed_in(
         self,
         request: Request,
@@ -161,21 +253,14 @@ class _Surfaces:
             user_agent=client_user_agent(request),
         )
         if person is None:
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+            return _login_redirect_or_refusal(request)
         request.state.signed_in_person = person
         request.state.signed_in_session_id = self.identity.cookies.session_id_from(
             cookie_value
         )
         answer = await call_next(request)
-        self._carry_session(answer, cookie_value)
+        self._set_session_cookie(request, answer, cookie_value)
         return answer
-
-    def _is_a_foreign_form(self, request: Request) -> bool:
-        if request.method != HTTPMethod.POST:
-            return False
-        if self._is_a_call_from_a_source_host(request):
-            return False
-        return _comes_from_elsewhere(request)
 
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
         """Whether this is the sessionless, cross-origin POST the hook is for.
@@ -243,6 +328,7 @@ class _Surfaces:
             self.identity.note_failed_login(ip_address=ip_address, username=username)
             return self._login(request, refused=True)
         return self._signed_in(
+            request,
             self.identity.open_session(
                 account.as_user(),
                 ip_address=ip_address,
@@ -257,7 +343,7 @@ class _Surfaces:
         answer.delete_cookie(
             SESSION_COOKIE,
             httponly=True,
-            samesite="lax",
+            samesite=web_auth_config(request).cookie_samesite,
             secure=self.secure_cookies,
         )
         return answer
@@ -290,7 +376,7 @@ class _Surfaces:
         except FirstStartClosedError:
             # Another first start won the race between the count and the write.
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._signed_in(cookie_value)
+        return self._signed_in(request, cookie_value)
 
     def _login(self, request: Request, *, refused: bool) -> Response:
         return self.pages.page(request, "login.html", refused=refused)
@@ -298,18 +384,29 @@ class _Surfaces:
     def _setup(self, request: Request, *, mismatch: bool) -> Response:
         return self.pages.page(request, "setup.html", mismatch=mismatch)
 
-    def _signed_in(self, cookie_value: str) -> Response:
+    def _signed_in(self, request: Request, cookie_value: str) -> Response:
         answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
-        self._carry_session(answer, cookie_value)
+        self._set_session_cookie(request, answer, cookie_value)
         return answer
 
-    def _carry_session(self, answer: Response, cookie_value: str) -> None:
+    def _set_session_cookie(
+        self,
+        request: Request,
+        answer: Response,
+        cookie_value: str,
+    ) -> None:
+        """Hand the browser its cookie, `SameSite` read from the installed config.
+
+        Every authenticated answer re-sets it, so an active talk's idle
+        window keeps sliding on the browser's own copy too, not only in the
+        session row the store holds.
+        """
         answer.set_cookie(
             SESSION_COOKIE,
             cookie_value,
             max_age=int(IDLE_WINDOW.total_seconds()),
             httponly=True,
-            samesite="lax",
+            samesite=web_auth_config(request).cookie_samesite,
             secure=self.secure_cookies,
         )
 
@@ -338,7 +435,7 @@ def create_lobby(
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.same_origin_only)
+    lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
