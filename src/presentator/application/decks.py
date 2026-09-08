@@ -44,6 +44,7 @@ from presentator.contracts.decks import (
     SourceRunOutcome,
     SourceState,
     SourceWrite,
+    access_kind_of,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
@@ -51,6 +52,7 @@ from presentator.ports.decks import (
     ConnectionChecker,
     DeckFolders,
     DeckStore,
+    LocalMount,
     SourceRuns,
     SourceStore,
     ToolchainThemes,
@@ -75,7 +77,14 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The form lives at this path segment, so a source must not take it.
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
-_SSH_SCHEMES: Final = frozenset({"ssh"})
+_FILE_ACCESS: Final = "file"
+# The access value the form's own kind maps to, so a mismatch between what a
+# person picked and what the URL actually names is one lookup, not a growing
+# chain of conditions per kind.
+_EXPECTED_ACCESS_KIND: Final = {
+    _HTTPS_ACCESS: AccessKind.HTTPS,
+    _FILE_ACCESS: AccessKind.FILE,
+}
 # Added sources follow main; a later slice is what offers another ref.
 _ADDED_REF: Final = "main"
 _WEBHOOK_SECRET_BYTES: Final = 32
@@ -93,6 +102,8 @@ class SourceRefusal(StrEnum):
     ACCESS_MISMATCH = "access-mismatch"
     BLANK_ACCESS = "missing-secret"
     NOT_CHECKED = "not-checked"
+    CREDENTIAL_NOT_ALLOWED = "credential-not-allowed"
+    OUTSIDE_MOUNT = "outside-local-mount"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -114,22 +125,6 @@ class NewSourceDraft:
     fingerprint: str
 
 
-def access_kind_of(url: str) -> AccessKind | None:
-    """The access the URL's scheme names, or nothing when it names none.
-
-    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy key.
-    Anything else is not an access this product has.
-    """
-    if any(character < " " for character in url):
-        return None
-    parsed = urlparse(url)
-    if parsed.scheme == _HTTPS_ACCESS:
-        return AccessKind.HTTPS
-    if parsed.scheme in _SSH_SCHEMES or (not parsed.scheme and "@" in url):
-        return AccessKind.SSH
-    return None
-
-
 def hash_webhook_secret(secret: str) -> bytes:
     """The only form a webhook secret is stored in: SHA-256, never the value."""
     return sha256(secret.encode()).digest()
@@ -148,10 +143,14 @@ def _refusal_for(
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
             SourceRefusal.MALFORMED_NAME,
         ),
-        (not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (
+            access == _FILE_ACCESS and bool(secret.strip()),
+            SourceRefusal.CREDENTIAL_NOT_ALLOWED,
+        ),
         (urlparse(url).password is not None, SourceRefusal.USERINFO),
         (
-            access != _HTTPS_ACCESS or access_kind_of(url) is not AccessKind.HTTPS,
+            _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
             SourceRefusal.ACCESS_MISMATCH,
         ),
         (not proven, SourceRefusal.NOT_CHECKED),
@@ -225,6 +224,7 @@ class Decks:
     checker: ConnectionChecker
     toolchain_themes: ToolchainThemes
     clock: Clock
+    local_mount: LocalMount
     # How long a build may take before the refresh stops believing it is still
     # running: a process that died with the server leaves its attempt behind,
     # and nobody may read that as building for ever.
@@ -293,12 +293,14 @@ class Decks:
         """Replace that source's access secret. Nothing of the value is returned.
 
         A blank value is not stored: the caller shows the form again. A name
-        nobody stored is not a source to renew.
+        nobody stored is not a source to renew. A source on this box carries
+        no secret at all, the same rule creation enforces, so renewing one is
+        refused rather than quietly given a credential its own kind refuses.
         """
         if not secret.strip():
             return False
         source = self._named(name)
-        if source is None:
+        if source is None or access_kind_of(source.url) is AccessKind.FILE:
             return False
         self.sources.put_credential(source.id, secret)
         return True
@@ -351,10 +353,16 @@ class Decks:
         created screen can show it once; only its hash is stored. The access
         secret is handed to the store and never returned. A source is stored
         only for the exact URL and secret a Check connection already proved
-        reachable, never on the fingerprint of a different pair.
+        reachable, never on the fingerprint of a different pair. A file-kind
+        address is resolved against the real mount before it is stored, so
+        the row always carries the address git will actually open — a
+        symlink or a `..` an operator's own spelling carried never reaches
+        the row, and two spellings of the one real repository collide as
+        the duplicate they are.
         """
         named = draft.name.strip()
         address = draft.url.strip()
+        existing = self.sources.all()
         proven = compare_digest(
             draft.fingerprint,
             _connection_fingerprint(
@@ -367,10 +375,17 @@ class Decks:
         refused = _refusal_for(
             replace(draft, name=named, url=address),
             proven=proven,
-            existing=self.sources.all(),
+            existing=existing,
         )
         if refused is not None:
             return refused
+        if access_kind_of(address) is AccessKind.FILE:
+            canonical = self.local_mount.canonical_repository(address)
+            if canonical is None:
+                return SourceRefusal.OUTSIDE_MOUNT
+            address = str(canonical)
+            if any(source.url == address for source in existing):
+                return SourceRefusal.DUPLICATE_URL
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
         stored = self.sources.add(
             SourceWrite(

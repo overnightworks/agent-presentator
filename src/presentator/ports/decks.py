@@ -6,6 +6,7 @@ Named for decks rather than for a catalogue, because the message catalog
 
 from abc import abstractmethod
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from presentator.contracts.decks import (
@@ -55,6 +56,26 @@ class SourceStore(Protocol):
     @abstractmethod
     def all(self) -> tuple[Source, ...]:
         """Every source this instance mirrors, in no promised order."""
+
+
+class LocalMount(Protocol):
+    """Resolves a file-kind source's address against the real mounted directory.
+
+    The lexical parse a file-kind address gets when a form is judged already
+    rejects what cannot even name a path; this is the one capability that
+    asks the real filesystem, because a symlink or a mount that has since
+    changed is invisible to a lexical check and only shows up once both the
+    address and the mount are resolved.
+    """
+
+    @abstractmethod
+    def canonical_repository(self, address: str) -> Path | None:
+        """The address's real path, resolved and confirmed under the mount.
+
+        Nothing when the address does not name a file-kind source, when
+        nothing on this filesystem answers to it, or when what it resolves
+        to does not stand under the mount once both are resolved.
+        """
 
 
 class DeckFolders(Protocol):

@@ -680,8 +680,17 @@ class SlidevBuilds:
 
     def _exported(self, deck: Deck, *, source: Source, into: Path) -> bool:
         """Write the deck's tree at its commit out of the mirror, as files."""
+        mirror = self.mirrors.of(source)
+        if mirror is None:
+            _log.warning(
+                _UNREADABLE_DECK,
+                deck.slug,
+                deck.commit,
+                "the source no longer resolves under its mount",
+            )
+            return False
         try:
-            self.mirrors.of(source).export(
+            mirror.export(
                 Revision(ref=source.ref, commit=deck.commit),
                 deck.slug,
                 into=into,

@@ -33,6 +33,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import (
+    FilesystemLocalMount,
     MirroredConnectionChecker,
     MirroredDeckFolders,
     SourceCredentials,
@@ -141,10 +142,15 @@ def build_instance(settings: Settings) -> Instance:
         box=box,
     )
     source_timeout = timedelta(seconds=settings.source_timeout_seconds)
+    # The one mounted directory a file-kind source's address may resolve
+    # under, real filesystem and all: shared by every use, since a symlink or
+    # a remount between them must be caught the same way each time.
+    local_mount = FilesystemLocalMount(mount=settings.local_sources_mount)
     mirrors = SourceMirrors(
         directory=settings.mirrors,
         credentials=SourceCredentials(database=settings.database, box=box),
         pull_timeout=source_timeout,
+        local_mount=local_mount,
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
@@ -160,7 +166,10 @@ def build_instance(settings: Settings) -> Instance:
         source_runs=SqliteSourceRunStore(database=settings.database),
         # The same bound a scheduled pull takes: Check connection asks the
         # same remote for the same one thing, just without writing it down.
-        checker=MirroredConnectionChecker(check_timeout=source_timeout),
+        checker=MirroredConnectionChecker(
+            check_timeout=source_timeout,
+            local_mount=local_mount,
+        ),
         toolchain_themes=PackageJsonThemes(project=settings.toolchain),
         # One toolchain step's bound, which is what the refresh needs: it never
         # reads a live build, only what a process that is gone left behind.
@@ -169,6 +178,7 @@ def build_instance(settings: Settings) -> Instance:
             settings.secret_key.get_secret_value(),
         ),
         clock=SystemClock(),
+        local_mount=local_mount,
     )
     pages = Pages(
         preferences=Preferences(

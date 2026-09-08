@@ -42,11 +42,13 @@ from presentator.contracts.decks import (
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
     BUILDS_ROOT,
+    LOCAL_MOUNT_EXAMPLE,
     PATIENCE,
     FakeBuildRunner,
     FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeLocalMount,
     FakeSourceRunStore,
     FakeSourceStore,
     FakeToolchainThemes,
@@ -125,6 +127,7 @@ class DecksFakes:
     checker: FakeConnectionChecker = field(default_factory=FakeConnectionChecker)
     toolchain_themes: FakeToolchainThemes = field(default_factory=FakeToolchainThemes)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
+    local_mount: FakeLocalMount = field(default_factory=FakeLocalMount)
 
 
 def decks_over(
@@ -145,6 +148,7 @@ def decks_over(
         build_bound=_BUILD_BOUND,
         fingerprint_key=_FINGERPRINT_KEY,
         clock=resolved.clock,
+        local_mount=resolved.local_mount,
     )
 
 
@@ -1326,6 +1330,28 @@ def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
     assert store.all() == ()
 
 
+def test_a_different_spelling_of_an_existing_local_source_is_a_duplicate_url() -> None:
+    existing = Source(
+        id="the-existing-file-source",
+        name="talks",
+        url=f"{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        ref="main",
+        secret_location=None,
+        owner_id=_OWNER,
+    )
+    decks = decks_over(sources=having(existing))
+
+    refused = _add(
+        decks,
+        name="other",
+        url=f"file://{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert refused is SourceRefusal.DUPLICATE_URL
+
+
 def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:
     existing = a_source("decks", identifier="the-existing-source")
     store = having(existing)
@@ -1471,5 +1497,5 @@ def test_https_and_ssh_urls_name_their_access_kind() -> None:
     assert access_kind_of(http) is None
     assert access_kind_of(ssh) is AccessKind.SSH
     assert access_kind_of(scp) is AccessKind.SSH
-    assert access_kind_of("file:///tmp/talks.git") is None
+    assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
     assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None
