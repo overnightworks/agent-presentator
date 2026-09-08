@@ -5,7 +5,9 @@ prompt suppression an unattended server needs, so this package spawns it rather
 than binding a second git implementation (ADR 0010).
 """
 
+import logging
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -20,17 +22,39 @@ from gitmirror.model import (
     CredentialResolver,
     GitSource,
     GitUnavailableError,
+    InvalidCredentialError,
     MirrorError,
     Revision,
     TreeEntry,
 )
 
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
-# git asks a helper for the password of an https remote, and answering out of
-# the child's environment keeps the secret off the command line and off disk.
-# The user name belongs in the source URL: only the operator knows which name
-# the host expects beside a read-only token.
-_CREDENTIAL_HELPER: Final = f'!f() {{ echo "password=${_CREDENTIAL_VARIABLE}"; }}; f'
+# GitHub, GitLab, and every other host that hands out a read-only token accept
+# any user name beside it, so an operator whose URL names none still reaches a
+# host that insists on one. A URL that does name one keeps it: verified with a
+# real git that a helper's `username=` answer always wins over the request's
+# own, so the helper reads the request on stdin and only fills the gap.
+CREDENTIAL_USER_NAME: Final = "token"
+# git asks a helper for the credentials of an https remote, and answering out
+# of the child's environment keeps the secret off the command line and off
+# disk. `grep` reads the request git writes to stdin before it reads the
+# helper's own stdout, which is where a `username=` line already stands when
+# the URL named one. `printf '%s\n'` with a constant format, never `echo`,
+# because a shell's `echo` reinterprets a backslash sequence inside the value
+# it is given — `dash`'s always does, verified with a real git — which can
+# truncate or reshape a token that merely happens to contain one.
+_CREDENTIAL_HELPER: Final = (
+    "!f() { grep -q '^username=' || printf 'username=%s\\n' "
+    f"'{CREDENTIAL_USER_NAME}'; "
+    f'printf "password=%s\\n" "${_CREDENTIAL_VARIABLE}"; }}; f'
+)
+# git's line-based credential protocol reads one field per line; a literal CR
+# or LF inside a secret would forge a second line no `printf` quoting can
+# undo, so the boundary where a resolved secret enters the mirror rejects one
+# outright rather than hand git a broken request.
+_UNSAFE_CREDENTIAL: Final = (
+    "a source's credential carries a control character and cannot be sent to git"
+)
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
@@ -56,6 +80,29 @@ _CREDENTIAL_UNRESOLVABLE: Final = Connection(
     state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
     revision=None,
 )
+# git's own words for a login the far end named and turned down, lowercased so
+# a case git happens to pick never hides the match. A bare 403 is deliberately
+# absent: a proxy or a WAF answers that status for reasons that have nothing
+# to do with the token, so only a message git itself ties to a login counts.
+_REFUSED_WORDS: Final = (
+    "authentication failed",
+    "invalid username or token",
+    "returned error: 401",
+)
+# git's own words for a host that never answered at all — no TCP connection,
+# no DNS name, no reply before the timeout above already caught it.
+_UNREACHABLE_WORDS: Final = (
+    "could not resolve host",
+    "failed to connect",
+    "connection refused",
+    "connection timed out",
+)
+# Any `scheme://user:pass@` a URL can carry, wherever it stands in the text:
+# git reflects a redirect target or the remote's own reply verbatim, so this
+# runs over the whole diagnostic, not only the source's own URL.
+_USERINFO: Final = re.compile(r"://[^/@]*@")
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -74,6 +121,7 @@ class GitMirror:
         secret = self.credentials.resolve(self.source.credential)
         if secret is None:
             return _CREDENTIAL_UNRESOLVABLE
+        _reject_unsafe_secret(secret)
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -144,7 +192,13 @@ class GitMirror:
             # A remote nobody can reach must not hold the page that asked for it.
             return _UNREACHABLE
         if pulled.returncode != 0:
-            return _UNREACHABLE
+            stderr = pulled.stderr.decode(errors="replace").strip()
+            _log.warning(
+                "git fetch of %s failed: %s",
+                _without_userinfo(self.source.url),
+                _sanitized(stderr, secret=secret),
+            )
+            return Connection(state=connection_state_for_failure(stderr), revision=None)
         return Connection(
             state=ConnectionState.READY,
             revision=Revision(
@@ -191,6 +245,51 @@ def unattended_environment(secret: str | None) -> dict[str, str]:
     inherited = {name: os.environ[name] for name in _INHERITED if name in os.environ}
     carried = {} if secret is None else {_CREDENTIAL_VARIABLE: secret}
     return {**inherited, **_UNATTENDED, **carried}
+
+
+def _reject_unsafe_secret(secret: str) -> None:
+    """Fail loud rather than hand git's line-based protocol a broken line.
+
+    A secret can reach a mirror from any resolver an instance configures, so
+    this is the one place every one of them passes through, whatever a
+    resolver's own input validation does or does not already catch.
+    """
+    if not secret.isprintable():
+        raise InvalidCredentialError(_UNSAFE_CREDENTIAL)
+
+
+def connection_state_for_failure(stderr: str) -> ConnectionState:
+    """Which of the three failure states a failed pull's own words say happened.
+
+    Unreachable is only ever one of `_UNREACHABLE_WORDS` or the timeout above;
+    an answer git phrases in words this function does not recognise — a TLS
+    certificate failure, a proxy's own text — is not proof the host never
+    answered, so it stays `failed` rather than guessing.
+    """
+    lowered = stderr.lower()
+    if any(word in lowered for word in _REFUSED_WORDS):
+        return ConnectionState.REFUSED
+    if any(word in lowered for word in _UNREACHABLE_WORDS):
+        return ConnectionState.UNREACHABLE
+    return ConnectionState.FAILED
+
+
+def _without_userinfo(text: str) -> str:
+    """That text with any embedded user name or password hidden, wherever it stands."""
+    return _USERINFO.sub("://***@", text)
+
+
+def _sanitized(stderr: str, *, secret: str | None) -> str:
+    """That stderr with every userinfo and the secret itself erased.
+
+    The secret only ever reaches git through the child's environment, so it
+    cannot appear here on its own account; this still erases it, because a
+    defence a probe can falsify is not a defence.
+    """
+    redacted = _without_userinfo(stderr)
+    if secret:
+        redacted = redacted.replace(secret, "***")
+    return redacted
 
 
 def _tree_entry(line: str) -> TreeEntry:

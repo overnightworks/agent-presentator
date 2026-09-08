@@ -217,6 +217,12 @@ msgstr "reachable"
 msgid "source_state_error"
 msgstr "Error"
 
+msgid "source_state_refused"
+msgstr "Refused"
+
+msgid "source_state_failed"
+msgstr "Failed"
+
 msgid "source_state_never_fetched"
 msgstr "never fetched"
 
@@ -390,6 +396,12 @@ msgstr "Host unreachable"
 
 msgid "source_run_secret"
 msgstr "Secret not stored"
+
+msgid "source_run_refused"
+msgstr "Login refused"
+
+msgid "source_run_failed"
+msgstr "Host answered, fetch failed"
 
 msgid "source_run_column_state"
 msgstr "State"

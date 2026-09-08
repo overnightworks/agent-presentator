@@ -80,6 +80,8 @@ class LobbyText:
     sources_fetch_now: str
     source_state_reachable: str
     source_state_error: str
+    source_state_refused: str
+    source_state_failed: str
     source_state_never_fetched: str
     sources_empty_title: str
     sources_empty_explanation: str
@@ -133,6 +135,8 @@ class LobbyText:
     source_run_fetched: str
     source_run_unreachable: str
     source_run_secret: str
+    source_run_refused: str
+    source_run_failed: str
     source_run_column_state: str
     source_run_column_fetched: str
     source_run_column_detail: str

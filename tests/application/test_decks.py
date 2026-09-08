@@ -897,6 +897,42 @@ def test_a_failed_newest_run_lists_as_error_even_when_the_reason_is_unresolvable
     assert listed[0].age == timedelta(hours=2)
 
 
+def test_a_refused_login_lists_as_refused_rather_than_error() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=5),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.REFUSED,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.REFUSED
+    assert listed[0].age == timedelta(minutes=5)
+
+
+def test_a_host_that_answered_with_something_else_lists_as_failed() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=7),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.FAILED,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.FAILED
+    assert listed[0].age == timedelta(minutes=7)
+
+
 def test_the_list_reads_the_newest_run_only() -> None:
     runs = FakeSourceRunStore()
     runs.record(

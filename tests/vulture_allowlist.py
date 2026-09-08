@@ -1,13 +1,21 @@
-"""Names that a production site reaches at a site `vulture` cannot see.
+"""Names that something other than a Python call site reaches.
 
-A Jinja template is not Python, so a field only a template renders looks unused.
-Every entry names the site that reaches it; an entry without one is an excuse.
+A Jinja template is not Python, so a field only a template renders looks
+unused; a standard-library base class's own dispatch is invisible the same
+way. Every entry names the site that reaches it; an entry without one is an
+excuse.
 """
 
 from presentator.api.auth import DeckRow
 from presentator.api.decks import Banner
 from presentator.api.sources import SourceDeckRow, SourceRow, SourceRunRow, SourceView
 from presentator.contracts.text import LobbyText
+from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
+
+# `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
+# in the test that stands the server up ever calls it itself.
+DumbHttpHandler.log_message
+RespondingHandler.log_message
 
 # `presentator/api/templates/home.html` renders it in the "Changed" column.
 DeckRow.changed

@@ -234,9 +234,11 @@ WHERE source_id = ?
 """
 _SourceRunRow = tuple[str, str, str, str | None, str | None]
 # `gitmirror`'s own words never reach a `SourceRun`; a connection that carries
-# no revision is always one of these two states, never `READY`.
+# no revision is always one of these four states, never `READY`.
 _FAILURE_BY_CONNECTION_STATE: Final[dict[ConnectionState, SourceRunFailure]] = {
     ConnectionState.CREDENTIAL_UNRESOLVABLE: SourceRunFailure.CREDENTIAL_UNRESOLVABLE,
+    ConnectionState.REFUSED: SourceRunFailure.REFUSED,
+    ConnectionState.FAILED: SourceRunFailure.FAILED,
     ConnectionState.UNREACHABLE: SourceRunFailure.UNREACHABLE,
 }
 

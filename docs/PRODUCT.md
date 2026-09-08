@@ -76,9 +76,11 @@ An admin opens Settings and sets the instance name, the default language, and
 the default theme; a person without the admin role is refused there rather than
 sent to the login. Settings is one area with a tab strip: General is those
 instance defaults, and Sources lists each source with the state and age of its
-newest run — never fetched, reachable, or Error, never the internal reason a
-credential could not be resolved — and a Fetch now that refreshes that one
-source and returns to the list. An instance with no source says what a source
+newest run — never fetched, reachable, refused when the host turns the login
+down, failed when the host answered with something else, or Error when a
+credential could not be resolved, never the internal reason why — and a Fetch
+now that refreshes that one source and returns to the list. An instance with
+no source says what a source
 is and what you need for it. Users is not a tab yet. An admin adds a source
 there, and each source has a page of its own. Everybody opens Account
 and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,

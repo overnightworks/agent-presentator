@@ -341,10 +341,14 @@ class _Surfaces:
         )
 
     def _run_row(self, run: ShownSourceRun, text: LobbyText) -> SourceRunRow:
-        failed = run.outcome is SourceRunOutcome.FAILURE
+        state = _run_state_of(run)
         return SourceRunRow(
-            state=SourceState.ERROR.value if failed else SourceState.REACHABLE.value,
-            state_word=(text.source_state_error if failed else text.source_run_fetched),
+            state=state.value,
+            state_word=(
+                text.source_run_fetched
+                if run.outcome is SourceRunOutcome.SUCCESS
+                else _state_word(state, text)
+            ),
             fetched=self.pages.age_in_words(run.age, text.language_tag),
             commit=run.commit,
             reason=None if run.reason is None else _run_reason(run.reason, text),
@@ -374,6 +378,8 @@ def _state_word(state: SourceState, text: LobbyText) -> str:
     return {
         SourceState.REACHABLE: text.source_state_reachable,
         SourceState.ERROR: text.source_state_error,
+        SourceState.REFUSED: text.source_state_refused,
+        SourceState.FAILED: text.source_state_failed,
         SourceState.NEVER_FETCHED: text.source_state_never_fetched,
     }[state]
 
@@ -392,7 +398,25 @@ def _run_reason(reason: SourceRunFailure, text: LobbyText) -> str:
     return {
         SourceRunFailure.UNREACHABLE: text.source_run_unreachable,
         SourceRunFailure.CREDENTIAL_UNRESOLVABLE: text.source_run_secret,
+        SourceRunFailure.REFUSED: text.source_run_refused,
+        SourceRunFailure.FAILED: text.source_run_failed,
     }[reason]
+
+
+def _run_state_of(run: ShownSourceRun) -> SourceState:
+    """The one word a run row shows, read off its outcome and reason.
+
+    A refused login and a host that answered with something else are each
+    worth their own word here too, the same exception the sources list makes
+    (`SourceState`'s own docstring).
+    """
+    if run.outcome is SourceRunOutcome.SUCCESS:
+        return SourceState.REACHABLE
+    if run.reason is SourceRunFailure.REFUSED:
+        return SourceState.REFUSED
+    if run.reason is SourceRunFailure.FAILED:
+        return SourceState.FAILED
+    return SourceState.ERROR
 
 
 def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
