@@ -199,8 +199,8 @@ class _Surfaces:
             name=name,
             operation=_ShownOperation.CREATE,
         )
-        if created in self._shown_once:
-            secret = self._shown_once.pop(created)
+        secret = self._shown_once.pop(created, None)
+        if secret is not None:
             return self.pages.page(
                 request,
                 "source_created.html",
