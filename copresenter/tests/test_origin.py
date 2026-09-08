@@ -31,11 +31,19 @@ def test_the_named_origin_may_ask(app) -> None:
     assert "access-control-allow-credentials" not in response.headers
 
 
-def test_the_named_origin_is_answered_and_spoken(app, fake_speech) -> None:
-    response = TestClient(app).post("/ask", json=QUESTION, headers={"Origin": ALLOWED_ORIGIN})
+def test_the_named_origin_is_answered_and_spoken(client, fake_speech, answerer) -> None:
+    response = client.post("/ask", json=QUESTION)
 
     assert response.status_code == 200
+    assert answerer.turns == 1
     assert fake_speech.spoken != []
+
+
+def test_the_named_origin_is_told_who_answers(client, fake_speech) -> None:
+    response = client.get("/who")
+
+    assert response.status_code == 200
+    assert fake_speech.health_asks == 1
 
 
 @pytest.mark.parametrize(
@@ -45,7 +53,7 @@ def test_the_named_origin_is_answered_and_spoken(app, fake_speech) -> None:
         pytest.param({}, id="no origin at all"),
     ],
 )
-def test_only_that_origin_reaches_the_answerer(app, fake_speech, headers) -> None:
+def test_only_that_origin_reaches_the_answerer(app, fake_speech, answerer, headers) -> None:
     client = TestClient(app)
 
     asked = client.post("/ask", json=QUESTION, headers=headers)
@@ -53,7 +61,10 @@ def test_only_that_origin_reaches_the_answerer(app, fake_speech, headers) -> Non
 
     assert asked.status_code == FORBIDDEN
     assert asked_who.status_code == FORBIDDEN
+    assert answerer.turns == 0
     assert fake_speech.spoken == []
+    assert fake_speech.health_asks == 0
+    assert fake_speech.hear_opens == 0
 
 
 @pytest.mark.parametrize(
@@ -63,7 +74,7 @@ def test_only_that_origin_reaches_the_answerer(app, fake_speech, headers) -> Non
         pytest.param({}, id="no origin at all"),
     ],
 )
-def test_only_that_origin_opens_the_hearing_socket(app, headers) -> None:
+def test_only_that_origin_opens_the_hearing_socket(app, fake_speech, headers) -> None:
     client = TestClient(app)
 
     with (
@@ -73,17 +84,14 @@ def test_only_that_origin_opens_the_hearing_socket(app, headers) -> None:
         pass
 
     assert refusal.value.code == POLICY_VIOLATION
+    assert fake_speech.hear_opens == 0
 
 
-def test_the_named_origin_opens_the_hearing_socket(app) -> None:
-    client = TestClient(app)
-
-    with client.websocket_connect(
-        "/hear?language=de",
-        headers={"Origin": ALLOWED_ORIGIN},
-    ) as socket:
+def test_the_named_origin_opens_the_hearing_socket(client, fake_speech) -> None:
+    with client.websocket_connect("/hear?language=de") as socket:
         payload = socket.receive_json()
 
+    assert fake_speech.hear_opens == 1
     assert payload["error"] == "hearing unavailable"
 
 
