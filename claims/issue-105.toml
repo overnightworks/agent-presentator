@@ -1,0 +1,8 @@
+claim_id = "44d95363432e44afaedd2946113ae6c0"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "63d728a60270370dd39a93d77e136f1b566077f1"
+branch = "claude/issue-105-webauth-0-3"
+scope = ["src/presentator/api/auth.py", "src/presentator/host/main.py", "pyproject.toml"]
+opened_commit = "b0f66ff92633102ef413c7a0e39722ecb1b5f860"
+whole_reason = "the adoption touches the auth module, the composition root, the dependency pin and lock, the docs and the auth tests"
