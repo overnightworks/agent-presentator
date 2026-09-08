@@ -1,0 +1,8 @@
+claim_id = "21c85de34be643e4acbf369cb2863893"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "973bbfe29dcb22e4383b39726f8026cb80e77ee3"
+branch = "claude/issue-96-ssh-deploy-key"
+scope = ["src/presentator/api/sources.py", "src/presentator/adapters/secrets.py", "src/gitmirror/mirror.py"]
+opened_commit = "ef84c7dab1f982b5ebd998b45f3a80548512e0ca"
+whole_reason = "the deploy key crosses the form, the key store and the mirror's ssh transport plus tests"
