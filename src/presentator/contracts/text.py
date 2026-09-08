@@ -109,6 +109,7 @@ class LobbyText:
     source_webhook_address: str
     source_webhook_secret: str
     source_webhook_once: str
+    source_webhook_held_elsewhere: str
     source_copy: str
     source_webhook_payload: str
     source_created_done: str
@@ -119,6 +120,24 @@ class LobbyText:
     source_refused_password: str
     source_refused_access: str
     source_refused_secret: str
+    source_access_heading: str
+    source_webhook_heading: str
+    source_recent_runs: str
+    source_decks: str
+    source_reverse: str
+    source_push_inbox: str
+    source_later: str
+    source_renew: str
+    source_secret_dots: str
+    source_secret_missing: str
+    source_access_renew_info: str
+    source_run_fetched: str
+    source_run_unreachable: str
+    source_run_secret: str
+    source_run_refused: str
+    source_run_column_state: str
+    source_run_column_fetched: str
+    source_run_column_detail: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -3,7 +3,7 @@
 import hashlib
 import logging
 import string
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 
@@ -17,6 +17,7 @@ from presentator.application.decks import (
 )
 from presentator.contracts.decks import (
     MANIFEST_FILE,
+    RECENT_SOURCE_RUNS,
     SLIDES_FILE,
     AccessKind,
     BuildAttempt,
@@ -29,6 +30,7 @@ from presentator.contracts.decks import (
     ListedSource,
     SecretLocation,
     Source,
+    SourceDeck,
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
@@ -98,9 +100,9 @@ def carrying(*folders: DeckFolder, source: Source = _SOURCE) -> FakeDeckFolders:
     return FakeDeckFolders(carried={source.id: folders})
 
 
-def having(*sources: Source, seeds: Source | None = None) -> FakeSourceStore:
-    """The sources an instance already has, and the one its seed would write."""
-    return FakeSourceStore(sources=list(sources), seeds=seeds)
+def having(*sources: Source) -> FakeSourceStore:
+    """The sources an instance already has."""
+    return FakeSourceStore(sources=list(sources))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -673,17 +675,6 @@ def test_a_source_that_cannot_be_read_leaves_every_deck_listed() -> None:
     assert [deck.slug for deck in while_the_source_was_unreadable] == ["kundenfeedback"]
 
 
-def test_the_source_the_seed_writes_is_taken_in_by_the_refresh_that_seeded_it() -> None:
-    decks = decks_over(
-        sources=having(seeds=_SOURCE),
-        mirror=carrying(a_folder("kundenfeedback")),
-    )
-
-    listed = refreshed(decks)
-
-    assert [deck.slug for deck in listed] == ["kundenfeedback"]
-
-
 def test_two_sources_each_list_their_own_decks() -> None:
     store = FakeDeckStore()
     decks = decks_over(
@@ -1215,18 +1206,15 @@ def test_a_duplicate_name_or_url_is_refused() -> None:
     assert _add(decks, name="other") is SourceRefusal.DUPLICATE_URL
 
 
-def test_adding_a_source_does_not_rewrite_a_seeded_environment_source() -> None:
-    seeded = replace(
-        a_source("decks", identifier="the-configured-source"),
-        secret_location=SecretLocation.ENVIRONMENT,
-    )
-    store = having(seeded)
+def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:
+    existing = a_source("decks", identifier="the-existing-source")
+    store = having(existing)
 
     added = _add(decks_over(sources=store))
 
     assert isinstance(added, AddedSource)
-    kept = next(source for source in store.all() if source.id == seeded.id)
-    assert kept.secret_location is SecretLocation.ENVIRONMENT
+    kept = next(source for source in store.all() if source.id == existing.id)
+    assert kept.secret_location is None
 
 
 def test_a_hook_call_with_the_stored_secret_refreshes_that_source() -> None:
@@ -1260,6 +1248,98 @@ def test_a_hook_call_with_the_wrong_secret_or_name_is_refused() -> None:
     assert not decks.accept_hook(added.source.name, "guessed")
     assert not decks.accept_hook("no-such-source", added.webhook_secret)
     assert not decks.accept_hook(added.source.name, "")
+
+
+def test_the_source_page_names_state_newest_runs_and_the_decks_from_here() -> None:
+    run_store = FakeSourceRunStore()
+    decks = decks_over(
+        a_folder("knowledge-fabric", title="Knowledge Fabric"),
+        a_folder("kundenfeedback", title="Kundenfeedback"),
+        fakes=DecksFakes(source_runs=run_store),
+    )
+    run_store.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=13),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.UNREACHABLE,
+        ),
+    )
+    run_store.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=8),
+            outcome=SourceRunOutcome.SUCCESS,
+            commit="c40b7e1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            reason=None,
+        ),
+    )
+    decks.refresh()
+
+    page = decks.shown_source(_SOURCE.name)
+
+    assert page is not None
+    assert page.name == _SOURCE.name
+    assert page.url == _SOURCE.url
+    assert page.state is SourceState.REACHABLE
+    assert page.secret_missing is True
+    assert page.runs[0].commit == _SHORT_COMMIT
+    assert page.runs[-1].reason is SourceRunFailure.UNREACHABLE
+    assert len(page.runs) == RECENT_SOURCE_RUNS
+    assert page.decks == (
+        SourceDeck(slug="knowledge-fabric", title="Knowledge Fabric"),
+        SourceDeck(slug="kundenfeedback", title="Kundenfeedback"),
+    )
+
+
+def test_a_name_this_instance_does_not_have_has_no_source_page() -> None:
+    assert decks_over().shown_source("no-such-source") is None
+
+
+def test_renewing_the_access_secret_stores_the_new_value() -> None:
+    store = having(_SOURCE)
+    decks = decks_over(sources=store)
+
+    assert decks.renew_access(_SOURCE.name, "the-new-token")
+    assert store.secrets[_SOURCE.id] == "the-new-token"
+    assert store.all()[0].secret_location is SecretLocation.STORED
+
+
+def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
+    store = having(_SOURCE)
+
+    assert not decks_over(sources=store).renew_access(_SOURCE.name, "  ")
+    assert store.secrets == {}
+    assert store.all()[0].secret_location is None
+
+
+def test_renewing_the_webhook_secret_returns_a_new_value_and_replaces_the_hash() -> (
+    None
+):
+    store = having()
+    decks = decks_over(sources=store)
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+    previous = store.hook_secret_hash(added.source.name)
+
+    minted = decks.renew_webhook(added.source.name)
+
+    assert minted is not None
+    assert minted != added.webhook_secret
+    assert store.hook_secret_hash(added.source.name) != previous
+    assert hashlib.sha256(minted.encode()).digest() == store.hook_secret_hash(
+        added.source.name,
+    )
+
+
+def test_renewing_a_name_this_instance_does_not_have_does_nothing() -> None:
+    store = having(_SOURCE)
+    decks = decks_over(sources=store)
+
+    assert not decks.renew_access("no-such-source", "the-new-token")
+    assert decks.renew_webhook("no-such-source") is None
+    assert store.secrets == {}
 
 
 def test_https_and_ssh_urls_name_their_access_kind() -> None:

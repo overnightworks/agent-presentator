@@ -33,7 +33,10 @@ from presentator.contracts.decks import (
     ListedDeck,
     ListedSource,
     ShownAttempt,
+    ShownSourceRun,
     Source,
+    SourceDeck,
+    SourcePage,
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
@@ -69,7 +72,7 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
 _SSH_SCHEMES: Final = frozenset({"ssh"})
-# Added sources follow main; the configured source still carries its own ref.
+# Added sources follow main; a later slice is what offers another ref.
 _ADDED_REF: Final = "main"
 _WEBHOOK_SECRET_BYTES: Final = 32
 _HASH_LENGTH: Final = 32
@@ -213,14 +216,69 @@ class Decks:
         than walking every source and doing nothing. A refresh already running
         is already serving the same lock, so this call returns as if it ran.
         """
-        source = next(
-            (item for item in self.sources.all() if item.name == name),
-            None,
-        )
+        source = self._named(name)
         if source is None:
             return False
         self._run_one_at_a_time(partial(self._take_in_and_build_one, source))
         return True
+
+    def shown_source(self, name: str) -> SourcePage | None:
+        """What that source's page says, or nothing while no source has this name."""
+        source = self._named(name)
+        if source is None:
+            return None
+        now = self.clock.now()
+        listed = self._listed_source(source, now)
+        return SourcePage(
+            name=listed.name,
+            url=listed.url,
+            access=listed.access,
+            state=listed.state,
+            age=listed.age,
+            secret_missing=source.secret_location is None,
+            runs=tuple(
+                ShownSourceRun(
+                    outcome=run.outcome,
+                    age=now - run.at,
+                    commit=None if run.commit is None else run.commit[:_SHORT_COMMIT],
+                    reason=run.reason,
+                )
+                for run in self.source_runs.recent(source.id)
+            ),
+            decks=tuple(
+                SourceDeck(slug=deck.slug, title=deck.title)
+                for deck in sorted(
+                    (deck for deck in self.store.all() if deck.source_id == source.id),
+                    key=lambda deck: deck.title,
+                )
+            ),
+        )
+
+    def renew_access(self, name: str, secret: str) -> bool:
+        """Replace that source's access secret. Nothing of the value is returned.
+
+        A blank value is not stored: the caller shows the form again. A name
+        nobody stored is not a source to renew.
+        """
+        if not secret.strip():
+            return False
+        source = self._named(name)
+        if source is None:
+            return False
+        self.sources.put_credential(source.id, secret)
+        return True
+
+    def renew_webhook(self, name: str) -> str | None:
+        """Mint a new webhook secret, store only its hash, and return the value once.
+
+        A name nobody stored is not a source to renew.
+        """
+        source = self._named(name)
+        if source is None:
+            return None
+        webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
+        self.sources.put_hook_secret_hash(name, hash_webhook_secret(webhook_secret))
+        return webhook_secret
 
     def add_source(
         self,
@@ -421,14 +479,20 @@ class Decks:
         finally:
             self._one_at_a_time.release()
 
+    def _named(self, name: str) -> Source | None:
+        """The stored source that answers to this name, if this instance has one."""
+        return next(
+            (item for item in self.sources.all() if item.name == name),
+            None,
+        )
+
     def _take_in_and_build(self) -> None:
-        """Make the configured source a row, then walk the sources one by one.
+        """Walk the sources one by one.
 
         A source is taken in and built before the next one is read, so a
         refresh costs its sources' pull bounds one after another instead of
         opening as many pulls at once as the instance has sources.
         """
-        self.sources.seed()
         for source in self.sources.all():
             self._take_in_and_build_one(source)
 

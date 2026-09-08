@@ -18,21 +18,6 @@ class ConfigurationError(ValueError):
     """What the environment carries is not a configuration to run on."""
 
 
-def _a_real_secret(given: SecretStr) -> SecretStr:
-    """Refuse a secret too short or too blank to guard anything.
-
-    An empty value would otherwise arm the hook with a secret every caller
-    already carries, which is worse than the closed hook it looks like.
-    """
-    if len(given.get_secret_value().strip()) < SECRET_LENGTH:
-        message = (
-            f"is at least {SECRET_LENGTH} characters that are not blank;"
-            " leave it unset to keep the hook closed"
-        )
-        raise ValueError(message)
-    return given
-
-
 def _a_proxy_list(given: str) -> str:
     """Refuse a list that is not addresses or networks."""
     TrustedProxies.parse(given)
@@ -52,21 +37,9 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # A build that hangs would hold every later build behind it, so each step
     # of the toolchain is bounded.
     build_timeout_seconds: float = 300.0
-    source_url: str | None = None
-    source_ref: str = "main"
-    # The name the source answers to in its hook address, and the secret a call
-    # there has to carry; a stored source owns both once Settings does. Without
-    # a secret there is no hook address at all, only the poll.
-    source_name: str = "decks"
-    source_hook_secret: Annotated[SecretStr, AfterValidator(_a_real_secret)] | None = (
-        None
-    )
     # Polling is what makes a push arrive at all, so it runs whether or not any
     # host ever calls the hook.
     source_poll_seconds: float = 300.0
-    # The name of the environment variable holding the read-only secret, never
-    # the secret itself, so no durable record of this instance carries a value.
-    source_credential: str | None = None
     # A pull that hangs would hold the tick it runs on, so it is bounded.
     source_timeout_seconds: float = 20.0
     https: bool = False
