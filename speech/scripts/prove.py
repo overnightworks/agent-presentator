@@ -317,6 +317,9 @@ def _prove_one_speak(
     if duration < 1.0:
         message = f"{label} produced too little audio to be a sentence"
         raise SystemExit(message)
+    if ttfa > limit:
+        message = f"{label} first byte {ttfa:.3f}s exceeded the {limit:.1f}s limit"
+        raise SystemExit(message)
     return wav, ttfa, rtf
 
 
@@ -355,9 +358,15 @@ def _prove_speak_medians(
     return wavs[-1], median_ttfa, median_rtf
 
 
-def _prove_speak(base: str, model: str) -> tuple[bytes, bool]:
+def _prove_speak(base: str, model: str) -> bytes:
+    """Speak German and English MEASURE_REPETITIONS times each.
+
+    `_prove_one_speak` fails the run the moment any single repetition, in
+    either language, misses `model`'s first-byte limit; a passing run is
+    the proof that every repetition held, not just the medians.
+    """
     limit = _first_byte_limit(model)
-    german, ttfa_de, _rtf_de = _prove_speak_medians(
+    german, _ttfa_de, _rtf_de = _prove_speak_medians(
         base,
         SENTENCE,
         "de",
@@ -365,14 +374,7 @@ def _prove_speak(base: str, model: str) -> tuple[bytes, bool]:
         label="speak_wire_de",
     )
     _prove_speak_medians(base, ENGLISH, "en", limit=limit, label="speak_wire_en")
-    over = ttfa_de > limit
-    if over:
-        print(
-            "TTFA_OVER_ONE_SECOND",
-            f"first_byte_s={ttfa_de:.3f}",
-            f"limit_s={limit:.1f}",
-        )
-    return german, over
+    return german
 
 
 def _prove_concurrent_speak(base: str, model: str) -> None:
@@ -383,7 +385,7 @@ def _prove_concurrent_speak(base: str, model: str) -> None:
     def run(key: str, text: str) -> None:
         try:
             results[key] = _speak_measured(base, text, language="de")
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             errors.append(f"{key}: {error}")
 
     first = threading.Thread(target=run, args=("first", SENTENCE), daemon=True)
@@ -498,17 +500,10 @@ def main() -> None:
             print("whisper_cache", WHISPER_CACHE)
             print("chatterbox_cache", CHATTERBOX_CACHE)
             print("piper_cache", PIPER_CACHE)
-            german, ttfa_over = _prove_speak(base, speaking_model)
+            german = _prove_speak(base, speaking_model)
             GERMAN_WAV_PATH.parent.mkdir(parents=True, exist_ok=True)
             GERMAN_WAV_PATH.write_bytes(german)
             print("german_wav", GERMAN_WAV_PATH)
-            if ttfa_over:
-                print("gpu_after", _nvidia_memory())
-                message = (
-                    "Chatterbox first audio byte on the wire exceeded one second; "
-                    "stopping before concurrent speak and the contract client"
-                )
-                raise SystemExit(message)
             _prove_concurrent_speak(base, speaking_model)
             _prove_contract(project, base, env)
             print("gpu_after", _nvidia_memory())

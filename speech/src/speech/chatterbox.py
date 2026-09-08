@@ -15,17 +15,13 @@ _LOG = logging.getLogger(__name__)
 
 CHATTERBOX_SAMPLE_RATE = 24_000
 CHATTERBOX_T3_WEIGHTS = "t3_mtl23ls_v3.safetensors"
+# Pinned to the snapshot this service was measured against; a moving "main"
+# could swap in weights nobody here has timed or listened to.
+CHATTERBOX_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"
 # 25 speech tokens per second of 24 kHz audio; 12 tokens is about half a second.
 STREAM_TOKEN_CHUNK = 12
 MAX_NEW_TOKENS = 1000
 WARMUP_TEXT = "Hallo."
-
-
-def _silence_watermarker() -> None:
-    """Use perth's no-op. chatterbox-tts 0.1.7 always constructs a watermarker."""
-    import perth
-
-    perth.PerthImplicitWatermarker = perth.DummyWatermarker
 
 
 def _checkpoint_dir() -> object:
@@ -39,7 +35,7 @@ def _checkpoint_dir() -> object:
         snapshot_download(
             repo_id="ResembleAI/chatterbox",
             repo_type="model",
-            revision="main",
+            revision=CHATTERBOX_REVISION,
             allow_patterns=[
                 "ve.pt",
                 CHATTERBOX_T3_WEIGHTS,
@@ -65,7 +61,6 @@ def _load_v3(device: str) -> object:
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS, Conditionals
     from safetensors.torch import load_file as load_safetensors
 
-    _silence_watermarker()
     ckpt_dir = _checkpoint_dir()
     map_location = torch.device("cpu") if device in {"cpu", "mps"} else None
     voice_encoder = VoiceEncoder()
@@ -185,6 +180,8 @@ def _stream_pcm(model: object, text: str, language: str) -> Iterator[bytes]:
 
 
 def _vocode(model: object, speech_tokens: object) -> np.ndarray:
+    # Calls s3gen directly rather than the model's own generate(), so the
+    # watermark that generate() applies afterward never runs on this audio.
     import torch
 
     with torch.inference_mode():
@@ -249,6 +246,10 @@ def _speech_token_chunks(
     text: str,
     language: str,
 ) -> Iterator[object]:
+    # The pinned wheel's T3.inference() and generate() run to completion before
+    # returning a token, and generate() has no way to select the v3 checkpoint
+    # this loader wires up; this reimplements the decode loop token by token so
+    # a caller can stream speech tokens as they are produced.
     import torch
     from transformers.generation.logits_process import (
         MinPLogitsWarper,

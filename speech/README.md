@@ -14,7 +14,7 @@ card voice.
 | Role | Hugging Face | Licence | Why this one |
 | --- | --- | --- | --- |
 | Speaking (default) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/presentator` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
-| Speaking (optional) | [`ResembleAI/chatterbox`](https://huggingface.co/ResembleAI/chatterbox) Multilingual V3 | MIT (`chatterbox-tts` 0.1.7) | Real German, streams PCM while it synthesises, 24 kHz. Installed `from_pretrained` takes only `device` and loads V2; this service loads `t3_mtl23ls_v3.safetensors` from the local Hub cache. `resemble-perth` 1.0.1 is the package pin; Chatterbox always constructs a watermarker and has no disable flag, so the service installs perth's `DummyWatermarker` (the implicit net needs `pkg_resources`, which this venv does not have). |
+| Speaking (optional) | [`ResembleAI/chatterbox`](https://huggingface.co/ResembleAI/chatterbox) Multilingual V3, snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18` | MIT (`chatterbox-tts` 0.1.7) | Real German, streams PCM while it synthesises, 24 kHz. Installed `from_pretrained` takes only `device` and loads V2; this service loads `t3_mtl23ls_v3.safetensors` from the local Hub cache, pinned to the snapshot it was measured against. `resemble-perth` 1.0.1's `PerthImplicitWatermarker` needs `pkg_resources`, which setuptools stopped shipping at 82; this project pins `setuptools==81.0.0` so Chatterbox's own construction of the real watermarker succeeds instead of silently degrading to `perth`'s no-op. The streamed path calls `s3gen` directly rather than the model's own `generate()`, so it never reaches the line that applies the watermark to the waveform — unmarked audio either way, now for a stated reason rather than a substituted no-op. |
 | Hearing | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) | MIT (CTranslate2 conversion of [`openai/whisper-large-v3`](https://huggingface.co/openai/whisper-large-v3), also MIT) | Already cached on this machine. German is a documented language. Partials are chunked re-decode of a growing buffer, not a native streaming architecture. |
 
 Checked and not chosen:
@@ -54,34 +54,40 @@ Piper default:
 | Hearing footprint | ~3874 MiB GPU |
 | Speaking footprint | 0 MiB GPU (CPU / ONNX) |
 
-`SPEECH_SPEAKING_MODEL=ResembleAI/chatterbox`, same sentences, same card:
+`SPEECH_SPEAKING_MODEL=ResembleAI/chatterbox`, same sentences, same card, with
+the real `PerthImplicitWatermarker` constructing (`resource_filename` and the
+implicit net both need `pkg_resources`, restored by pinning `setuptools`):
 
 | What | Number |
 | --- | --- |
-| Time to first byte of `/speak` (wire, German, median of 5) | 0.546 s (`speaking.streams` is `true`; limit 1.0 s) |
-| Time to first byte (English, median of 5) | 0.528 s |
-| Real-time factor (German / English, median of 5) | 0.82× / 0.82× |
+| Time to first byte of `/speak` (wire, German, median of 5) | 0.534 s (`speaking.streams` is `true`; limit 1.0 s) |
+| Time to first byte (English, median of 5) | 0.523 s |
+| Real-time factor (German / English, median of 5) | 0.83× / 0.82× |
 | WAV RMS | not silence on every repetition |
 | First partial transcript | 0.966 s (frame 7), while frames were still being sent |
-| Final transcript | matched the spoken sentence at 8.666 s |
+| Final transcript | matched the spoken sentence at 7.901 s |
 | Second `/speak` while the first streams | both WAVs distinct speech; the voice lock serialises generation |
-| Card before this process | 6433 MiB |
-| Card with Chatterbox + Whisper resident (before any `/speak` call) | 13609 MiB |
-| Chatterbox + hearing footprint together | ~7176 MiB GPU (Chatterbox itself ~3.5 GB, matching #70's inference for a 0.5B model beside Whisper's ~3.9 GB) |
+| Card before this process | 6296 MiB |
+| Card with Chatterbox + Whisper resident (before any `/speak` call) | 13465 MiB |
+| Chatterbox + hearing footprint together | ~7169 MiB GPU (Chatterbox itself ~3.5 GB, matching #70's inference for a 0.5B model beside Whisper's ~3.9 GB) |
 
-All ten repetitions (5 German, 5 English) stayed under the 1.0 s limit; the
-worst single repetition was 0.592 s. Load now synthesises a short German
-warmup so `ready` means the first real sentence is already in budget — a cold
-first request before that warmup existed took 1.362 s. `scripts/prove.py`
-writes the German WAV of the run it just proved to
-`/tmp/issue-83-voice/german.wav` for a listening judgment.
+`scripts/prove.py` now fails the run the moment any single repetition, in
+either language, misses its first-byte limit — a passing run is the proof
+that every repetition held, not just the medians. All ten repetitions (5
+German, 5 English) stayed under the 1.0 s limit on this run; the worst single
+repetition was 0.555 s. Constructing the real watermarker at load time cost no
+measurable per-request latency, because the streamed path never calls it.
+Load now synthesises a short German warmup so `ready` means the first real
+sentence is already in budget — a cold first request before that warmup
+existed took 1.362 s. `scripts/prove.py` writes the German WAV of the run it
+just proved to `/tmp/issue-83-voice/german.wav` for a listening judgment.
 
 CTranslate2 does not bundle CUDA. This project installs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` and preloads them at start.
 
 Weights stay in:
 
 - Piper voices: `~/.cache/piper/`
-- Chatterbox: `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (snapshot `5bb1f6ee`)
+- Chatterbox: `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (pinned snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18`, `CHATTERBOX_REVISION` in `src/speech/chatterbox.py`)
 - Whisper: `~/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3`
 
 ## Contract

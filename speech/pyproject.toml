@@ -16,6 +16,8 @@ dependencies = [
     "nvidia-cudnn-cu12==9.1.0.70",
     "piper-tts==1.8.0",
     "pydantic-settings==2.15.0",
+    # resemble-perth imports pkg_resources, which setuptools 82+ no longer ships.
+    "setuptools==81.0.0",
     "uvicorn==0.52.4",
 ]
 
@@ -67,6 +69,9 @@ convention = "google"
     "EM101",
     "ASYNC109",
     "SIM113",
+    # A background thread's failure can be any library error; it is reported by
+    # message, not left to hang the join with no diagnostic.
+    "BLE001",
 ]
 # nvidia-smi is resolved on PATH; the arguments are a constant.
 "src/speech/card.py" = ["S404", "S603"]
