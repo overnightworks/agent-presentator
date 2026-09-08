@@ -16,6 +16,7 @@ from presentator.contracts.decks import (
     BuildFailure,
     ConnectionCheckResult,
     Deck,
+    DeployKeyDraft,
     Source,
     SourcePoll,
     SourceRun,
@@ -64,6 +65,39 @@ class SourceStore(Protocol):
         Its decks and its runs are not this call's: `DeckStore` and
         `SourceRuns` own those tables and are asked for them separately.
         """
+
+
+class DeployKeyDrafts(Protocol):
+    """One admin's own unbound SSH keypair, minted when Add opens (ADR 0010).
+
+    Not a source: a draft nobody creates a source from is swept after a day,
+    never a half-written row.
+    """
+
+    @abstractmethod
+    def unconsumed_for(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+    ) -> DeployKeyDraft | None:
+        """This admin's own unbound draft, or nothing while it has none this young."""
+
+    @abstractmethod
+    def mint(self, owner_id: str, *, at: datetime) -> DeployKeyDraft:
+        """Generate a fresh keypair and store it as this admin's own new draft."""
+
+    @abstractmethod
+    def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:
+        """Take that draft for a new source, only when this admin owns it.
+
+        Consumes the draft: a second call with the same id answers nothing,
+        and neither does an id another admin's draft carries.
+        """
+
+    @abstractmethod
+    def sweep(self, *, older_than: datetime) -> None:
+        """Delete every draft minted before that moment, private key and all."""
 
 
 class LocalMount(Protocol):

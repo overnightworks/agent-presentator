@@ -125,6 +125,9 @@ class SourceWrite:
     owner_id: str
     access_secret: str
     hook_secret_hash: bytes
+    # The public half of a deploy key, in clear beside the encrypted private
+    # half; nothing while the source carries an HTTPS token or no secret.
+    public_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,6 +140,23 @@ class Source:
     ref: str
     secret_location: SecretLocation | None
     owner_id: str
+    public_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeployKeyDraft:
+    """An admin's own unbound SSH keypair: what the Add form shows and binds.
+
+    Server-held, keyed by the admin who owns it (ADR 0010's credential
+    vocabulary) rather than by session, so a reload still shows the key the
+    operator may already have pasted into the host. It is never a source.
+    """
+
+    id: str
+    owner_id: str
+    public_key: str
+    private_key: str
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -377,6 +397,7 @@ class SourcePage:
     state: SourceState
     age: timedelta | None
     secret_missing: bool
+    public_key: str | None
     runs: tuple[ShownSourceRun, ...]
     decks: tuple[SourceDeck, ...]
 

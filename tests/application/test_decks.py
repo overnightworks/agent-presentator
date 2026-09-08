@@ -51,6 +51,7 @@ from tests.application.fakes import (
     FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeDeployKeyDrafts,
     FakeLocalMount,
     FakeSourceRunStore,
     FakeSourceStore,
@@ -131,6 +132,7 @@ class DecksFakes:
     toolchain_themes: FakeToolchainThemes = field(default_factory=FakeToolchainThemes)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
     local_mount: FakeLocalMount = field(default_factory=FakeLocalMount)
+    key_drafts: FakeDeployKeyDrafts = field(default_factory=FakeDeployKeyDrafts)
 
 
 def decks_over(
@@ -142,6 +144,7 @@ def decks_over(
     resolved = DecksFakes() if fakes is None else fakes
     return Decks(
         sources=having(_SOURCE) if sources is None else sources,
+        key_drafts=resolved.key_drafts,
         folders=carrying(*folders) if mirror is None else mirror,
         store=resolved.store,
         builder=resolved.builder,
@@ -1123,6 +1126,93 @@ def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> 
         stored_hash.hex() == hashlib.sha256(added.webhook_secret.encode()).hexdigest()
     )
     assert run_store.newest(added.source.id) is not None
+
+
+_SSH_URL = "git@example.invalid:talks.git"
+# A draft nobody creates a source from is discarded after this long (operator
+# ruling 07.09.2026).
+_A_DAY = timedelta(days=1)
+
+
+def test_opening_add_reuses_a_young_draft_and_mints_a_fresh_one_once_stale() -> None:
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(fakes=DecksFakes(clock=clock))
+
+    first = decks.source_key_draft(owner_id=_OWNER)
+    second = decks.source_key_draft(owner_id=_OWNER)
+
+    assert second.id == first.id
+
+    clock.advance(by=_A_DAY + timedelta(seconds=1))
+
+    aged_out = decks.source_key_draft(owner_id=_OWNER)
+    assert aged_out.id != first.id
+
+
+def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    added = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint="",
+            key_draft_id=draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert isinstance(added, AddedSource)
+    assert added.source.public_key == draft.public_key
+    assert decks.key_drafts.unconsumed_for(_OWNER, newer_than=_NOW - _A_DAY) is None
+
+
+def test_a_foreign_or_missing_draft_id_is_refused_and_mints_a_fresh_one() -> None:
+    decks = decks_over()
+    someone_elses_draft = decks.key_drafts.mint("another admin entirely", at=_NOW)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint="",
+            key_draft_id=someone_elses_draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.DEPLOY_KEY_UNAVAILABLE
+    fresh = decks.source_key_draft(owner_id=_OWNER)
+    assert fresh.id != someone_elses_draft.id
+
+
+def test_an_https_create_leaves_the_admins_draft_untouched() -> None:
+    decks = decks_over(sources=having())
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    added = _add(decks)
+
+    assert isinstance(added, AddedSource)
+    assert decks.source_key_draft(owner_id=_OWNER).id == draft.id
+
+
+def test_a_refresh_sweeps_drafts_a_day_old() -> None:
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(fakes=DecksFakes(clock=clock))
+    stale = decks.key_drafts.mint(_OWNER, at=_NOW)
+
+    clock.advance(by=_A_DAY + timedelta(seconds=1))
+    decks.refresh()
+
+    # The row itself is gone, not merely too old for `unconsumed_for`'s own
+    # filter: a bind of its exact id, which ignores age, finds nothing either.
+    assert decks.key_drafts.bind(stale.id, owner_id=_OWNER) is None
 
 
 @pytest.mark.parametrize(

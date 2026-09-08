@@ -18,6 +18,7 @@ from presentator.adapters.decks import (
     SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceKeyDrafts,
     SqliteSourceRunStore,
     SqliteSourceStore,
     create_deck_tables,
@@ -249,6 +250,19 @@ def add_a_source(
     )
     assert added is not None
     return added
+
+
+def a_key_drafts_store(
+    database: Path,
+    *,
+    instance_key: str = _INSTANCE_KEY,
+) -> SqliteSourceKeyDrafts:
+    """The `source_key_drafts` table over that file."""
+    return SqliteSourceKeyDrafts(
+        database=database,
+        identifiers=TokenIdentifierFactory(),
+        box=a_box(instance_key=instance_key),
+    )
 
 
 _A_LEFTOVER_ENVIRONMENT_SOURCE: Final = """
@@ -865,6 +879,7 @@ def a_write(
     *,
     name: str = "talks",
     url: str = _HTTPS_URL,
+    public_key: str | None = None,
 ) -> SourceWrite:
     return SourceWrite(
         name=name,
@@ -873,6 +888,7 @@ def a_write(
         owner_id=_OWNER.id,
         access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
         hook_secret_hash=_A_WEBHOOK_HASH,
+        public_key=public_key,
     )
 
 
@@ -894,6 +910,79 @@ def test_adding_a_source_stores_the_secret_encrypted_and_the_webhook_hash(
         a_resolver(database).resolve(CredentialReference(name=added.id))
         == _WHAT_THE_GIT_HOST_EXPECTS
     )
+
+
+_A_PUBLIC_KEY = "ssh-ed25519 AAAAtestkeymaterial presentator"
+
+
+def test_adding_an_ssh_source_stores_its_public_key_in_clear(tmp_path: Path) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+
+    added = sources.add(a_write(public_key=_A_PUBLIC_KEY))
+
+    assert added is not None
+    assert added.public_key == _A_PUBLIC_KEY
+    assert sources.all()[0].public_key == _A_PUBLIC_KEY
+
+
+def test_a_minted_draft_is_this_owners_own_and_reused_while_unconsumed(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+
+    minted = drafts.mint(_OWNER.id, at=_PUSHED_AT)
+
+    assert minted.owner_id == _OWNER.id
+    assert minted.private_key
+    assert minted.public_key
+    reused = drafts.unconsumed_for(_OWNER.id, newer_than=_PUSHED_AT)
+    assert reused == minted
+
+
+def test_a_draft_older_than_the_asked_moment_is_not_unconsumed(tmp_path: Path) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+    drafts.mint(_OWNER.id, at=_PUSHED_AT)
+
+    assert drafts.unconsumed_for(_OWNER.id, newer_than=_NOTICED_GONE_AT) is None
+
+
+def test_binding_a_draft_by_its_owner_consumes_it(tmp_path: Path) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+    minted = drafts.mint(_OWNER.id, at=_PUSHED_AT)
+
+    bound = drafts.bind(minted.id, owner_id=_OWNER.id)
+
+    assert bound == minted
+    assert drafts.bind(minted.id, owner_id=_OWNER.id) is None
+    assert drafts.unconsumed_for(_OWNER.id, newer_than=_PUSHED_AT) is None
+
+
+def test_binding_a_draft_another_owner_minted_is_refused(tmp_path: Path) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+    minted = drafts.mint("another-admin-entirely", at=_PUSHED_AT)
+
+    assert drafts.bind(minted.id, owner_id=_OWNER.id) is None
+    # Refused, not consumed: its own owner can still bind it.
+    assert drafts.bind(minted.id, owner_id="another-admin-entirely") == minted
+
+
+def test_sweeping_deletes_only_drafts_older_than_the_given_moment(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+    stale = drafts.mint(_OWNER.id, at=_PUSHED_AT)
+    fresh = drafts.mint("another-admin-entirely", at=_NOTICED_GONE_AT)
+
+    drafts.sweep(older_than=_NOTICED_GONE_AT)
+
+    assert drafts.bind(stale.id, owner_id=_OWNER.id) is None
+    assert drafts.bind(fresh.id, owner_id="another-admin-entirely") == fresh
 
 
 def test_adding_a_source_does_not_rewrite_a_leftover_environment_row(

@@ -102,6 +102,7 @@ LobbyText.source_secret
 LobbyText.source_secret_info_mark
 LobbyText.source_secret_info
 LobbyText.source_webhook_later
+LobbyText.source_deploy_key_hint
 LobbyText.source_webhook
 LobbyText.source_webhook_address
 LobbyText.source_webhook_secret

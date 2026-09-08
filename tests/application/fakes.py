@@ -21,6 +21,7 @@ from presentator.contracts.decks import (
     ConnectionCheckResult,
     Deck,
     DeckFolder,
+    DeployKeyDraft,
     SecretLocation,
     Source,
     SourcePoll,
@@ -329,6 +330,7 @@ class FakeSourceStore:
             ref=write.ref,
             secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
+            public_key=write.public_key,
         )
         self.sources.append(stored)
         self.hashes[write.name] = write.hook_secret_hash
@@ -365,6 +367,49 @@ class FakeSourceStore:
         if gone is not None:
             self.hashes.pop(gone.name, None)
         self.secrets.pop(source_id, None)
+
+
+@dataclass
+class FakeDeployKeyDrafts:
+    """One admin's own unbound draft keypair at a time, the way the table is."""
+
+    drafts: dict[str, DeployKeyDraft] = field(default_factory=dict[str, DeployKeyDraft])
+    minted: int = 0
+
+    def unconsumed_for(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+    ) -> DeployKeyDraft | None:
+        draft = self.drafts.get(owner_id)
+        return draft if draft is not None and draft.created_at >= newer_than else None
+
+    def mint(self, owner_id: str, *, at: datetime) -> DeployKeyDraft:
+        self.minted += 1
+        draft = DeployKeyDraft(
+            id=f"draft-{self.minted}",
+            owner_id=owner_id,
+            public_key=f"ssh-ed25519 AAAAtestkey{self.minted} presentator",
+            private_key=f"-----BEGIN OPENSSH PRIVATE KEY-----\ntest-{self.minted}",
+            created_at=at,
+        )
+        self.drafts[owner_id] = draft
+        return draft
+
+    def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:
+        draft = self.drafts.get(owner_id)
+        if draft is None or draft.id != draft_id:
+            return None
+        del self.drafts[owner_id]
+        return draft
+
+    def sweep(self, *, older_than: datetime) -> None:
+        self.drafts = {
+            owner: draft
+            for owner, draft in self.drafts.items()
+            if draft.created_at >= older_than
+        }
 
 
 @dataclass

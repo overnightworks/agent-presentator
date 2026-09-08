@@ -23,7 +23,7 @@ from gitmirror.model import (
     GitSource,
     Revision,
 )
-from presentator.adapters.secrets import SecretBox
+from presentator.adapters.secrets import SecretBox, generate_deploy_key
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
@@ -35,6 +35,7 @@ from presentator.contracts.decks import (
     ConnectionCheckResult,
     Deck,
     DeckFolder,
+    DeployKeyDraft,
     SecretLocation,
     Source,
     SourcePoll,
@@ -60,7 +61,17 @@ CREATE TABLE IF NOT EXISTS sources (
     credential_reference TEXT,
     encrypted_secret BLOB,
     hook_secret_hash BLOB,
-    owner_id TEXT NOT NULL REFERENCES users(id)
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    ssh_public_key TEXT
+);
+-- One admin's own unbound deploy key (ADR 0010): never a source, swept once a
+-- day old, never read by anyone who did not mint it.
+CREATE TABLE IF NOT EXISTS source_key_drafts (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    public_key TEXT NOT NULL,
+    encrypted_private_key BLOB NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS decks (
     slug TEXT PRIMARY KEY,
@@ -109,16 +120,39 @@ _HOOK_HASH_COLUMN: Final = "hook_secret_hash"
 _ADD_HOOK_HASH_TO_SOURCES: Final = (
     f"ALTER TABLE sources ADD COLUMN {_HOOK_HASH_COLUMN} BLOB"
 )
+_PUBLIC_KEY_COLUMN: Final = "ssh_public_key"
+_ADD_PUBLIC_KEY_TO_SOURCES: Final = (
+    f"ALTER TABLE sources ADD COLUMN {_PUBLIC_KEY_COLUMN} TEXT"
+)
 _ADD_SOURCE: Final = """
-INSERT INTO sources (id, name, url, ref, encrypted_secret, hook_secret_hash, owner_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sources
+    (id, name, url, ref, encrypted_secret, hook_secret_hash, owner_id, ssh_public_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 _HOOK_HASH_BY_NAME: Final = "SELECT hook_secret_hash FROM sources WHERE name = ?"
 _ALL_SOURCES: Final = """
-SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id
+SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id,
+       ssh_public_key
 FROM sources
 """
 _REMOVE_SOURCE: Final = "DELETE FROM sources WHERE id = ?"
+_ADD_DRAFT: Final = """
+INSERT INTO source_key_drafts
+    (id, owner_id, public_key, encrypted_private_key, created_at)
+VALUES (?, ?, ?, ?, ?)
+"""
+_DRAFT_BY_OWNER: Final = """
+SELECT id, owner_id, public_key, encrypted_private_key, created_at
+FROM source_key_drafts WHERE owner_id = ?
+ORDER BY created_at DESC LIMIT 1
+"""
+_DRAFT_BY_ID_AND_OWNER: Final = """
+SELECT id, owner_id, public_key, encrypted_private_key, created_at
+FROM source_key_drafts WHERE id = ? AND owner_id = ?
+"""
+_REMOVE_DRAFT: Final = "DELETE FROM source_key_drafts WHERE id = ?"
+_SWEEP_DRAFTS: Final = "DELETE FROM source_key_drafts WHERE created_at < ?"
+_DraftRow = tuple[str, str, str, bytes, str]
 # The ciphertext is written on its own: everything else about a source is what
 # the operator typed, while this is the one value the instance key can open.
 # A leftover environment reference is cleared so the row no longer names a
@@ -132,7 +166,7 @@ _PUT_HOOK_HASH: Final = "UPDATE sources SET hook_secret_hash = ? WHERE name = ?"
 _ONE_ROW: Final = 1
 # What a pull needs and nothing else: the ciphertext this instance can open.
 _SOURCE_ANCHOR: Final = "SELECT encrypted_secret FROM sources WHERE id = ?"
-_SourceRow = tuple[str, str, str, str, str | None, bytes | None, str]
+_SourceRow = tuple[str, str, str, str, str | None, bytes | None, str, str | None]
 # Nothing a build wrote is touched by this statement, on purpose: taking a deck
 # in again must not unpresent the talk that already stands, nor take away the
 # PDF that is already downloadable (line 16). Whether the row is marked removed
@@ -278,9 +312,10 @@ def create_deck_tables(database: Path) -> None:
     A file written before sources were rows keeps its decks and gains the
     column naming theirs, one written before a build kept what it attempted
     gains those columns, one written before a source could hold its own
-    secret gains that column, and one written before a source carried a
-    webhook-secret hash gains that column, rather than being replaced by an
-    empty file.
+    secret gains that column, one written before a source carried a
+    webhook-secret hash gains that column, and one written before a source
+    could carry a deploy key's public half gains that column too, rather than
+    being replaced by an empty file.
     """
     apply_schema(database, _SCHEMA)
     with rows(database) as cursor:
@@ -302,6 +337,12 @@ def create_deck_tables(database: Path) -> None:
             shape=_SOURCE_COLUMNS,
             column=_HOOK_HASH_COLUMN,
             add=_ADD_HOOK_HASH_TO_SOURCES,
+        )
+        _add_missing(
+            cursor,
+            shape=_SOURCE_COLUMNS,
+            column=_PUBLIC_KEY_COLUMN,
+            add=_ADD_PUBLIC_KEY_TO_SOURCES,
         )
 
 
@@ -345,6 +386,7 @@ class SqliteSourceStore:
                         self.box.encrypt(write.access_secret),
                         write.hook_secret_hash,
                         write.owner_id,
+                        write.public_key,
                     ),
                 )
         except sqlite3.IntegrityError:
@@ -356,6 +398,7 @@ class SqliteSourceStore:
             ref=write.ref,
             secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
+            public_key=write.public_key,
         )
 
     def hook_secret_hash(self, name: str) -> bytes | None:
@@ -394,6 +437,67 @@ class SqliteSourceStore:
         """Delete that source's own row."""
         with rows(self.database) as cursor:
             cursor.execute(_REMOVE_SOURCE, (source_id,))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SqliteSourceKeyDrafts:
+    """The `source_key_drafts` table: at most one live keypair per admin."""
+
+    database: Path
+    identifiers: IdentifierFactory
+    box: SecretBox
+
+    def unconsumed_for(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+    ) -> DeployKeyDraft | None:
+        """This admin's own unbound draft, or nothing while it has none this young."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(_DRAFT_BY_OWNER, (owner_id,)).fetchone()
+        draft = None if found is None else _draft(found, box=self.box)
+        return draft if draft is not None and draft.created_at >= newer_than else None
+
+    def mint(self, owner_id: str, *, at: datetime) -> DeployKeyDraft:
+        """Generate a fresh keypair and store it as this admin's own new draft."""
+        pair = generate_deploy_key()
+        identifier = self.identifiers.new_id()
+        with rows(self.database) as cursor:
+            cursor.execute(
+                _ADD_DRAFT,
+                (
+                    identifier,
+                    owner_id,
+                    pair.public_key,
+                    self.box.encrypt(pair.private_key),
+                    at.isoformat(),
+                ),
+            )
+        return DeployKeyDraft(
+            id=identifier,
+            owner_id=owner_id,
+            public_key=pair.public_key,
+            private_key=pair.private_key,
+            created_at=at,
+        )
+
+    def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:
+        """Take that draft for a new source, only when this admin owns it."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(
+                _DRAFT_BY_ID_AND_OWNER,
+                (draft_id, owner_id),
+            ).fetchone()
+            if found is None:
+                return None
+            cursor.execute(_REMOVE_DRAFT, (draft_id,))
+        return _draft(found, box=self.box)
+
+    def sweep(self, *, older_than: datetime) -> None:
+        """Delete every draft minted before that moment, private key and all."""
+        with rows(self.database) as cursor:
+            cursor.execute(_SWEEP_DRAFTS, (older_than.isoformat(),))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -802,7 +906,7 @@ class SqliteSourceRunStore:
 
 
 def _source(row: _SourceRow) -> Source:
-    identifier, name, url, ref, _, encrypted, owner_id = row
+    identifier, name, url, ref, _, encrypted, owner_id, public_key = row
     return Source(
         id=identifier,
         name=name,
@@ -810,6 +914,21 @@ def _source(row: _SourceRow) -> Source:
         ref=ref,
         secret_location=_where_the_secret_stands(encrypted),
         owner_id=owner_id,
+        public_key=public_key,
+    )
+
+
+def _draft(row: _DraftRow, *, box: SecretBox) -> DeployKeyDraft | None:
+    identifier, owner_id, public_key, encrypted_private_key, created_at = row
+    private_key = box.decrypt(encrypted_private_key)
+    if private_key is None:
+        return None
+    return DeployKeyDraft(
+        id=identifier,
+        owner_id=owner_id,
+        public_key=public_key,
+        private_key=private_key,
+        created_at=datetime.fromisoformat(created_at),
     )
 
 

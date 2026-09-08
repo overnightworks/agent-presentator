@@ -26,7 +26,8 @@
     <fieldset>
       <legend>{{ text.source_access }}</legend>
       <label>
-        <input type="radio" name="access" value="{{ ssh_access }}" disabled>
+        <input type="radio" name="access" value="{{ ssh_access }}" data-access-ssh
+               {% if draft and draft.access == ssh_access %}checked{% endif %}>
         {{ text.source_access_ssh }}
       </label>
       <label>
@@ -46,11 +47,43 @@
       <p>{{ text.source_secret_info }}</p>
     </details>
     <input id="secret" name="secret" type="password" autocomplete="off">
+    <label>{{ text.source_deploy_key_heading }}</label>
+    <p>{{ text.source_deploy_key_hint }}</p>
+    <p>
+      <code data-deploy-public-key>{{ key.public_key }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
+    </p>
     <p>{{ text.source_webhook_later }}</p>
+    <input type="hidden" name="key_draft_id" value="{{ key.id }}">
     <input type="hidden" name="fingerprint"
            value="{% if draft and draft.check and draft.check.fingerprint %}{{ draft.check.fingerprint }}{% endif %}">
     <button type="submit" formaction="/settings/sources/new/check">{{ text.source_check }}</button>
-    <button type="submit" {% if not (draft and draft.check and draft.check.fingerprint) %}disabled{% endif %}>{{ text.source_create }}</button>
+    <button type="submit" data-create
+            data-proven="{{ 'true' if (draft and draft.check and draft.check.fingerprint) else 'false' }}"
+            {% if not (
+              (draft and draft.access == ssh_access)
+              or (draft and draft.check and draft.check.fingerprint)
+            ) %}disabled{% endif %}>{{ text.source_create }}</button>
   </form>
 </main>
+<script>
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const value = button.previousElementSibling.textContent;
+    if (value) navigator.clipboard.writeText(value);
+  });
+});
+(() => {
+  // SSH proves itself by the draft key it binds, so Create needs no prior
+  // Check while it is selected; every other kind keeps needing one.
+  const create = document.querySelector("[data-create]");
+  const ssh = document.querySelector("[data-access-ssh]");
+  const proven = create.dataset.proven === "true";
+  document.querySelectorAll('input[name="access"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      create.disabled = !(ssh.checked || proven);
+    });
+  });
+})();
+</script>
 {% endblock %}

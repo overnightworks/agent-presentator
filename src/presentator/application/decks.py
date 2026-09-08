@@ -32,6 +32,7 @@ from presentator.contracts.decks import (
     Deck,
     DeckPage,
     DeckState,
+    DeployKeyDraft,
     ListedDeck,
     ListedSource,
     ShownAttempt,
@@ -53,6 +54,7 @@ from presentator.ports.decks import (
     ConnectionChecker,
     DeckFolders,
     DeckStore,
+    DeployKeyDrafts,
     LocalMount,
     SourceRuns,
     SourceStore,
@@ -78,12 +80,14 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The form lives at this path segment, so a source must not take it.
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
+_SSH_ACCESS: Final = "ssh"
 _FILE_ACCESS: Final = "file"
 # The access value the form's own kind maps to, so a mismatch between what a
 # person picked and what the URL actually names is one lookup, not a growing
 # chain of conditions per kind.
 _EXPECTED_ACCESS_KIND: Final = {
     _HTTPS_ACCESS: AccessKind.HTTPS,
+    _SSH_ACCESS: AccessKind.SSH,
     _FILE_ACCESS: AccessKind.FILE,
 }
 # Added sources follow main; a later slice is what offers another ref.
@@ -91,6 +95,9 @@ _ADDED_REF: Final = "main"
 _WEBHOOK_SECRET_BYTES: Final = 32
 _HASH_LENGTH: Final = 32
 _NO_HASH: Final = bytes(_HASH_LENGTH)
+# A draft nobody creates a source from is discarded after this long (operator
+# ruling 07.09.2026), and reused on every Add opened before then.
+_DRAFT_MAX_AGE: Final = timedelta(days=1)
 
 
 class SourceRefusal(StrEnum):
@@ -105,6 +112,7 @@ class SourceRefusal(StrEnum):
     NOT_CHECKED = "not-checked"
     CREDENTIAL_NOT_ALLOWED = "credential-not-allowed"
     OUTSIDE_MOUNT = "outside-local-mount"
+    DEPLOY_KEY_UNAVAILABLE = "deploy-key-unavailable"
 
 
 class SourceRemovalRefusal(StrEnum):
@@ -145,6 +153,8 @@ class NewSourceDraft:
     access: str
     secret: str
     fingerprint: str
+    # The draft key the Add form was shown; blank unless SSH was posted.
+    key_draft_id: str = ""
 
 
 def hash_webhook_secret(secret: str) -> bytes:
@@ -158,24 +168,33 @@ def _refusal_for(
     proven: bool,
     existing: tuple[Source, ...],
 ) -> SourceRefusal | None:
-    """The reason this draft cannot be stored, or nothing when it can."""
+    """The reason this draft cannot be stored, or nothing when it can.
+
+    SSH types no secret and proves nothing through Check: its proof is that
+    the draft it binds is this admin's own, judged once the row is otherwise
+    fit to store (`add_source`), never here.
+    """
     name, url, access, secret = draft.name, draft.url, draft.access, draft.secret
     checks = (
         (
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
             SourceRefusal.MALFORMED_NAME,
         ),
-        (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
-        (
-            access == _FILE_ACCESS and bool(secret.strip()),
-            SourceRefusal.CREDENTIAL_NOT_ALLOWED,
-        ),
-        (urlparse(url).password is not None, SourceRefusal.USERINFO),
+        # A wrong radio for this URL is refused here, ahead of what that radio
+        # would otherwise say about the posted secret — a person who picked
+        # the wrong kind reads that, not a sentence about a field its real
+        # kind does not even show.
         (
             _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
             SourceRefusal.ACCESS_MISMATCH,
         ),
-        (not proven, SourceRefusal.NOT_CHECKED),
+        (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (
+            access in (_FILE_ACCESS, _SSH_ACCESS) and bool(secret.strip()),
+            SourceRefusal.CREDENTIAL_NOT_ALLOWED,
+        ),
+        (urlparse(url).password is not None, SourceRefusal.USERINFO),
+        (access != _SSH_ACCESS and not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
@@ -239,6 +258,7 @@ class Decks:
     """Every use case the lobby has around the talks it knows."""
 
     sources: SourceStore
+    key_drafts: DeployKeyDrafts
     folders: DeckFolders
     store: DeckStore
     builder: BuildRunner
@@ -293,6 +313,7 @@ class Decks:
             state=listed.state,
             age=listed.age,
             secret_missing=source.secret_location is None,
+            public_key=source.public_key,
             runs=tuple(
                 ShownSourceRun(
                     outcome=run.outcome,
@@ -439,6 +460,21 @@ class Decks:
             ),
         )
 
+    def source_key_draft(self, *, owner_id: str) -> DeployKeyDraft:
+        """This admin's own draft deploy key, reused while young or minted fresh.
+
+        Called when the Add form opens, so the blessed board's public key is
+        already there to copy before Create.
+        """
+        now = self.clock.now()
+        existing = self.key_drafts.unconsumed_for(
+            owner_id,
+            newer_than=now - _DRAFT_MAX_AGE,
+        )
+        if existing is not None:
+            return existing
+        return self.key_drafts.mint(owner_id, at=now)
+
     def add_source(
         self,
         draft: NewSourceDraft,
@@ -451,12 +487,14 @@ class Decks:
         created screen can show it once; only its hash is stored. The access
         secret is handed to the store and never returned. A source is stored
         only for the exact URL and secret a Check connection already proved
-        reachable, never on the fingerprint of a different pair. A file-kind
-        address is resolved against the real mount before it is stored, so
-        the row always carries the address git will actually open — a
-        symlink or a `..` an operator's own spelling carried never reaches
-        the row, and two spellings of the one real repository collide as
-        the duplicate they are.
+        reachable, never on the fingerprint of a different pair — SSH proves
+        itself instead by binding a draft only this admin owns, minting a
+        fresh one the moment a foreign or already-consumed id is offered. A
+        file-kind address is resolved against the real mount before it is
+        stored, so the row always carries the address git will actually open
+        — a symlink or a `..` an operator's own spelling carried never
+        reaches the row, and two spellings of the one real repository
+        collide as the duplicate they are.
         """
         named = draft.name.strip()
         address = draft.url.strip()
@@ -484,6 +522,15 @@ class Decks:
             address = str(canonical)
             if any(source.url == address for source in existing):
                 return SourceRefusal.DUPLICATE_URL
+        access_secret = draft.secret
+        public_key = None
+        if access_kind_of(address) is AccessKind.SSH:
+            bound = self.key_drafts.bind(draft.key_draft_id, owner_id=owner_id)
+            if bound is None:
+                self.key_drafts.mint(owner_id, at=self.clock.now())
+                return SourceRefusal.DEPLOY_KEY_UNAVAILABLE
+            access_secret = bound.private_key
+            public_key = bound.public_key
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
         stored = self.sources.add(
             SourceWrite(
@@ -491,8 +538,9 @@ class Decks:
                 url=address,
                 ref=_ADDED_REF,
                 owner_id=owner_id,
-                access_secret=draft.secret,
+                access_secret=access_secret,
                 hook_secret_hash=hash_webhook_secret(webhook_secret),
+                public_key=public_key,
             ),
         )
         if stored is None:
@@ -666,12 +714,13 @@ class Decks:
         )
 
     def _take_in_and_build(self) -> None:
-        """Walk the sources one by one.
+        """Sweep drafts nobody bound, then walk the sources one by one.
 
         A source is taken in and built before the next one is read, so a
         refresh costs its sources' pull bounds one after another instead of
         opening as many pulls at once as the instance has sources.
         """
+        self.key_drafts.sweep(older_than=self.clock.now() - _DRAFT_MAX_AGE)
         for source in self.sources.all():
             self._take_in_and_build_one(source)
 

@@ -99,6 +99,19 @@ class _NewSourcePost:
     access: Annotated[str, Form()] = _HTTPS_ACCESS
     secret: Annotated[str, Form()] = ""
     fingerprint: Annotated[str, Form()] = ""
+    key_draft_id: Annotated[str, Form()] = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeployKeyView:
+    """The Add form's own draft key: its id for the hidden field, its public half.
+
+    The private half is never a field here, so no template can render it by
+    mistake.
+    """
+
+    id: str
+    public_key: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,6 +150,9 @@ class SourceView:
     # A source on this box carries no secret at all, so its page offers
     # neither the dots nor Renew: there is nothing there to renew.
     carries_no_secret: bool
+    # A deploy key's public half, shown in clear beside the tag instead of
+    # the dots — nothing for a source that carries an HTTPS token instead.
+    public_key: str | None
     runs: tuple[SourceRunRow, ...]
     decks: tuple[SourceDeckRow, ...]
 
@@ -222,6 +238,7 @@ class _Surfaces:
                 access=posted.access,
                 secret=posted.secret,
                 fingerprint=posted.fingerprint,
+                key_draft_id=posted.key_draft_id,
             ),
             owner_id=person.id,
         )
@@ -435,10 +452,12 @@ class _Surfaces:
         request: Request,
         draft: SourceDraft | None = None,
     ) -> Response:
+        drafted = self.decks.source_key_draft(owner_id=_signed_in(request).id)
         return self.pages.page(
             request,
             "source_new.html",
             draft=draft,
+            key=DeployKeyView(id=drafted.id, public_key=drafted.public_key),
             https_access=_HTTPS_ACCESS,
             ssh_access=_SSH_ACCESS,
             file_access=_FILE_ACCESS,
@@ -486,6 +505,7 @@ class _Surfaces:
             webhook_secret=webhook_secret,
             webhook_secret_held_elsewhere=webhook_secret_held_elsewhere,
             carries_no_secret=shown.access is AccessKind.FILE,
+            public_key=shown.public_key,
             runs=tuple(self._run_row(run, text) for run in shown.runs),
             decks=tuple(
                 SourceDeckRow(slug=deck.slug, title=deck.title) for deck in shown.decks
@@ -641,6 +661,7 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
         SourceRefusal.NOT_CHECKED: text.source_refused_not_checked,
         SourceRefusal.CREDENTIAL_NOT_ALLOWED: text.source_refused_secret_not_allowed,
         SourceRefusal.OUTSIDE_MOUNT: text.source_refused_outside_mount,
+        SourceRefusal.DEPLOY_KEY_UNAVAILABLE: text.source_refused_deploy_key,
     }[reason]
 
 

@@ -52,6 +52,7 @@ from tests.application.fakes import (
     FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeDeployKeyDrafts,
     FakeInstanceSettingsStore,
     FakeLocalMount,
     FakeLoginAttemptStore,
@@ -195,6 +196,7 @@ class GivenDecks:
     # Set only by a test proving the real reader end to end; every other test
     # names `themes` and gets the fake above instead.
     toolchain_project: Path | None = None
+    key_drafts: FakeDeployKeyDrafts = field(default_factory=FakeDeployKeyDrafts)
 
 
 NO_DECKS: Final = GivenDecks()
@@ -236,6 +238,12 @@ def a_lobby_app(
         carried = {}
     decks = Decks(
         sources=FakeSourceStore(sources=stored, hashes=dict(given.hook_hashes)),
+        # Copied rather than shared: `NO_DECKS` is one module-level constant,
+        # so every test starting from it must get its own mutable drafts.
+        key_drafts=FakeDeployKeyDrafts(
+            drafts=dict(given.key_drafts.drafts),
+            minted=given.key_drafts.minted,
+        ),
         folders=FakeDeckFolders(
             carried=carried,
             failures={} if given.failures is None else given.failures,

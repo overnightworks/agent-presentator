@@ -24,6 +24,7 @@ from gitmirror.mirror import (
     check_connection,
     connection_state_for_failure,
     credential_arguments,
+    is_ssh_remote,
     unattended_environment,
 )
 from gitmirror.model import (
@@ -36,7 +37,7 @@ from gitmirror.model import (
     MirrorError,
     Revision,
 )
-from tests.conftest import MAIN_BRANCH, GitRemote
+from tests.conftest import MAIN_BRANCH, GitRemote, with_the_program
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _PUSHED_LATER = datetime(2026, 1, 16, 9, tzinfo=UTC)
@@ -478,6 +479,68 @@ def test_git_runs_without_the_machine_settings_that_could_hang_or_leak_it() -> N
     }
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("ssh://git@example.invalid/talks.git", True),
+        ("git@example.invalid:talks.git", True),
+        ("https://example.invalid/talks.git", False),
+        ("/an/absolute/path", False),
+    ],
+    ids=["ssh scheme", "scp form", "https", "bare path"],
+)
+def test_is_ssh_remote_reads_the_urls_own_shape(url: str, *, expected: bool) -> None:
+    assert is_ssh_remote(url) is expected
+
+
+_A_TEST_DEPLOY_KEY = "not a real key — this stub only ever checks its file mode"
+# The stub consumes every `-i key` / `-o value` pair `_ssh_command` builds,
+# records the key path and its mode for the test to read back, then runs the
+# real `git-upload-pack` locally — exactly what git would have asked the real
+# `ssh` to run on the far end, against a bare repository already on this disk.
+_STUB_SSH = """#!/bin/sh
+key=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -i) key="$2"; shift 2 ;;
+    -o) shift 2 ;;
+    *) break ;;
+  esac
+done
+printf '%s' "$key" > "{recorded}/key-path"
+stat -c %a "$key" > "{recorded}/key-mode"
+shift
+exec sh -c "$*"
+"""
+
+
+def test_an_ssh_fetch_uses_a_0600_key_file_removed_after(
+    monkeypatch: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit(_A_DECK, at=_PUSHED_AT)
+    recorded = tmp_path / "recorded"
+    recorded.mkdir()
+    with_the_program(monkeypatch, tmp_path, "ssh", _STUB_SSH.format(recorded=recorded))
+    mirror = a_mirror(
+        f"git@ssh-stub-host:{remote.bare}",
+        directory=tmp_path / "ssh-mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(_A_TEST_DEPLOY_KEY),
+    )
+
+    connection = mirror.connect()
+
+    assert connection.state is ConnectionState.READY
+    assert connection.revision is not None
+    assert connection.revision.commit == remote.head
+    assert (recorded / "key-mode").read_text().strip() == "600"
+    key_path = Path((recorded / "key-path").read_text())
+    assert not key_path.exists()
+    assert not key_path.parent.exists()
+
+
 def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
     remote: GitRemote,
     tmp_path: Path,
@@ -515,6 +578,12 @@ def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
             "The requested URL returned error: 401",
             ConnectionState.REFUSED,
             id="bare-401-status",
+        ),
+        pytest.param(
+            "git@host.example: Permission denied (publickey).\n"
+            "fatal: Could not read from remote repository.",
+            ConnectionState.REFUSED,
+            id="ssh-deploy-key-no-longer-registered",
         ),
         pytest.param(
             "fatal: unable to access 'https://host.example/repo.git/': "
