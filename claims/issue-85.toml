@@ -1,0 +1,8 @@
+claim_id = "e0232a6e2cb64bd1afd2adadeb88fc11"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "4b33ff491141562b87a6b6873ebcf3c2367cd4d4"
+branch = "claude/issue-85-toolchain-set"
+scope = ["docs/decisions", "src/presentator/api/decks.py", "src/presentator/adapters/builds.py"]
+opened_commit = "7bc50e09ec29c7a91cdb0a1eef06234ac91789d1"
+whole_reason = "a decision record, the deck page row and the toolchain reader plus tests and mockup"
