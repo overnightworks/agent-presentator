@@ -148,14 +148,17 @@ def _refusal_for(
 def _source_state_of(run: SourceRun) -> SourceState:
     """The one word the sources list says, read off a run and its reason.
 
-    A refused login is the one reason the list speaks by name, so a valid
-    token and a dead host no longer read the same; every other reason a run
-    can carry still folds into error.
+    A refused login and a host that answered with something else each keep
+    their own word, so a valid token, a dead host, and a host that answered
+    but not with the repository no longer all read the same; a credential the
+    instance could not resolve still folds into error.
     """
     if run.outcome is SourceRunOutcome.SUCCESS:
         return SourceState.REACHABLE
     if run.reason is SourceRunFailure.REFUSED:
         return SourceState.REFUSED
+    if run.reason is SourceRunFailure.FAILED:
+        return SourceState.FAILED
     return SourceState.ERROR
 
 

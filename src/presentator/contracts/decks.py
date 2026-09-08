@@ -115,6 +115,7 @@ class SourceRunFailure(StrEnum):
 
     CREDENTIAL_UNRESOLVABLE = "credential-unresolvable"
     REFUSED = "refused"
+    FAILED = "failed"
     UNREACHABLE = "unreachable"
 
 
@@ -247,16 +248,18 @@ class ListedDeck:
 class SourceState(StrEnum):
     """What the sources list says a source is, read off its newest run.
 
-    No run is never-fetched, a successful run is reachable, and most failures
-    read as error, whatever typed reason the failure carried — a credential
-    the instance could not resolve never becomes a word on the board. A
-    refused login is the one reason worth its own word: it tells an operator
-    holding a working host and a bad token apart from one who holds neither.
+    No run is never-fetched, a successful run is reachable, and the reason a
+    credential the instance could not resolve never becomes a word on the
+    board: it folds into error. A refused login and a host that answered with
+    something else each keep their own word instead, because a wrong token, a
+    dead host, and a host that answered but not with the repository are three
+    different things an operator needs told apart.
     """
 
     REACHABLE = "reachable"
     ERROR = "error"
     REFUSED = "refused"
+    FAILED = "failed"
     NEVER_FETCHED = "never-fetched"
 
 

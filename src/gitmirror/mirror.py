@@ -22,6 +22,7 @@ from gitmirror.model import (
     CredentialResolver,
     GitSource,
     GitUnavailableError,
+    InvalidCredentialError,
     MirrorError,
     Revision,
     TreeEntry,
@@ -38,10 +39,21 @@ CREDENTIAL_USER_NAME: Final = "token"
 # of the child's environment keeps the secret off the command line and off
 # disk. `grep` reads the request git writes to stdin before it reads the
 # helper's own stdout, which is where a `username=` line already stands when
-# the URL named one.
+# the URL named one. `printf '%s\n'` with a constant format, never `echo`,
+# because a shell's `echo` reinterprets a backslash sequence inside the value
+# it is given — `dash`'s always does, verified with a real git — which can
+# truncate or reshape a token that merely happens to contain one.
 _CREDENTIAL_HELPER: Final = (
-    '!f() { grep -q "^username=" || echo "username='
-    f'{CREDENTIAL_USER_NAME}"; echo "password=${_CREDENTIAL_VARIABLE}"; }}; f'
+    "!f() { grep -q '^username=' || printf 'username=%s\\n' "
+    f"'{CREDENTIAL_USER_NAME}'; "
+    f'printf "password=%s\\n" "${_CREDENTIAL_VARIABLE}"; }}; f'
+)
+# git's line-based credential protocol reads one field per line; a literal CR
+# or LF inside a secret would forge a second line no `printf` quoting can
+# undo, so the boundary where a resolved secret enters the mirror rejects one
+# outright rather than hand git a broken request.
+_UNSAFE_CREDENTIAL: Final = (
+    "a source's credential carries a control character and cannot be sent to git"
 )
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
@@ -64,26 +76,37 @@ _LAST_CHANGE: Final = "--format=%H %cI"
 _BETWEEN_THEM: Final = " "
 _GIT_MISSING: Final = "git is required to mirror a source"
 _UNREACHABLE: Final = Connection(state=ConnectionState.UNREACHABLE, revision=None)
-_REFUSED: Final = Connection(state=ConnectionState.REFUSED, revision=None)
 _CREDENTIAL_UNRESOLVABLE: Final = Connection(
     state=ConnectionState.CREDENTIAL_UNRESOLVABLE,
     revision=None,
 )
-# git's own words for a login the far end turned down, lowercased so a case
-# git happens to pick never hides the match. Anything else a fetch can fail
-# with — a host that never answers, a name that resolves to nothing — stays
-# unreachable instead.
-_AUTHENTICATION_WORDS: Final = (
+# git's own words for a login the far end named and turned down, lowercased so
+# a case git happens to pick never hides the match. A bare 403 is deliberately
+# absent: a proxy or a WAF answers that status for reasons that have nothing
+# to do with the token, so only a message git itself ties to a login counts.
+_REFUSED_WORDS: Final = (
     "authentication failed",
     "invalid username or token",
-    "could not read username",
-    "could not read password",
-    "error: 401",
-    "error: 403",
+    "returned error: 401",
 )
-# Only the scheme and the host stand in a log line; a user name or a password
-# git's own transport carried in the URL never does, even though the secret
-# itself only ever reaches git through the environment and cannot appear here.
+# git's own words for a host that never answered at all — no TCP connection,
+# no DNS name, no reply before the timeout above already caught it.
+_UNREACHABLE_WORDS: Final = (
+    "could not resolve host",
+    "failed to connect",
+    "connection refused",
+    "connection timed out",
+)
+# git prints this whenever the far end returned an HTTP status; its presence
+# tells "unable to access" (git's generic transport-failure wrapper) apart
+# from a host that truly never answered, so a status the words above and
+# `_REFUSED_WORDS` do not otherwise name — a bare 403, "Repository not
+# found" — becomes the third reason, `failed`, with git's own words in the log
+# rather than a silent misclassification.
+_HTTP_STATUS_MARKER: Final = "returned error:"
+# Any `scheme://user:pass@` a URL can carry, wherever it stands in the text:
+# git reflects a redirect target or the remote's own reply verbatim, so this
+# runs over the whole diagnostic, not only the source's own URL.
 _USERINFO: Final = re.compile(r"://[^/@]*@")
 
 _log = logging.getLogger(__name__)
@@ -105,6 +128,7 @@ class GitMirror:
         secret = self.credentials.resolve(self.source.credential)
         if secret is None:
             return _CREDENTIAL_UNRESOLVABLE
+        _reject_unsafe_secret(secret)
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -179,9 +203,9 @@ class GitMirror:
             _log.warning(
                 "git fetch of %s failed: %s",
                 _without_userinfo(self.source.url),
-                stderr,
+                _sanitized(stderr, secret=secret),
             )
-            return _REFUSED if _names_authentication(stderr) else _UNREACHABLE
+            return Connection(state=connection_state_for_failure(stderr), revision=None)
         return Connection(
             state=ConnectionState.READY,
             revision=Revision(
@@ -230,15 +254,45 @@ def unattended_environment(secret: str | None) -> dict[str, str]:
     return {**inherited, **_UNATTENDED, **carried}
 
 
-def _names_authentication(stderr: str) -> bool:
-    """Whether a failed fetch's own words say the far end turned the login down."""
+def _reject_unsafe_secret(secret: str) -> None:
+    """Fail loud rather than hand git's line-based protocol a broken line.
+
+    A secret can reach a mirror from any resolver an instance configures, so
+    this is the one place every one of them passes through, whatever a
+    resolver's own input validation does or does not already catch.
+    """
+    if not secret.isprintable():
+        raise InvalidCredentialError(_UNSAFE_CREDENTIAL)
+
+
+def connection_state_for_failure(stderr: str) -> ConnectionState:
+    """Which of the three failure states a failed pull's own words say happened."""
     lowered = stderr.lower()
-    return any(word in lowered for word in _AUTHENTICATION_WORDS)
+    if any(word in lowered for word in _REFUSED_WORDS):
+        return ConnectionState.REFUSED
+    if any(word in lowered for word in _UNREACHABLE_WORDS):
+        return ConnectionState.UNREACHABLE
+    if "unable to access" in lowered and _HTTP_STATUS_MARKER not in lowered:
+        return ConnectionState.UNREACHABLE
+    return ConnectionState.FAILED
 
 
-def _without_userinfo(url: str) -> str:
-    """That URL with any embedded user name or password hidden."""
-    return _USERINFO.sub("://***@", url)
+def _without_userinfo(text: str) -> str:
+    """That text with any embedded user name or password hidden, wherever it stands."""
+    return _USERINFO.sub("://***@", text)
+
+
+def _sanitized(stderr: str, *, secret: str | None) -> str:
+    """That stderr with every userinfo and the secret itself erased.
+
+    The secret only ever reaches git through the child's environment, so it
+    cannot appear here on its own account; this still erases it, because a
+    defence a probe can falsify is not a defence.
+    """
+    redacted = _without_userinfo(stderr)
+    if secret:
+        redacted = redacted.replace(secret, "***")
+    return redacted
 
 
 def _tree_entry(line: str) -> TreeEntry:

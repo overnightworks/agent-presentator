@@ -379,6 +379,7 @@ def _state_word(state: SourceState, text: LobbyText) -> str:
         SourceState.REACHABLE: text.source_state_reachable,
         SourceState.ERROR: text.source_state_error,
         SourceState.REFUSED: text.source_state_refused,
+        SourceState.FAILED: text.source_state_failed,
         SourceState.NEVER_FETCHED: text.source_state_never_fetched,
     }[state]
 
@@ -398,19 +399,23 @@ def _run_reason(reason: SourceRunFailure, text: LobbyText) -> str:
         SourceRunFailure.UNREACHABLE: text.source_run_unreachable,
         SourceRunFailure.CREDENTIAL_UNRESOLVABLE: text.source_run_secret,
         SourceRunFailure.REFUSED: text.source_run_refused,
+        SourceRunFailure.FAILED: text.source_run_failed,
     }[reason]
 
 
 def _run_state_of(run: ShownSourceRun) -> SourceState:
     """The one word a run row shows, read off its outcome and reason.
 
-    A refused login is the one reason worth its own word here too, the same
-    exception the sources list makes (`SourceState`'s own docstring).
+    A refused login and a host that answered with something else are each
+    worth their own word here too, the same exception the sources list makes
+    (`SourceState`'s own docstring).
     """
     if run.outcome is SourceRunOutcome.SUCCESS:
         return SourceState.REACHABLE
     if run.reason is SourceRunFailure.REFUSED:
         return SourceState.REFUSED
+    if run.reason is SourceRunFailure.FAILED:
+        return SourceState.FAILED
     return SourceState.ERROR
 
 

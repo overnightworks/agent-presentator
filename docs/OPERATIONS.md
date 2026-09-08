@@ -60,8 +60,9 @@ URL is unique too, and must not carry a password in its userinfo — that belong
 in the Secret field. A user name in the URL is optional: when the URL names
 one the mirror keeps it, and when it does not the mirror answers a user name
 of its own so a host that insists on one still reaches the token; a token the
-host turns down shows as refused on the source's row, never as unreachable.
-The access kind is derived from the URL scheme (`https://`
+host turns down shows as refused on the source's row, a host that answers
+with anything else shows as failed, and unreachable is only a host that never
+answers at all. The access kind is derived from the URL scheme (`https://`
 is a token; `http://` is refused; `git@` and `ssh://` are a deploy key, not yet
 offered on the form). An HTTPS source needs the image's CA certificates to
 verify the git host's TLS certificate; the image carries them, and CI proves

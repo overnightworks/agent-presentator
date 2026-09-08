@@ -300,12 +300,14 @@ main code {
 }
 
 [data-state="failed"],
-[data-state="error"] {
+[data-state="error"],
+[data-state="refused"] {
   color: var(--fail);
 }
 
 [data-state="failed"]::before,
-[data-state="error"]::before {
+[data-state="error"]::before,
+[data-state="refused"]::before {
   border-radius: 0;
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }

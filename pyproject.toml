@@ -56,9 +56,6 @@ pythonVersion = "3.12"
 
 [tool.vulture]
 paths = ["src", "tests", "tests/vulture_allowlist.py"]
-# `http.server.BaseHTTPRequestHandler`'s own dispatch calls these by name;
-# vulture sees no call site for a name a standard-library base class invokes.
-ignore_names = ["do_GET", "log_message"]
 
 [tool.ruff]
 target-version = "py312"
@@ -111,11 +108,8 @@ convention = "google"
 "tests/adapters/test_builds.py" = ["S404", "S603"]
 # Builds the temporary git repositories every layer that reads one is proven on.
 "tests/conftest.py" = ["S404", "S603", "S607"]
-# Asks the real `git` whether it accepts the credential configuration it is
-# given. `log_message`'s `format` parameter also overrides
-# `BaseHTTPRequestHandler`'s own, whose name pyright's override check holds it
-# to.
-"tests/gitmirror/test_mirror.py" = ["S404", "S603", "S607", "A002"]
+# Asks the real `git` whether it accepts the credential configuration it is given.
+"tests/gitmirror/test_mirror.py" = ["S404", "S603", "S607"]
 # Asks the same of the credential a source's own row carries.
 "tests/adapters/test_decks.py" = ["S404", "S603", "S607"]
 

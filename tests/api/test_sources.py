@@ -261,6 +261,33 @@ def test_a_refused_login_reads_refused_rather_than_error() -> None:
     assert ENGLISH.source_state_error not in page
 
 
+def test_a_host_that_answered_with_something_else_reads_failed_rather_than_error() -> (
+    None
+):
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=9),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.FAILED,
+                    ),
+                ),
+            ),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.source_state_failed in page
+    assert 'data-state="failed"' in page
+    assert ENGLISH.source_state_error not in page
+
+
 def test_fetch_now_refreshes_that_one_source_and_returns_to_the_list() -> None:
     configured = a_configured_source(_ADDRESS)
     other = another_source()
@@ -771,6 +798,31 @@ def test_a_refused_run_on_the_source_page_reads_refused_not_error() -> None:
     assert ENGLISH.source_state_refused in page
     assert ENGLISH.source_run_refused in page
     assert 'data-state="refused"' in page
+
+
+def test_a_failed_run_on_the_source_page_reads_failed_not_error() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=9),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.FAILED,
+                    ),
+                ),
+            ),
+        )
+        .get(f"{SOURCES}/{source.name}")
+        .text
+    )
+
+    assert ENGLISH.source_state_failed in page
+    assert ENGLISH.source_run_failed in page
+    assert 'data-state="failed"' in page
 
 
 def test_a_source_without_a_stored_secret_says_so_on_its_page() -> None:

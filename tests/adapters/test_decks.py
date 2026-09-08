@@ -457,7 +457,10 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    unreachable = a_source((tmp_path / "nothing.git").as_uri())
+    # A host that never answers, not a local path that merely does not exist:
+    # the latter now reads its own reason, `failed`, and this test's own is
+    # the one a dead host earns.
+    unreachable = a_source("http://host.example.invalid/repo.git")
 
     with caplog.at_level(logging.WARNING):
         poll = folders_under(tmp_path).folders(unreachable)
