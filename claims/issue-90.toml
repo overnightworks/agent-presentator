@@ -1,0 +1,8 @@
+claim_id = "3e00fdad993a44529cbf218cf4aab0d2"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "4b33ff491141562b87a6b6873ebcf3c2367cd4d4"
+branch = "claude/issue-90-on-box-source"
+scope = ["compose.yaml", "docs/OPERATIONS.md", "src/presentator/api/sources.py"]
+opened_commit = "5bf2a55f206306b06e2f1414f1393b25194b725d"
+whole_reason = "the mount, its runbook paragraph and the form's acceptance of a file address, plus tests"
