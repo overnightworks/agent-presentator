@@ -133,6 +133,9 @@ class LobbyText:
     source_run_fetched: str
     source_run_unreachable: str
     source_run_secret: str
+    source_run_column_state: str
+    source_run_column_fetched: str
+    source_run_column_detail: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

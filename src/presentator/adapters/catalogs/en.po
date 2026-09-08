@@ -390,3 +390,12 @@ msgstr "Host unreachable"
 
 msgid "source_run_secret"
 msgstr "Secret not stored"
+
+msgid "source_run_column_state"
+msgstr "State"
+
+msgid "source_run_column_fetched"
+msgstr "Fetched"
+
+msgid "source_run_column_detail"
+msgstr "Detail"

@@ -76,6 +76,13 @@
     <h2>{{ text.source_recent_runs }}</h2>
     {% if source.runs %}
     <table data-runs>
+      <thead>
+        <tr>
+          <th scope="col">{{ text.source_run_column_state }}</th>
+          <th scope="col">{{ text.source_run_column_fetched }}</th>
+          <th scope="col">{{ text.source_run_column_detail }}</th>
+        </tr>
+      </thead>
       <tbody>
         {% for run in source.runs %}
         <tr data-run>
