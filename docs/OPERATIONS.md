@@ -307,9 +307,11 @@ previously delivered talk standing.
 Without a toolchain the instance still runs: every build fails, the deck pages
 say no talk has been built, and the failure is in the server log.
 
-Builds are kept per deck and per run, and none is ever deleted, so
+Builds are kept per deck and per run, and none is ever deleted on its own, so
 `PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
-([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20).
+([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20)
+— the one exception is Remove on a source's own page, which takes every
+built directory of its decks off disk along with the mirror and the rows.
 
 **A deck is code, and its build runs in a container of its own.** That is what
 an instance does, and it takes two names to do it: `PRESENTATOR_BUILD_IMAGE`,

@@ -8,7 +8,13 @@ excuse.
 
 from presentator.api.auth import DeckRow
 from presentator.api.decks import Banner
-from presentator.api.sources import SourceDeckRow, SourceRow, SourceRunRow, SourceView
+from presentator.api.sources import (
+    SourceDeckRow,
+    SourceRemovalView,
+    SourceRow,
+    SourceRunRow,
+    SourceView,
+)
 from presentator.contracts.text import LobbyText
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
@@ -49,6 +55,11 @@ SourceRunRow.commit
 SourceRunRow.reason
 SourceDeckRow.slug
 SourceDeckRow.title
+
+# `presentator/api/templates/source_remove.html` renders the confirm page.
+SourceRemovalView.name
+SourceRemovalView.title
+SourceRemovalView.body
 
 # `presentator/api/templates/deck.html` renders the build block out of these.
 Banner.lead
@@ -113,3 +124,8 @@ LobbyText.source_access_renew_info
 LobbyText.source_run_fetched
 LobbyText.source_run_unreachable
 LobbyText.source_run_secret
+LobbyText.source_remove_heading
+LobbyText.source_remove_hint
+LobbyText.source_remove_button
+LobbyText.source_remove_cancel
+LobbyText.source_remove_confirm

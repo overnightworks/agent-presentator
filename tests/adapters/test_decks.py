@@ -672,6 +672,93 @@ def test_a_file_source_whose_repository_left_the_mount_reads_failed(
     assert "no longer resolves" in caplog.text
 
 
+def test_removing_a_sources_mirror_deletes_it_from_disk(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+    mirrors = mirrors_under(tmp_path)
+    source = a_source(remote.url)
+    mirror = mirrors.of(source)
+    assert mirror is not None
+    mirror.connect()
+    assert mirror.directory.exists()
+
+    gone = mirrors.remove(source)
+
+    assert gone is True
+    assert not mirror.directory.exists()
+
+
+def test_removing_a_mirror_that_was_never_fetched_deletes_nothing_calmly(
+    tmp_path: Path,
+) -> None:
+    gone = mirrors_under(tmp_path).remove(
+        a_source("git@example.invalid:never-fetched.git"),
+    )
+
+    assert gone is True
+
+
+def test_a_mirror_whose_parent_refuses_the_delete_is_reported_not_gone(
+    remote: GitRemote,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The one signal a caller that must not drop a row while this stands needs.
+
+    A directory removed cannot be told from one already gone by the disk
+    alone, so the parent is closed rather than the mirror itself: the mirror
+    empties out normally and only the last step, taking its own name out of
+    the parent, is refused.
+    """
+    remote.commit_example_deck(at=_PUSHED_AT)
+    mirrors = mirrors_under(tmp_path)
+    source = a_source(remote.url)
+    mirror = mirrors.of(source)
+    assert mirror is not None
+    mirror.connect()
+    parent = mirror.directory.parent
+    # Read and traverse stay open, so `exists()` can still tell; only the
+    # write bit a delete needs is closed.
+    parent.chmod(0o500)
+    try:
+        with caplog.at_level(logging.WARNING):
+            gone = mirrors.remove(source)
+    finally:
+        parent.chmod(0o700)
+
+    assert gone is False
+    assert mirror.directory.exists()
+    assert source.name in caplog.text
+
+
+def test_a_real_git_source_can_be_added_removed_and_added_again(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit_example_deck(at=_PUSHED_AT)
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    folders = MirroredDeckFolders(mirrors=mirrors_under(tmp_path))
+
+    first = sources.add(a_write(name=_SOURCE_NAME, url=remote.url))
+    assert first is not None
+    first_poll = folders.folders(first)
+    assert first_poll.folders is not None
+
+    mirror_gone = folders.forget(first)
+    sources.remove(first.id)
+    second = sources.add(a_write(name=_SOURCE_NAME, url=remote.url))
+
+    assert mirror_gone is True
+    assert second is not None
+    assert second.id != first.id
+    second_poll = folders.folders(second)
+    assert second_poll.folders is not None
+    assert second_poll.commit == first_poll.commit
+
+
 def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
     tmp_path: Path,
 ) -> None:
@@ -847,6 +934,21 @@ def test_adding_a_source_with_a_name_or_url_already_stored_writes_nothing(
     assert same_name is None
     assert same_url is None
     assert sources.all() == (stored,)
+
+
+def test_removing_a_source_deletes_its_row_and_frees_its_name_and_url(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    stored = add_a_source(database)
+
+    sources.remove(stored.id)
+    re_added = sources.add(a_write(name=stored.name, url=stored.url))
+
+    assert re_added is not None
+    assert re_added.id != stored.id
+    assert sources.all() == (re_added,)
 
 
 def test_pushing_the_same_folder_again_leaves_one_deck_under_its_slug(
@@ -1087,6 +1189,32 @@ def test_one_sources_reconciliation_leaves_another_sources_decks_alone(
     assert store.all() == (a_deck("knowledge-fabric", source_id=_ANOTHER_SOURCE_ID),)
 
 
+def test_removing_a_sources_decks_takes_every_row_marked_removed_or_not(
+    tmp_path: Path,
+) -> None:
+    store = a_deck_store(tmp_path)
+    store.put(a_deck("kundenfeedback"))
+    store.put(a_deck("knowledge-fabric"))
+    store.put(a_deck("agenten-fabrik", source_id=_ANOTHER_SOURCE_ID))
+    store.mark_removed_except(
+        present=frozenset({"kundenfeedback"}),
+        source_id=_SOURCE_ID,
+        at=_NOTICED_GONE_AT,
+    )
+
+    carried = store.for_source(_SOURCE_ID)
+    store.remove_for_source(_SOURCE_ID)
+
+    assert {deck.slug for deck in carried} == {"kundenfeedback", "knowledge-fabric"}
+    assert store.all() == (a_deck("agenten-fabrik", source_id=_ANOTHER_SOURCE_ID),)
+    with rows(tmp_path / "presentator.sqlite3") as cursor:
+        left = cursor.execute(
+            "SELECT COUNT(*) FROM decks WHERE source_id = ?",
+            (_SOURCE_ID,),
+        ).fetchone()
+    assert left == (0,)
+
+
 def test_a_source_with_no_run_yet_reads_as_nothing(tmp_path: Path) -> None:
     store = a_source_run_store(tmp_path)
 
@@ -1150,6 +1278,19 @@ def test_recording_a_run_keeps_only_the_newest_bound(tmp_path: Path) -> None:
     assert len(recent) == RECENT_SOURCE_RUNS
     assert recent[0].at == _PUSHED_AT + timedelta(minutes=RECENT_SOURCE_RUNS + 1)
     assert kept == (RECENT_SOURCE_RUNS,)
+
+
+def test_removing_a_sources_runs_deletes_every_one_it_recorded(
+    tmp_path: Path,
+) -> None:
+    store = a_source_run_store(tmp_path)
+    store.record(a_successful_run(at=_PUSHED_AT))
+    store.record(a_successful_run(source_id=_ANOTHER_SOURCE_ID, at=_PUSHED_AT))
+
+    store.remove_for_source(_SOURCE_ID)
+
+    assert store.recent(_SOURCE_ID) == ()
+    assert store.recent(_ANOTHER_SOURCE_ID) != ()
 
 
 def test_a_leftover_environment_row_does_not_read_the_environment(

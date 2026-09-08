@@ -148,6 +148,21 @@ class LobbyText:
     source_run_column_state: str
     source_run_column_fetched: str
     source_run_column_detail: str
+    source_remove_heading: str
+    source_remove_hint: str
+    source_remove_button: str
+    source_remove_confirm_title: str
+    source_remove_confirm_body: str
+    source_remove_deck_singular: str
+    source_remove_deck_plural: str
+    source_remove_talk_singular: str
+    source_remove_talk_plural: str
+    source_remove_run_singular: str
+    source_remove_run_plural: str
+    source_remove_cancel: str
+    source_remove_confirm: str
+    source_remove_refused: str
+    source_removed: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

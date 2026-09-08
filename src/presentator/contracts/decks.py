@@ -382,6 +382,20 @@ class SourcePage:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SourceRemoval:
+    """What removing a source takes with it: its name, its decks, its runs.
+
+    Read before anything is deleted, so a confirm can name this and a person
+    can still say no; the same value stands for what the list then reports
+    as gone, because nothing changes between the two.
+    """
+
+    name: str
+    deck_count: int
+    run_count: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ShownAttempt:
     """The build a deck page reports on: its commit, its age, and what broke."""
 

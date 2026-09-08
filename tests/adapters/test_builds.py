@@ -663,6 +663,23 @@ def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     assert artefacts.directory.is_relative_to(tmp_path / "builds")
 
 
+def test_removing_a_build_takes_its_whole_run_directory_off_disk(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source)
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
+    run_directory = artefacts.directory.parents[1]
+    assert run_directory.exists()
+
+    builds.remove(artefacts.directory)
+
+    assert not run_directory.exists()
+
+
 def test_a_build_of_a_source_that_left_its_mount_is_not_attempted(
     remote: GitRemote,
     source: Source,
