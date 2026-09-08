@@ -6,8 +6,10 @@ stands here once, with the doubles and the accounts a test hands in.
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Final
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from pydantic import SecretStr
@@ -16,6 +18,7 @@ from webauth.liveness import IdleWindowLiveness
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
+from presentator.adapters.builds import PackageJsonThemes
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
@@ -33,6 +36,7 @@ from presentator.application.identity import (
 )
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import (
+    ConnectionCheckResult,
     DeckFolder,
     Source,
     SourceRun,
@@ -41,16 +45,21 @@ from presentator.contracts.decks import (
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
+    A_REACHABLE_CHECK,
+    DEFAULT_THEME_SET,
     CountingIdentifierFactory,
     FakeBuildRunner,
+    FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
     FakeInstanceSettingsStore,
+    FakeLocalMount,
     FakeLoginAttemptStore,
     FakePersonPreferencesStore,
     FakeSessionRecordStore,
     FakeSourceRunStore,
     FakeSourceStore,
+    FakeToolchainThemes,
     FakeUserStore,
     FrozenClock,
     MarkingCookieSigner,
@@ -62,6 +71,9 @@ NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
 # No route test waits for a build, so the bound only has to be longer than the
 # ages the tests arrange.
 BUILD_BOUND: Final = timedelta(minutes=5)
+# What this lobby signs a Check connection fingerprint with; no test reads
+# this value, only the fingerprint a real Check response carries.
+_FINGERPRINT_KEY: Final = b"what only this test's lobby signs a fingerprint with"
 CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
@@ -175,19 +187,24 @@ class GivenDecks:
     carried: dict[str, tuple[DeckFolder, ...] | None] | None = None
     failures: dict[str, SourceRunFailure] | None = None
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    checked: ConnectionCheckResult = A_REACHABLE_CHECK
+    themes: tuple[str, ...] | None = DEFAULT_THEME_SET
+    # Set only by a test proving the real reader end to end; every other test
+    # names `themes` and gets the fake above instead.
+    toolchain_project: Path | None = None
 
 
 NO_DECKS: Final = GivenDecks()
 
 
-def a_lobby(
+def a_lobby_app(
     *,
     secure_cookies: bool = False,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
-) -> Lobby:
-    """The whole lobby, with in-memory stores behind every port."""
+) -> tuple[FastAPI, FrozenClock]:
+    """The whole lobby wiring, so a test that needs two clients shares one app."""
     clock = FrozenClock(instant=NOW)
     hasher = ReversibleHasher()
     identity = Identity(
@@ -223,8 +240,16 @@ def a_lobby(
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
         source_runs=run_store,
+        checker=FakeConnectionChecker(answer=given.checked),
+        toolchain_themes=(
+            PackageJsonThemes(project=given.toolchain_project)
+            if given.toolchain_project is not None
+            else FakeToolchainThemes(names_to_return=given.themes)
+        ),
         build_bound=BUILD_BOUND,
+        fingerprint_key=_FINGERPRINT_KEY,
         clock=clock,
+        local_mount=FakeLocalMount(),
     )
     # The list and the deck page read the store only; a test arranges what a
     # poll or the hook would already have taken in before anyone opened a page.
@@ -249,6 +274,23 @@ def a_lobby(
             config=a_web_auth(hasher=hasher),
             secure_cookies=secure_cookies,
         ),
+    )
+    return lobby, clock
+
+
+def a_lobby(
+    *,
+    secure_cookies: bool = False,
+    users: FakeUserStore | None = None,
+    catalogs: Catalogs = CATALOGS,
+    given: GivenDecks = NO_DECKS,
+) -> Lobby:
+    """The whole lobby, with in-memory stores behind every port."""
+    lobby, clock = a_lobby_app(
+        secure_cookies=secure_cookies,
+        users=users,
+        catalogs=catalogs,
+        given=given,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
 

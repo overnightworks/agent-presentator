@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.adapters.decks import (
-    ConfiguredSource,
     SqliteDeckStore,
     SqliteSourceStore,
 )
@@ -29,14 +28,20 @@ from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import FAILURES_BEFORE_THROTTLE
+from presentator.contracts.decks import SourceWrite
 from presentator.host import main
 from presentator.host.config import (
-    SECRET_LENGTH,
+    NO_BOUND_AT_ALL,
     ConfigurationError,
     load_settings,
 )
 from presentator.host.main import Instance
-from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, GitRemote
+from tests.conftest import (
+    EXAMPLE_SLUG,
+    EXAMPLE_TITLE,
+    GitRemote,
+    with_the_program,
+)
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
@@ -55,6 +60,41 @@ _WRONG_WORDS = "guessed"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
+_A_HALF_NAMED_SANDBOX = "named-here-but-not-beside-it"
+_THE_BUILD_IMAGE = "the-build-image-of-this-deployment"
+_THE_BUILDS_VOLUME = "the-builds-volume-of-this-deployment"
+_THE_VERSION_A_SUBPATH_NEEDS = "1.45"
+_A_DRIVER = "overlay2"
+# A `docker` this test wrote: one daemon that carries the image and bounds a
+# container's own filesystem but builds no deck, one too old to keep a build
+# inside its own directory, and one that will not run a container under a size.
+_A_DAEMON_THAT_BUILDS_NOTHING = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    create) exit 0;;
+    start) exit 0;;
+    rm) exit 0;;
+    ps) ;;
+    run) echo "there is no such deck" >&2; exit 1;;
+esac
+"""
+_A_DAEMON_TOO_OLD_TO_BUILD_ON = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.44";;
+    info) echo "{_A_DRIVER}";;
+esac
+"""
+_A_DAEMON_THAT_TAKES_NO_SIZE = f"""#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "{_A_DRIVER}";;
+    image) echo "sha256:the-image";;
+    create) echo "this driver takes no size" >&2; exit 125;;
+    rm) exit 0;;
+esac
+"""
 
 
 @pytest.fixture
@@ -65,12 +105,22 @@ def bare_environment(
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PRESENTATOR_SECRET_KEY", raising=False)
     monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
+    # `remote`/`another_remote` (tests/conftest.py) write their bare
+    # repositories straight into `tmp_path`, the one directory every real
+    # git address these tests build stands under; naming it as the mount
+    # lets a `file://` fixture keep standing in for "any git remote" without
+    # every such test naming the mount for itself.
+    monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     return monkeypatch
 
 
 @pytest.fixture
 def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     bare_environment.setenv("PRESENTATOR_SECRET_KEY", _INSTANCE_KEY)
+    # These tests are about the lobby this root composes, not about where a
+    # deck's code runs; the development run is what asks nothing of a daemon,
+    # and the tests below that are about the sandbox say so themselves.
+    bare_environment.setenv("PRESENTATOR_BUILD_RUNNER", "host")
     return bare_environment
 
 
@@ -213,6 +263,101 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
         load_settings()
 
 
+@pytest.mark.parametrize(
+    "half",
+    [None, "PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],
+    ids=["neither of them", "an image without a volume", "a volume without an image"],
+)
+def test_an_instance_that_does_not_say_what_builds_a_deck_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    half: str | None,
+) -> None:
+    # Nothing said about where a build runs is a build in a container, and a
+    # container this environment does not name is no instance at all.
+    environment.delenv("PRESENTATOR_BUILD_RUNNER")
+    if half is not None:
+        environment.setenv(half, _A_HALF_NAMED_SANDBOX)
+
+    with pytest.raises(ConfigurationError, match="build_image and build_volume"):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_TOO_OLD_TO_BUILD_ON)
+
+    with pytest.raises(ConfigurationError, match=_THE_VERSION_A_SUBPATH_NEEDS):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+
+    # Nothing bounding what a build writes beside its talk is not something an
+    # instance may find out about after it has served a deck.
+    with pytest.raises(ConfigurationError, match=_A_DRIVER):
+        main.build_instance(load_settings())
+
+
+def test_an_instance_told_in_as_many_words_to_do_without_it_starts_and_says_so(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_TAKES_NO_SIZE)
+    environment.setenv("PRESENTATOR_BUILD_DISK", NO_BOUND_AT_ALL)
+
+    main.build_instance(load_settings())
+
+    assert "build_disk" in caplog.text
+
+
+def test_an_instance_whose_disk_bound_came_out_blank_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    # A value nobody watched interpolate is not a decision to build without
+    # the one bound on what a deck writes beside its talk.
+    environment.setenv("PRESENTATOR_BUILD_DISK", "  ")
+
+    with pytest.raises(ConfigurationError, match="build_disk"):
+        load_settings()
+
+
+def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_view(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    a_container_run(environment, tmp_path, _A_DAEMON_THAT_BUILDS_NOTHING)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    asyncio.run(instance.poller.tick())
+    page = lobby.get(f"/deck/{EXAMPLE_SLUG}")
+
+    assert page.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE in page.text
+    assert f"/deck/{EXAMPLE_SLUG}/presenter/" not in page.text
+
+
+def a_container_run(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+    docker: str,
+) -> None:
+    """An instance that builds every deck in a container, on that daemon."""
+    environment.setenv("PRESENTATOR_BUILD_RUNNER", "container")
+    environment.setenv("PRESENTATOR_BUILD_IMAGE", _THE_BUILD_IMAGE)
+    environment.setenv("PRESENTATOR_BUILD_VOLUME", _THE_BUILDS_VOLUME)
+    with_the_program(environment, tmp_path, "docker", docker)
+
+
 def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(
     environment: pytest.MonkeyPatch,
 ) -> None:
@@ -311,29 +456,36 @@ def logged_in(instance: Instance) -> TestClient:
 
 
 def a_polled_source(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
     *,
     armed: bool = True,
+    name: str = _SOURCE_NAME,
 ) -> Instance:
-    """A real stack reading that remote, with the env hook secret set while armed."""
-    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
-    environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
-    if armed:
-        environment.setenv(
-            "PRESENTATOR_SOURCE_HOOK_SECRET",
-            _WHAT_THE_HOST_CARRIES,
-        )
-    return a_real_instance()
-
-
-def arm_the_seeded_hook(database: Path, secret: str) -> None:
-    """Write the webhook hash onto the seeded row, as adding a source would."""
-    with rows(database) as cursor:
-        cursor.execute(
-            "UPDATE sources SET hook_secret_hash = ? WHERE name = ?",
-            (hash_webhook_secret(secret), _SOURCE_NAME),
-        )
+    """A real stack with that remote stored as a source after first start."""
+    instance = a_real_instance()
+    signed_in(instance)
+    database = tmp_path / "presentator.sqlite3"
+    admin = SqliteUserStore(database).first_admin()
+    assert admin is not None
+    added = sources_over(database).add(
+        SourceWrite(
+            name=name,
+            url=remote.url,
+            ref="main",
+            owner_id=admin.id,
+            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
+        ),
+    )
+    assert added is not None
+    if not armed:
+        with rows(database) as cursor:
+            cursor.execute(
+                "UPDATE sources SET hook_secret_hash = NULL WHERE name = ?",
+                (name,),
+            )
+    return instance
 
 
 def listed_addresses(page: str) -> list[str]:
@@ -364,46 +516,18 @@ def sources_over(
     """
     return SqliteSourceStore(
         database=database,
-        configured=ConfiguredSource(
-            name=_SOURCE_NAME,
-            url=None,
-            ref="main",
-            credential_reference=None,
-            accounts=SqliteUserStore(database),
-        ),
         identifiers=TokenIdentifierFactory(),
         box=secret_box(instance_key),
     )
 
 
-def test_a_source_that_names_an_environment_variable_fetches_while_it_is_there(
-    environment: pytest.MonkeyPatch,
-    remote: GitRemote,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_CREDENTIAL", _CREDENTIAL_VARIABLE)
-    environment.delenv(_CREDENTIAL_VARIABLE, raising=False)
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
-    remote.commit_example_deck(at=_PUSHED_AT)
-
-    asyncio.run(instance.poller.tick())
-    while_the_variable_was_unset = lobby.get("/").text
-
-    environment.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
-    asyncio.run(instance.poller.tick())
-    after_it_was_set = lobby.get("/").text
-
-    assert EXAMPLE_TITLE not in while_the_variable_was_unset
-    assert EXAMPLE_TITLE in after_it_was_set
-
-
+@pytest.mark.usefixtures("environment")
 def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
     database = tmp_path / "presentator.sqlite3"
     stored = sources_over(database).all()[0]
@@ -424,12 +548,13 @@ def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
     assert EXAMPLE_TITLE in after_this_instance_wrote_it
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     before_the_tick = lobby.get("/").text
@@ -441,15 +566,14 @@ def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
     assert f'href="/deck/{EXAMPLE_SLUG}"' in after_the_tick
 
 
+@pytest.mark.usefixtures("environment")
 def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
-    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     called = call_the_hook(lobby, carrying=_WHAT_THE_HOST_CARRIES)
@@ -458,15 +582,14 @@ def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
     assert EXAMPLE_TITLE in lobby.get("/").text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
-    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     refused = call_the_hook(lobby, carrying="guessed")
@@ -475,11 +598,12 @@ def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
     assert EXAMPLE_TITLE not in lobby.get("/").text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    lobby = signed_in(a_polled_source(environment, remote, armed=False))
+    lobby = logged_in(a_polled_source(remote, tmp_path, armed=False))
     remote.commit_example_deck(at=_PUSHED_AT)
     lobby.cookies.clear()
 
@@ -490,39 +614,12 @@ def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
     assert EXAMPLE_TITLE not in signed_in(a_real_instance()).get("/").text
 
 
-@pytest.mark.parametrize(
-    "given",
-    ["", "   ", "x", "a" * (SECRET_LENGTH - 1)],
-    ids=["empty", "blank", "one character", "one character short"],
-)
-def test_a_hook_secret_that_guards_nothing_refuses_to_start(
-    environment: pytest.MonkeyPatch,
-    given: str,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_HOOK_SECRET", given)
-
-    with pytest.raises(ConfigurationError, match="source_hook_secret"):
-        load_settings()
-
-
-def test_a_refused_hook_secret_is_never_quoted_back(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_HOOK_SECRET", _TYPED_WORDS)
-
-    with pytest.raises(ConfigurationError) as refused:
-        load_settings()
-
-    assert _TYPED_WORDS not in str(refused.value)
-
-
+@pytest.mark.usefixtures("environment")
 def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
     remote.commit_example_deck(at=_PUSHED_AT)
     database = tmp_path / "presentator.sqlite3"
 
@@ -540,8 +637,8 @@ def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
     tmp_path: Path,
 ) -> None:
     environment.setenv("PRESENTATOR_TOOLCHAIN", str(tmp_path / "no-toolchain-here"))
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -555,10 +652,11 @@ def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
 def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
     environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -569,12 +667,13 @@ def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     assert "<table" not in listed.text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_source_that_has_gone_away_still_leaves_its_decks_listed(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(instance.poller.tick())
 
@@ -593,13 +692,32 @@ def test_an_instance_without_a_source_shows_the_empty_list() -> None:
     assert "<table" not in listed.text
 
 
-def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
+def test_a_configured_source_url_in_the_environment_changes_nothing(
     environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
+    environment.setenv("PRESENTATOR_SOURCE_CREDENTIAL", _CREDENTIAL_VARIABLE)
+    environment.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    lobby = a_signed_in_instance()
+
+    listed = lobby.get("/")
+    sources = lobby.get("/settings/sources")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert "<table" not in listed.text
+    assert "<table" not in sources.text
+    assert remote.url not in sources.text
+
+
+@pytest.mark.usefixtures("environment")
+def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     database = tmp_path / "presentator.sqlite3"
     remote.commit_example_deck(at=_PUSHED_AT)
     remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
@@ -621,31 +739,31 @@ def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     assert owner_of(database, EXAMPLE_SLUG) == owner_before_the_delete
 
 
-def test_an_instance_carries_its_configured_source_from_the_moment_it_starts(
-    environment: pytest.MonkeyPatch,
-    remote: GitRemote,
-) -> None:
-    signed_in(a_polled_source(environment, remote))
-
-    started_again = a_polled_source(environment, remote)
-    listed = logged_in(started_again).get("/")
-
-    assert listed.status_code == HTTPStatus.OK
-    assert remote.url in listed.text
-
-
+@pytest.mark.usefixtures("environment")
 def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     another_remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    first = a_polled_source(environment, remote)
-    lobby = signed_in(first)
+    first = a_polled_source(remote, tmp_path)
+    lobby = logged_in(first)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(first.poller.tick())
     another_remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
-    environment.setenv("PRESENTATOR_SOURCE_URL", another_remote.url)
-    environment.setenv("PRESENTATOR_SOURCE_NAME", _ANOTHER_SOURCE_NAME)
+    database = tmp_path / "presentator.sqlite3"
+    admin = SqliteUserStore(database).first_admin()
+    assert admin is not None
+    added = sources_over(database).add(
+        SourceWrite(
+            name=_ANOTHER_SOURCE_NAME,
+            url=another_remote.url,
+            ref="main",
+            owner_id=admin.id,
+            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
+        ),
+    )
+    assert added is not None
     both = a_real_instance()
 
     asyncio.run(both.poller.tick())

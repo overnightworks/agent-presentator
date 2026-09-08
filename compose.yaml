@@ -1,5 +1,11 @@
 # One service is the instance. What has to survive it stands in a named volume;
 # what may never be written down here comes from the environment.
+#
+# The image below is handed to the server as well as to Docker, because a deck
+# is code: the server asks this machine's daemon to run every build in a
+# container of that image, over directories of the builds volume (line 14a).
+x-build-image: &build_image agent-presentator-build
+
 services:
   presentator:
     build: .
@@ -20,10 +26,34 @@ services:
         required: false
     environment:
       PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
+      PRESENTATOR_BUILD_IMAGE: *build_image
+      # The very volume declared below, under the name Docker gives it: one per
+      # project, so a second instance on this machine builds into its own and
+      # an instance that upgrades keeps the talks it has.
+      PRESENTATOR_BUILD_VOLUME: ${COMPOSE_PROJECT_NAME}_builds
+    # The socket is the one privilege this design trades for the sandbox: the
+    # server may ask the daemon for a container, which is the daemon's whole
+    # authority over this machine. The group is this machine's own, because a
+    # gid is not a name.
+    group_add:
+      - "${PRESENTATOR_DOCKER_GROUP:?set it to the gid of this machine's docker group, which 'getent group docker' reads}"
     volumes:
       - database:/data/database
       - mirrors:/data/mirrors
       - builds:/data/builds
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Never started: it is the image a deck's own build runs in, and it is built
+  # from the toolchain layer of the instance image, so the toolchain and its
+  # browser are installed once. `docker compose --profile images build` builds
+  # this one beside the instance.
+  build-sandbox:
+    build:
+      context: .
+      target: toolchain
+    image: *build_image
+    profiles:
+      - images
 
 # Fixed, so that the address every connection through the published port
 # carries is a value the operator can write down rather than read off a

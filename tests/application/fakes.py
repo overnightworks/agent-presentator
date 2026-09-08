@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.decks import (
+    RECENT_SOURCE_RUNS,
     Artefacts,
     Build,
     BuildAttempt,
     BuildFailure,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     SecretLocation,
@@ -25,6 +27,7 @@ from presentator.contracts.decks import (
     SourceRun,
     SourceRunFailure,
     SourceWrite,
+    local_mount_path_of,
 )
 from presentator.contracts.models import (
     Account,
@@ -42,6 +45,13 @@ PATIENCE: Final = timedelta(seconds=5)
 # most tests only care about the folders a source carries, never these two.
 _A_FETCHED_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _AN_UNNAMED_FAILURE: Final = SourceRunFailure.UNREACHABLE
+# What Check connection finds when no test says otherwise: the form's own
+# happy path, so a test unrelated to the probe itself never has to arrange it.
+A_REACHABLE_CHECK: Final = ConnectionCheckResult(
+    failure=None,
+    commit=_A_FETCHED_COMMIT[:7],
+    detail=None,
+)
 
 
 @dataclass
@@ -298,16 +308,12 @@ class FakePersonPreferencesStore:
 
 @dataclass
 class FakeSourceStore:
-    """The sources an instance has, and the one its configuration seeds."""
+    """The sources an instance has."""
 
     sources: list[Source] = field(default_factory=list[Source])
-    seeds: Source | None = None
     hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    secrets: dict[str, str] = field(default_factory=dict[str, str])
     minted: int = 0
-
-    def seed(self) -> None:
-        if self.seeds is not None and self.seeds not in self.sources:
-            self.sources.append(self.seeds)
 
     def add(self, write: SourceWrite) -> Source | None:
         if any(
@@ -326,10 +332,26 @@ class FakeSourceStore:
         )
         self.sources.append(stored)
         self.hashes[write.name] = write.hook_secret_hash
+        self.secrets[stored.id] = write.access_secret
         return stored
 
     def hook_secret_hash(self, name: str) -> bytes | None:
         return self.hashes.get(name)
+
+    def put_credential(self, source_id: str, secret: str) -> None:
+        self.secrets[source_id] = secret
+        self.sources = [
+            replace(source, secret_location=SecretLocation.STORED)
+            if source.id == source_id
+            else source
+            for source in self.sources
+        ]
+
+    def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
+        if not any(source.name == name for source in self.sources):
+            return False
+        self.hashes[name] = digest
+        return True
 
     def all(self) -> tuple[Source, ...]:
         return tuple(self.sources)
@@ -349,6 +371,46 @@ class FakeSourceRunStore:
             if run.source_id == source_id:
                 return run
         return None
+
+    def recent(self, source_id: str) -> tuple[SourceRun, ...]:
+        found = [run for run in reversed(self.recorded) if run.source_id == source_id]
+        return tuple(found[:RECENT_SOURCE_RUNS])
+
+
+# The example every test and the runbook shares for "the mount", so a test
+# reads the same address the documentation does.
+LOCAL_MOUNT_EXAMPLE: Final = PurePosixPath("/data/local-sources")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FakeLocalMount:
+    """Trusts the lexical path, for an application test with no real disk.
+
+    The real containment — a symlink, a mount that has since changed — is an
+    adapter's own proof (`tests/adapters/test_decks.py`); this fake only
+    repeats the same lexical parse the form's own refusal already ran, so an
+    application test can still tell an in-mount address from one outside it.
+    """
+
+    mount: PurePosixPath = LOCAL_MOUNT_EXAMPLE
+
+    def canonical_repository(self, address: str) -> Path | None:
+        path = local_mount_path_of(address)
+        if path is None:
+            return None
+        if path != self.mount and self.mount not in path.parents:
+            return None
+        return Path(path)
+
+
+@dataclass
+class FakeConnectionChecker:
+    """Answers the one canned result a test wired, whatever it was asked."""
+
+    answer: ConnectionCheckResult = A_REACHABLE_CHECK
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        return self.answer
 
 
 @dataclass
@@ -501,6 +563,20 @@ class FakeBuildRunner:
             written.is_relative_to(BUILDS_ROOT)
             for written in (artefacts.directory, artefacts.pdf)
         )
+
+
+# What most tests need from the toolchain set, without naming a real one.
+DEFAULT_THEME_SET: Final = ("default",)
+
+
+@dataclass
+class FakeToolchainThemes:
+    """A toolchain theme set a test names, standing in for `package.json`."""
+
+    names_to_return: tuple[str, ...] | None = DEFAULT_THEME_SET
+
+    def names(self) -> tuple[str, ...] | None:
+        return self.names_to_return
 
 
 def some_words(*, language_tag: str, language_name: str) -> LobbyText:

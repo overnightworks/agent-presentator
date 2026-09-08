@@ -1,14 +1,17 @@
 """What a deck and its source are, everywhere in this product (ADR 0005)."""
 
+import posixpath
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final
+from urllib.parse import unquote, urlparse
 
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
 DECK_PATH: Final = "/deck"
+_FILE_SCHEME: Final = "file"
 # What a failed build may say on a page: the end of what its toolchain printed,
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
@@ -32,26 +35,84 @@ def talk_address(slug: str) -> str:
 class SecretLocation(StrEnum):
     """Where a source's read-only secret stands, never the secret itself.
 
-    A row is the truth about its own secret; this says which of the two forms
-    that row anchors, so nobody has to read a value to find out. The
-    environment form is what an instance configured from `PRESENTATOR_SOURCE_*`
-    still carries, and it goes when that configuration does.
+    A row is the truth about its own secret. The one place is the encrypted
+    column: a source whose row carries ciphertext is stored, and a source
+    whose row does not has no secret this instance can hand to git.
     """
 
-    ENVIRONMENT = "environment"
     STORED = "stored"
+
+
+# The Source board draws three runs, and that page is the first reader of the
+# log, so the table keeps the same three: older rows have no caller.
+RECENT_SOURCE_RUNS: Final = 3
 
 
 class AccessKind(StrEnum):
     """How a source is read, derived from its URL's scheme and nothing else.
 
-    HTTPS is a token; SSH and the scp form are a deploy key. The radio on the
-    form has to match this, and a mismatch is refused rather than stored as a
-    third kind.
+    HTTPS is a token; SSH and the scp form are a deploy key; a `file://`
+    address or a bare absolute path is this box's own mount, and carries no
+    secret at all. The radio on the form has to match this, and a mismatch is
+    refused rather than stored as a fourth kind.
     """
 
     HTTPS = "https-token"
     SSH = "ssh-deploy-key"
+    FILE = "local-folder"
+
+
+# `file://` names no host but the machine that opens it; anything else in the
+# authority is a different machine's address wearing a local scheme, and git
+# itself ignores whatever stands there rather than refusing it, so this
+# refuses it instead of inheriting that silent ambiguity.
+_LOCAL_AUTHORITIES: Final = frozenset({"", "localhost"})
+
+
+def local_mount_path_of(url: str) -> PurePosixPath | None:
+    """The address's path, normalized, when it names a file-kind source.
+
+    A file-kind address is either the `file://` scheme, whose authority must
+    be empty or `localhost`, or a bare absolute path. A `file://` path is
+    percent-decoded first, the way git itself decodes one before it opens it
+    — a bare path is not, because git never decodes one either. `..` is
+    collapsed lexically after that, so a caller judging whether the result
+    still stands under the mount sees the path the address actually reaches
+    rather than one a `..` component, encoded or not, could hide behind.
+    This is still a lexical answer: the one place that asks the real
+    filesystem — the only place a symlink or a mount that has since changed
+    can be caught — is the adapter that resolves it against the mount at
+    every use.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme == _FILE_SCHEME:
+        if parsed.netloc not in _LOCAL_AUTHORITIES:
+            return None
+        raw = unquote(parsed.path)
+    elif not parsed.scheme and url.startswith("/"):
+        raw = url
+    else:
+        return None
+    return PurePosixPath(posixpath.normpath(raw))
+
+
+def access_kind_of(url: str) -> AccessKind | None:
+    """The access the URL's scheme names, or nothing when it names none.
+
+    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy
+    key; `file://` or a bare absolute path is this box's own mount. Anything
+    else is not an access this product has.
+    """
+    if any(character < " " for character in url):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme == "https":
+        return AccessKind.HTTPS
+    if parsed.scheme == "ssh" or (not parsed.scheme and "@" in url):
+        return AccessKind.SSH
+    if local_mount_path_of(url) is not None:
+        return AccessKind.FILE
+    return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -111,6 +172,8 @@ class SourceRunFailure(StrEnum):
     """
 
     CREDENTIAL_UNRESOLVABLE = "credential-unresolvable"
+    REFUSED = "refused"
+    FAILED = "failed"
     UNREACHABLE = "unreachable"
 
 
@@ -126,6 +189,23 @@ class SourcePoll:
     folders: tuple[DeckFolder, ...] | None
     commit: str | None
     failure: SourceRunFailure | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConnectionCheckResult:
+    """What a bounded probe of an unsaved source found, without writing anything.
+
+    No failure and a commit is reachable; a failure and no commit is not, and
+    carries git's own sanitised first line only for `SourceRunFailure.FAILED`
+    — the one reason with no fixed sentence of its own. The fingerprint is
+    the proof the form later needs to create what this probe found, and
+    travels only when the state is reachable.
+    """
+
+    failure: SourceRunFailure | None
+    commit: str | None
+    detail: str | None
+    fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -243,14 +323,18 @@ class ListedDeck:
 class SourceState(StrEnum):
     """What the sources list says a source is, read off its newest run.
 
-    No run is never-fetched, a successful run is reachable, and a failed run
-    is error — whatever typed reason the failure carried. The reason is not a
-    word this list speaks, so a credential the instance could not resolve
-    never becomes a word on the board.
+    No run is never-fetched, a successful run is reachable, and the reason a
+    credential the instance could not resolve never becomes a word on the
+    board: it folds into error. A refused login and a host that answered with
+    something else each keep their own word instead, because a wrong token, a
+    dead host, and a host that answered but not with the repository are three
+    different things an operator needs told apart.
     """
 
     REACHABLE = "reachable"
     ERROR = "error"
+    REFUSED = "refused"
+    FAILED = "failed"
     NEVER_FETCHED = "never-fetched"
 
 
@@ -263,6 +347,38 @@ class ListedSource:
     access: AccessKind | None
     state: SourceState
     age: timedelta | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShownSourceRun:
+    """One recent poll as the source page shows it: age, commit, or why not."""
+
+    outcome: SourceRunOutcome
+    age: timedelta
+    commit: str | None
+    reason: SourceRunFailure | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDeck:
+    """A deck this source carries, named the way the page's chips name it."""
+
+    slug: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourcePage:
+    """What one source's page says: is it working, and what comes from it."""
+
+    name: str
+    url: str
+    access: AccessKind | None
+    state: SourceState
+    age: timedelta | None
+    secret_missing: bool
+    runs: tuple[ShownSourceRun, ...]
+    decks: tuple[SourceDeck, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -285,3 +401,7 @@ class DeckPage:
     built_ago: timedelta | None
     state: DeckState
     attempt: ShownAttempt | None
+    # The themes this instance's toolchain carries (ADR 0014), or nothing
+    # while its project cannot be read: an empty set is never shown as if it
+    # were the real one (R3).
+    themes: tuple[str, ...] | None

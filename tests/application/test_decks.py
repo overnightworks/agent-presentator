@@ -3,7 +3,7 @@
 import hashlib
 import logging
 import string
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 
@@ -12,15 +12,18 @@ import pytest
 from presentator.application.decks import (
     AddedSource,
     Decks,
+    NewSourceDraft,
     SourceRefusal,
     access_kind_of,
 )
 from presentator.contracts.decks import (
     MANIFEST_FILE,
+    RECENT_SOURCE_RUNS,
     SLIDES_FILE,
     AccessKind,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckFolder,
     DeckPage,
@@ -29,6 +32,7 @@ from presentator.contracts.decks import (
     ListedSource,
     SecretLocation,
     Source,
+    SourceDeck,
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
@@ -38,12 +42,16 @@ from presentator.contracts.decks import (
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
     BUILDS_ROOT,
+    LOCAL_MOUNT_EXAMPLE,
     PATIENCE,
     FakeBuildRunner,
+    FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeLocalMount,
     FakeSourceRunStore,
     FakeSourceStore,
+    FakeToolchainThemes,
     FrozenClock,
     HeldDeckFolders,
 )
@@ -74,6 +82,7 @@ _SHORT_LATER_COMMIT = "b7c1d9e"
 # only ever given up on where a test says so.
 _BUILD_BOUND = timedelta(minutes=5)
 _WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
+_FINGERPRINT_KEY = b"what only this test's instance signs a fingerprint with"
 
 
 def a_folder(
@@ -98,9 +107,9 @@ def carrying(*folders: DeckFolder, source: Source = _SOURCE) -> FakeDeckFolders:
     return FakeDeckFolders(carried={source.id: folders})
 
 
-def having(*sources: Source, seeds: Source | None = None) -> FakeSourceStore:
-    """The sources an instance already has, and the one its seed would write."""
-    return FakeSourceStore(sources=list(sources), seeds=seeds)
+def having(*sources: Source) -> FakeSourceStore:
+    """The sources an instance already has."""
+    return FakeSourceStore(sources=list(sources))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -115,7 +124,10 @@ class DecksFakes:
     store: FakeDeckStore = field(default_factory=FakeDeckStore)
     builder: FakeBuildRunner = field(default_factory=FakeBuildRunner)
     source_runs: FakeSourceRunStore = field(default_factory=FakeSourceRunStore)
+    checker: FakeConnectionChecker = field(default_factory=FakeConnectionChecker)
+    toolchain_themes: FakeToolchainThemes = field(default_factory=FakeToolchainThemes)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
+    local_mount: FakeLocalMount = field(default_factory=FakeLocalMount)
 
 
 def decks_over(
@@ -131,8 +143,12 @@ def decks_over(
         store=resolved.store,
         builder=resolved.builder,
         source_runs=resolved.source_runs,
+        checker=resolved.checker,
+        toolchain_themes=resolved.toolchain_themes,
         build_bound=_BUILD_BOUND,
+        fingerprint_key=_FINGERPRINT_KEY,
         clock=resolved.clock,
+        local_mount=resolved.local_mount,
     )
 
 
@@ -262,6 +278,31 @@ def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
     assert (page.slug, page.title) == ("kundenfeedback", "Kundenfeedback Q3")
     assert page.source == _SOURCE.url
     assert page.commit == _SHORT_COMMIT
+
+
+def test_a_deck_page_names_the_themes_the_toolchain_carries() -> None:
+    themes = ("apple-basic", "default", "seriph")
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(toolchain_themes=FakeToolchainThemes(names_to_return=themes)),
+    )
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+
+    assert page.themes == themes
+
+
+def test_a_deck_page_names_no_themes_while_the_toolchain_cannot_be_read() -> None:
+    decks = decks_over(
+        a_folder("kundenfeedback"),
+        fakes=DecksFakes(toolchain_themes=FakeToolchainThemes(names_to_return=None)),
+    )
+    decks.refresh()
+
+    page = page_of(decks, "kundenfeedback")
+
+    assert page.themes is None
 
 
 def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
@@ -673,17 +714,6 @@ def test_a_source_that_cannot_be_read_leaves_every_deck_listed() -> None:
     assert [deck.slug for deck in while_the_source_was_unreadable] == ["kundenfeedback"]
 
 
-def test_the_source_the_seed_writes_is_taken_in_by_the_refresh_that_seeded_it() -> None:
-    decks = decks_over(
-        sources=having(seeds=_SOURCE),
-        mirror=carrying(a_folder("kundenfeedback")),
-    )
-
-    listed = refreshed(decks)
-
-    assert [deck.slug for deck in listed] == ["kundenfeedback"]
-
-
 def test_two_sources_each_list_their_own_decks() -> None:
     store = FakeDeckStore()
     decks = decks_over(
@@ -906,6 +936,42 @@ def test_a_failed_newest_run_lists_as_error_even_when_the_reason_is_unresolvable
     assert listed[0].age == timedelta(hours=2)
 
 
+def test_a_refused_login_lists_as_refused_rather_than_error() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=5),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.REFUSED,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.REFUSED
+    assert listed[0].age == timedelta(minutes=5)
+
+
+def test_a_host_that_answered_with_something_else_lists_as_failed() -> None:
+    runs = FakeSourceRunStore()
+    runs.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=7),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.FAILED,
+        ),
+    )
+
+    listed = decks_over(fakes=DecksFakes(source_runs=runs)).listed_sources()
+
+    assert listed[0].state is SourceState.FAILED
+    assert listed[0].age == timedelta(minutes=7)
+
+
 def test_the_list_reads_the_newest_run_only() -> None:
     runs = FakeSourceRunStore()
     runs.record(
@@ -996,13 +1062,37 @@ def _add(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> AddedSource | SourceRefusal:
+    checked = decks.check_connection(url=url, secret=secret)
     return decks.add_source(
-        name=name,
-        url=url,
-        access=access,
-        secret=secret,
+        NewSourceDraft(
+            name=name,
+            url=url,
+            access=access,
+            secret=secret,
+            fingerprint=checked.fingerprint or "",
+        ),
         owner_id=_OWNER,
     )
+
+
+def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> None:
+    reachable = decks_over().check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    refused = decks_over(
+        fakes=DecksFakes(
+            checker=FakeConnectionChecker(
+                answer=ConnectionCheckResult(
+                    failure=SourceRunFailure.REFUSED,
+                    commit=None,
+                    detail=None,
+                ),
+            ),
+        ),
+    ).check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+
+    assert reachable.failure is None
+    assert reachable.fingerprint is not None
+    assert refused.failure is SourceRunFailure.REFUSED
+    assert refused.fingerprint is None
 
 
 def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> None:
@@ -1197,18 +1287,80 @@ def test_a_duplicate_name_or_url_is_refused() -> None:
     assert _add(decks, name="other") is SourceRefusal.DUPLICATE_URL
 
 
-def test_adding_a_source_does_not_rewrite_a_seeded_environment_source() -> None:
-    seeded = replace(
-        a_source("decks", identifier="the-configured-source"),
-        secret_location=SecretLocation.ENVIRONMENT,
+_A_DIFFERENT_SECRET = "a-different-secret-" + "than-was-checked"
+
+
+def test_a_source_never_checked_for_these_values_is_refused() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_HTTPS_URL,
+            access="https",
+            secret=_READ_ONLY,
+            fingerprint="",
+        ),
+        owner_id=_OWNER,
     )
-    store = having(seeded)
+
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert store.all() == ()
+
+
+def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+    checked = decks.check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    assert checked.fingerprint is not None
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_HTTPS_URL,
+            access="https",
+            secret=_A_DIFFERENT_SECRET,
+            fingerprint=checked.fingerprint,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert store.all() == ()
+
+
+def test_a_different_spelling_of_an_existing_local_source_is_a_duplicate_url() -> None:
+    existing = Source(
+        id="the-existing-file-source",
+        name="talks",
+        url=f"{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        ref="main",
+        secret_location=None,
+        owner_id=_OWNER,
+    )
+    decks = decks_over(sources=having(existing))
+
+    refused = _add(
+        decks,
+        name="other",
+        url=f"file://{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert refused is SourceRefusal.DUPLICATE_URL
+
+
+def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:
+    existing = a_source("decks", identifier="the-existing-source")
+    store = having(existing)
 
     added = _add(decks_over(sources=store))
 
     assert isinstance(added, AddedSource)
-    kept = next(source for source in store.all() if source.id == seeded.id)
-    assert kept.secret_location is SecretLocation.ENVIRONMENT
+    kept = next(source for source in store.all() if source.id == existing.id)
+    assert kept.secret_location is None
 
 
 def test_a_hook_call_with_the_stored_secret_refreshes_that_source() -> None:
@@ -1244,6 +1396,98 @@ def test_a_hook_call_with_the_wrong_secret_or_name_is_refused() -> None:
     assert not decks.accept_hook(added.source.name, "")
 
 
+def test_the_source_page_names_state_newest_runs_and_the_decks_from_here() -> None:
+    run_store = FakeSourceRunStore()
+    decks = decks_over(
+        a_folder("knowledge-fabric", title="Knowledge Fabric"),
+        a_folder("kundenfeedback", title="Kundenfeedback"),
+        fakes=DecksFakes(source_runs=run_store),
+    )
+    run_store.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=13),
+            outcome=SourceRunOutcome.FAILURE,
+            commit=None,
+            reason=SourceRunFailure.UNREACHABLE,
+        ),
+    )
+    run_store.record(
+        SourceRun(
+            source_id=_SOURCE.id,
+            at=_NOW - timedelta(minutes=8),
+            outcome=SourceRunOutcome.SUCCESS,
+            commit="c40b7e1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            reason=None,
+        ),
+    )
+    decks.refresh()
+
+    page = decks.shown_source(_SOURCE.name)
+
+    assert page is not None
+    assert page.name == _SOURCE.name
+    assert page.url == _SOURCE.url
+    assert page.state is SourceState.REACHABLE
+    assert page.secret_missing is True
+    assert page.runs[0].commit == _SHORT_COMMIT
+    assert page.runs[-1].reason is SourceRunFailure.UNREACHABLE
+    assert len(page.runs) == RECENT_SOURCE_RUNS
+    assert page.decks == (
+        SourceDeck(slug="knowledge-fabric", title="Knowledge Fabric"),
+        SourceDeck(slug="kundenfeedback", title="Kundenfeedback"),
+    )
+
+
+def test_a_name_this_instance_does_not_have_has_no_source_page() -> None:
+    assert decks_over().shown_source("no-such-source") is None
+
+
+def test_renewing_the_access_secret_stores_the_new_value() -> None:
+    store = having(_SOURCE)
+    decks = decks_over(sources=store)
+
+    assert decks.renew_access(_SOURCE.name, "the-new-token")
+    assert store.secrets[_SOURCE.id] == "the-new-token"
+    assert store.all()[0].secret_location is SecretLocation.STORED
+
+
+def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
+    store = having(_SOURCE)
+
+    assert not decks_over(sources=store).renew_access(_SOURCE.name, "  ")
+    assert store.secrets == {}
+    assert store.all()[0].secret_location is None
+
+
+def test_renewing_the_webhook_secret_returns_a_new_value_and_replaces_the_hash() -> (
+    None
+):
+    store = having()
+    decks = decks_over(sources=store)
+    added = _add(decks)
+    assert isinstance(added, AddedSource)
+    previous = store.hook_secret_hash(added.source.name)
+
+    minted = decks.renew_webhook(added.source.name)
+
+    assert minted is not None
+    assert minted != added.webhook_secret
+    assert store.hook_secret_hash(added.source.name) != previous
+    assert hashlib.sha256(minted.encode()).digest() == store.hook_secret_hash(
+        added.source.name,
+    )
+
+
+def test_renewing_a_name_this_instance_does_not_have_does_nothing() -> None:
+    store = having(_SOURCE)
+    decks = decks_over(sources=store)
+
+    assert not decks.renew_access("no-such-source", "the-new-token")
+    assert decks.renew_webhook("no-such-source") is None
+    assert store.secrets == {}
+
+
 def test_https_and_ssh_urls_name_their_access_kind() -> None:
     https = "https://git.example.invalid/talks.git"
     http = "http://git.example.invalid/talks.git"
@@ -1253,5 +1497,5 @@ def test_https_and_ssh_urls_name_their_access_kind() -> None:
     assert access_kind_of(http) is None
     assert access_kind_of(ssh) is AccessKind.SSH
     assert access_kind_of(scp) is AccessKind.SSH
-    assert access_kind_of("file:///tmp/talks.git") is None
+    assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
     assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None

@@ -124,6 +124,12 @@ msgstr "never built"
 msgid "deck_built"
 msgstr "built {age}"
 
+msgid "deck_builds_with"
+msgstr "Builds with: {themes}"
+
+msgid "deck_theme_separator"
+msgstr ", "
+
 msgid "deck_not_built_explanation"
 msgstr ""
 "No talk has been built from this deck yet, so there is no view to open."
@@ -217,6 +223,12 @@ msgstr "reachable"
 msgid "source_state_error"
 msgstr "Error"
 
+msgid "source_state_refused"
+msgstr "Refused"
+
+msgid "source_state_failed"
+msgstr "Failed"
+
 msgid "source_state_never_fetched"
 msgstr "never fetched"
 
@@ -264,11 +276,17 @@ msgstr "SSH deploy key"
 msgid "source_access_https"
 msgstr "HTTPS token"
 
+msgid "source_access_file"
+msgstr "On this box"
+
 msgid "source_access_token"
 msgstr "Token"
 
 msgid "source_access_deploy_key"
 msgstr "Deploy-Key"
+
+msgid "source_access_local"
+msgstr "On this box"
 
 msgid "source_secret"
 msgstr "Secret"
@@ -306,6 +324,9 @@ msgstr "Secret"
 msgid "source_webhook_once"
 msgstr "visible only now"
 
+msgid "source_webhook_held_elsewhere"
+msgstr "Shown to whoever created or renewed it."
+
 msgid "source_copy"
 msgstr "Copy"
 
@@ -341,3 +362,78 @@ msgstr ""
 
 msgid "source_refused_secret"
 msgstr "A source needs a secret."
+
+msgid "source_refused_not_checked"
+msgstr "Check connection again — the URL or secret changed since the last check."
+
+msgid "source_check_reachable"
+msgstr "Repository read, head {commit}."
+
+msgid "source_refused_secret_not_allowed"
+msgstr "A source on this box needs no secret — leave it blank."
+
+msgid "source_refused_outside_mount"
+msgstr ""
+"The address has to name a path under /data/local-sources, where the host "
+"directory is mounted."
+
+msgid "source_access_heading"
+msgstr "Access to the Git"
+
+msgid "source_webhook_heading"
+msgstr "Webhook"
+
+msgid "source_recent_runs"
+msgstr "Recent runs"
+
+msgid "source_decks"
+msgstr "Decks from this source"
+
+msgid "source_reverse"
+msgstr "Reverse direction"
+
+msgid "source_push_inbox"
+msgstr ""
+"Push inbox — the home server offers its own Git when it can't reach your "
+"company Git"
+
+msgid "source_later"
+msgstr "later"
+
+msgid "source_renew"
+msgstr "Renew secret"
+
+msgid "source_secret_dots"
+msgstr "••••••••••••••••••"
+
+msgid "source_secret_missing"
+msgstr "This source has no stored secret. Fetch fails until you renew it."
+
+msgid "source_access_renew_info"
+msgstr ""
+"Stored encrypted and never shown again since entry. Renewing replaces it "
+"with a new one."
+
+msgid "source_run_fetched"
+msgstr "fetched"
+
+msgid "source_run_unreachable"
+msgstr "Host unreachable"
+
+msgid "source_run_secret"
+msgstr "Secret not stored"
+
+msgid "source_run_refused"
+msgstr "Login refused"
+
+msgid "source_run_failed"
+msgstr "Host answered, fetch failed"
+
+msgid "source_run_column_state"
+msgstr "State"
+
+msgid "source_run_column_fetched"
+msgstr "Fetched"
+
+msgid "source_run_column_detail"
+msgstr "Detail"

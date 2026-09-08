@@ -40,6 +40,8 @@ class ConnectionState(StrEnum):
 
     READY = "ready"
     CREDENTIAL_UNRESOLVABLE = "credential-unresolvable"
+    REFUSED = "refused"
+    FAILED = "failed"
     UNREACHABLE = "unreachable"
 
 
@@ -49,6 +51,20 @@ class Connection:
 
     state: ConnectionState
     revision: Revision | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConnectionCheck:
+    """What a bounded `ls-remote` probe found, without ever writing a mirror to disk.
+
+    Ready's own answer is the ref's full head commit; every other state
+    carries git's own sanitised first line instead, or nothing when the
+    probe never reached git at all.
+    """
+
+    state: ConnectionState
+    commit: str | None
+    detail: str | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -85,3 +101,13 @@ class GitUnavailableError(RuntimeError):
 
 class MirrorError(RuntimeError):
     """A git command that had to succeed did not."""
+
+
+class InvalidCredentialError(ValueError):
+    """A resolved secret carries a control character git's line protocol cannot.
+
+    The credential helper answers git one line per field; a raw CR or LF
+    inside the secret would forge a second line before it ever reaches a
+    shell escaping concern, so this is checked at the boundary where a
+    resolved secret enters the mirror, whatever resolver it came from.
+    """

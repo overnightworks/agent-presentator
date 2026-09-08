@@ -13,6 +13,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.datastructures import Headers
+from starlette.responses import PlainTextResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 from websockets.exceptions import WebSocketException
 
 from copresenter.answer import Answerer, stream_spoken
@@ -21,6 +24,33 @@ from copresenter.deck import Deck, load_deck
 from copresenter.speech import LocalSpeech, Speech, SpeechHealth
 
 _log = logging.getLogger("copresenter")
+_POLICY_VIOLATION = 1008
+_FORBIDDEN = 403
+
+
+class OriginGate:
+    """Cross-origin headers only shape what a browser reads; this refuses the call."""
+
+    def __init__(self, app: ASGIApp, allowed_origin: str) -> None:
+        """Wrap the surface with the one origin it serves."""
+        self.app = app
+        self.allowed_origin = allowed_origin
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Let through only a caller that names the one origin this service serves."""
+        gated = scope["type"] in {"http", "websocket"}
+        if gated and Headers(scope=scope).get("origin") != self.allowed_origin:
+            await _refuse(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+async def _refuse(scope: Scope, receive: Receive, send: Send) -> None:
+    if scope["type"] == "websocket":
+        await send({"type": "websocket.close", "code": _POLICY_VIOLATION})
+        return
+    response = PlainTextResponse("this origin may not call the co-presenter", _FORBIDDEN)
+    await response(scope, receive, send)
 
 
 class AskRequest(BaseModel):
@@ -42,10 +72,11 @@ def create_app(
     app = FastAPI(title="copresenter")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[settings.allowed_origin],
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(OriginGate, allowed_origin=settings.allowed_origin)
 
     @app.get("/who")
     async def who() -> dict[str, object]:

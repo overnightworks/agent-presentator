@@ -1,15 +1,15 @@
 /* This lobby's Pico bridge and leftover chrome. Design tokens and the
- * settings grammar live in the vendored ui-tokens.css (v0.1.0). Pico is
+ * settings grammar live in the vendored ui-console.css (v0.2.0). Pico is
  * this product's base (ADR 0008), not a shared concern.
  *
  * Type stacks keep the picture's IBM Plex names so a machine that has
  * those files installed still matches the first theme; the package
  * itself ships system stacks.
  *
- * ui-tokens.css is vendored byte-for-byte from package overnightworks/ui-tokens,
- * tag v0.1.0, asset
- * https://github.com/overnightworks/ui-tokens/releases/download/v0.1.0/ui-tokens.css,
- * sha256 c4992e386cb53e997eb110fae8513bc4b452774eca99e5198030c77cf2bd7c7a.
+ * ui-console.css is vendored byte-for-byte from package overnightworks/ui-console,
+ * tag v0.2.0, asset
+ * https://github.com/overnightworks/ui-console/releases/download/v0.2.0/ui-console.css,
+ * sha256 abcc85ad2171201d71002fc497a16b2da38caac1b9fa48a059a26637e6b4da01.
  */
 :root {
   --sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
@@ -248,6 +248,13 @@ main code {
   text-transform: uppercase;
 }
 
+/* The toolchain's theme set (ADR 0014) reads as one sentence, not a row of
+ * chips: it stays a plain paragraph so any set size wraps like prose (R6).
+ */
+[data-builds-with] {
+  color: var(--ink-soft);
+}
+
 /* The picture marks the state with a shape of its own before its word: a
  * filled dot for a talk that stands, a ring turning while one builds, a
  * triangle where one broke, and a dashed square where none has ever run. The
@@ -300,12 +307,14 @@ main code {
 }
 
 [data-state="failed"],
-[data-state="error"] {
+[data-state="error"],
+[data-state="refused"] {
   color: var(--fail);
 }
 
 [data-state="failed"]::before,
-[data-state="error"]::before {
+[data-state="error"]::before,
+[data-state="refused"]::before {
   border-radius: 0;
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
@@ -345,13 +354,29 @@ main code {
   border-color: var(--busy);
 }
 
-[data-banner="failed"] {
+[data-banner="failed"],
+[data-banner="refused"],
+[data-banner="unreachable"] {
   background-color: var(--fail-soft);
   border-color: var(--fail);
 }
 
-[data-banner="failed"] [data-lead] {
+[data-banner="failed"] [data-lead],
+[data-banner="refused"] [data-lead],
+[data-banner="unreachable"] [data-lead] {
   color: var(--fail);
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+[data-banner="reachable"] {
+  background-color: var(--ok-soft);
+  border-color: var(--ok);
+}
+
+[data-banner="reachable"] [data-lead] {
+  color: var(--ok);
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -542,4 +567,123 @@ td form {
     grid-column: 1 / -1;
     grid-row: 3;
   }
+}
+
+/* The source page: one question — is this source working — with Fetch now
+ * as the one primary action, secrets as a fixed run of dots, recent runs
+ * as a log, and the reverse-direction hint greyed as a plan.
+ */
+[data-source] > section {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--pico-spacing);
+}
+
+[data-source] h2 {
+  color: var(--ink-soft);
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[data-secret-row] {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+[data-secret-dots] {
+  background: none;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  letter-spacing: 0.18em;
+  padding: 0;
+}
+
+[data-tag] {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  padding: 0.1em 0.5em;
+}
+
+[data-renew-access] button,
+[data-renew-webhook] button,
+[data-renew-access] button:is(:hover, :active, :focus),
+[data-renew-webhook] button:is(:hover, :active, :focus) {
+  background-color: transparent;
+  border: var(--pico-border-width) solid var(--line);
+  color: var(--ink);
+  width: auto;
+}
+
+[data-renew-access] input {
+  max-width: 20rem;
+}
+
+[data-runs] {
+  width: 100%;
+}
+
+[data-runs] td {
+  padding: 0.4rem 0.5rem 0.4rem 0;
+}
+
+[data-why] {
+  color: var(--fail);
+}
+
+[data-chips] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+[data-chip],
+[data-chip]:is(:hover, :active, :focus) {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  padding: 0.35em 0.7em;
+  text-decoration: none;
+}
+
+[data-chip] code {
+  background: none;
+  color: var(--ink-faint);
+  padding: 0;
+}
+
+[data-later] {
+  align-items: center;
+  border: 1px dashed var(--line);
+  color: var(--ink-faint);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  opacity: 0.72;
+  padding: 0.75rem 1rem;
+}
+
+[data-later-mark] {
+  border: 1px solid var(--ink-faint);
+  border-radius: 2px;
+  font-size: 0.7em;
+  letter-spacing: 0.08em;
+  margin-left: auto;
+  padding: 0 0.4em;
+  text-transform: uppercase;
+}
+
+[data-source] [data-actions] form {
+  margin-bottom: 0;
+}
+
+[data-source] [data-actions] button[type="submit"],
+[data-source] [data-actions] button[type="submit"]:is(:hover, :active, :focus) {
+  width: auto;
 }

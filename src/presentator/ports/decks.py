@@ -6,6 +6,7 @@ Named for decks rather than for a catalogue, because the message catalog
 
 from abc import abstractmethod
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from presentator.contracts.decks import (
@@ -13,6 +14,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildFailure,
+    ConnectionCheckResult,
     Deck,
     Source,
     SourcePoll,
@@ -25,19 +27,11 @@ class SourceStore(Protocol):
     """The sources decks are mirrored from, one row each."""
 
     @abstractmethod
-    def seed(self) -> None:
-        """Make the source the configuration names a row of its own, once.
-
-        The row an installation already runs on is written from what it is
-        configured with; writing it again writes nothing.
-        """
-
-    @abstractmethod
     def add(self, write: SourceWrite) -> Source | None:
         """Write a new source with its secrets, or nothing when name or URL is taken.
 
         The access secret is stored encrypted; the webhook secret is stored
-        only as the hash. A seeded row is not rewritten.
+        only as the hash. An existing row is not rewritten.
         """
 
     @abstractmethod
@@ -48,8 +42,40 @@ class SourceStore(Protocol):
         """
 
     @abstractmethod
+    def put_credential(self, source_id: str, secret: str) -> None:
+        """Replace that source's read-only secret with this value, encrypted.
+
+        Nothing of the value is returned. A row that still named an
+        environment variable keeps its identity and gains a stored secret.
+        """
+
+    @abstractmethod
+    def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
+        """Replace that source's webhook-secret hash, or nothing when it is missing."""
+
+    @abstractmethod
     def all(self) -> tuple[Source, ...]:
         """Every source this instance mirrors, in no promised order."""
+
+
+class LocalMount(Protocol):
+    """Resolves a file-kind source's address against the real mounted directory.
+
+    The lexical parse a file-kind address gets when a form is judged already
+    rejects what cannot even name a path; this is the one capability that
+    asks the real filesystem, because a symlink or a mount that has since
+    changed is invisible to a lexical check and only shows up once both the
+    address and the mount are resolved.
+    """
+
+    @abstractmethod
+    def canonical_repository(self, address: str) -> Path | None:
+        """The address's real path, resolved and confirmed under the mount.
+
+        Nothing when the address does not name a file-kind source, when
+        nothing on this filesystem answers to it, or when what it resolves
+        to does not stand under the mount once both are resolved.
+        """
 
 
 class DeckFolders(Protocol):
@@ -65,21 +91,28 @@ class DeckFolders(Protocol):
         """
 
 
-class SourceRuns(Protocol):
-    """Every source's history of polls, one row per attempt, kept forever.
+class ConnectionChecker(Protocol):
+    """Probes an unsaved source's URL and secret, writing nothing to disk."""
 
-    Named here only what a caller needs today: recording every run, and
-    reading the newest one for a board to show whether a source is working.
-    Reading the fuller history is added once something asks for it.
-    """
+    @abstractmethod
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        """What answered: no failure and the head commit, or which failure and why."""
+
+
+class SourceRuns(Protocol):
+    """Every source's recent polls, bounded to the newest the page reads."""
 
     @abstractmethod
     def record(self, run: SourceRun) -> None:
-        """Add this run to that source's history, without replacing an older one."""
+        """Add this run and drop older ones of the same source past the bound."""
 
     @abstractmethod
     def newest(self, source_id: str) -> SourceRun | None:
         """That source's newest run, or nothing while it has never been polled."""
+
+    @abstractmethod
+    def recent(self, source_id: str) -> tuple[SourceRun, ...]:
+        """That source's newest runs, newest first, no more than the page shows."""
 
 
 class DeckStore(Protocol):
@@ -163,7 +196,18 @@ class BuildRunner(Protocol):
     def holds(self, artefacts: Artefacts) -> bool:
         """Whether both artefacts really stand under the root builds are kept in.
 
-        A deck is code that runs on this host until it is sandboxed
-        (ADR 0005), so where a build says it wrote is checked rather than
-        trusted before that place becomes an address.
+        A deck is code (ADR 0005), so where a build says it wrote is checked
+        rather than trusted before that place becomes an address.
+        """
+
+
+class ToolchainThemes(Protocol):
+    """The theme names this instance's toolchain project carries (ADR 0014)."""
+
+    @abstractmethod
+    def names(self) -> tuple[str, ...] | None:
+        """Every theme name the toolchain builds with, or nothing while unreadable.
+
+        A deck page reads nothing as no row to show, never as an empty set
+        (R3).
         """

@@ -5,6 +5,7 @@ become the talk that is delivered, and what a deck page says is decided here;
 git, TOML, SQL, and the build toolchain stay outside (ADR 0001, ADR 0005).
 """
 
+import hmac
 import logging
 import re
 import secrets
@@ -27,25 +28,34 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildOutcome,
+    ConnectionCheckResult,
     Deck,
     DeckPage,
     DeckState,
     ListedDeck,
     ListedSource,
     ShownAttempt,
+    ShownSourceRun,
     Source,
+    SourceDeck,
+    SourcePage,
     SourceRun,
+    SourceRunFailure,
     SourceRunOutcome,
     SourceState,
     SourceWrite,
+    access_kind_of,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
     BuildRunner,
+    ConnectionChecker,
     DeckFolders,
     DeckStore,
+    LocalMount,
     SourceRuns,
     SourceStore,
+    ToolchainThemes,
 )
 
 _log = logging.getLogger(__name__)
@@ -67,8 +77,15 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The form lives at this path segment, so a source must not take it.
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
-_SSH_SCHEMES: Final = frozenset({"ssh"})
-# Added sources follow main; the configured source still carries its own ref.
+_FILE_ACCESS: Final = "file"
+# The access value the form's own kind maps to, so a mismatch between what a
+# person picked and what the URL actually names is one lookup, not a growing
+# chain of conditions per kind.
+_EXPECTED_ACCESS_KIND: Final = {
+    _HTTPS_ACCESS: AccessKind.HTTPS,
+    _FILE_ACCESS: AccessKind.FILE,
+}
+# Added sources follow main; a later slice is what offers another ref.
 _ADDED_REF: Final = "main"
 _WEBHOOK_SECRET_BYTES: Final = 32
 _HASH_LENGTH: Final = 32
@@ -84,6 +101,9 @@ class SourceRefusal(StrEnum):
     USERINFO = "password-in-url"
     ACCESS_MISMATCH = "access-mismatch"
     BLANK_ACCESS = "missing-secret"
+    NOT_CHECKED = "not-checked"
+    CREDENTIAL_NOT_ALLOWED = "credential-not-allowed"
+    OUTSIDE_MOUNT = "outside-local-mount"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -94,20 +114,15 @@ class AddedSource:
     webhook_secret: str
 
 
-def access_kind_of(url: str) -> AccessKind | None:
-    """The access the URL's scheme names, or nothing when it names none.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NewSourceDraft:
+    """What a person typed toward one new source, before it is checked or stored."""
 
-    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy key.
-    Anything else is not an access this product has.
-    """
-    if any(character < " " for character in url):
-        return None
-    parsed = urlparse(url)
-    if parsed.scheme == _HTTPS_ACCESS:
-        return AccessKind.HTTPS
-    if parsed.scheme in _SSH_SCHEMES or (not parsed.scheme and "@" in url):
-        return AccessKind.SSH
-    return None
+    name: str
+    url: str
+    access: str
+    secret: str
+    fingerprint: str
 
 
 def hash_webhook_secret(secret: str) -> bytes:
@@ -116,29 +131,61 @@ def hash_webhook_secret(secret: str) -> bytes:
 
 
 def _refusal_for(
+    draft: NewSourceDraft,
     *,
-    name: str,
-    url: str,
-    access: str,
-    secret: str,
+    proven: bool,
     existing: tuple[Source, ...],
 ) -> SourceRefusal | None:
     """The reason this draft cannot be stored, or nothing when it can."""
+    name, url, access, secret = draft.name, draft.url, draft.access, draft.secret
     checks = (
         (
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
             SourceRefusal.MALFORMED_NAME,
         ),
-        (not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (
+            access == _FILE_ACCESS and bool(secret.strip()),
+            SourceRefusal.CREDENTIAL_NOT_ALLOWED,
+        ),
         (urlparse(url).password is not None, SourceRefusal.USERINFO),
         (
-            access != _HTTPS_ACCESS or access_kind_of(url) is not AccessKind.HTTPS,
+            _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
             SourceRefusal.ACCESS_MISMATCH,
         ),
+        (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
     return next((reason for matched, reason in checks if matched), None)
+
+
+def _connection_fingerprint(key: bytes, *, url: str, ref: str, secret: str) -> str:
+    """The proof Create later checks the posted values against.
+
+    Signed rather than merely hashed: an unsigned digest of these same three
+    values is trivial for a client to forge without ever calling Check.
+    """
+    secret_hash = sha256(secret.encode()).digest()
+    message = b"\0".join((url.encode(), ref.encode(), secret_hash))
+    return hmac.new(key, message, sha256).hexdigest()
+
+
+def _source_state_of(run: SourceRun) -> SourceState:
+    """The one word the sources list says, read off a run and its reason.
+
+    A refused login and a host that answered with something else each keep
+    their own word, so a valid token, a dead host, and a host that answered
+    but not with the repository no longer all read the same; a credential the
+    instance could not resolve still folds into error.
+    """
+    if run.outcome is SourceRunOutcome.SUCCESS:
+        return SourceState.REACHABLE
+    if run.reason is SourceRunFailure.REFUSED:
+        return SourceState.REFUSED
+    if run.reason is SourceRunFailure.FAILED:
+        return SourceState.FAILED
+    return SourceState.ERROR
 
 
 def _is_a_plain_folder_name(candidate: str) -> bool:
@@ -174,11 +221,17 @@ class Decks:
     store: DeckStore
     builder: BuildRunner
     source_runs: SourceRuns
+    checker: ConnectionChecker
+    toolchain_themes: ToolchainThemes
     clock: Clock
+    local_mount: LocalMount
     # How long a build may take before the refresh stops believing it is still
     # running: a process that died with the server leaves its attempt behind,
     # and nobody may read that as building for ever.
     build_bound: timedelta
+    # Signs a Check-connection fingerprint, so a form cannot forge one for a
+    # URL and secret it never actually proved reachable.
+    fingerprint_key: bytes
     _one_at_a_time: Lock = field(default_factory=Lock)
 
     def refresh(self) -> None:
@@ -198,41 +251,141 @@ class Decks:
         than walking every source and doing nothing. A refresh already running
         is already serving the same lock, so this call returns as if it ran.
         """
-        source = next(
-            (item for item in self.sources.all() if item.name == name),
-            None,
-        )
+        source = self._named(name)
         if source is None:
             return False
         self._run_one_at_a_time(partial(self._take_in_and_build_one, source))
         return True
 
+    def shown_source(self, name: str) -> SourcePage | None:
+        """What that source's page says, or nothing while no source has this name."""
+        source = self._named(name)
+        if source is None:
+            return None
+        now = self.clock.now()
+        listed = self._listed_source(source, now)
+        return SourcePage(
+            name=listed.name,
+            url=listed.url,
+            access=listed.access,
+            state=listed.state,
+            age=listed.age,
+            secret_missing=source.secret_location is None,
+            runs=tuple(
+                ShownSourceRun(
+                    outcome=run.outcome,
+                    age=now - run.at,
+                    commit=None if run.commit is None else run.commit[:_SHORT_COMMIT],
+                    reason=run.reason,
+                )
+                for run in self.source_runs.recent(source.id)
+            ),
+            decks=tuple(
+                SourceDeck(slug=deck.slug, title=deck.title)
+                for deck in sorted(
+                    (deck for deck in self.store.all() if deck.source_id == source.id),
+                    key=lambda deck: deck.title,
+                )
+            ),
+        )
+
+    def renew_access(self, name: str, secret: str) -> bool:
+        """Replace that source's access secret. Nothing of the value is returned.
+
+        A blank value is not stored: the caller shows the form again. A name
+        nobody stored is not a source to renew. A source on this box carries
+        no secret at all, the same rule creation enforces, so renewing one is
+        refused rather than quietly given a credential its own kind refuses.
+        """
+        if not secret.strip():
+            return False
+        source = self._named(name)
+        if source is None or access_kind_of(source.url) is AccessKind.FILE:
+            return False
+        self.sources.put_credential(source.id, secret)
+        return True
+
+    def renew_webhook(self, name: str) -> str | None:
+        """Mint a new webhook secret, store only its hash, and return the value once.
+
+        A name nobody stored is not a source to renew.
+        """
+        source = self._named(name)
+        if source is None:
+            return None
+        webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
+        self.sources.put_hook_secret_hash(name, hash_webhook_secret(webhook_secret))
+        return webhook_secret
+
+    def check_connection(self, *, url: str, secret: str) -> ConnectionCheckResult:
+        """Probe the Add form's own URL and secret, writing nothing down.
+
+        Every added source takes the one ref this instance follows; a check
+        that answered a different ref would prove nothing Create relies on. A
+        commit the probe found is shortened the way every other page shows
+        one, so a reachable check and a stored source read alike.
+        """
+        address = url.strip()
+        probed = self.checker.check(url=address, ref=_ADDED_REF, secret=secret)
+        if probed.failure is not None:
+            return probed
+        return ConnectionCheckResult(
+            failure=None,
+            commit=None if probed.commit is None else probed.commit[:_SHORT_COMMIT],
+            detail=None,
+            fingerprint=_connection_fingerprint(
+                self.fingerprint_key,
+                url=address,
+                ref=_ADDED_REF,
+                secret=secret,
+            ),
+        )
+
     def add_source(
         self,
+        draft: NewSourceDraft,
         *,
-        name: str,
-        url: str,
-        access: str,
-        secret: str,
         owner_id: str,
     ) -> AddedSource | SourceRefusal:
         """Store a source with its secrets, fetch it once, return the webhook secret.
 
         The webhook secret is generated here and returned in the clear so the
         created screen can show it once; only its hash is stored. The access
-        secret is handed to the store and never returned.
+        secret is handed to the store and never returned. A source is stored
+        only for the exact URL and secret a Check connection already proved
+        reachable, never on the fingerprint of a different pair. A file-kind
+        address is resolved against the real mount before it is stored, so
+        the row always carries the address git will actually open — a
+        symlink or a `..` an operator's own spelling carried never reaches
+        the row, and two spellings of the one real repository collide as
+        the duplicate they are.
         """
-        named = name.strip()
-        address = url.strip()
+        named = draft.name.strip()
+        address = draft.url.strip()
+        existing = self.sources.all()
+        proven = compare_digest(
+            draft.fingerprint,
+            _connection_fingerprint(
+                self.fingerprint_key,
+                url=address,
+                ref=_ADDED_REF,
+                secret=draft.secret,
+            ),
+        )
         refused = _refusal_for(
-            name=named,
-            url=address,
-            access=access,
-            secret=secret,
-            existing=self.sources.all(),
+            replace(draft, name=named, url=address),
+            proven=proven,
+            existing=existing,
         )
         if refused is not None:
             return refused
+        if access_kind_of(address) is AccessKind.FILE:
+            canonical = self.local_mount.canonical_repository(address)
+            if canonical is None:
+                return SourceRefusal.OUTSIDE_MOUNT
+            address = str(canonical)
+            if any(source.url == address for source in existing):
+                return SourceRefusal.DUPLICATE_URL
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
         stored = self.sources.add(
             SourceWrite(
@@ -240,7 +393,7 @@ class Decks:
                 url=address,
                 ref=_ADDED_REF,
                 owner_id=owner_id,
-                access_secret=secret,
+                access_secret=draft.secret,
                 hook_secret_hash=hash_webhook_secret(webhook_secret),
             ),
         )
@@ -316,6 +469,7 @@ class Decks:
             built_ago=None if built is None else self.clock.now() - built.built_at,
             state=_state_of(deck),
             attempt=self._shown(deck.attempt),
+            themes=self.toolchain_themes.names(),
         )
 
     def _shown(self, attempt: BuildAttempt | None) -> ShownAttempt | None:
@@ -393,11 +547,7 @@ class Decks:
             name=source.name,
             url=source.url,
             access=access_kind_of(source.url),
-            state=(
-                SourceState.REACHABLE
-                if run.outcome is SourceRunOutcome.SUCCESS
-                else SourceState.ERROR
-            ),
+            state=_source_state_of(run),
             age=now - run.at,
         )
 
@@ -410,14 +560,20 @@ class Decks:
         finally:
             self._one_at_a_time.release()
 
+    def _named(self, name: str) -> Source | None:
+        """The stored source that answers to this name, if this instance has one."""
+        return next(
+            (item for item in self.sources.all() if item.name == name),
+            None,
+        )
+
     def _take_in_and_build(self) -> None:
-        """Make the configured source a row, then walk the sources one by one.
+        """Walk the sources one by one.
 
         A source is taken in and built before the next one is read, so a
         refresh costs its sources' pull bounds one after another instead of
         opening as many pulls at once as the instance has sources.
         """
-        self.sources.seed()
         for source in self.sources.all():
             self._take_in_and_build_one(source)
 

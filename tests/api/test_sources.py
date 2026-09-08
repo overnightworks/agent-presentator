@@ -1,7 +1,7 @@
 """Settings · Sources, driven the way a browser drives them."""
 
+import logging
 import re
-from dataclasses import replace
 from datetime import timedelta
 from http import HTTPStatus
 
@@ -11,12 +11,13 @@ from httpx2 import Response
 
 from presentator.api.hooks import hook_address
 from presentator.api.preferences import SETTINGS
-from presentator.api.sources import NEW, SOURCES
+from presentator.api.sources import ACCESS, CHECK, NEW, SOURCES, WEBHOOK
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     SLIDES_FILE,
+    ConnectionCheckResult,
+    Deck,
     DeckFolder,
-    SecretLocation,
     Source,
     SourceRun,
     SourceRunFailure,
@@ -29,15 +30,18 @@ from tests.api.lobby import (
     NEIGHBOUR,
     NO_DECKS,
     NOW,
+    TYPED_WORDS,
     USERNAME,
     GivenDecks,
     Lobby,
     a_configured_source,
     a_lobby,
+    a_lobby_app,
     a_signed_in_lobby,
     a_user_store,
     an_account,
 )
+from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
 _ADDRESS = "git@heimserver:decks.git"
 _OTHER_ADDRESS = "https://gitlab.example.invalid/decks.git"
@@ -48,7 +52,11 @@ _FETCH = f"{SOURCES}/{{name}}/fetch"
 _NEVER_AN_AGE = "—"
 _HTTPS_URL = "https://git.example.invalid/talks.git"
 _READ_ONLY = "a-read-only-token"
+_SHORT_ACCESS = "zz-short-token"
+_LONG_ACCESS = f"long-{_READ_ONLY}-and-then-some"
+_SECRET_DOT_ROWS = 2
 _HOOK_SECRET = re.compile(r"data-hook-secret>([^<]+)<")
+_FINGERPRINT = re.compile(r'name="fingerprint"\s+value="([^"]*)"')
 
 
 def another_source() -> Source:
@@ -231,6 +239,58 @@ def test_a_failed_newest_run_reads_error_and_never_the_credential_word() -> None
     assert SourceRunFailure.CREDENTIAL_UNRESOLVABLE.value not in page
 
 
+def test_a_refused_login_reads_refused_rather_than_error() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=5),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.REFUSED,
+                    ),
+                ),
+            ),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.source_state_refused in page
+    assert 'data-state="refused"' in page
+    assert ENGLISH.source_state_error not in page
+
+
+def test_a_host_that_answered_with_something_else_reads_failed_rather_than_error() -> (
+    None
+):
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=9),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.FAILED,
+                    ),
+                ),
+            ),
+        )
+        .get(SOURCES)
+        .text
+    )
+
+    assert ENGLISH.source_state_failed in page
+    assert 'data-state="failed"' in page
+    assert ENGLISH.source_state_error not in page
+
+
 def test_fetch_now_refreshes_that_one_source_and_returns_to_the_list() -> None:
     configured = a_configured_source(_ADDRESS)
     other = another_source()
@@ -302,6 +362,27 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     assert posting.headers["location"] == "/login"
 
 
+def check_source(
+    client: TestClient,
+    *,
+    url: str = _HTTPS_URL,
+    access: str = "https",
+    secret: str = _READ_ONLY,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    return client.post(
+        CHECK,
+        data={"name": "talks", "url": url, "access": access, "secret": secret},
+        headers=headers,
+    )
+
+
+def fingerprint_of(checked: Response) -> str:
+    """The proof a reachable Check response carries in its hidden field."""
+    found = _FINGERPRINT.search(checked.text)
+    return found.group(1) if found else ""
+
+
 def create_source(
     client: TestClient,
     *,
@@ -310,15 +391,47 @@ def create_source(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> Response:
+    """Check the same values first, the way the form itself now requires."""
+    proven = fingerprint_of(check_source(client, url=url, access=access, secret=secret))
     return client.post(
         NEW,
-        data={"name": name, "url": url, "access": access, "secret": secret},
+        data={
+            "name": name,
+            "url": url,
+            "access": access,
+            "secret": secret,
+            "fingerprint": proven,
+        },
     )
 
 
 def the_created_page(client: TestClient, created: Response) -> Response:
     assert created.status_code == HTTPStatus.SEE_OTHER
     return client.get(created.headers["location"])
+
+
+def two_admin_sessions() -> tuple[TestClient, TestClient]:
+    """Two admin sessions over one app, each with its own cookie jar."""
+    app, _ = a_lobby_app(
+        users=a_user_store(
+            an_account(USERNAME, role=Role.ADMIN),
+            an_account(NEIGHBOUR, role=Role.ADMIN),
+        ),
+    )
+    creator = TestClient(app, follow_redirects=False)
+    other = TestClient(app, follow_redirects=False)
+    creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
+    other.post("/login", data={"username": NEIGHBOUR, "password": TYPED_WORDS})
+    return creator, other
+
+
+def a_one_time_secret(operation: str, creator: TestClient) -> Response:
+    """Mint a one-time secret, then the redirect that carries it to the page."""
+    if operation == "create":
+        return create_source(creator, name="talks")
+    created = create_source(creator, name="talks")
+    the_created_page(creator, created)
+    return creator.post(WEBHOOK.format(name="talks"))
 
 
 def test_the_list_and_the_empty_state_offer_add_source() -> None:
@@ -371,7 +484,9 @@ def test_a_created_page_for_a_name_this_instance_does_not_have_is_not_found() ->
 def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
     page = (
         a_signed_in_lobby(
-            GivenDecks(source=a_configured_source("file:///tmp/decks.git")),
+            GivenDecks(
+                source=a_configured_source("http://git.example.invalid/decks.git")
+            ),
         )
         .get(SOURCES)
         .text
@@ -379,9 +494,26 @@ def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
 
     assert ENGLISH.source_access_token not in page
     assert ENGLISH.source_access_deploy_key not in page
+    assert ENGLISH.source_access_local not in page
 
 
-def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
+def _button_tag_of(page: str, label: str) -> str:
+    """One button's own opening tag, so its `disabled` state can be read."""
+    before_label = page.split(f">{label}<", maxsplit=1)[0]
+    return before_label.rsplit("<button", 1)[1]
+
+
+def check_button_of(page: str) -> str:
+    return _button_tag_of(page, ENGLISH.source_check)
+
+
+def create_button_of(page: str) -> str:
+    return _button_tag_of(page, ENGLISH.source_create)
+
+
+def test_the_add_form_ships_https_live_ssh_disabled_check_live_create_disabled() -> (
+    None
+):
     page = a_signed_in_lobby().get(NEW).text
 
     assert ENGLISH.sources_add in page
@@ -393,11 +525,171 @@ def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
     assert 'name="access" value="https"' in page
     assert "checked" in page
     assert ENGLISH.source_check in page
-    assert f">{ENGLISH.source_check}<" in page
-    assert "disabled" in page
+    assert "disabled" not in check_button_of(page)
     assert ENGLISH.source_create in page
+    assert "disabled" in create_button_of(page)
     assert 'name="secret"' in page
     assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+_A_REFUSED_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.REFUSED,
+    commit=None,
+    detail=None,
+)
+_AN_UNREACHABLE_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.UNREACHABLE,
+    commit=None,
+    detail=None,
+)
+_A_FAILED_CHECK = ConnectionCheckResult(
+    failure=SourceRunFailure.FAILED,
+    commit=None,
+    detail="fatal: repository https://git.example.invalid/talks.git/ not found",
+)
+
+
+def test_a_reachable_check_shows_the_commit_and_enables_create() -> None:
+    lobby = a_signed_in_lobby()
+
+    checked = check_source(lobby, secret=_READ_ONLY)
+
+    assert checked.status_code == HTTPStatus.OK
+    assert ENGLISH.source_check_reachable.format(commit=_COMMIT[:7]) in checked.text
+    assert _READ_ONLY not in checked.text
+    assert fingerprint_of(checked)
+    assert "disabled" not in create_button_of(checked.text)
+
+
+_A_TOKEN_THE_HOST_REFUSES = "a-token-" + "the-host-does-not-want"
+
+
+def test_a_refused_check_reads_the_same_word_the_source_list_uses() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_A_REFUSED_CHECK))
+
+    checked = check_source(lobby, secret=_A_TOKEN_THE_HOST_REFUSES)
+
+    assert ENGLISH.source_run_refused in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_an_unreachable_check_reads_the_same_word_the_source_list_uses() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_AN_UNREACHABLE_CHECK))
+
+    checked = check_source(lobby)
+
+    assert ENGLISH.source_run_unreachable in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_a_failed_check_reads_the_same_word_plus_gits_sanitised_first_line() -> None:
+    lobby = a_signed_in_lobby(GivenDecks(checked=_A_FAILED_CHECK))
+
+    checked = check_source(lobby)
+
+    assert ENGLISH.source_run_failed in checked.text
+    assert _A_FAILED_CHECK.detail is not None
+    assert _A_FAILED_CHECK.detail in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
+def test_the_secret_never_appears_in_a_check_response_or_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    lobby = a_signed_in_lobby()
+
+    checked = check_source(lobby, secret=_READ_ONLY)
+
+    assert _READ_ONLY not in checked.text
+    assert all(_READ_ONLY not in record.message for record in caplog.records)
+
+
+def test_a_fingerprint_from_different_values_is_refused_and_writes_no_row() -> None:
+    lobby = a_signed_in_lobby()
+    checked = check_source(lobby, url=_HTTPS_URL, secret=_READ_ONLY)
+    proven_for_a_different_url = fingerprint_of(checked)
+
+    tampered = lobby.post(
+        NEW,
+        data={
+            "name": "talks",
+            "url": "https://git.example.invalid/a-different-repository.git",
+            "access": "https",
+            "secret": _READ_ONLY,
+            "fingerprint": proven_for_a_different_url,
+        },
+    )
+
+    assert tampered.status_code == HTTPStatus.OK
+    assert ENGLISH.source_refused_not_checked in tampered.text
+    assert ENGLISH.sources_empty_title in lobby.get(SOURCES).text
+
+
+def test_only_an_admin_reaches_check_connection(instance: Lobby) -> None:
+    signed_in_as(instance, NEIGHBOUR)
+
+    assert check_source(instance.client).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_check_connection_from_another_site_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = check_source(
+        lobby,
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_the_add_form_offers_a_folder_on_this_box_option() -> None:
+    page = a_signed_in_lobby().get(NEW).text
+
+    assert ENGLISH.source_access_file in page
+    assert 'name="access" value="file"' in page
+    assert 'name="access" value="file" disabled' not in page
+
+
+def test_creating_a_source_on_this_box_accepts_a_file_address_under_the_mount() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+    listed = lobby.get(SOURCES).text
+
+    assert "talks" in listed
+    assert url in listed
+    assert ENGLISH.source_access_local in listed
+
+
+def test_a_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    refused = create_source(lobby, url=url, access="file", secret=_READ_ONLY)
+
+    assert ENGLISH.source_refused_secret_not_allowed in refused.text
+    assert _READ_ONLY not in refused.text
+
+
+def test_a_file_address_outside_the_mount_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = create_source(
+        lobby,
+        url="/etc/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert ENGLISH.source_refused_outside_mount in refused.text
 
 
 def test_creating_a_source_stores_it_fetches_it_and_shows_address_and_secret() -> None:
@@ -433,6 +725,44 @@ def test_a_second_load_of_the_created_page_shows_the_secret_no_more() -> None:
     assert hook_address("talks") in second
 
 
+@pytest.mark.parametrize("operation", ["create", "renew"])
+def test_the_once_shown_secret_is_bound_to_the_session_that_asked(
+    operation: str,
+) -> None:
+    creator, other = two_admin_sessions()
+    minted = a_one_time_secret(operation, creator)
+
+    assert minted.status_code == HTTPStatus.SEE_OTHER
+    first = creator.get(minted.headers["location"]).text
+    secret = _HOOK_SECRET.search(first)
+    assert secret is not None
+    assert secret.group(1) != _READ_ONLY
+    assert ENGLISH.source_webhook_once in first
+    assert _HOOK_SECRET.search(other.get(minted.headers["location"]).text) is None
+    reloaded = creator.get(minted.headers["location"]).text
+    assert secret.group(1) not in reloaded
+    assert _HOOK_SECRET.search(other.get(minted.headers["location"]).text) is None
+
+
+@pytest.mark.parametrize("operation", ["create", "renew"])
+def test_a_different_session_sees_the_held_sentence_and_no_secret(
+    operation: str,
+) -> None:
+    creator, other = two_admin_sessions()
+    minted = a_one_time_secret(operation, creator)
+
+    page = other.get(minted.headers["location"]).text
+    assert _HOOK_SECRET.search(page) is None
+    assert "data-hook-secret" not in page
+    assert ENGLISH.source_webhook_held_elsewhere in page
+    assert ENGLISH.source_secret_dots in page
+    assert ENGLISH.source_created_toast not in page
+    creator.get(minted.headers["location"])
+    after = other.get(minted.headers["location"]).text
+    assert ENGLISH.source_webhook_held_elsewhere not in after
+    assert "data-hook-secret" not in after
+
+
 def test_a_call_to_the_shown_address_with_the_shown_secret_answers_204() -> None:
     lobby = a_signed_in_lobby()
     page = the_created_page(lobby, create_source(lobby, name="alpha")).text
@@ -452,14 +782,11 @@ def test_a_call_to_the_shown_address_with_the_shown_secret_answers_204() -> None
     assert gitlab.status_code == HTTPStatus.NO_CONTENT
 
 
-def test_the_seeded_source_keeps_its_environment_credential_when_another_is_added() -> (
+def test_an_existing_source_without_a_stored_secret_stays_when_another_is_added() -> (
     None
 ):
-    seeded = replace(
-        a_configured_source(_ADDRESS),
-        secret_location=SecretLocation.ENVIRONMENT,
-    )
-    lobby = a_signed_in_lobby(GivenDecks(source=seeded))
+    existing = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(GivenDecks(source=existing))
 
     the_created_page(lobby, create_source(lobby))
     listed = lobby.get(SOURCES).text
@@ -592,3 +919,321 @@ def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
     assert reading.headers["location"] == "/login"
     assert posting.status_code == HTTPStatus.FOUND
     assert posting.headers["location"] == "/login"
+
+
+def a_deck_from(source: Source) -> Deck:
+    return Deck(
+        slug="kundenfeedback",
+        title="Kundenfeedback Q3",
+        changed_at=NOW - timedelta(minutes=2),
+        owner_id=ADMIN,
+        source_id=source.id,
+        commit=_COMMIT,
+        build=None,
+        attempt=None,
+    )
+
+
+def test_the_source_page_shows_state_newest_runs_and_the_decks_from_here() -> None:
+    source = a_configured_source(_ADDRESS)
+    store = FakeDeckStore()
+    store.put(a_deck_from(source))
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                store=store,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=13),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.UNREACHABLE,
+                    ),
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=8),
+                        outcome=SourceRunOutcome.SUCCESS,
+                    ),
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=3),
+                        outcome=SourceRunOutcome.SUCCESS,
+                    ),
+                ),
+            ),
+        )
+        .get(f"{SOURCES}/{source.name}")
+        .text
+    )
+
+    assert source.name in page
+    assert _ADDRESS in page
+    assert ENGLISH.source_state_reachable in page
+    assert "3 minutes ago" in page
+    assert _COMMIT[:7] in page
+    assert ENGLISH.source_run_unreachable in page
+    assert ENGLISH.source_run_column_state in page
+    assert ENGLISH.source_run_column_fetched in page
+    assert ENGLISH.source_run_column_detail in page
+    assert "Kundenfeedback Q3" in page
+    assert "kundenfeedback" in page
+    assert ENGLISH.sources_fetch_now in page
+    assert ENGLISH.source_renew in page
+    assert ENGLISH.source_later in page
+    assert "data-later" in page
+    assert ENGLISH.source_secret_dots in page
+    assert "Built isolated" not in page
+
+
+def test_a_refused_run_on_the_source_page_reads_refused_not_error() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=5),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.REFUSED,
+                    ),
+                ),
+            ),
+        )
+        .get(f"{SOURCES}/{source.name}")
+        .text
+    )
+
+    assert ENGLISH.source_state_refused in page
+    assert ENGLISH.source_run_refused in page
+    assert 'data-state="refused"' in page
+
+
+def test_a_failed_run_on_the_source_page_reads_failed_not_error() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(
+            GivenDecks(
+                source=source,
+                runs=(
+                    a_run(
+                        source.id,
+                        ago=timedelta(minutes=9),
+                        outcome=SourceRunOutcome.FAILURE,
+                        reason=SourceRunFailure.FAILED,
+                    ),
+                ),
+            ),
+        )
+        .get(f"{SOURCES}/{source.name}")
+        .text
+    )
+
+    assert ENGLISH.source_state_failed in page
+    assert ENGLISH.source_run_failed in page
+    assert 'data-state="failed"' in page
+
+
+def test_a_source_without_a_stored_secret_says_so_on_its_page() -> None:
+    source = a_configured_source(_ADDRESS)
+    page = (
+        a_signed_in_lobby(GivenDecks(source=source))
+        .get(f"{SOURCES}/{source.name}")
+        .text
+    )
+
+    assert ENGLISH.source_secret_missing in page
+    assert "data-secret-missing" in page
+    assert ENGLISH.source_secret_dots in page
+
+
+def test_a_source_on_this_box_offers_neither_dots_nor_renew_on_its_page() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    the_created_page(lobby, create_source(lobby, url=url, access="file", secret=""))
+    page = lobby.get(f"{SOURCES}/talks").text
+
+    assert "data-renew-access" not in page
+    assert ENGLISH.source_access_local in page
+
+
+def test_fetch_now_from_the_source_page_refreshes_it_and_stays() -> None:
+    configured = a_configured_source(_ADDRESS)
+    lobby = a_signed_in_lobby(
+        GivenDecks(
+            sources=(configured, another_source()),
+            carried={configured.id: (a_folder(),), _OTHER_ID: (a_folder(),)},
+        ),
+    )
+
+    fetched = lobby.post(
+        _FETCH.format(name=configured.name),
+        data={"stay": "page"},
+    )
+
+    assert fetched.status_code == HTTPStatus.SEE_OTHER
+    assert fetched.headers["location"] == f"{SOURCES}/{configured.name}"
+    page = lobby.get(f"{SOURCES}/{configured.name}").text
+    assert ENGLISH.source_state_reachable in page
+    assert _COMMIT[:7] in page
+
+
+def test_renewing_the_webhook_secret_shows_it_once_and_retires_the_old_one() -> None:
+    lobby = a_signed_in_lobby()
+    created = create_source(lobby, name="alpha")
+    first = the_created_page(lobby, created)
+    old_secret = _HOOK_SECRET.search(first.text)
+    assert old_secret is not None
+    lobby.get(created.headers["location"])
+
+    renewed = lobby.post(WEBHOOK.format(name="alpha"))
+    assert renewed.status_code == HTTPStatus.SEE_OTHER
+    shown = lobby.get(renewed.headers["location"])
+    new_secret = _HOOK_SECRET.search(shown.text)
+    assert new_secret is not None
+    assert new_secret.group(1) != old_secret.group(1)
+    assert ENGLISH.source_webhook_once in shown.text
+    reloaded = lobby.get(renewed.headers["location"]).text
+    assert new_secret.group(1) not in reloaded
+    assert ENGLISH.source_webhook_once not in reloaded
+
+    old_call = lobby.post(
+        hook_address("alpha"),
+        headers={"authorization": f"Bearer {old_secret.group(1)}"},
+    )
+    new_call = lobby.post(
+        hook_address("alpha"),
+        headers={"authorization": f"Bearer {new_secret.group(1)}"},
+    )
+    assert old_call.status_code == HTTPStatus.NOT_FOUND
+    assert new_call.status_code == HTTPStatus.NO_CONTENT
+
+
+def test_renewing_the_access_secret_takes_a_value_and_shows_nothing_back() -> None:
+    lobby = a_signed_in_lobby()
+    the_created_page(lobby, create_source(lobby))
+    rotated = f"rotated-{_READ_ONLY}"
+
+    renewed = lobby.post(
+        ACCESS.format(name="talks"),
+        data={"secret": rotated},
+    )
+
+    assert renewed.status_code == HTTPStatus.SEE_OTHER
+    page = lobby.get(renewed.headers["location"]).text
+    assert rotated not in page
+    assert _READ_ONLY not in page
+    assert ENGLISH.source_secret_dots in page
+    assert page.count(ENGLISH.source_secret_dots) == _SECRET_DOT_ROWS
+
+
+def test_a_blank_access_renewal_comes_back_without_storing_and_without_the_value() -> (
+    None
+):
+    lobby = a_signed_in_lobby()
+    the_created_page(lobby, create_source(lobby))
+
+    refused = lobby.post(ACCESS.format(name="talks"), data={"secret": "  "})
+
+    assert refused.status_code == HTTPStatus.OK
+    assert ENGLISH.source_refused_secret in refused.text
+    assert _READ_ONLY not in refused.text
+
+
+def test_renewing_the_access_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+
+    refused = lobby.post(ACCESS.format(name="talks"), data={"secret": _READ_ONLY})
+
+    assert refused.status_code == HTTPStatus.OK
+    assert _READ_ONLY not in refused.text
+    page = lobby.get(f"{SOURCES}/talks").text
+    assert "data-renew-access" not in page
+
+
+def test_the_source_page_never_derives_dot_count_from_a_secret() -> None:
+    lobby = a_signed_in_lobby()
+    the_created_page(lobby, create_source(lobby, name="short", secret=_SHORT_ACCESS))
+    the_created_page(
+        lobby,
+        create_source(
+            lobby,
+            name="long",
+            url="https://git.example.invalid/long.git",
+            secret=_LONG_ACCESS,
+        ),
+    )
+    short = lobby.get(f"{SOURCES}/short").text
+    long = lobby.get(f"{SOURCES}/long").text
+
+    assert short.count(ENGLISH.source_secret_dots) == long.count(
+        ENGLISH.source_secret_dots,
+    )
+    assert _SHORT_ACCESS not in short
+    assert _LONG_ACCESS not in long
+
+
+@pytest.mark.parametrize("method", ["access", "webhook"])
+def test_only_an_admin_renews_either_secret(instance: Lobby, method: str) -> None:
+    created = create_source(instance.client)
+    the_created_page(instance.client, created)
+    signed_in_as(instance, NEIGHBOUR)
+    path = (ACCESS if method == "access" else WEBHOOK).format(name="talks")
+
+    refused = instance.client.post(path, data={"secret": _READ_ONLY})
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+@pytest.mark.parametrize("method", ["access", "webhook", "fetch"])
+def test_source_page_posts_from_another_site_are_refused(
+    instance: Lobby,
+    method: str,
+) -> None:
+    created = create_source(instance.client)
+    the_created_page(instance.client, created)
+    path = {
+        "access": ACCESS.format(name="talks"),
+        "webhook": WEBHOOK.format(name="talks"),
+        "fetch": _FETCH.format(name="talks"),
+    }[method]
+
+    refused = instance.client.post(
+        path,
+        data={"secret": _READ_ONLY, "stay": "page"},
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_renewing_a_name_this_instance_does_not_have_is_not_found() -> None:
+    lobby = a_signed_in_lobby()
+
+    assert (
+        lobby.post(
+            ACCESS.format(name="missing"),
+            data={"secret": _READ_ONLY},
+        ).status_code
+        == HTTPStatus.NOT_FOUND
+    )
+    missing = lobby.post(WEBHOOK.format(name="missing"))
+    assert missing.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_the_list_links_each_name_to_its_page() -> None:
+    page = (
+        a_signed_in_lobby(GivenDecks(source=a_configured_source(_ADDRESS)))
+        .get(SOURCES)
+        .text
+    )
+
+    assert f'href="{SOURCES}/decks"' in page

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ source.name }}{% endblock %}
+{% block body %}
+<main data-source>
+  <p><a href="/settings/sources">{{ text.sources_back }}</a></p>
+  <header>
+    <h1>{{ source.name }}</h1>
+  </header>
+  <p data-meta>
+    <code>{{ source.url }}</code>
+    <span data-state="{{ source.state }}">{{ source.state_word }}</span>
+    <span>
+      <small>{{ text.sources_column_fetched }}</small>
+      {% if source.fetched %}{{ source.fetched }}{% else %}—{% endif %}
+    </span>
+  </p>
+  {% include "settings_tabs.html" %}
+  {% if refused %}<p role="alert">{{ refused }}</p>{% endif %}
+  {% if source.secret_missing %}
+  <aside data-banner="error" data-secret-missing>
+    <p data-lead>{{ text.source_secret_missing }}</p>
+  </aside>
+  {% endif %}
+  <p data-actions>
+    <form method="post" action="/settings/sources/{{ source.name }}/fetch">
+      <input type="hidden" name="stay" value="page">
+      <button type="submit">{{ text.sources_fetch_now }}</button>
+    </form>
+  </p>
+  <section>
+    <h2>{{ text.source_access_heading }}</h2>
+    <p data-secret-row>
+      {% if source.access %}<span data-tag>{{ source.access }}</span>{% endif %}
+      {% if not source.carries_no_secret %}
+      <samp data-secret-dots>{{ text.source_secret_dots }}</samp>
+      <details>
+        <summary>{{ text.source_secret_info_mark }}</summary>
+        <p>{{ text.source_access_renew_info }}</p>
+      </details>
+      {% endif %}
+    </p>
+    {% if not source.carries_no_secret %}
+    <form method="post" action="/settings/sources/{{ source.name }}/access"
+          data-renew-access>
+      <label for="secret">{{ text.source_secret }}</label>
+      <input id="secret" name="secret" type="password" required autocomplete="off">
+      <button type="submit">{{ text.source_renew }}</button>
+    </form>
+    {% endif %}
+  </section>
+  <section>
+    <h2>{{ text.source_webhook_heading }}</h2>
+    <p>
+      <code data-hook-address>{{ source.address }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
+    </p>
+    {% if source.webhook_secret %}
+    <p>
+      {{ text.source_webhook_secret }}
+      <span>{{ text.source_webhook_once }}</span>
+    </p>
+    <p>
+      <code data-hook-secret>{{ source.webhook_secret }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
+    </p>
+    {% else %}
+    <p data-secret-row>
+      <samp data-secret-dots>{{ text.source_secret_dots }}</samp>
+    </p>
+    {% if source.webhook_secret_held_elsewhere %}
+    <p>{{ text.source_webhook_held_elsewhere }}</p>
+    {% endif %}
+    {% endif %}
+    <form method="post" action="/settings/sources/{{ source.name }}/webhook"
+          data-renew-webhook>
+      <button type="submit">{{ text.source_renew }}</button>
+    </form>
+  </section>
+  <section>
+    <h2>{{ text.source_recent_runs }}</h2>
+    {% if source.runs %}
+    <table data-runs>
+      <thead>
+        <tr>
+          <th scope="col">{{ text.source_run_column_state }}</th>
+          <th scope="col">{{ text.source_run_column_fetched }}</th>
+          <th scope="col">{{ text.source_run_column_detail }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in source.runs %}
+        <tr data-run>
+          <td><span data-state="{{ run.state }}">{{ run.state_word }}</span></td>
+          <td>{{ run.fetched }}</td>
+          <td>
+            {% if run.commit %}<samp>{{ run.commit }}</samp>
+            {% elif run.reason %}<span data-why>{{ run.reason }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+  <section>
+    <h2>{{ text.source_decks }}</h2>
+    {% if source.decks %}
+    <p data-chips>
+      {% for deck in source.decks %}
+      <a href="/deck/{{ deck.slug }}" data-chip>
+        {{ deck.title }}
+        <code>{{ deck.slug }}</code>
+      </a>
+      {% endfor %}
+    </p>
+    {% endif %}
+  </section>
+  <section>
+    <h2>{{ text.source_reverse }}</h2>
+    <p data-later>
+      <span>{{ text.source_push_inbox }}</span>
+      <span data-later-mark>{{ text.source_later }}</span>
+    </p>
+  </section>
+</main>
+<script>
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const value = button.previousElementSibling.textContent;
+    if (value) navigator.clipboard.writeText(value);
+  });
+});
+</script>
+{% endblock %}

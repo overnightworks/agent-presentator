@@ -50,6 +50,8 @@ class LobbyText:
     deck_state_failed: str
     deck_state_never_built: str
     deck_built: str
+    deck_builds_with: str
+    deck_theme_separator: str
     deck_not_built_explanation: str
     deck_building_explanation: str
     deck_building_label: str
@@ -80,6 +82,8 @@ class LobbyText:
     sources_fetch_now: str
     source_state_reachable: str
     source_state_error: str
+    source_state_refused: str
+    source_state_failed: str
     source_state_never_fetched: str
     sources_empty_title: str
     sources_empty_explanation: str
@@ -95,8 +99,10 @@ class LobbyText:
     source_access: str
     source_access_ssh: str
     source_access_https: str
+    source_access_file: str
     source_access_token: str
     source_access_deploy_key: str
+    source_access_local: str
     source_secret: str
     source_secret_info_mark: str
     source_secret_info: str
@@ -108,6 +114,7 @@ class LobbyText:
     source_webhook_address: str
     source_webhook_secret: str
     source_webhook_once: str
+    source_webhook_held_elsewhere: str
     source_copy: str
     source_webhook_payload: str
     source_created_done: str
@@ -118,6 +125,29 @@ class LobbyText:
     source_refused_password: str
     source_refused_access: str
     source_refused_secret: str
+    source_refused_not_checked: str
+    source_check_reachable: str
+    source_refused_secret_not_allowed: str
+    source_refused_outside_mount: str
+    source_access_heading: str
+    source_webhook_heading: str
+    source_recent_runs: str
+    source_decks: str
+    source_reverse: str
+    source_push_inbox: str
+    source_later: str
+    source_renew: str
+    source_secret_dots: str
+    source_secret_missing: str
+    source_access_renew_info: str
+    source_run_fetched: str
+    source_run_unreachable: str
+    source_run_secret: str
+    source_run_refused: str
+    source_run_failed: str
+    source_run_column_state: str
+    source_run_column_fetched: str
+    source_run_column_detail: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

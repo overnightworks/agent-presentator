@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from copresenter.answer import user_message
 
 
@@ -18,8 +16,7 @@ def test_user_message_gives_claude_the_current_slide_and_the_deck(example_deck) 
     assert "Was steht hier?" in message
 
 
-def test_ask_streams_sentences_and_audio(app, fake_speech) -> None:
-    client = TestClient(app)
+def test_ask_streams_sentences_and_audio(client, fake_speech) -> None:
     with client.stream(
         "POST",
         "/ask",

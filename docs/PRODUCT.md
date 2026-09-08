@@ -31,13 +31,14 @@ report.
 
 ### Running an instance
 
-One image carries the packaged server, the Slidev toolchain it spawns and the
-Chromium the PDF export drives, and one compose file starts it with the
-database, the mirrors and the built talks in named volumes: a `docker compose
-down` and the next `up` find the accounts, the sources, the decks and the talks
-that were built, and build nothing again. Nothing is reachable from beyond this
-machine yet — the tunnel, the service that survives a reboot, and the first
-login from the laptop are
+One image carries the Slidev toolchain and the Chromium the PDF export drives,
+and is what every deck's build runs in; a second, built on top of it, carries
+the packaged server as well. One compose file builds both and starts the server
+with the database, the mirrors and the built talks in named volumes: a `docker
+compose down` and the next `up` find the accounts, the sources, the decks and
+the talks that were built, and build nothing again. Nothing is reachable from
+beyond this machine yet — the tunnel, the service that survives a reboot, and
+the first login from the laptop are
 [#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
 instance is started, upgraded and backed up, and what a fresh one must be
 given, is [OPERATIONS.md](OPERATIONS.md).
@@ -76,11 +77,13 @@ An admin opens Settings and sets the instance name, the default language, and
 the default theme; a person without the admin role is refused there rather than
 sent to the login. Settings is one area with a tab strip: General is those
 instance defaults, and Sources lists each source with the state and age of its
-newest run — never fetched, reachable, or Error, never the internal reason a
-credential could not be resolved — and a Fetch now that refreshes that one
-source and returns to the list. An instance with no source says what a source
-is and what you need for it. Users is not a tab yet. There is no control to
-add a source, and a source has no page of its own yet. Everybody opens Account
+newest run — never fetched, reachable, refused when the host turns the login
+down, failed when the host answered with something else, or Error when a
+credential could not be resolved, never the internal reason why — and a Fetch
+now that refreshes that one source and returns to the list. An instance with
+no source says what a source
+is and what you need for it. Users is not a tab yet. An admin adds a source
+there, and each source has a page of its own. Everybody opens Account
 and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,
 the instance default behind it — and "follow system" writes no `data-theme`
 attribute at all, so the browser decides
@@ -94,8 +97,8 @@ file and not a change to code, and each catalog names itself. The instance name
 is kept and shown back under Settings; nothing else reads it yet.
 
 The lobby's colours come from the vendored
-[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
-v0.1.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
+[`overnightworks/ui-console`](https://github.com/overnightworks/ui-console)
+v0.2.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
 still use this product's Pico markup; the package grammar is adopted when
 Users lands
 ([#61](https://github.com/overnightworks/agent-presentator/issues/61)).
@@ -120,14 +123,19 @@ once, and the next screen shows the webhook address and its secret exactly
 once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
 URL carrying a password in its userinfo is refused, `http://` is refused, and
 the access kind is derived from the URL scheme — a mismatch with the chosen
-radio is refused.
-SSH deploy keys are not offered yet. The one an instance already runs on still
-comes from `PRESENTATOR_SOURCE_URL`, an optional
-`PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
-naming the environment variable that carries a read-only secret — the
-configuration holds the reference, never the value — and is written into that
-table at every start and at the beginning of every refresh, keyed by its URL so
-it is written once; adding a source does not rewrite that credential. Every deck names the source that carried it, and a refresh
+radio is refused. *Check connection* runs the same probe a pull would against
+the typed URL and secret before anything is stored, and *Create* is refused
+server-side unless a check just proved those exact values reachable.
+SSH deploy keys are not offered yet, and a fourth kind reads none at all: a
+folder made a bare repository under the host directory `compose.override.yaml`
+mounts read-only at `/data/local-sources` is added with a `file://` or
+bare-path address under that mount, "on this box" as the access kind, and no
+secret ([OPERATIONS.md](OPERATIONS.md)); *Check connection* probes that path
+too, refusing one outside the mount rather than reading it. An instance
+starts with no source;
+`PRESENTATOR_SOURCE_URL` and the other `PRESENTATOR_SOURCE_*` identity
+settings are gone, so a leftover line in the environment does not add a row.
+Every deck names the source that carried it, and a refresh
 walks the sources one after another, taking each one in and building its decks
 before it reads the next. `gitmirror` keeps a bare
 mirror of each source's repository under `PRESENTATOR_MIRRORS` by driving `git` as a
@@ -152,8 +160,8 @@ into the one refresh that runs at a time. Every poll of a source, reachable or
 not, records one run: the moment, whether it reached the source, and either the
 commit it found or a typed reason it did not — never the raw error a git
 command left behind. A source's newest run is what the Sources list reads to show
-whether it is working; every run before that stays in the table too, with
-nothing yet trimming it. Opening the deck list only reads the
+whether it is working; older runs of that source are dropped so the table
+keeps the newest three, which is what the source page shows. Opening the deck list only reads the
 database. The empty deck list points an admin at Sources. A source that cannot be read is logged and says nothing about what it
 carries, so every deck stays listed; a folder whose manifest cannot be read is
 logged too and counts as a folder without a title, so the deck row it belongs to
@@ -172,23 +180,24 @@ first, and a deck belongs to the account that owns the source it came from — f
 a configured source, the admin that first start created. While no deck exists,
 the list says so and names the Git address instead of showing an empty table,
 as long as one source is all there is to name;
-there is no upload, no editing, and no way to add a source in the lobby
+there is no upload and no editing
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
 Every row carries the state of its deck's build in one word — ready, building,
 failed, or never built — with a shape and a colour of its own, read off the
 talk that stands and the build last attempted beside it, never stored.
 
-There is no Sources page yet. A source's row can hold its read-only secret
-itself, encrypted with a key derived from `PRESENTATOR_SECRET_KEY`
-([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)), and
-the one resolver that answers at every pull reads whichever of the two columns
-the row carries; nothing fills the encrypted one until the page for adding a
-source does, so the source an instance runs on still names an environment
-variable. Removing a source is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8). Nothing
-prunes a source's older runs yet, so the table grows without bound; that is
-open on #8 (slice 12.6).
+`/settings/sources/<name>` is that source's page: state and fetched age, Fetch
+now, the access secret as a fixed run of dots with one Renew, the webhook
+address with Copy and its own Renew, the newest three runs with the commit as
+evidence, and the decks that come from here. Renewing the webhook secret shows
+the new value exactly once to the session that created or renewed it, and never
+again; renewing the access secret takes a new value and shows nothing back. A source's secret stands in one place, the
+encrypted column, opened with a key derived from `PRESENTATOR_SECRET_KEY`
+([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)). A row
+that still names only an environment variable stays listed and keeps its built
+talks; fetch fails with a typed reason until Renew. Removing a source is open
+on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
 ### A deck's page, and the talk behind it
 
@@ -197,7 +206,10 @@ the address it was mirrored from, the short commit the talk it delivers was
 built from, and how long ago that build ran, so before speaking a person sees
 whether their push is in what will be on the screen. Until a build has switched
 anything over, the commit shown is the one the source last carried under that
-folder.
+folder. Beside the state, the page names the theme set this instance builds
+with — read from the toolchain project's own `package.json`, never typed a
+second time, and omitted rather than shown empty while that project cannot be
+read ([ADR 0014](decisions/0014-toolchain-owns-build-dependencies.md)).
 
 While a build runs, the page says so with the commit being built and how long
 it has been running, and the two views are shown locked rather than offered:
@@ -269,15 +281,12 @@ restarted mid-build — and is counted failed once it is older than
 `PRESENTATOR_BUILD_TIMEOUT_SECONDS`, so nothing reads as building for ever.
 
 A build writes the deck's tree at its commit out of the bare mirror into a
-temporary working directory — nothing is ever checked out into the mirror —
-and runs the Slidev toolchain over it from `PRESENTATOR_TOOLCHAIN` as a
-subprocess: `slidev build` against the address the talk is delivered under,
-then `slidev export` for the PDF. Both write into a directory of that run's own
-under `PRESENTATOR_BUILDS`, which nothing points at while it is being written.
-Each step runs inside `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and with an
-environment holding nothing but `PATH` and `HOME`, so neither a source's
-read-only secret nor this instance's key is in reach of what a deck's build
-runs.
+directory of that run's own under `PRESENTATOR_BUILDS` — nothing is ever
+checked out into the mirror — and runs the Slidev toolchain over it: `slidev
+build` against the address the talk is delivered under, then `slidev export`
+for the PDF. Both write into that same run's directory, which nothing points at
+while it is being written. Each step runs inside
+`PRESENTATOR_BUILD_TIMEOUT_SECONDS`.
 
 Only when both artefacts exist, and only after they are resolved and found to
 stand under the builds root, does one statement switch the four columns over.
@@ -294,14 +303,33 @@ the directory a deck delivers from is never removed, so a request that read the 
 pointer still finds a directory. Cleaning up the builds that were pointed at is
 open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
-**A deck is code, and it is not sandboxed yet.** The Vue components a deck
-carries execute on this host during the build, with this process's rights over
-the filesystem and the network. Bounded today are the environment the child is
-given, the time it may take, and where its result may stand; the container with
-no network and nothing of the server mounted
-([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a) is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
-lands, a deck source is as trusted as the machine.
+**A deck is code, and its build runs in a container of its own.** The server
+asks its machine's daemon for a container per step
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a): no network,
+every capability dropped, none of this server's environment, and nothing of
+this machine's filesystem but the deck's own tree, read-only, and the directory
+that run writes — both of them directories of one volume, named after the run
+rather than after anything a deck's author chose. A component that reads a file
+the deck does not carry, or opens a connection, fails the build with the
+toolchain's own words on the deck page, while the talk that stood keeps
+standing; so does a build that wants more time, memory, processes, or disk than
+one build may have. A talk larger than an instance keeps, or holding more files
+than it counts, stops the step that is writing it where it stands, because a
+machine is filled while a build runs and not when it ends; adding that talk up
+reaches nothing by its name, follows no link a build left, and stops at
+anything it cannot read. What a build writes into a file it has unlinked no
+scan can see: there the step's own time and its memory are the bound, and the
+container's exit frees it.
+
+That is what an instance is, and an instance that cannot have it does not
+start: without the image and the volume it builds in, on a daemon too old to
+give a container one directory of a volume, on one that does not carry the
+build image, or on a machine that will not hold a container's own filesystem to
+a size unless the operator says to do without that bound, the composition
+refuses and says which. Building on this machine instead is one explicit
+setting, for a development run, and it costs the sandbox altogether. The price
+of the sandbox is the docker socket, which [OPERATIONS.md](OPERATIONS.md)
+names.
 
 ### Local speech
 

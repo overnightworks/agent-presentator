@@ -163,6 +163,9 @@ class _Surfaces:
         if person is None:
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         request.state.signed_in_person = person
+        request.state.signed_in_session_id = self.identity.cookies.session_id_from(
+            cookie_value
+        )
         answer = await call_next(request)
         self._carry_session(answer, cookie_value)
         return answer
