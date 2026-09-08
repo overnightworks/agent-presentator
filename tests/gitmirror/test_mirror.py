@@ -673,6 +673,31 @@ def test_an_ssh_key_directory_is_removed_when_setting_its_mode_fails(
     assert not directory.exists()
 
 
+def test_an_ssh_key_directory_setup_failure_surfaces_without_cleanup_masking_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def refuse_directory(*_args: object, **_kwargs: object) -> str:
+        message = "directory unavailable"
+        raise OSError(message)
+
+    def refuse_cleanup(*_args: object, **_kwargs: object) -> None:
+        message = "cleanup must not mask setup"
+        raise OSError(message)
+
+    monkeypatch.setattr(mirror_module.tempfile, "mkdtemp", refuse_directory)
+    monkeypatch.setattr(mirror_module.shutil, "rmtree", refuse_cleanup)
+    mirror = a_mirror(
+        "git@ssh-stub-host:talks.git",
+        directory=tmp_path / "mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(generate_deploy_key().private_key),
+    )
+
+    with pytest.raises(OSError, match="directory unavailable"):
+        mirror.connect()
+
+
 def test_an_ssh_key_cleanup_failure_is_surfaced(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
