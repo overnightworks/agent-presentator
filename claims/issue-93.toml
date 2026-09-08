@@ -1,8 +1,0 @@
-claim_id = "b0f67d9916c843ecb27447e1db97b96c"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "454d8e347efb43012e2c6d1ab1131d489baf9534"
-branch = "claude/issue-93-remove-source"
-scope = ["docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby"]
-opened_commit = "9f55b2f21f2c92ff8079c296825469d9dc05769f"
-whole_reason = "the picture step edits the mockup page and its rendered PNGs"
