@@ -524,8 +524,8 @@ def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
         pytest.param(
             "fatal: unable to access 'https://host.example/repo.git/': "
             "SSL certificate problem: unable to get local issuer certificate",
-            ConnectionState.UNREACHABLE,
-            id="unable-to-access-without-a-named-reason-or-a-status",
+            ConnectionState.FAILED,
+            id="a-tls-certificate-failure-is-not-proof-the-host-never-answered",
         ),
         pytest.param(
             "fatal: unable to access 'https://host.example/repo.git/': "

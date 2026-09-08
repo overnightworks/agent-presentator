@@ -97,13 +97,6 @@ _UNREACHABLE_WORDS: Final = (
     "connection refused",
     "connection timed out",
 )
-# git prints this whenever the far end returned an HTTP status; its presence
-# tells "unable to access" (git's generic transport-failure wrapper) apart
-# from a host that truly never answered, so a status the words above and
-# `_REFUSED_WORDS` do not otherwise name — a bare 403, "Repository not
-# found" — becomes the third reason, `failed`, with git's own words in the log
-# rather than a silent misclassification.
-_HTTP_STATUS_MARKER: Final = "returned error:"
 # Any `scheme://user:pass@` a URL can carry, wherever it stands in the text:
 # git reflects a redirect target or the remote's own reply verbatim, so this
 # runs over the whole diagnostic, not only the source's own URL.
@@ -266,13 +259,17 @@ def _reject_unsafe_secret(secret: str) -> None:
 
 
 def connection_state_for_failure(stderr: str) -> ConnectionState:
-    """Which of the three failure states a failed pull's own words say happened."""
+    """Which of the three failure states a failed pull's own words say happened.
+
+    Unreachable is only ever one of `_UNREACHABLE_WORDS` or the timeout above;
+    an answer git phrases in words this function does not recognise — a TLS
+    certificate failure, a proxy's own text — is not proof the host never
+    answered, so it stays `failed` rather than guessing.
+    """
     lowered = stderr.lower()
     if any(word in lowered for word in _REFUSED_WORDS):
         return ConnectionState.REFUSED
     if any(word in lowered for word in _UNREACHABLE_WORDS):
-        return ConnectionState.UNREACHABLE
-    if "unable to access" in lowered and _HTTP_STATUS_MARKER not in lowered:
         return ConnectionState.UNREACHABLE
     return ConnectionState.FAILED
 
