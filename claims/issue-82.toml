@@ -1,8 +1,0 @@
-claim_id = "8724ebeba84a49a6896c75680c629f3d"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "baddb673cc727ee473e8a36214a107498990d1d8"
-branch = "claude/issue-82-source-page"
-scope = ["src/presentator", "tests", "docs"]
-opened_commit = "dcaeaf79e3a0983a19e7933aa74278f72f9d8746"
-whole_reason = "The page, both renewals and the deletion of the environment source are one landing: the env source may only die once Renew exists."
