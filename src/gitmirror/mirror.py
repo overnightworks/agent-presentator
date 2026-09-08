@@ -144,7 +144,8 @@ class GitMirror:
         secret = self.credentials.resolve(self.source.credential)
         if secret is None:
             return _CREDENTIAL_UNRESOLVABLE
-        _reject_unsafe_secret(secret)
+        if not is_ssh_remote(self.source.url):
+            _reject_unsafe_secret(secret)
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -258,6 +259,7 @@ def check_connection(
     ref: str,
     secret: str | None,
     timeout: timedelta,
+    known_hosts: Path | None = None,
 ) -> ConnectionCheck:
     """Ask the remote for one ref's head, without ever writing a mirror to disk.
 
@@ -265,27 +267,32 @@ def check_connection(
     repository before Add source stores anything, through the same
     credential helper, environment, and classifier `_pull` uses.
     """
-    if secret is not None:
+    if secret is not None and not is_ssh_remote(url):
         try:
             _reject_unsafe_secret(secret)
         except InvalidCredentialError:
             return _REFUSED_CHECK
     try:
-        probed = subprocess.run(
-            [
-                _git_executable(),
-                *credential_arguments(secret),
-                "ls-remote",
-                "--exit-code",
-                "--",
-                url,
-                f"refs/heads/{ref}",
-            ],
-            capture_output=True,
-            check=False,
-            env=unattended_environment(secret),
-            timeout=timeout.total_seconds(),
-        )
+        with _credentials(url, secret) as (credential, ssh_key):
+            probed = subprocess.run(
+                [
+                    _git_executable(),
+                    *credential_arguments(credential),
+                    "ls-remote",
+                    "--exit-code",
+                    "--",
+                    url,
+                    f"refs/heads/{ref}",
+                ],
+                capture_output=True,
+                check=False,
+                env=unattended_environment(
+                    credential,
+                    ssh_key=ssh_key,
+                    known_hosts=known_hosts,
+                ),
+                timeout=timeout.total_seconds(),
+            )
     except subprocess.TimeoutExpired:
         return _UNREACHABLE_CHECK
     if probed.returncode != 0:
@@ -380,15 +387,22 @@ def _ssh_key_file(secret: str) -> Generator[Path]:
     A 0700 directory holding one 0600 file, both gone in the `finally`
     whatever the fetch did with them.
     """
-    directory = Path(tempfile.mkdtemp(prefix="gitmirror-deploy-key-"))
-    directory.chmod(_SSH_KEY_DIRECTORY_MODE)
-    key = directory / _SSH_KEY_FILE_NAME
+    directory: Path | None = None
     try:
-        key.write_text(secret)
-        key.chmod(_SSH_KEY_FILE_MODE)
+        directory = Path(tempfile.mkdtemp(prefix="gitmirror-deploy-key-"))
+        directory.chmod(_SSH_KEY_DIRECTORY_MODE)
+        key = directory / _SSH_KEY_FILE_NAME
+        descriptor = os.open(
+            key,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            _SSH_KEY_FILE_MODE,
+        )
+        with os.fdopen(descriptor, "w") as key_file:
+            key_file.write(secret)
         yield key
     finally:
-        shutil.rmtree(directory, ignore_errors=True)
+        if directory is not None:
+            shutil.rmtree(directory)
 
 
 def _reject_unsafe_secret(secret: str) -> None:

@@ -36,6 +36,10 @@ class SourceStore(Protocol):
         """
 
     @abstractmethod
+    def add_from_draft(self, write: SourceWrite, *, draft_id: str) -> Source | None:
+        """Promote this owner's deploy-key draft into a new source atomically."""
+
+    @abstractmethod
     def hook_secret_hash(self, name: str) -> bytes | None:
         """The stored hash of that source's webhook secret, if this name exists.
 
@@ -86,6 +90,16 @@ class DeployKeyDrafts(Protocol):
     @abstractmethod
     def mint(self, owner_id: str, *, at: datetime) -> DeployKeyDraft:
         """Generate a fresh keypair and store it as this admin's own new draft."""
+
+    @abstractmethod
+    def get_or_mint(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+        at: datetime,
+    ) -> DeployKeyDraft:
+        """Reuse one young draft or atomically mint this owner's next draft."""
 
     @abstractmethod
     def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:

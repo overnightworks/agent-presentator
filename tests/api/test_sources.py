@@ -421,7 +421,12 @@ def check_source(
 ) -> Response:
     return client.post(
         CHECK,
-        data={"name": "talks", "url": url, "access": access, "secret": secret},
+        data={
+            "name": "talks",
+            "url": url,
+            "access": access,
+            "secret": secret,
+        },
         headers=headers,
     )
 
@@ -612,9 +617,26 @@ def create_ssh_source(
     url: str = _ADDRESS,
     key_draft_id: str,
 ) -> Response:
+    checked = client.post(
+        CHECK,
+        data={
+            "name": name,
+            "url": url,
+            "access": "ssh",
+            "secret": "",
+            "key_draft_id": key_draft_id,
+        },
+    )
+    proven = fingerprint_of(checked)
     return client.post(
         NEW,
-        data={"name": name, "url": url, "access": "ssh", "key_draft_id": key_draft_id},
+        data={
+            "name": name,
+            "url": url,
+            "access": "ssh",
+            "key_draft_id": key_draft_id,
+            "fingerprint": proven,
+        },
     )
 
 

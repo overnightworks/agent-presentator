@@ -270,10 +270,7 @@ class _Surfaces:
     def check_source(
         self,
         request: Request,
-        name: Annotated[str, Form()] = "",
-        url: Annotated[str, Form()] = "",
-        access: Annotated[str, Form()] = _HTTPS_ACCESS,
-        secret: Annotated[str, Form()] = "",
+        posted: Annotated[_NewSourcePost, Depends()],
     ) -> Response:
         """Probe the form's own URL and secret, and show what answered.
 
@@ -283,14 +280,20 @@ class _Surfaces:
         """
         if not _signed_in(request).is_admin:
             return _refused()
-        checked = self.decks.check_connection(url=url, secret=secret)
+        checked = self.decks.check_connection(
+            url=posted.url,
+            access=posted.access,
+            secret=posted.secret,
+            owner_id=_signed_in(request).id,
+            key_draft_id=posted.key_draft_id,
+        )
         text = self.pages.appearance(request).text
         return self._form(
             request,
             draft=SourceDraft(
-                name=name,
-                url=url,
-                access=access or _HTTPS_ACCESS,
+                name=posted.name,
+                url=posted.url,
+                access=posted.access or _HTTPS_ACCESS,
                 check=_check_banner(checked, text),
             ),
         )

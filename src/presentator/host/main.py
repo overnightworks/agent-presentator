@@ -176,6 +176,7 @@ def build_instance(settings: Settings) -> Instance:
         checker=MirroredConnectionChecker(
             check_timeout=source_timeout,
             local_mount=local_mount,
+            known_hosts=settings.mirrors / "known_hosts",
         ),
         toolchain_themes=PackageJsonThemes(project=settings.toolchain),
         # One toolchain step's bound, which is what the refresh needs: it never

@@ -2,9 +2,11 @@
 
 import logging
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 from typing import Final
 
 import pytest
@@ -39,6 +41,7 @@ from presentator.contracts.decks import (
     BuildOutcome,
     Deck,
     DeckFolder,
+    DeployKeyDraft,
     SecretLocation,
     Source,
     SourceRun,
@@ -505,6 +508,7 @@ def a_checker(
     return MirroredConnectionChecker(
         check_timeout=_A_GENEROUS_BOUND,
         local_mount=unused_mount if local_mount is None else local_mount,
+        known_hosts=Path("/nowhere-a-test-names-known-hosts"),
     )
 
 
@@ -522,17 +526,17 @@ def test_an_unreachable_check_names_its_own_failure_without_a_commit() -> None:
 def test_a_check_of_an_access_kind_it_does_not_probe_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An SSH address is refused outright, never handed to git at all.
+    """An unknown address is refused outright, never handed to git at all.
 
-    The form offers no SSH radio yet, so nothing this checker probes should
-    ever run `git` against one; a `PATH` with no git on it proves that: a
+    Nothing this checker probes should ever run `git` against one; a PATH
+    with no git on it proves that: a
     call that reached `subprocess.run` would raise `GitUnavailableError`
     instead of answering refused.
     """
     monkeypatch.setenv("PATH", "")
 
     checked = a_checker().check(
-        url="ssh://git@host.example.invalid/repo.git",
+        url="git://host.example.invalid/repo.git",
         ref=MAIN_BRANCH,
         secret="",
     )
@@ -949,6 +953,34 @@ def test_a_draft_older_than_the_asked_moment_is_not_unconsumed(tmp_path: Path) -
     assert drafts.unconsumed_for(_OWNER.id, newer_than=_NOTICED_GONE_AT) is None
 
 
+def test_opening_add_concurrently_reuses_one_draft_for_its_owner(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    concurrent_opens = 2
+    start_together = Barrier(concurrent_opens + 1)
+
+    def open_add() -> DeployKeyDraft:
+        drafts = a_key_drafts_store(database)
+        start_together.wait()
+        return drafts.get_or_mint(
+            _OWNER.id,
+            newer_than=_PUSHED_AT - timedelta(days=1),
+            at=_PUSHED_AT,
+        )
+
+    with ThreadPoolExecutor(max_workers=concurrent_opens) as pool:
+        openings = [pool.submit(open_add) for _ in range(concurrent_opens)]
+        start_together.wait()
+    opened = [opening.result() for opening in openings]
+
+    assert len(opened) == concurrent_opens
+    assert {draft.id for draft in opened} == {opened[0].id}
+    with rows(database) as cursor:
+        count = cursor.execute("SELECT COUNT(*) FROM source_key_drafts").fetchone()[0]
+    assert count == 1
+
+
 def test_binding_a_draft_by_its_owner_consumes_it(tmp_path: Path) -> None:
     database = an_instance_that_was_set_up(tmp_path)
     drafts = a_key_drafts_store(database)
@@ -969,6 +1001,45 @@ def test_binding_a_draft_another_owner_minted_is_refused(tmp_path: Path) -> None
     assert drafts.bind(minted.id, owner_id=_OWNER.id) is None
     # Refused, not consumed: its own owner can still bind it.
     assert drafts.bind(minted.id, owner_id="another-admin-entirely") == minted
+
+
+def test_promoting_a_draft_encrypts_its_private_half_and_consumes_it(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    drafts = a_key_drafts_store(database)
+    minted = drafts.mint(_OWNER.id, at=_PUSHED_AT)
+
+    promoted = a_source_store(database).add_from_draft(
+        a_write(public_key=None),
+        draft_id=minted.id,
+    )
+
+    assert promoted is not None
+    assert promoted.public_key == minted.public_key
+    assert drafts.bind(minted.id, owner_id=_OWNER.id) is None
+    assert a_resolver(database).resolve(CredentialReference(name=promoted.id)) == (
+        minted.private_key
+    )
+    with rows(database) as cursor:
+        encrypted = cursor.execute(_THE_ENCRYPTED_OF, (promoted.id,)).fetchone()[0]
+    assert minted.private_key.encode() not in encrypted
+
+
+def test_a_failed_draft_promotion_keeps_the_draft_and_creates_no_source(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    assert sources.add(a_write()) is not None
+    drafts = a_key_drafts_store(database)
+    minted = drafts.mint(_OWNER.id, at=_PUSHED_AT)
+
+    promoted = sources.add_from_draft(a_write(), draft_id=minted.id)
+
+    assert promoted is None
+    assert drafts.bind(minted.id, owner_id=_OWNER.id) == minted
+    assert len(sources.all()) == 1
 
 
 def test_sweeping_deletes_only_drafts_older_than_the_given_moment(

@@ -60,10 +60,7 @@
     <button type="submit" formaction="/settings/sources/new/check">{{ text.source_check }}</button>
     <button type="submit" data-create
             data-proven="{{ 'true' if (draft and draft.check and draft.check.fingerprint) else 'false' }}"
-            {% if not (
-              (draft and draft.access == ssh_access)
-              or (draft and draft.check and draft.check.fingerprint)
-            ) %}disabled{% endif %}>{{ text.source_create }}</button>
+            {% if not (draft and draft.check and draft.check.fingerprint) %}disabled{% endif %}>{{ text.source_create }}</button>
   </form>
 </main>
 <script>
@@ -74,14 +71,11 @@ document.querySelectorAll("[data-copy]").forEach((button) => {
   });
 });
 (() => {
-  // SSH proves itself by the draft key it binds, so Create needs no prior
-  // Check while it is selected; every other kind keeps needing one.
   const create = document.querySelector("[data-create]");
-  const ssh = document.querySelector("[data-access-ssh]");
   const proven = create.dataset.proven === "true";
   document.querySelectorAll('input[name="access"]').forEach((radio) => {
     radio.addEventListener("change", () => {
-      create.disabled = !(ssh.checked || proven);
+      create.disabled = !proven;
     });
   });
 })();

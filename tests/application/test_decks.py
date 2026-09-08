@@ -142,8 +142,10 @@ def decks_over(
     fakes: DecksFakes | None = None,
 ) -> Decks:
     resolved = DecksFakes() if fakes is None else fakes
+    source_store = having(_SOURCE) if sources is None else sources
+    source_store.key_drafts = resolved.key_drafts
     return Decks(
-        sources=having(_SOURCE) if sources is None else sources,
+        sources=source_store,
         key_drafts=resolved.key_drafts,
         folders=carrying(*folders) if mirror is None else mirror,
         store=resolved.store,
@@ -1068,7 +1070,13 @@ def _add(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> AddedSource | SourceRefusal:
-    checked = decks.check_connection(url=url, secret=secret)
+    checked = decks.check_connection(
+        url=url,
+        access=access,
+        secret=secret,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     return decks.add_source(
         NewSourceDraft(
             name=name,
@@ -1082,7 +1090,13 @@ def _add(
 
 
 def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> None:
-    reachable = decks_over().check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    reachable = decks_over().check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     refused = decks_over(
         fakes=DecksFakes(
             checker=FakeConnectionChecker(
@@ -1093,7 +1107,13 @@ def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> Non
                 ),
             ),
         ),
-    ).check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    ).check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
 
     assert reachable.failure is None
     assert reachable.fingerprint is not None
@@ -1154,7 +1174,35 @@ def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
     decks = decks_over(sources=store)
     draft = decks.source_key_draft(owner_id=_OWNER)
 
+    checked = decks.check_connection(
+        url=_SSH_URL,
+        access="ssh",
+        secret="",
+        owner_id=_OWNER,
+        key_draft_id=draft.id,
+    )
     added = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint=checked.fingerprint or "",
+            key_draft_id=draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert isinstance(added, AddedSource)
+    assert added.source.public_key == draft.public_key
+    assert decks.key_drafts.unconsumed_for(_OWNER, newer_than=_NOW - _A_DAY) is None
+
+
+def test_an_ssh_create_without_its_own_check_proof_is_refused() -> None:
+    decks = decks_over(sources=having())
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    refused = decks.add_source(
         NewSourceDraft(
             name="talks",
             url=_SSH_URL,
@@ -1166,9 +1214,36 @@ def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
         owner_id=_OWNER,
     )
 
-    assert isinstance(added, AddedSource)
-    assert added.source.public_key == draft.public_key
-    assert decks.key_drafts.unconsumed_for(_OWNER, newer_than=_NOW - _A_DAY) is None
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert decks.source_key_draft(owner_id=_OWNER).id == draft.id
+
+
+def test_an_ssh_check_proof_cannot_create_for_another_account() -> None:
+    decks = decks_over(sources=having())
+    owner_draft = decks.source_key_draft(owner_id=_OWNER)
+    checked = decks.check_connection(
+        url=_SSH_URL,
+        access="ssh",
+        secret="",
+        owner_id=_OWNER,
+        key_draft_id=owner_draft.id,
+    )
+    another_owner = "another admin entirely"
+    other_draft = decks.source_key_draft(owner_id=another_owner)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint=checked.fingerprint or "",
+            key_draft_id=other_draft.id,
+        ),
+        owner_id=another_owner,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
 
 
 def test_a_foreign_or_missing_draft_id_is_refused_and_mints_a_fresh_one() -> None:
@@ -1405,7 +1480,13 @@ def test_a_source_never_checked_for_these_values_is_refused() -> None:
 def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
     store = having()
     decks = decks_over(sources=store)
-    checked = decks.check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    checked = decks.check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     assert checked.fingerprint is not None
 
     refused = decks.add_source(

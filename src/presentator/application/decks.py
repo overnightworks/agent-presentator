@@ -157,6 +157,18 @@ class NewSourceDraft:
     key_draft_id: str = ""
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ConnectionProof:
+    """The values one successful Check binds before Create may use them."""
+
+    owner_id: str
+    draft_id: str
+    public_key: str
+    url: str
+    ref: str
+    secret: str
+
+
 def hash_webhook_secret(secret: str) -> bytes:
     """The only form a webhook secret is stored in: SHA-256, never the value."""
     return sha256(secret.encode()).digest()
@@ -170,9 +182,8 @@ def _refusal_for(
 ) -> SourceRefusal | None:
     """The reason this draft cannot be stored, or nothing when it can.
 
-    SSH types no secret and proves nothing through Check: its proof is that
-    the draft it binds is this admin's own, judged once the row is otherwise
-    fit to store (`add_source`), never here.
+    SSH checks with the account-owned draft key; every access kind needs that
+    Check proof before it can create a source.
     """
     name, url, access, secret = draft.name, draft.url, draft.access, draft.secret
     checks = (
@@ -194,21 +205,30 @@ def _refusal_for(
             SourceRefusal.CREDENTIAL_NOT_ALLOWED,
         ),
         (urlparse(url).password is not None, SourceRefusal.USERINFO),
-        (access != _SSH_ACCESS and not proven, SourceRefusal.NOT_CHECKED),
+        (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
     return next((reason for matched, reason in checks if matched), None)
 
 
-def _connection_fingerprint(key: bytes, *, url: str, ref: str, secret: str) -> str:
+def _connection_fingerprint(key: bytes, proof: _ConnectionProof) -> str:
     """The proof Create later checks the posted values against.
 
     Signed rather than merely hashed: an unsigned digest of these same three
     values is trivial for a client to forge without ever calling Check.
     """
-    secret_hash = sha256(secret.encode()).digest()
-    message = b"\0".join((url.encode(), ref.encode(), secret_hash))
+    secret_hash = sha256(proof.secret.encode()).digest()
+    message = b"\0".join(
+        (
+            proof.owner_id.encode(),
+            proof.draft_id.encode(),
+            proof.public_key.encode(),
+            proof.url.encode(),
+            proof.ref.encode(),
+            secret_hash,
+        ),
+    )
     return hmac.new(key, message, sha256).hexdigest()
 
 
@@ -436,7 +456,15 @@ class Decks:
             run_count=len(self.source_runs.recent(source.id)),
         )
 
-    def check_connection(self, *, url: str, secret: str) -> ConnectionCheckResult:
+    def check_connection(
+        self,
+        *,
+        url: str,
+        access: str,
+        secret: str,
+        owner_id: str,
+        key_draft_id: str,
+    ) -> ConnectionCheckResult:
         """Probe the Add form's own URL and secret, writing nothing down.
 
         Every added source takes the one ref this instance follows; a check
@@ -445,7 +473,26 @@ class Decks:
         one, so a reachable check and a stored source read alike.
         """
         address = url.strip()
-        probed = self.checker.check(url=address, ref=_ADDED_REF, secret=secret)
+        if _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(address):
+            return ConnectionCheckResult(
+                failure=SourceRunFailure.REFUSED,
+                commit=None,
+                detail=None,
+            )
+        deploy_key = None
+        if access == _SSH_ACCESS:
+            deploy_key = self.key_drafts.unconsumed_for(
+                owner_id,
+                newer_than=self.clock.now() - _DRAFT_MAX_AGE,
+            )
+            if deploy_key is None or deploy_key.id != key_draft_id:
+                return ConnectionCheckResult(
+                    failure=SourceRunFailure.REFUSED,
+                    commit=None,
+                    detail=None,
+                )
+        credential = secret if deploy_key is None else deploy_key.private_key
+        probed = self.checker.check(url=address, ref=_ADDED_REF, secret=credential)
         if probed.failure is not None:
             return probed
         return ConnectionCheckResult(
@@ -454,9 +501,14 @@ class Decks:
             detail=None,
             fingerprint=_connection_fingerprint(
                 self.fingerprint_key,
-                url=address,
-                ref=_ADDED_REF,
-                secret=secret,
+                _ConnectionProof(
+                    owner_id=owner_id,
+                    draft_id="" if deploy_key is None else deploy_key.id,
+                    public_key="" if deploy_key is None else deploy_key.public_key,
+                    url=address,
+                    ref=_ADDED_REF,
+                    secret=credential,
+                ),
             ),
         )
 
@@ -467,13 +519,11 @@ class Decks:
         already there to copy before Create.
         """
         now = self.clock.now()
-        existing = self.key_drafts.unconsumed_for(
+        return self.key_drafts.get_or_mint(
             owner_id,
             newer_than=now - _DRAFT_MAX_AGE,
+            at=now,
         )
-        if existing is not None:
-            return existing
-        return self.key_drafts.mint(owner_id, at=now)
 
     def add_source(
         self,
@@ -499,54 +549,91 @@ class Decks:
         named = draft.name.strip()
         address = draft.url.strip()
         existing = self.sources.all()
+        preflight = _refusal_for(
+            replace(draft, name=named, url=address),
+            proven=True,
+            existing=existing,
+        )
+        if preflight is not None:
+            return preflight
+        ssh = access_kind_of(address) is AccessKind.SSH
+        deploy_key = (
+            self._deploy_key_for(owner_id=owner_id, draft_id=draft.key_draft_id)
+            if ssh
+            else None
+        )
+        if ssh and deploy_key is None:
+            self.key_drafts.mint(owner_id, at=self.clock.now())
+            return SourceRefusal.DEPLOY_KEY_UNAVAILABLE
+        credential = draft.secret if deploy_key is None else deploy_key.private_key
         proven = compare_digest(
             draft.fingerprint,
             _connection_fingerprint(
                 self.fingerprint_key,
-                url=address,
-                ref=_ADDED_REF,
-                secret=draft.secret,
+                _ConnectionProof(
+                    owner_id=owner_id,
+                    draft_id="" if deploy_key is None else deploy_key.id,
+                    public_key="" if deploy_key is None else deploy_key.public_key,
+                    url=address,
+                    ref=_ADDED_REF,
+                    secret=credential,
+                ),
             ),
         )
-        refused = _refusal_for(
-            replace(draft, name=named, url=address),
-            proven=proven,
-            existing=existing,
-        )
-        if refused is not None:
-            return refused
-        if access_kind_of(address) is AccessKind.FILE:
-            canonical = self.local_mount.canonical_repository(address)
-            if canonical is None:
-                return SourceRefusal.OUTSIDE_MOUNT
-            address = str(canonical)
-            if any(source.url == address for source in existing):
-                return SourceRefusal.DUPLICATE_URL
-        access_secret = draft.secret
-        public_key = None
-        if access_kind_of(address) is AccessKind.SSH:
-            bound = self.key_drafts.bind(draft.key_draft_id, owner_id=owner_id)
-            if bound is None:
-                self.key_drafts.mint(owner_id, at=self.clock.now())
-                return SourceRefusal.DEPLOY_KEY_UNAVAILABLE
-            access_secret = bound.private_key
-            public_key = bound.public_key
+        if not proven:
+            return SourceRefusal.NOT_CHECKED
+        canonical = self._canonical_address(address, existing)
+        if isinstance(canonical, SourceRefusal):
+            return canonical
+        address = canonical
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
-        stored = self.sources.add(
-            SourceWrite(
-                name=named,
-                url=address,
-                ref=_ADDED_REF,
-                owner_id=owner_id,
-                access_secret=access_secret,
-                hook_secret_hash=hash_webhook_secret(webhook_secret),
-                public_key=public_key,
-            ),
+        write = SourceWrite(
+            name=named,
+            url=address,
+            ref=_ADDED_REF,
+            owner_id=owner_id,
+            access_secret=credential,
+            hook_secret_hash=hash_webhook_secret(webhook_secret),
+            public_key=None if deploy_key is None else deploy_key.public_key,
+        )
+        stored = (
+            self.sources.add_from_draft(write, draft_id=draft.key_draft_id)
+            if deploy_key is not None
+            else self.sources.add(write)
         )
         if stored is None:
             return SourceRefusal.DUPLICATE_NAME
         self.refresh_named(stored.name)
         return AddedSource(source=stored, webhook_secret=webhook_secret)
+
+    def _deploy_key_for(
+        self,
+        *,
+        owner_id: str,
+        draft_id: str,
+    ) -> DeployKeyDraft | None:
+        """The current draft only when it belongs to this account and form."""
+        draft = self.key_drafts.unconsumed_for(
+            owner_id,
+            newer_than=self.clock.now() - _DRAFT_MAX_AGE,
+        )
+        return draft if draft is not None and draft.id == draft_id else None
+
+    def _canonical_address(
+        self,
+        address: str,
+        existing: tuple[Source, ...],
+    ) -> str | SourceRefusal:
+        """The local address the source row keeps, or its precise refusal."""
+        if access_kind_of(address) is not AccessKind.FILE:
+            return address
+        canonical = self.local_mount.canonical_repository(address)
+        if canonical is None:
+            return SourceRefusal.OUTSIDE_MOUNT
+        normalized = str(canonical)
+        if any(source.url == normalized for source in existing):
+            return SourceRefusal.DUPLICATE_URL
+        return normalized
 
     def accept_hook(self, name: str, offered: str) -> bool:
         """Refresh that source when the offered secret matches the stored hash.

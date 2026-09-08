@@ -236,14 +236,19 @@ def a_lobby_app(
         carried = {given.source.id: given.folders}
     else:
         carried = {}
-    decks = Decks(
-        sources=FakeSourceStore(sources=stored, hashes=dict(given.hook_hashes)),
+    key_drafts = FakeDeployKeyDrafts(
         # Copied rather than shared: `NO_DECKS` is one module-level constant,
         # so every test starting from it must get its own mutable drafts.
-        key_drafts=FakeDeployKeyDrafts(
-            drafts=dict(given.key_drafts.drafts),
-            minted=given.key_drafts.minted,
+        drafts=dict(given.key_drafts.drafts),
+        minted=given.key_drafts.minted,
+    )
+    decks = Decks(
+        sources=FakeSourceStore(
+            sources=stored,
+            hashes=dict(given.hook_hashes),
+            key_drafts=key_drafts,
         ),
+        key_drafts=key_drafts,
         folders=FakeDeckFolders(
             carried=carried,
             failures={} if given.failures is None else given.failures,

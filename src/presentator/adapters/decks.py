@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS sources (
 -- day old, never read by anyone who did not mint it.
 CREATE TABLE IF NOT EXISTS source_key_drafts (
     id TEXT PRIMARY KEY,
-    owner_id TEXT NOT NULL REFERENCES users(id),
+    owner_id TEXT NOT NULL UNIQUE REFERENCES users(id),
     public_key TEXT NOT NULL,
     encrypted_private_key BLOB NOT NULL,
     created_at TEXT NOT NULL
@@ -140,6 +140,11 @@ _ADD_DRAFT: Final = """
 INSERT INTO source_key_drafts
     (id, owner_id, public_key, encrypted_private_key, created_at)
 VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(owner_id) DO UPDATE SET
+    id = excluded.id,
+    public_key = excluded.public_key,
+    encrypted_private_key = excluded.encrypted_private_key,
+    created_at = excluded.created_at
 """
 _DRAFT_BY_OWNER: Final = """
 SELECT id, owner_id, public_key, encrypted_private_key, created_at
@@ -401,6 +406,50 @@ class SqliteSourceStore:
             public_key=write.public_key,
         )
 
+    def add_from_draft(self, write: SourceWrite, *, draft_id: str) -> Source | None:
+        """Promote an owned draft only if its source row can be written too."""
+        identifier = self.identifiers.new_id()
+        try:
+            with rows(self.database) as cursor:
+                cursor.execute("BEGIN IMMEDIATE")
+                found = cursor.execute(
+                    _DRAFT_BY_ID_AND_OWNER,
+                    (draft_id, write.owner_id),
+                ).fetchone()
+                if found is None:
+                    cursor.execute("ROLLBACK")
+                    return None
+                draft = _draft(found, box=self.box)
+                if draft is None:
+                    cursor.execute("ROLLBACK")
+                    return None
+                cursor.execute(
+                    _ADD_SOURCE,
+                    (
+                        identifier,
+                        write.name,
+                        write.url,
+                        write.ref,
+                        self.box.encrypt(draft.private_key),
+                        write.hook_secret_hash,
+                        write.owner_id,
+                        draft.public_key,
+                    ),
+                )
+                cursor.execute(_REMOVE_DRAFT, (draft_id,))
+                cursor.execute("COMMIT")
+        except sqlite3.IntegrityError:
+            return None
+        return Source(
+            id=identifier,
+            name=write.name,
+            url=write.url,
+            ref=write.ref,
+            secret_location=SecretLocation.STORED,
+            owner_id=write.owner_id,
+            public_key=draft.public_key,
+        )
+
     def hook_secret_hash(self, name: str) -> bytes | None:
         """The stored hash of that source's webhook secret, if this name exists."""
         with rows(self.database) as cursor:
@@ -474,6 +523,42 @@ class SqliteSourceKeyDrafts:
                     at.isoformat(),
                 ),
             )
+        return DeployKeyDraft(
+            id=identifier,
+            owner_id=owner_id,
+            public_key=pair.public_key,
+            private_key=pair.private_key,
+            created_at=at,
+        )
+
+    def get_or_mint(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+        at: datetime,
+    ) -> DeployKeyDraft:
+        """Reuse one young draft or mint one while holding its owner's SQLite row."""
+        with rows(self.database) as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            found = cursor.execute(_DRAFT_BY_OWNER, (owner_id,)).fetchone()
+            draft = None if found is None else _draft(found, box=self.box)
+            if draft is not None and draft.created_at >= newer_than:
+                cursor.execute("COMMIT")
+                return draft
+            pair = generate_deploy_key()
+            identifier = self.identifiers.new_id()
+            cursor.execute(
+                _ADD_DRAFT,
+                (
+                    identifier,
+                    owner_id,
+                    pair.public_key,
+                    self.box.encrypt(pair.private_key),
+                    at.isoformat(),
+                ),
+            )
+            cursor.execute("COMMIT")
         return DeployKeyDraft(
             id=identifier,
             owner_id=owner_id,
@@ -626,11 +711,12 @@ class SourceMirrors:
         return self.directory / f"{sha256(source.url.encode()).hexdigest()}.git"
 
 
-# The only access kinds the checker knows how to probe; anything else — no
-# scheme it recognises, or SSH, which the form does not offer yet — is
-# refused before a single argument reaches git, never handed to it on the
-# chance a probe might make sense of it.
-_PROBED_ACCESS_KINDS: Final = frozenset({AccessKind.HTTPS, AccessKind.FILE})
+# The access kinds the Add form can check. Everything else is refused before
+# a single argument reaches git, never handed to it on the chance a probe
+# might make sense of it.
+_PROBED_ACCESS_KINDS: Final = frozenset(
+    {AccessKind.HTTPS, AccessKind.SSH, AccessKind.FILE},
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -639,6 +725,7 @@ class MirroredConnectionChecker:
 
     check_timeout: timedelta
     local_mount: LocalMount
+    known_hosts: Path
 
     def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
         """No failure and the head commit when reachable, or which failure and why.
@@ -669,6 +756,7 @@ class MirroredConnectionChecker:
             ref=ref,
             secret=secret or None,
             timeout=self.check_timeout,
+            known_hosts=self.known_hosts,
         )
         if probed.state is ConnectionState.READY:
             return ConnectionCheckResult(

@@ -314,6 +314,7 @@ class FakeSourceStore:
     sources: list[Source] = field(default_factory=list[Source])
     hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
     secrets: dict[str, str] = field(default_factory=dict[str, str])
+    key_drafts: FakeDeployKeyDrafts | None = None
     minted: int = 0
 
     def add(self, write: SourceWrite) -> Source | None:
@@ -335,6 +336,17 @@ class FakeSourceStore:
         self.sources.append(stored)
         self.hashes[write.name] = write.hook_secret_hash
         self.secrets[stored.id] = write.access_secret
+        return stored
+
+    def add_from_draft(self, write: SourceWrite, *, draft_id: str) -> Source | None:
+        if self.key_drafts is None:
+            return None
+        draft = self.key_drafts.drafts.get(write.owner_id)
+        if draft is None or draft.id != draft_id:
+            return None
+        stored = self.add(write)
+        if stored is not None:
+            self.key_drafts.bind(draft_id, owner_id=write.owner_id)
         return stored
 
     def hook_secret_hash(self, name: str) -> bytes | None:
@@ -396,6 +408,16 @@ class FakeDeployKeyDrafts:
         )
         self.drafts[owner_id] = draft
         return draft
+
+    def get_or_mint(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+        at: datetime,
+    ) -> DeployKeyDraft:
+        existing = self.unconsumed_for(owner_id, newer_than=newer_than)
+        return existing if existing is not None else self.mint(owner_id, at=at)
 
     def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:
         draft = self.drafts.get(owner_id)
