@@ -149,13 +149,17 @@ dev dependency; the script drives Google Chrome on PATH (`google-chrome`).
 uv run python scripts/prove_loop.py
 
 # Real speech at COPRESENTER_SPEECH_URL (default http://127.0.0.1:8090)
-# and the installed `claude` executable. Synthesises a German question
-# through `/speak` (Piper's 22050 Hz WAV), resamples to 16 kHz, streams
-# 100 ms PCM frames plus 1.2 s of trailing silence into the overlay's
-# `/hear`, waits for a transcript, a Claude answer, and audio actually
-# played, then toggles off while audio is playing.
-# Prints `ran: real`. Refuses to start if `GET /health` is not ready.
-# Scrubs this runner's agent-session variables (`CLAUDECODE`,
+# and the installed `claude` executable. Refuses to start unless
+# GET /health is ready and neither speaking nor hearing model is the
+# stand-in's identity (`stand-in`). Synthesises a German question
+# through `/speak`, resamples the WAV to 16 kHz, streams 100 ms PCM
+# frames plus 1.2 s of trailing silence into the overlay's `/hear`,
+# waits for a transcript, a Claude answer, and the overlay's
+# `audioPlaying` flag, then toggles off while that flag is true and
+# asserts the microphone, hearing socket, and capture worklet are
+# released. Prints `ran: real` only after those assertions hold.
+# On failure prints `ran: real, proof: FAILED` with the failing
+# assertion. Scrubs this runner's agent-session variables (`CLAUDECODE`,
 # `CLAUDE_CODE_*`, `CLAUDE_PID`, `AI_AGENT`) from the co-presenter child
 # so Claude sees a plain shell.
 uv run python scripts/prove_loop.py --real

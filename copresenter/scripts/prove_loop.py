@@ -5,8 +5,11 @@ Default: the speech stand-in and a canned answerer. Prints `ran: stand-in`.
 installed `claude` executable, synthesises a German question through `/speak`,
 resamples it to the hearing rate, streams 100 ms PCM frames plus trailing
 silence into `/hear`, drives a real Claude turn, then toggles off during
-playback. Prints `ran: real`. Refuses to start if the speech service is not
-ready, and never names a stand-in run `real`.
+playback. Prints `ran: real` only after every assertion. On failure prints
+`ran: real, proof: FAILED` with the failing assertion. Refuses to start if
+the speech service is not ready or if `/health` names the stand-in's
+speaking or hearing identity (`stand-in`), and never names a stand-in run
+`real`.
 
 Not a product test. Holds `/tmp/probe-stack.lock` while it binds ports.
 """
@@ -75,6 +78,8 @@ _WHO_TIMEOUT = 2.0
 _SPEAK_TIMEOUT = 30.0
 _TERMINATE_SECONDS = 10
 _KILL_SECONDS = 5
+_STANDIN_SPEAKING_MODEL = "stand-in"
+_STANDIN_HEARING_MODEL = "stand-in"
 
 
 def _free_port() -> int:
@@ -270,10 +275,7 @@ def _drive_off_during_playback(page) -> dict[str, object]:
     _turn_on_local(page)
     page.evaluate("() => window.__copresenter.say('Was steht auf dieser Folie?')")
     page.wait_for_function(
-        """() => {
-            const snap = window.__copresenter.snapshot()
-            return snap.speaking === true || snap.audioPlaying === true
-        }""",
+        "() => window.__copresenter.snapshot().audioPlaying === true",
         timeout=20000,
     )
     page.evaluate("() => window.__copresenter.setOn(false)")
@@ -285,6 +287,7 @@ def _drive_off_during_playback(page) -> dict[str, object]:
         "audioPlaying": snap["audioPlaying"],
         "hearOpen": snap["hearOpen"],
         "micLive": snap["micLive"],
+        "workletLive": snap["workletLive"],
     }
 
 
@@ -416,6 +419,18 @@ def _speech_ready(url: str) -> tuple[bool, dict[str, object]]:
     return ready, payload
 
 
+def _health_identities_are_real(payload: dict[str, object]) -> bool:
+    speaking = payload.get("speaking")
+    hearing = payload.get("hearing")
+    if not isinstance(speaking, dict) or not isinstance(hearing, dict):
+        return False
+    speaking_model = speaking.get("model")
+    hearing_model = hearing.get("model")
+    if not isinstance(speaking_model, str) or not isinstance(hearing_model, str):
+        return False
+    return speaking_model != _STANDIN_SPEAKING_MODEL and hearing_model != _STANDIN_HEARING_MODEL
+
+
 def _chrome_path() -> str:
     found = shutil.which("google-chrome")
     if found:
@@ -461,11 +476,9 @@ def _ok_standin(result: dict[str, object]) -> bool:
     closed = result["socket_close"]
     late = result["late_microphone"]
     loop_ok = bool(loop.get("heard") and loop.get("answer") and loop.get("audioSeconds"))
-    off_ok = loop.get("off", {}).get("on") is False
+    off_ok = _off_released(loop.get("off"))
     activation_ok = not (off_act.get("on") or off_act.get("hearOpen") or off_act.get("micLive"))
-    playback_ok = not (
-        off_play.get("on") or off_play.get("audioPlaying") or off_play.get("speaking")
-    )
+    playback_ok = _off_released(off_play)
     closed_ok = bool(closed.get("error"))
     late_ok = (
         late.get("on") is True
@@ -481,29 +494,29 @@ def _ok_standin(result: dict[str, object]) -> bool:
 def _off_released(off: object) -> bool:
     if not isinstance(off, dict):
         return False
-    return not (
-        off.get("on")
-        or off.get("speaking")
-        or off.get("audioPlaying")
-        or off.get("hearOpen")
-        or off.get("micLive")
-    )
-
-
-def _ok_real(result: dict[str, object]) -> bool:
-    heard = result.get("heard")
-    answer = result.get("answer")
-    audio = result.get("audio_seconds")
     return (
-        result.get("ran") == "real"
-        and isinstance(heard, str)
-        and bool(heard.strip())
-        and isinstance(answer, str)
-        and bool(answer.strip())
-        and isinstance(audio, (int, float))
-        and audio > 0
-        and _off_released(result.get("off_during_playback"))
+        off.get("on") is False
+        and off.get("speaking") is False
+        and off.get("audioPlaying") is False
+        and off.get("hearOpen") is False
+        and off.get("micLive") is False
+        and off.get("workletLive") is False
     )
+
+
+def _real_failure(result: dict[str, object]) -> str | None:
+    heard = result.get("heard")
+    if not isinstance(heard, str) or not heard.strip():
+        return "heard"
+    answer = result.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        return "answer"
+    audio = result.get("audio_seconds")
+    if not isinstance(audio, (int, float)) or audio <= 0:
+        return "audio_seconds"
+    if not _off_released(result.get("off_during_playback")):
+        return "off_during_playback"
+    return None
 
 
 def _emit(report: dict[str, object]) -> None:
@@ -568,7 +581,6 @@ def _drive_real_turn(page, frames: list[bytes]) -> dict[str, object]:
     snap = page.evaluate("() => window.__copresenter.snapshot()")
     off = _drive_off_during_playback(page)
     return {
-        "ran": "real",
         "heard": snap.get("heard"),
         "answer": snap.get("answer"),
         "audio_seconds": snap.get("audioSeconds"),
@@ -676,14 +688,41 @@ def _run_standin() -> int:
             speech_server.should_exit = True
 
 
-def _run_real() -> int:
-    speech_url = load_settings().speech_url.rstrip("/")
+def _real_preflight(speech_url: str) -> str | None:
     ready, health = _speech_ready(speech_url)
     if not ready:
-        sys.stderr.write(f"real mode needs a ready speech service at {speech_url}: {health}\n")
-        return 1
+        return f"real mode needs a ready speech service at {speech_url}: {health}"
+    if not _health_identities_are_real(health):
+        return (
+            "real mode refuses a speech service whose speaking or hearing "
+            f"model is the stand-in ({_STANDIN_SPEAKING_MODEL!r}/"
+            f"{_STANDIN_HEARING_MODEL!r}) at {speech_url}: {health}"
+        )
     if shutil.which("claude") is None:
-        sys.stderr.write("real mode needs the claude executable on PATH\n")
+        return "real mode needs the claude executable on PATH"
+    return None
+
+
+def _report_real(result: dict[str, object]) -> int:
+    if result.get("ran") == "failed":
+        _emit(result)
+        return 1
+    failed = _real_failure(result)
+    if failed is not None:
+        result["ran"] = "real, proof: FAILED"
+        result["failed_assertion"] = failed
+        _emit(result)
+        return 1
+    result["ran"] = "real"
+    _emit(result)
+    return 0
+
+
+def _run_real() -> int:
+    speech_url = load_settings().speech_url.rstrip("/")
+    blocked = _real_preflight(speech_url)
+    if blocked is not None:
+        sys.stderr.write(f"{blocked}\n")
         return 1
     host = "127.0.0.1"
     present_port = _free_port()
@@ -709,8 +748,7 @@ def _run_real() -> int:
         talk_url = f"http://{host}:{talk_port}/?copresenter={present_url}"
         result = _browser_real(talk_url, speech_url)
         result["who"] = who
-        _emit(result)
-        return 0 if _ok_real(result) else 1
+        return _report_real(result)
     finally:
         if httpd is not None:
             httpd.shutdown()
