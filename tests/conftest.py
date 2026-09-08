@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import stat
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -21,6 +22,29 @@ _AUTHORSHIP = {
     "GIT_COMMITTER_NAME": "a test",
     "GIT_COMMITTER_EMAIL": "test@example.invalid",
 }
+
+
+def a_path_carrying(*directories: Path) -> str:
+    """A PATH with git on it, because reading a deck is still spawning git."""
+    git = shutil.which("git")
+    assert git is not None
+    beside_git = Path(git).parent
+    return os.pathsep.join(str(directory) for directory in (*directories, beside_git))
+
+
+def with_the_program(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    program: str,
+    script: str,
+) -> None:
+    """Put a program this test wrote on PATH, ahead of any real one."""
+    somewhere_on_path = tmp_path / "programs-on-path"
+    somewhere_on_path.mkdir(exist_ok=True)
+    stand_in = somewhere_on_path / program
+    stand_in.write_text(script, encoding="utf-8")
+    stand_in.chmod(stand_in.stat().st_mode | stat.S_IEXEC)
+    machine.setenv("PATH", a_path_carrying(somewhere_on_path))
 
 
 def _git(inside: Path, *arguments: str, at: datetime | None = None) -> str:

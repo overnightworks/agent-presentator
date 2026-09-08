@@ -166,7 +166,6 @@ class BuildRunner(Protocol):
     def holds(self, artefacts: Artefacts) -> bool:
         """Whether both artefacts really stand under the root builds are kept in.
 
-        A deck is code that runs on this host until it is sandboxed
-        (ADR 0005), so where a build says it wrote is checked rather than
-        trusted before that place becomes an address.
+        A deck is code (ADR 0005), so where a build says it wrote is checked
+        rather than trusted before that place becomes an address.
         """
