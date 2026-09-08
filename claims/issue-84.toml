@@ -1,0 +1,7 @@
+claim_id = "7a226cc373be465c881d72ca635d00a7"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "c78dbbab7e9202047ce92b15f2c29ba2da80ebeb"
+branch = "claude/issue-84-themes"
+scope = ["frontend/package.json", "frontend/pnpm-lock.yaml", "docs/OPERATIONS.md"]
+opened_commit = "2802320b18e9b274051f4baaf0e02b48d08b0d0f"
