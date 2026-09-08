@@ -135,3 +135,28 @@ The stage needs `claude` on PATH with a login, and the speech service.
 
 The stand-in is not a voice. It returns a short tone and one canned German
 transcript so the loop can be proven against the contract.
+
+## How to prove the loop
+
+Two modes. The default never claims the GPU service or Claude.
+
+From this directory, after `uv sync --group dev`. Playwright is a declared
+dev dependency; the script drives Google Chrome on PATH (`google-chrome`).
+
+```sh
+# Stand-in speech and a canned answerer, overlay in a real browser.
+# Prints `ran: stand-in`. Needs no GPU and no Claude login.
+uv run python scripts/prove_loop.py
+
+# Real speech at COPRESENTER_SPEECH_URL (default http://127.0.0.1:8090)
+# and the installed `claude` executable. Synthesises a German question
+# through `/speak` (Piper's 22050 Hz WAV), resamples to 16 kHz, streams
+# 100 ms PCM frames plus 1.2 s of trailing silence into the overlay's
+# `/hear`, waits for a transcript, a Claude answer, and audio actually
+# played, then toggles off while audio is playing.
+# Prints `ran: real`. Refuses to start if `GET /health` is not ready.
+# Scrubs this runner's agent-session variables (`CLAUDECODE`,
+# `CLAUDE_CODE_*`, `CLAUDE_PID`, `AI_AGENT`) from the co-presenter child
+# so Claude sees a plain shell.
+uv run python scripts/prove_loop.py --real
+```

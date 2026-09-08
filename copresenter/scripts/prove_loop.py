@@ -1,13 +1,25 @@
-"""Drive the overlay against the speech stand-in in a real browser.
+"""Drive the overlay in a real browser.
+
+Default: the speech stand-in and a canned answerer. Prints `ran: stand-in`.
+`--real` requires the speech service at `COPRESENTER_SPEECH_URL` and the
+installed `claude` executable, synthesises a German question through `/speak`,
+resamples it to the hearing rate, streams 100 ms PCM frames plus trailing
+silence into `/hear`, drives a real Claude turn, then toggles off during
+playback. Prints `ran: real`. Refuses to start if the speech service is not
+ready, and never names a stand-in run `real`.
 
 Not a product test. Holds `/tmp/probe-stack.lock` while it binds ports.
 """
 
 from __future__ import annotations
 
+import argparse
+import array
 import fcntl
 import json
 import os
+import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -15,23 +27,54 @@ import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from typing import IO
 
 import httpx
 import uvicorn
 
 from copresenter.answer import CannedAnswerer
 from copresenter.app import compose
-from copresenter.config import Settings
+from copresenter.config import Settings, load_settings
 from copresenter.standin import create_standin
 from copresenter.wav import SAMPLE_RATE
 
 REPO = Path(__file__).resolve().parents[2]
+COPRESENTER_DIR = Path(__file__).resolve().parents[1]
 DECK = REPO / "examples" / "copresenter-deck"
 FRONTEND = REPO / "frontend"
 TALK = Path("/tmp/copresenter-talk")
 REPORT = Path("/tmp/copresenter-proof.json")
 LOCK = Path("/tmp/probe-stack.lock")
-SPEECH_SERVICE = "http://127.0.0.1:8090"
+COPRESENTER_LOG = Path("/tmp/copresenter-real.log")
+
+QUESTION = "Was steht auf der ersten Folie?"
+HEAR_SAMPLE_RATE = SAMPLE_RATE
+FRAME_MS = 100
+TRAILING_SILENCE_S = 1.2
+FRAME_GAP_MS = 15
+WAV_HEADER_BYTES = 44
+STREAMING_DATA_SIZE = 0xFFFFFFFF
+_RIFF = b"RIFF"
+_WAVE = b"WAVE"
+_DATA = b"data"
+_RATE_AT = 24
+_RATE_BYTES = 4
+_CHUNK_HEADER_BYTES = 8
+_NESTED_SESSION_ENV_PREFIXES = ("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID", "AI_AGENT")
+CHROME_ARGS = (
+    "--headless=new",
+    "--autoplay-policy=no-user-gesture-required",
+    "--use-fake-ui-for-media-stream",
+    "--use-fake-device-for-media-stream",
+    "--mute-audio",
+)
+_REAL_TRANSCRIPT_TIMEOUT_MS = 20_000
+_REAL_ANSWER_TIMEOUT_MS = 60_000
+_SPEECH_HEALTH_TIMEOUT = 2.0
+_WHO_TIMEOUT = 2.0
+_SPEAK_TIMEOUT = 30.0
+_TERMINATE_SECONDS = 10
+_KILL_SECONDS = 5
 
 
 def _free_port() -> int:
@@ -87,6 +130,81 @@ def _build_talk() -> None:
 
 def _pcm_frame() -> bytes:
     return b"\x00\x00" * (SAMPLE_RATE // 10)
+
+
+def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
+    """Sample rate and PCM of a 16-bit mono WAV, including a streaming size."""
+    if len(data) < WAV_HEADER_BYTES or data[:4] != _RIFF or data[8:12] != _WAVE:
+        message = "not a WAV body"
+        raise ValueError(message)
+    rate = int.from_bytes(data[_RATE_AT : _RATE_AT + _RATE_BYTES], "little")
+    position = 12
+    while position + _CHUNK_HEADER_BYTES <= len(data):
+        chunk_id = data[position : position + 4]
+        chunk_size = int.from_bytes(
+            data[position + 4 : position + _CHUNK_HEADER_BYTES],
+            "little",
+        )
+        payload_at = position + _CHUNK_HEADER_BYTES
+        if chunk_id == _DATA:
+            return rate, data[payload_at:]
+        if chunk_size == STREAMING_DATA_SIZE:
+            message = "WAV chunk before data has no length"
+            raise ValueError(message)
+        position = payload_at + chunk_size
+    message = "WAV has no data chunk"
+    raise ValueError(message)
+
+
+def _resample_linear(pcm: bytes, from_rate: int, to_rate: int) -> bytes:
+    if from_rate == to_rate:
+        return pcm
+    source = array.array("h")
+    source.frombytes(pcm[: len(pcm) - (len(pcm) % 2)])
+    if not source:
+        return b""
+    ratio = from_rate / to_rate
+    out_len = max(1, round(len(source) / ratio))
+    out = array.array("h", [0]) * out_len
+    last = len(source) - 1
+    for index in range(out_len):
+        pos = index * ratio
+        low = int(pos)
+        high = min(low + 1, last)
+        frac = pos - low
+        out[index] = int(source[low] * (1 - frac) + source[high] * frac)
+    return out.tobytes()
+
+
+def _chunk_frames(pcm: bytes, rate: int, frame_ms: int) -> list[bytes]:
+    frame_bytes = int(rate * frame_ms / 1000) * 2
+    return [pcm[index : index + frame_bytes] for index in range(0, len(pcm), frame_bytes)]
+
+
+def _synthesize_question_frames(speech_url: str, text: str) -> list[bytes]:
+    """Speak `text` on the real service and return 16 kHz PCM frames + silence."""
+    response = httpx.post(
+        f"{speech_url}/speak",
+        json={"text": text, "language": "de"},
+        timeout=_SPEAK_TIMEOUT,
+    )
+    response.raise_for_status()
+    rate, pcm = _pcm_from_wav(response.content)
+    resampled = _resample_linear(pcm, rate, HEAR_SAMPLE_RATE)
+    silence = b"\x00\x00" * int(HEAR_SAMPLE_RATE * TRAILING_SILENCE_S)
+    return _chunk_frames(resampled + silence, HEAR_SAMPLE_RATE, FRAME_MS)
+
+
+def _send_frames(page, frames: list[bytes]) -> None:
+    for frame in frames:
+        page.evaluate(
+            """(bytes) => {
+                const arr = Uint8Array.from(bytes)
+                return window.__copresenter.sendPcm(arr.buffer)
+            }""",
+            list(frame),
+        )
+        page.wait_for_timeout(FRAME_GAP_MS)
 
 
 def _wait_ready(page) -> None:
@@ -156,7 +274,7 @@ def _drive_off_during_playback(page) -> dict[str, object]:
             const snap = window.__copresenter.snapshot()
             return snap.speaking === true || snap.audioPlaying === true
         }""",
-        timeout=15000,
+        timeout=20000,
     )
     page.evaluate("() => window.__copresenter.setOn(false)")
     page.wait_for_function("() => window.__copresenter.snapshot().on === false")
@@ -283,59 +401,45 @@ def _drive_against_speech(page, talk_url: str) -> dict[str, object]:
     }
 
 
-def _speech_ready(url: str) -> bool:
+def _speech_ready(url: str) -> tuple[bool, dict[str, object]]:
     try:
-        body = httpx.get(f"{url}/health", timeout=1.0).json()
+        payload = httpx.get(f"{url}/health", timeout=_SPEECH_HEALTH_TIMEOUT).json()
     except (httpx.HTTPError, ValueError, TypeError):
-        return False
-    speaking = body.get("speaking") if isinstance(body, dict) else None
-    if not isinstance(speaking, dict):
-        return False
-    return speaking.get("ready") is True
+        return False, {}
+    if not isinstance(payload, dict):
+        return False, {}
+    speaking = payload.get("speaking")
+    hearing = payload.get("hearing")
+    if not isinstance(speaking, dict) or not isinstance(hearing, dict):
+        return False, payload
+    ready = speaking.get("ready") is True and hearing.get("ready") is True
+    return ready, payload
 
 
-def _drive_real_speech(browser) -> dict[str, object]:
-    talk_port = _free_port()
-    httpd = ThreadingHTTPServer(("127.0.0.1", talk_port), TalkHandler)
-    thread = Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    copresenter_server = None
-    try:
-        present_port = _free_port()
-        settings = Settings(port=present_port, speech_url=SPEECH_SERVICE, deck=DECK)
-        copresenter_server = _serve(
-            compose(settings, answerer=CannedAnswerer()),
-            "127.0.0.1",
-            present_port,
-        )
-        _wait_http(f"http://127.0.0.1:{present_port}/who")
-        talk_url = f"http://127.0.0.1:{talk_port}/?copresenter=http://127.0.0.1:{present_port}"
-        page = browser.new_page()
-        page.goto(talk_url, wait_until="networkidle")
-        _wait_ready(page)
-        page.evaluate("() => window.__copresenter.setOn(true)")
-        page.wait_for_function("() => window.__copresenter.snapshot().on === true")
-        page.evaluate("() => window.__copresenter.say('Was steht auf dieser Folie?')")
-        page.wait_for_function(
-            """() => {
-                const snap = window.__copresenter.snapshot()
-                return snap.answer.length > 0 && snap.audioSeconds > 0
-            }""",
-            timeout=30000,
-        )
-        snap = page.evaluate("() => window.__copresenter.snapshot()")
-        page.evaluate("() => window.__copresenter.setOn(false)")
-        who = httpx.get(f"http://127.0.0.1:{present_port}/who", timeout=2.0).json()
-        return {
-            "heard": snap.get("heard"),
-            "answer": snap.get("answer"),
-            "audio_seconds": snap.get("audioSeconds"),
-            "who": who,
-        }
-    finally:
-        httpd.shutdown()
-        if copresenter_server is not None:
-            copresenter_server.should_exit = True
+def _chrome_path() -> str:
+    found = shutil.which("google-chrome")
+    if found:
+        return found
+    message = "google-chrome is required on PATH"
+    raise RuntimeError(message)
+
+
+def _open_browser() -> tuple[object, object, object]:
+    from playwright.sync_api import sync_playwright
+
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.launch(
+        executable_path=_chrome_path(),
+        args=list(CHROME_ARGS),
+    )
+    context = browser.new_context(permissions=["microphone"])
+    return playwright, browser, context
+
+
+def _close_browser(playwright, browser, context) -> None:
+    context.close()
+    browser.close()
+    playwright.stop()
 
 
 class TalkHandler(SimpleHTTPRequestHandler):
@@ -374,31 +478,51 @@ def _ok_standin(result: dict[str, object]) -> bool:
     return loop_ok and off_ok and activation_ok and playback_ok and closed_ok and late_ok
 
 
-def _browser_proof(talk_url: str, present_url: str) -> tuple[dict[str, object], bool]:
-    from playwright.sync_api import sync_playwright
+def _off_released(off: object) -> bool:
+    if not isinstance(off, dict):
+        return False
+    return not (
+        off.get("on")
+        or off.get("speaking")
+        or off.get("audioPlaying")
+        or off.get("hearOpen")
+        or off.get("micLive")
+    )
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            executable_path="/usr/bin/google-chrome",
-            args=[
-                "--headless=new",
-                "--autoplay-policy=no-user-gesture-required",
-                "--use-fake-ui-for-media-stream",
-                "--use-fake-device-for-media-stream",
-                "--mute-audio",
-            ],
-        )
-        context = browser.new_context(permissions=["microphone"])
+
+def _ok_real(result: dict[str, object]) -> bool:
+    heard = result.get("heard")
+    answer = result.get("answer")
+    audio = result.get("audio_seconds")
+    return (
+        result.get("ran") == "real"
+        and isinstance(heard, str)
+        and bool(heard.strip())
+        and isinstance(answer, str)
+        and bool(answer.strip())
+        and isinstance(audio, (int, float))
+        and audio > 0
+        and _off_released(result.get("off_during_playback"))
+    )
+
+
+def _emit(report: dict[str, object]) -> None:
+    text = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    REPORT.write_text(text, encoding="utf-8")
+    sys.stdout.write(text)
+
+
+def _browser_standin(talk_url: str, present_url: str) -> tuple[dict[str, object], bool]:
+    playwright, browser, context = _open_browser()
+    try:
         page = context.new_page()
         result = _drive_against_speech(page, talk_url)
-        who = httpx.get(f"{present_url}/who", timeout=2.0).json()
-        if _speech_ready(SPEECH_SERVICE):
-            speech_8090: dict[str, object] | str = _drive_real_speech(context)
-        else:
-            speech_8090 = "skipped: GET /health on :8090 is not ready"
-        browser.close()
+        who = httpx.get(f"{present_url}/who", timeout=_WHO_TIMEOUT).json()
+    finally:
+        _close_browser(playwright, browser, context)
     loop = result["loop"]
     report = {
+        "ran": "stand-in",
         "hearing": loop.get("hearing"),
         "heard": loop.get("heard"),
         "answer": loop.get("answer"),
@@ -409,30 +533,121 @@ def _browser_proof(talk_url: str, present_url: str) -> tuple[dict[str, object], 
         "off_during_playback": result["off_during_playback"],
         "socket_close": result["socket_close"],
         "late_microphone": result["late_microphone"],
-        "speech_8090": speech_8090,
         "who": who,
-        "answerer": "canned",
-        "speech": "stand-in",
     }
-    REPORT.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    _emit(report)
     return report, _ok_standin(result)
 
 
-def main() -> int:
-    load = Path("/proc/loadavg").read_text(encoding="utf-8").split()[0]
-    if float(load) > 1.5 * os.cpu_count():
-        sys.stderr.write(f"load {load} is too high to bind a probe stack\n")
-        return 2
-    lock = os.open(LOCK, os.O_CREAT | os.O_RDWR)
-    fcntl.flock(lock, fcntl.LOCK_EX)
+def _drive_real_turn(page, frames: list[bytes]) -> dict[str, object]:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    _wait_ready(page)
+    _turn_on_local(page)
+    _send_frames(page, frames)
+    try:
+        page.wait_for_function(
+            "() => window.__copresenter.snapshot().heard.length > 0",
+            timeout=_REAL_TRANSCRIPT_TIMEOUT_MS,
+        )
+        page.wait_for_function(
+            """() => {
+                const snap = window.__copresenter.snapshot()
+                return snap.answer.length > 0 && snap.audioSeconds > 0
+                    && snap.speaking === false
+            }""",
+            timeout=_REAL_ANSWER_TIMEOUT_MS,
+        )
+    except PlaywrightTimeout as exc:
+        snap = page.evaluate("() => window.__copresenter.snapshot()")
+        return {
+            "ran": "failed",
+            "error_verbatim": str(exc),
+            "last_snapshot": snap,
+        }
+    snap = page.evaluate("() => window.__copresenter.snapshot()")
+    off = _drive_off_during_playback(page)
+    return {
+        "ran": "real",
+        "heard": snap.get("heard"),
+        "answer": snap.get("answer"),
+        "audio_seconds": snap.get("audioSeconds"),
+        "error": snap.get("error"),
+        "model": snap.get("model"),
+        "off_during_playback": off,
+    }
+
+
+def _browser_real(talk_url: str, speech_url: str) -> dict[str, object]:
+    frames = _synthesize_question_frames(speech_url, QUESTION)
+    playwright, browser, context = _open_browser()
+    try:
+        page = context.new_page()
+        page.goto(talk_url, wait_until="networkidle")
+        return _drive_real_turn(page, frames)
+    finally:
+        _close_browser(playwright, browser, context)
+
+
+def _scrub_nested_session_env(env: dict[str, str]) -> dict[str, str]:
+    """Drop this runner's agent-session vars so the CLI child is a plain shell."""
+    return {
+        key: value
+        for key, value in env.items()
+        if not any(key.startswith(prefix) for prefix in _NESTED_SESSION_ENV_PREFIXES)
+    }
+
+
+def _start_copresenter(
+    host: str,
+    port: int,
+    speech_url: str,
+    log_file: IO[str],
+) -> subprocess.Popen[bytes]:
+    env = _scrub_nested_session_env(os.environ.copy())
+    env["COPRESENTER_HOST"] = host
+    env["COPRESENTER_PORT"] = str(port)
+    env["COPRESENTER_SPEECH_URL"] = speech_url
+    env["COPRESENTER_DECK"] = str(DECK)
+    return subprocess.Popen(
+        ["uv", "run", "copresenter"],
+        cwd=COPRESENTER_DIR,
+        env=env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+
+
+def _terminate(proc: subprocess.Popen[bytes] | None) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(timeout=_TERMINATE_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        proc.wait(timeout=_KILL_SECONDS)
+
+
+def _claude_provider(who: object) -> bool:
+    if not isinstance(who, dict):
+        return False
+    answerer = who.get("answerer")
+    return isinstance(answerer, dict) and answerer.get("provider") == "claude"
+
+
+def _run_standin() -> int:
     speech_server = None
     copresenter_server = None
     httpd = None
     try:
-        if not (FRONTEND / "node_modules").is_dir():
-            subprocess.run(["pnpm", "install", "--frozen-lockfile"], check=True, cwd=FRONTEND)
-        _build_talk()
         speech_port = _free_port()
         present_port = _free_port()
         talk_port = _free_port()
@@ -450,7 +665,7 @@ def main() -> int:
         httpd = ThreadingHTTPServer(("127.0.0.1", talk_port), TalkHandler)
         Thread(target=httpd.serve_forever, daemon=True).start()
         talk_url = f"http://127.0.0.1:{talk_port}/?copresenter={present_url}"
-        _report, ok = _browser_proof(talk_url, present_url)
+        _report, ok = _browser_standin(talk_url, present_url)
         return 0 if ok else 1
     finally:
         if httpd is not None:
@@ -459,6 +674,76 @@ def main() -> int:
             copresenter_server.should_exit = True
         if speech_server is not None:
             speech_server.should_exit = True
+
+
+def _run_real() -> int:
+    speech_url = load_settings().speech_url.rstrip("/")
+    ready, health = _speech_ready(speech_url)
+    if not ready:
+        sys.stderr.write(f"real mode needs a ready speech service at {speech_url}: {health}\n")
+        return 1
+    if shutil.which("claude") is None:
+        sys.stderr.write("real mode needs the claude executable on PATH\n")
+        return 1
+    host = "127.0.0.1"
+    present_port = _free_port()
+    talk_port = _free_port()
+    present_url = f"http://{host}:{present_port}"
+    httpd = None
+    proc = None
+    log_file = COPRESENTER_LOG.open("w", encoding="utf-8")
+    try:
+        proc = _start_copresenter(host, present_port, speech_url, log_file)
+        _wait_http(f"{present_url}/who")
+        who = httpx.get(f"{present_url}/who", timeout=_WHO_TIMEOUT).json()
+        if not _claude_provider(who):
+            report = {
+                "ran": "failed",
+                "who": who,
+                "error_verbatim": "answerer is not the installed claude executable",
+            }
+            _emit(report)
+            return 1
+        httpd = ThreadingHTTPServer((host, talk_port), TalkHandler)
+        Thread(target=httpd.serve_forever, daemon=True).start()
+        talk_url = f"http://{host}:{talk_port}/?copresenter={present_url}"
+        result = _browser_real(talk_url, speech_url)
+        result["who"] = who
+        _emit(result)
+        return 0 if _ok_real(result) else 1
+    finally:
+        if httpd is not None:
+            httpd.shutdown()
+        _terminate(proc)
+        log_file.close()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help=(
+            "Require the speech service at COPRESENTER_SPEECH_URL and the "
+            "installed claude executable; stream synthesised PCM into /hear"
+        ),
+    )
+    args = parser.parse_args()
+    load = Path("/proc/loadavg").read_text(encoding="utf-8").split()[0]
+    cpus = os.cpu_count() or 1
+    if float(load) > 1.5 * cpus:
+        sys.stderr.write(f"load {load} is too high to bind a probe stack\n")
+        return 2
+    lock = os.open(LOCK, os.O_CREAT | os.O_RDWR)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        if not (FRONTEND / "node_modules").is_dir():
+            subprocess.run(["pnpm", "install", "--frozen-lockfile"], check=True, cwd=FRONTEND)
+        _build_talk()
+        if args.real:
+            return _run_real()
+        return _run_standin()
+    finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         os.close(lock)
 
