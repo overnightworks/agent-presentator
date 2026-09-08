@@ -97,8 +97,10 @@ class LobbyText:
     source_access: str
     source_access_ssh: str
     source_access_https: str
+    source_access_file: str
     source_access_token: str
     source_access_deploy_key: str
+    source_access_local: str
     source_secret: str
     source_secret_info_mark: str
     source_secret_info: str
@@ -121,6 +123,8 @@ class LobbyText:
     source_refused_password: str
     source_refused_access: str
     source_refused_secret: str
+    source_refused_secret_not_allowed: str
+    source_refused_outside_mount: str
     source_access_heading: str
     source_webhook_heading: str
     source_recent_runs: str

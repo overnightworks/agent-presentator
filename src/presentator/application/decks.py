@@ -21,6 +21,7 @@ from typing import Final
 from urllib.parse import urlparse
 
 from presentator.contracts.decks import (
+    LOCAL_SOURCES_MOUNT,
     SLIDES_FILE,
     AccessKind,
     Artefacts,
@@ -42,6 +43,8 @@ from presentator.contracts.decks import (
     SourceRunOutcome,
     SourceState,
     SourceWrite,
+    access_kind_of,
+    local_mount_path_of,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
@@ -71,7 +74,14 @@ _SOURCE_NAME: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The form lives at this path segment, so a source must not take it.
 _RESERVED_SOURCE_NAME: Final = "new"
 _HTTPS_ACCESS: Final = "https"
-_SSH_SCHEMES: Final = frozenset({"ssh"})
+_FILE_ACCESS: Final = "file"
+# The access value the form's own kind maps to, so a mismatch between what a
+# person picked and what the URL actually names is one lookup, not a growing
+# chain of conditions per kind.
+_EXPECTED_ACCESS_KIND: Final = {
+    _HTTPS_ACCESS: AccessKind.HTTPS,
+    _FILE_ACCESS: AccessKind.FILE,
+}
 # Added sources follow main; a later slice is what offers another ref.
 _ADDED_REF: Final = "main"
 _WEBHOOK_SECRET_BYTES: Final = 32
@@ -88,6 +98,8 @@ class SourceRefusal(StrEnum):
     USERINFO = "password-in-url"
     ACCESS_MISMATCH = "access-mismatch"
     BLANK_ACCESS = "missing-secret"
+    CREDENTIAL_NOT_ALLOWED = "credential-not-allowed"
+    OUTSIDE_MOUNT = "outside-local-mount"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -98,20 +110,17 @@ class AddedSource:
     webhook_secret: str
 
 
-def access_kind_of(url: str) -> AccessKind | None:
-    """The access the URL's scheme names, or nothing when it names none.
+def _is_within_local_mount(url: str) -> bool:
+    """Whether the file-kind address this URL names still stands under the mount.
 
-    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy key.
-    Anything else is not an access this product has.
+    `local_mount_path_of` already collapsed any `..`, so a name that reads as
+    a sibling or an ancestor of the mount is caught here rather than handed to
+    git as an address to fetch.
     """
-    if any(character < " " for character in url):
-        return None
-    parsed = urlparse(url)
-    if parsed.scheme == _HTTPS_ACCESS:
-        return AccessKind.HTTPS
-    if parsed.scheme in _SSH_SCHEMES or (not parsed.scheme and "@" in url):
-        return AccessKind.SSH
-    return None
+    path = local_mount_path_of(url)
+    return path is not None and (
+        path == LOCAL_SOURCES_MOUNT or LOCAL_SOURCES_MOUNT in path.parents
+    )
 
 
 def hash_webhook_secret(secret: str) -> bytes:
@@ -133,11 +142,19 @@ def _refusal_for(
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
             SourceRefusal.MALFORMED_NAME,
         ),
-        (not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
+        (
+            access == _FILE_ACCESS and bool(secret.strip()),
+            SourceRefusal.CREDENTIAL_NOT_ALLOWED,
+        ),
         (urlparse(url).password is not None, SourceRefusal.USERINFO),
         (
-            access != _HTTPS_ACCESS or access_kind_of(url) is not AccessKind.HTTPS,
+            _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
             SourceRefusal.ACCESS_MISMATCH,
+        ),
+        (
+            access_kind_of(url) is AccessKind.FILE and not _is_within_local_mount(url),
+            SourceRefusal.OUTSIDE_MOUNT,
         ),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),

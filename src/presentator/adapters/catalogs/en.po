@@ -270,11 +270,17 @@ msgstr "SSH deploy key"
 msgid "source_access_https"
 msgstr "HTTPS token"
 
+msgid "source_access_file"
+msgstr "On this box"
+
 msgid "source_access_token"
 msgstr "Token"
 
 msgid "source_access_deploy_key"
 msgstr "Deploy-Key"
+
+msgid "source_access_local"
+msgstr "On this box"
 
 msgid "source_secret"
 msgstr "Secret"
@@ -350,6 +356,14 @@ msgstr ""
 
 msgid "source_refused_secret"
 msgstr "A source needs a secret."
+
+msgid "source_refused_secret_not_allowed"
+msgstr "A source on this box needs no secret — leave it blank."
+
+msgid "source_refused_outside_mount"
+msgstr ""
+"The address has to name a path under /data/local-sources, where the host "
+"directory is mounted."
 
 msgid "source_access_heading"
 msgstr "Access to the Git"

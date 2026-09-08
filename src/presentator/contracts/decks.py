@@ -1,14 +1,22 @@
 """What a deck and its source are, everywhere in this product (ADR 0005)."""
 
+import posixpath
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final
+from urllib.parse import urlparse
 
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
 DECK_PATH: Final = "/deck"
+# Where a host directory mounted read-only into the instance stands: the one
+# place a file-kind source's address may name, fixed rather than a setting,
+# because the mount point is this product's own invariant while the host
+# directory behind it is the deployment's own choice.
+LOCAL_SOURCES_MOUNT: Final = PurePosixPath("/data/local-sources")
+_FILE_SCHEME: Final = "file"
 # What a failed build may say on a page: the end of what its toolchain printed,
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
@@ -48,13 +56,52 @@ RECENT_SOURCE_RUNS: Final = 3
 class AccessKind(StrEnum):
     """How a source is read, derived from its URL's scheme and nothing else.
 
-    HTTPS is a token; SSH and the scp form are a deploy key. The radio on the
-    form has to match this, and a mismatch is refused rather than stored as a
-    third kind.
+    HTTPS is a token; SSH and the scp form are a deploy key; a `file://`
+    address or a bare absolute path is this box's own mount, and carries no
+    secret at all. The radio on the form has to match this, and a mismatch is
+    refused rather than stored as a fourth kind.
     """
 
     HTTPS = "https-token"
     SSH = "ssh-deploy-key"
+    FILE = "local-folder"
+
+
+def local_mount_path_of(url: str) -> PurePosixPath | None:
+    """The address's path, normalized, when it names a file-kind source.
+
+    A file-kind address is either the `file://` scheme or a bare absolute
+    path; `..` is collapsed here, lexically, so a caller judging whether the
+    result still stands under `LOCAL_SOURCES_MOUNT` sees the path the address
+    actually reaches rather than one a `..` component could hide behind.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme == _FILE_SCHEME:
+        raw = parsed.path
+    elif not parsed.scheme and url.startswith("/"):
+        raw = url
+    else:
+        return None
+    return PurePosixPath(posixpath.normpath(raw))
+
+
+def access_kind_of(url: str) -> AccessKind | None:
+    """The access the URL's scheme names, or nothing when it names none.
+
+    HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy
+    key; `file://` or a bare absolute path is this box's own mount. Anything
+    else is not an access this product has.
+    """
+    if any(character < " " for character in url):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme == "https":
+        return AccessKind.HTTPS
+    if parsed.scheme == "ssh" or (not parsed.scheme and "@" in url):
+        return AccessKind.SSH
+    if local_mount_path_of(url) is not None:
+        return AccessKind.FILE
+    return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

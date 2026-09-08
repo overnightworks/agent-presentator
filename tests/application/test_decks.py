@@ -1369,5 +1369,5 @@ def test_https_and_ssh_urls_name_their_access_kind() -> None:
     assert access_kind_of(http) is None
     assert access_kind_of(ssh) is AccessKind.SSH
     assert access_kind_of(scp) is AccessKind.SSH
-    assert access_kind_of("file:///tmp/talks.git") is None
+    assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
     assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None

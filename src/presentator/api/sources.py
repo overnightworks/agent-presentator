@@ -37,6 +37,7 @@ ACCESS: Final = f"{SOURCES}/{{name}}/access"
 WEBHOOK: Final = f"{SOURCES}/{{name}}/webhook"
 _HTTPS_ACCESS: Final = "https"
 _SSH_ACCESS: Final = "ssh"
+_FILE_ACCESS: Final = "file"
 _STAY_ON_PAGE: Final = "page"
 
 
@@ -291,6 +292,7 @@ class _Surfaces:
             draft=draft,
             https_access=_HTTPS_ACCESS,
             ssh_access=_SSH_ACCESS,
+            file_access=_FILE_ACCESS,
         )
 
     def _rows(self, text: LobbyText) -> tuple[SourceRow, ...]:
@@ -390,6 +392,8 @@ def _access_word(kind: AccessKind | None, text: LobbyText) -> str | None:
         return text.source_access_token
     if kind is AccessKind.SSH:
         return text.source_access_deploy_key
+    if kind is AccessKind.FILE:
+        return text.source_access_local
     return None
 
 
@@ -428,6 +432,8 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
         SourceRefusal.USERINFO: text.source_refused_password,
         SourceRefusal.ACCESS_MISMATCH: text.source_refused_access,
         SourceRefusal.BLANK_ACCESS: text.source_refused_secret,
+        SourceRefusal.CREDENTIAL_NOT_ALLOWED: text.source_refused_secret_not_allowed,
+        SourceRefusal.OUTSIDE_MOUNT: text.source_refused_outside_mount,
     }[reason]
 
 

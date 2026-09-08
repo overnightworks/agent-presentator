@@ -12,6 +12,7 @@ from presentator.api.hooks import hook_address
 from presentator.api.preferences import SETTINGS
 from presentator.api.sources import ACCESS, NEW, SOURCES, WEBHOOK
 from presentator.contracts.decks import (
+    LOCAL_SOURCES_MOUNT,
     MANIFEST_FILE,
     SLIDES_FILE,
     Deck,
@@ -452,7 +453,9 @@ def test_a_created_page_for_a_name_this_instance_does_not_have_is_not_found() ->
 def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
     page = (
         a_signed_in_lobby(
-            GivenDecks(source=a_configured_source("file:///tmp/decks.git")),
+            GivenDecks(
+                source=a_configured_source("http://git.example.invalid/decks.git")
+            ),
         )
         .get(SOURCES)
         .text
@@ -460,6 +463,7 @@ def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
 
     assert ENGLISH.source_access_token not in page
     assert ENGLISH.source_access_deploy_key not in page
+    assert ENGLISH.source_access_local not in page
 
 
 def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
@@ -479,6 +483,52 @@ def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
     assert ENGLISH.source_create in page
     assert 'name="secret"' in page
     assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+def test_the_add_form_offers_a_folder_on_this_box_option() -> None:
+    page = a_signed_in_lobby().get(NEW).text
+
+    assert ENGLISH.source_access_file in page
+    assert 'name="access" value="file"' in page
+    assert 'name="access" value="file" disabled' not in page
+
+
+def test_creating_a_source_on_this_box_accepts_a_file_address_under_the_mount() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_SOURCES_MOUNT}/talks.git"
+
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+    listed = lobby.get(SOURCES).text
+
+    assert "talks" in listed
+    assert url in listed
+    assert ENGLISH.source_access_local in listed
+
+
+def test_a_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_SOURCES_MOUNT}/talks.git"
+
+    refused = create_source(lobby, url=url, access="file", secret=_READ_ONLY)
+
+    assert ENGLISH.source_refused_secret_not_allowed in refused.text
+    assert _READ_ONLY not in refused.text
+
+
+def test_a_file_address_outside_the_mount_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = create_source(
+        lobby,
+        url="/etc/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert ENGLISH.source_refused_outside_mount in refused.text
 
 
 def test_creating_a_source_stores_it_fetches_it_and_shows_address_and_secret() -> None:
