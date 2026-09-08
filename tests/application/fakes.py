@@ -348,6 +348,9 @@ class FakeSourceStore:
     def all(self) -> tuple[Source, ...]:
         return tuple(self.sources)
 
+    def remove(self, source_id: str) -> None:
+        self.sources = [source for source in self.sources if source.id != source_id]
+
 
 @dataclass
 class FakeSourceRunStore:
@@ -367,6 +370,9 @@ class FakeSourceRunStore:
     def recent(self, source_id: str) -> tuple[SourceRun, ...]:
         found = [run for run in reversed(self.recorded) if run.source_id == source_id]
         return tuple(found[:RECENT_SOURCE_RUNS])
+
+    def remove_for_source(self, source_id: str) -> None:
+        self.recorded = [run for run in self.recorded if run.source_id != source_id]
 
 
 # The example every test and the runbook shares for "the mount", so a test
@@ -412,6 +418,8 @@ class FakeDeckFolders:
         default_factory=dict[str, SourceRunFailure],
     )
 
+    forgotten: list[str] = field(default_factory=list[str])
+
     def folders(self, source: Source) -> SourcePoll:
         found = self.carried.get(source.id, ())
         if found is None:
@@ -425,6 +433,10 @@ class FakeDeckFolders:
             commit=self.commits.get(source.id, _A_FETCHED_COMMIT),
             failure=None,
         )
+
+    def forget(self, source: Source) -> None:
+        self.forgotten.append(source.id)
+        self.carried.pop(source.id, None)
 
 
 @dataclass
@@ -474,6 +486,15 @@ class FakeDeckStore:
         self.removed -= reconciled
         self.removed |= reconciled - present
 
+    def remove_for_source(self, source_id: str) -> tuple[Deck, ...]:
+        found = tuple(
+            deck for deck in self.kept.values() if deck.source_id == source_id
+        )
+        for deck in found:
+            del self.kept[deck.slug]
+            self.removed.discard(deck.slug)
+        return found
+
 
 @dataclass
 class HeldDeckFolders:
@@ -498,6 +519,9 @@ class HeldDeckFolders:
         with self.counting:
             self.inside -= 1
         return SourcePoll(folders=self.found, commit=_A_FETCHED_COMMIT, failure=None)
+
+    def forget(self, source: Source) -> None:
+        del source
 
     def _enter(self) -> None:
         with self.counting:
@@ -528,6 +552,7 @@ class FakeBuildRunner:
     built: list[str] = field(default_factory=list[str])
     from_source: dict[str, str] = field(default_factory=dict[str, str])
     while_building: Callable[[Deck], None] | None = None
+    removed: list[Path] = field(default_factory=list[Path])
 
     def build(self, deck: Deck, *, source: Source) -> Artefacts | BuildFailure:
         self.built.append(deck.slug)
@@ -545,6 +570,9 @@ class FakeBuildRunner:
             written.is_relative_to(BUILDS_ROOT)
             for written in (artefacts.directory, artefacts.pdf)
         )
+
+    def remove(self, directory: Path) -> None:
+        self.removed.append(directory)
 
 
 # What most tests need from the toolchain set, without naming a real one.

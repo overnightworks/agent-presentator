@@ -37,6 +37,7 @@ from presentator.contracts.decks import (
     Source,
     SourceDeck,
     SourcePage,
+    SourceRemoval,
     SourceRun,
     SourceRunFailure,
     SourceRunOutcome,
@@ -286,6 +287,58 @@ class Decks:
         webhook_secret = secrets.token_urlsafe(_WEBHOOK_SECRET_BYTES)
         self.sources.put_hook_secret_hash(name, hash_webhook_secret(webhook_secret))
         return webhook_secret
+
+    def removal(self, name: str) -> SourceRemoval | None:
+        """What removing that source would take with it, or nothing if unknown.
+
+        Read-only: nothing changes until `remove_source` is called with the
+        same name, once a person has seen this and confirmed it (#93 R1).
+        """
+        source = self._named(name)
+        if source is None:
+            return None
+        return self._preview(source)
+
+    def remove_source(self, name: str) -> SourceRemoval | None:
+        """Delete that source, its decks, its runs, and everything they built.
+
+        Waits for a refresh already under way rather than racing it, so
+        nothing of this source's decks is still building when their
+        directories go (#93 R1); the moment this returns, the same URL is
+        free to be added again as a new source (#93 R2), and every byte its
+        mirror and its builds held is gone from disk, not only the rows that
+        pointed at them (#93 R3).
+        """
+        source = self._named(name)
+        if source is None:
+            return None
+        with self._one_at_a_time:
+            # Read within the same critical section a refresh writes in, so
+            # the count reported is exactly what this call deletes, never a
+            # snapshot a concurrent refresh has since moved past.
+            preview = self._preview(source)
+            removed_decks = self.store.remove_for_source(source.id)
+            for deck in removed_decks:
+                if deck.build is not None:
+                    self.builder.remove(deck.build.directory)
+            self.folders.forget(source)
+            self.source_runs.remove_for_source(source.id)
+            self.sources.remove(source.id)
+        return preview
+
+    def _preview(self, source: Source) -> SourceRemoval:
+        """What removing this source would take with it, read but not touched.
+
+        `recent` is every run the source has: the table itself keeps no more
+        than that bound per source.
+        """
+        return SourceRemoval(
+            name=source.name,
+            deck_count=sum(
+                1 for deck in self.store.all() if deck.source_id == source.id
+            ),
+            run_count=len(self.source_runs.recent(source.id)),
+        )
 
     def add_source(
         self,

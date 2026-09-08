@@ -431,3 +431,33 @@ msgstr "Fetched"
 
 msgid "source_run_column_detail"
 msgstr "Detail"
+
+msgid "source_remove_heading"
+msgstr "Remove this source"
+
+msgid "source_remove_hint"
+msgstr ""
+"Deletes the mirror, its decks, and their built talks; the URL can be added "
+"again."
+
+msgid "source_remove_button"
+msgstr "Remove source…"
+
+msgid "source_remove_confirm_title"
+msgstr "Remove {name}?"
+
+msgid "source_remove_confirm_body"
+msgstr ""
+"{decks} decks and their built talks and {runs} runs go with it; the URL "
+"can be added again."
+
+msgid "source_remove_cancel"
+msgstr "Cancel"
+
+msgid "source_remove_confirm"
+msgstr "Remove"
+
+msgid "source_removed"
+msgstr ""
+"{name} is gone, with its {decks} decks and {runs} runs; its URL can be "
+"added again."

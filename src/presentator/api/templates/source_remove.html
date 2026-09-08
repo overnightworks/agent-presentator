@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ removal.title }}{% endblock %}
+{% block body %}
+<main data-source-remove>
+  <p><a href="/settings/sources">{{ text.sources_back }}</a></p>
+  <aside data-banner="failed">
+    <p data-lead>{{ removal.title }}</p>
+    <p>{{ removal.body }}</p>
+    <p data-actions>
+      <a href="/settings/sources/{{ removal.name }}" role="button">
+        {{ text.source_remove_cancel }}
+      </a>
+      <form method="post" action="/settings/sources/{{ removal.name }}/remove/confirmed">
+        <button type="submit">{{ text.source_remove_confirm }}</button>
+      </form>
+    </p>
+  </aside>
+</main>
+{% endblock %}

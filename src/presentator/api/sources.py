@@ -22,6 +22,7 @@ from presentator.contracts.decks import (
     AccessKind,
     ShownSourceRun,
     SourcePage,
+    SourceRemoval,
     SourceRunFailure,
     SourceRunOutcome,
     SourceState,
@@ -35,6 +36,8 @@ PAGE: Final = f"{SOURCES}/{{name}}"
 FETCH: Final = f"{SOURCES}/{{name}}/fetch"
 ACCESS: Final = f"{SOURCES}/{{name}}/access"
 WEBHOOK: Final = f"{SOURCES}/{{name}}/webhook"
+REMOVE: Final = f"{SOURCES}/{{name}}/remove"
+REMOVE_CONFIRMED: Final = f"{SOURCES}/{{name}}/remove/confirmed"
 _HTTPS_ACCESS: Final = "https"
 _SSH_ACCESS: Final = "ssh"
 _FILE_ACCESS: Final = "file"
@@ -103,6 +106,15 @@ class SourceView:
     decks: tuple[SourceDeckRow, ...]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceRemovalView:
+    """The confirm page's read model: the source's name and one sentence."""
+
+    name: str
+    title: str
+    body: str
+
+
 class _ShownOperation(StrEnum):
     """Which mint put a webhook secret in the one-time map."""
 
@@ -128,6 +140,11 @@ class _Surfaces:
     _shown_once: dict[_ShownOnceKey, str] = field(
         default_factory=dict[_ShownOnceKey, str]
     )
+    # A one-time notice of what a removal took with it, shown once on the
+    # next visit to the list the same way the webhook secret above is shown
+    # once on the next visit to the source's own page; one session ever holds
+    # one, so its key is the session alone.
+    _removed_once: dict[str, str] = field(default_factory=dict[str, str])
 
     def sources_page(self, request: Request) -> Response:
         """Show each source and what its newest run said, to an admin."""
@@ -138,6 +155,7 @@ class _Surfaces:
             request,
             "sources.html",
             sources=self._rows(text),
+            removed=self._removed_once.pop(_session_id(request), None),
         )
 
     def add_page(self, request: Request) -> Response:
@@ -284,6 +302,35 @@ class _Surfaces:
         ] = minted
         return RedirectResponse(f"{SOURCES}/{name}", status_code=HTTPStatus.SEE_OTHER)
 
+    def ask_removal(self, request: Request, name: str) -> Response:
+        """Show what removing this source would take with it. Deletes nothing."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        removal = self.decks.removal(name)
+        if removal is None:
+            return Response(status_code=HTTPStatus.NOT_FOUND)
+        text = self.pages.appearance(request).text
+        return self.pages.page(
+            request,
+            "source_remove.html",
+            removal=_removal_view(removal, text),
+        )
+
+    def confirm_removal(self, request: Request, name: str) -> Response:
+        """Delete the source and everything only it owned, then say what went."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        removed = self.decks.remove_source(name)
+        if removed is None:
+            return Response(status_code=HTTPStatus.NOT_FOUND)
+        text = self.pages.appearance(request).text
+        self._removed_once[_session_id(request)] = text.source_removed.format(
+            name=removed.name,
+            decks=removed.deck_count,
+            runs=removed.run_count,
+        )
+        return RedirectResponse(SOURCES, status_code=HTTPStatus.SEE_OTHER)
+
     def _form(
         self,
         request: Request,
@@ -375,8 +422,22 @@ def source_routes(*, pages: Pages, decks: Decks) -> APIRouter:
     router.add_api_route(FETCH, surfaces.fetch_now, methods=["POST"])
     router.add_api_route(ACCESS, surfaces.renew_access, methods=["POST"])
     router.add_api_route(WEBHOOK, surfaces.renew_webhook, methods=["POST"])
+    router.add_api_route(REMOVE, surfaces.ask_removal, methods=["POST"])
+    router.add_api_route(REMOVE_CONFIRMED, surfaces.confirm_removal, methods=["POST"])
     router.add_api_route(PAGE, surfaces.source_page, methods=["GET"])
     return router
+
+
+def _removal_view(removal: SourceRemoval, text: LobbyText) -> SourceRemovalView:
+    """The confirm page's read model, its counts already worded into a sentence."""
+    return SourceRemovalView(
+        name=removal.name,
+        title=text.source_remove_confirm_title.format(name=removal.name),
+        body=text.source_remove_confirm_body.format(
+            decks=removal.deck_count,
+            runs=removal.run_count,
+        ),
+    )
 
 
 def _state_word(state: SourceState, text: LobbyText) -> str:

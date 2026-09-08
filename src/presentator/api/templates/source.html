@@ -123,6 +123,15 @@
       <span data-later-mark>{{ text.source_later }}</span>
     </p>
   </section>
+  <section data-remove>
+    <h2>{{ text.source_remove_heading }}</h2>
+    <p>{{ text.source_remove_hint }}</p>
+    <p data-actions>
+      <form method="post" action="/settings/sources/{{ source.name }}/remove">
+        <button type="submit">{{ text.source_remove_button }}</button>
+      </form>
+    </p>
+  </section>
 </main>
 <script>
 document.querySelectorAll("[data-copy]").forEach((button) => {
