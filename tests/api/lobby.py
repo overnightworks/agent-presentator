@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from pydantic import SecretStr
@@ -180,14 +181,14 @@ class GivenDecks:
 NO_DECKS: Final = GivenDecks()
 
 
-def a_lobby(
+def a_lobby_app(
     *,
     secure_cookies: bool = False,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
-) -> Lobby:
-    """The whole lobby, with in-memory stores behind every port."""
+) -> tuple[FastAPI, FrozenClock]:
+    """The whole lobby wiring, so a test that needs two clients shares one app."""
     clock = FrozenClock(instant=NOW)
     hasher = ReversibleHasher()
     identity = Identity(
@@ -249,6 +250,23 @@ def a_lobby(
             config=a_web_auth(hasher=hasher),
             secure_cookies=secure_cookies,
         ),
+    )
+    return lobby, clock
+
+
+def a_lobby(
+    *,
+    secure_cookies: bool = False,
+    users: FakeUserStore | None = None,
+    catalogs: Catalogs = CATALOGS,
+    given: GivenDecks = NO_DECKS,
+) -> Lobby:
+    """The whole lobby, with in-memory stores behind every port."""
+    lobby, clock = a_lobby_app(
+        secure_cookies=secure_cookies,
+        users=users,
+        catalogs=catalogs,
+        given=given,
     )
     return Lobby(client=TestClient(lobby, follow_redirects=False), clock=clock)
 

@@ -23,7 +23,7 @@
       <tr>
         <td><span data-state="{{ source.state }}">{{ source.state_word }}</span></td>
         <td>
-          {{ source.name }}
+          <a href="/settings/sources/{{ source.name }}">{{ source.name }}</a>
           <code>{{ source.url }}</code>
         </td>
         <td>{% if source.access %}{{ source.access }}{% endif %}</td>
