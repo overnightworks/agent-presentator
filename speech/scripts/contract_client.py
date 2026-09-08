@@ -104,53 +104,82 @@ async def _drain(
         events.append(json.loads(raw))
 
 
+def _first_nonempty_partial(
+    events: list[dict[str, object]],
+) -> dict[str, object] | None:
+    for event in events:
+        text = event.get("text")
+        if event.get("final") is False and isinstance(text, str) and text:
+            return event
+    return None
+
+
+def _first_final(events: list[dict[str, object]]) -> dict[str, object] | None:
+    for event in events:
+        if event.get("final") is True:
+            return event
+    return None
+
+
 async def _send_pcm(
     websocket: websockets.ClientConnection,
     pcm: bytes,
     sample_rate: int,
     events: list[dict[str, object]],
-) -> int:
+) -> None:
     frame_bytes = int(FRAME_SECONDS * sample_rate * 2)
-    frames_sent = 0
     for offset in range(0, len(pcm), frame_bytes):
         await websocket.send(pcm[offset : offset + frame_bytes])
-        frames_sent += 1
         await _drain(websocket, events, timeout=0.02)
         await asyncio.sleep(FRAME_SECONDS)
-    return frames_sent
+        await _drain(websocket, events, timeout=0.02)
 
 
 async def _hear_utterance(
     websocket: websockets.ClientConnection,
     pcm: bytes,
     sample_rate: int,
-) -> tuple[list[dict[str, object]], int]:
+) -> tuple[list[dict[str, object]], dict[str, object] | None, float, int, bool]:
+    started = time.perf_counter()
     events: list[dict[str, object]] = []
-    frames_when_first_partial = 0
+    partial: dict[str, object] | None = None
+    partial_at = 0.0
+    partial_frame = 0
+    still_sending = False
     frames_sent = 0
     frame_bytes = int(FRAME_SECONDS * sample_rate * 2)
     for offset in range(0, len(pcm), frame_bytes):
         await websocket.send(pcm[offset : offset + frame_bytes])
         frames_sent += 1
-        before = len(events)
         await _drain(websocket, events, timeout=0.02)
-        if before == 0 and events and frames_when_first_partial == 0:
-            frames_when_first_partial = frames_sent
         await asyncio.sleep(FRAME_SECONDS)
+        await _drain(websocket, events, timeout=0.02)
+        if partial is None:
+            found = _first_nonempty_partial(events)
+            if found is not None:
+                partial = found
+                partial_at = time.perf_counter() - started
+                partial_frame = frames_sent
+                still_sending = True
     silence = bytes(int(SILENCE_SECONDS * sample_rate * 2))
     await _send_pcm(websocket, silence, sample_rate, events)
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
-        if any(event.get("final") is True for event in events):
+        if _first_final(events) is not None:
             break
         await _drain(websocket, events, timeout=0.3)
-    return events, frames_when_first_partial
+    return events, partial, partial_at, partial_frame, still_sending
 
 
 async def _run(base: str) -> None:
     health = _get_json(f"{base}/health")
     print("contract_health", json.dumps(health, sort_keys=True))
-    if not health["speaking"]["ready"] or not health["hearing"]["ready"]:
+    speaking = health["speaking"]
+    hearing = health["hearing"]
+    if not isinstance(speaking, dict) or not isinstance(hearing, dict):
+        message = "health speaking/hearing is not an object"
+        raise SystemExit(message)
+    if not speaking["ready"] or not hearing["ready"]:
         message = "models are not ready"
         raise SystemExit(message)
     sample_rate = int(health["sample_rate"])
@@ -170,17 +199,53 @@ async def _run(base: str) -> None:
     hear_url = base.replace("http://", "ws://", 1).replace("https://", "wss://", 1)
     hear_url = f"{hear_url}/hear?language=de"
     async with websockets.connect(hear_url, max_size=None) as socket:
-        first, partial_at_frame = await _hear_utterance(socket, pcm, sample_rate)
+        first_started = time.perf_counter()
+        (
+            first,
+            partial,
+            partial_at,
+            partial_frame,
+            still_sending,
+        ) = await _hear_utterance(socket, pcm, sample_rate)
+        if partial is None or not still_sending:
+            message = "no non-empty partial arrived while frames were still being sent"
+            raise SystemExit(message)
         print(
-            "contract_hear_first",
-            f"partial_while_sending_at_frame={partial_at_frame}",
-            json.dumps(first, ensure_ascii=False),
+            "contract_hear_partial",
+            f"t={partial_at:.3f}s",
+            f"frame={partial_frame}",
+            f"still_sending={still_sending}",
+            json.dumps(partial, ensure_ascii=False),
+        )
+        first_final = _first_final(first)
+        if first_final is None:
+            message = "no final transcript arrived"
+            raise SystemExit(message)
+        print(
+            "contract_hear_final",
+            f"t={time.perf_counter() - first_started:.3f}s",
+            json.dumps(first_final, ensure_ascii=False),
         )
         second_wav = _speak(base, SECOND)
         rate2, pcm2 = _pcm_from_wav(second_wav)
         pcm2 = _resample(pcm2, rate2, sample_rate)
-        second, _partial2 = await _hear_utterance(socket, pcm2, sample_rate)
-        print("contract_hear_second", json.dumps(second, ensure_ascii=False))
+        second_started = time.perf_counter()
+        second, _partial2, _at2, _frame2, _sending2 = await _hear_utterance(
+            socket,
+            pcm2,
+            sample_rate,
+        )
+        second_final = _first_final(second)
+        if second_final is None:
+            message = (
+                "no second final arrived from a second utterance on the same socket"
+            )
+            raise SystemExit(message)
+        print(
+            "contract_hear_second_final",
+            f"t={time.perf_counter() - second_started:.3f}s",
+            json.dumps(second_final, ensure_ascii=False),
+        )
 
 
 def main() -> None:

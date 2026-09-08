@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 from array import array
 from pathlib import Path
+from urllib.parse import urlparse
 
 from speech.cuda_libs import cuda_library_dirs
 
@@ -29,6 +30,7 @@ SECOND = "Die nächste Folie bitte."
 LOCK_PATH = Path("/tmp/probe-stack.lock")
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 180.0
+WIRE_FIRST_BYTE_LIMIT_S = 0.5
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 HF_CACHE = Path.home() / ".cache" / "huggingface" / "hub"
 WHISPER_CACHE = HF_CACHE / "models--Systran--faster-whisper-large-v3"
@@ -131,29 +133,79 @@ def _resample(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
     return out.tobytes()
 
 
+def _dechunk(body: bytes) -> bytes:
+    out = bytearray()
+    position = 0
+    while position < len(body):
+        line_end = body.find(b"\r\n", position)
+        if line_end < 0:
+            break
+        size_token = body[position:line_end].split(b";", 1)[0]
+        size = int(size_token, 16)
+        position = line_end + 2
+        if size == 0:
+            break
+        out.extend(body[position : position + size])
+        position += size + 2
+    return bytes(out)
+
+
+def _http_body_complete(header: bytes, body: bytes) -> bool:
+    lowered = header.lower()
+    if b"transfer-encoding: chunked" in lowered:
+        return b"\r\n0\r\n\r\n" in body or body == b"0\r\n\r\n"
+    for line in header.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1].strip())
+            return len(body) >= length
+    return False
+
+
 def _speak_measured(base: str, text: str) -> tuple[bytes, float, float]:
-    request = urllib.request.Request(
-        f"{base}/speak",
-        data=json.dumps({"text": text, "language": "de"}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    parsed = urlparse(base)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+    payload = json.dumps({"text": text, "language": "de"}).encode("utf-8")
+    request = (
+        b"POST /speak HTTP/1.1\r\n"
+        + f"Host: {host}:{port}\r\n".encode()
+        + b"Content-Type: application/json\r\n"
+        + f"Content-Length: {len(payload)}\r\n".encode()
+        + b"Connection: close\r\n"
+        + b"\r\n"
+        + payload
     )
-    start = time.perf_counter()
-    first_byte_at = None
-    chunks = bytearray()
-    with urllib.request.urlopen(request, timeout=60) as response:
+    sock = socket.create_connection((host, port), timeout=60)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    try:
+        start = time.perf_counter()
+        sock.sendall(request)
+        raw = bytearray()
+        first_byte_at = None
         while True:
-            piece = response.read(4096)
+            piece = sock.recv(4096)
             if not piece:
                 break
-            if first_byte_at is None:
+            raw.extend(piece)
+            header, separator, body = bytes(raw).partition(b"\r\n\r\n")
+            if separator and body and first_byte_at is None:
                 first_byte_at = time.perf_counter()
-            chunks.extend(piece)
-    end = time.perf_counter()
+            if separator and _http_body_complete(header, body):
+                break
+        end = time.perf_counter()
+    finally:
+        sock.close()
     if first_byte_at is None:
-        message = "speak returned no bytes"
+        message = "speak returned no bytes on the socket"
         raise SystemExit(message)
-    return bytes(chunks), first_byte_at - start, end - start
+    header, separator, body = bytes(raw).partition(b"\r\n\r\n")
+    if not separator or not header.startswith(b"HTTP/1.1 200"):
+        status = header.splitlines()[0] if header else b""
+        message = f"speak HTTP status: {status!r}"
+        raise SystemExit(message)
+    if b"transfer-encoding: chunked" in header.lower():
+        body = _dechunk(body)
+    return body, first_byte_at - start, end - start
 
 
 def _nvidia_memory() -> str:
@@ -171,6 +223,65 @@ def _nvidia_memory() -> str:
     except (OSError, subprocess.CalledProcessError) as error:
         return f"unavailable: {error}"
     return completed.stdout.strip()
+
+
+def _require_piper_batch(health: dict[str, object]) -> None:
+    speaking = health["speaking"]
+    if not isinstance(speaking, dict) or speaking.get("streams") is not False:
+        message = f"Piper must report speaking.streams=false: {speaking!r}"
+        raise SystemExit(message)
+
+
+def _prove_speak(base: str) -> None:
+    wav, ttfa, total = _speak_measured(base, SENTENCE)
+    rate, pcm = _pcm_from_wav(wav)
+    duration = (len(pcm) / 2) / rate
+    print(
+        "speak_wire",
+        f"first_byte_s={ttfa:.3f}",
+        f"total_s={total:.3f}",
+        f"limit_s={WIRE_FIRST_BYTE_LIMIT_S:.1f}",
+        f"duration_s={duration:.3f}",
+        f"rms={_rms(pcm):.4f}",
+        f"rate={rate}",
+        f"bytes={len(wav)}",
+    )
+    if ttfa > WIRE_FIRST_BYTE_LIMIT_S:
+        message = (
+            f"first byte on the socket took {ttfa:.3f}s; "
+            f"limit is {WIRE_FIRST_BYTE_LIMIT_S}s"
+        )
+        raise SystemExit(message)
+    if _rms(pcm) < 0.01:
+        raise SystemExit("speak produced silence")
+    if duration < 1.0:
+        raise SystemExit("speak produced too little audio to be a sentence")
+
+
+def _prove_contract(project: Path, base: str, env: dict[str, str]) -> None:
+    client = project / "scripts" / "contract_client.py"
+    print("contract_client_start")
+    completed = subprocess.run(
+        [sys.executable, str(client), base],
+        check=False,
+        cwd="/tmp",
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    sys.stdout.write(completed.stdout)
+    sys.stderr.write(completed.stderr)
+    if completed.returncode != 0:
+        message = f"contract client failed: {completed.returncode}"
+        raise SystemExit(message)
+    for marker in (
+        "contract_hear_partial",
+        "contract_hear_final",
+        "contract_hear_second_final",
+    ):
+        if marker not in completed.stdout:
+            message = f"contract client did not report {marker}"
+            raise SystemExit(message)
 
 
 def main() -> None:
@@ -209,42 +320,12 @@ def main() -> None:
         try:
             health = _wait_ready(base)
             print("health_ready", json.dumps(health, sort_keys=True))
+            _require_piper_batch(health)
             print("gpu_both_resident", _nvidia_memory())
             print("whisper_cache", WHISPER_CACHE)
             print("piper_cache", PIPER_CACHE)
-
-            wav, ttfa, total = _speak_measured(base, SENTENCE)
-            rate, pcm = _pcm_from_wav(wav)
-            duration = (len(pcm) / 2) / rate
-            print(
-                "speak",
-                f"ttfa_s={ttfa:.3f}",
-                f"total_s={total:.3f}",
-                f"duration_s={duration:.3f}",
-                f"rms={_rms(pcm):.4f}",
-                f"rate={rate}",
-                f"bytes={len(wav)}",
-            )
-            if _rms(pcm) < 0.01:
-                raise SystemExit("speak produced silence")
-            if duration < 1.0:
-                raise SystemExit("speak produced too little audio to be a sentence")
-
-            client = project / "scripts" / "contract_client.py"
-            print("contract_client_start")
-            completed = subprocess.run(
-                [sys.executable, str(client), base],
-                check=False,
-                cwd="/tmp",
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            sys.stdout.write(completed.stdout)
-            sys.stderr.write(completed.stderr)
-            if completed.returncode != 0:
-                message = f"contract client failed: {completed.returncode}"
-                raise SystemExit(message)
+            _prove_speak(base)
+            _prove_contract(project, base, env)
             print("gpu_after", _nvidia_memory())
             print("caches_kept")
             print("  huggingface:", HF_CACHE)

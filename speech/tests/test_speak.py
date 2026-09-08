@@ -8,7 +8,7 @@ from starlette.status import (
 )
 
 from speech.pcm import is_silence, pcm_from_wav
-from tests.conftest import SAMPLE_RATE, FakeSpeaking, an_app
+from tests.conftest import SPEAK_SAMPLE_RATE, FakeSpeaking, an_app
 
 
 def test_speak_streams_wav_that_plays_as_tone() -> None:
@@ -20,7 +20,8 @@ def test_speak_streams_wav_that_plays_as_tone() -> None:
     assert response.status_code == HTTP_200_OK
     assert response.headers["content-type"].startswith("audio/wav")
     rate, pcm = pcm_from_wav(response.content)
-    assert rate == SAMPLE_RATE
+    assert rate == SPEAK_SAMPLE_RATE
+    assert rate == 22_050
     assert len(pcm) > 0
     assert not is_silence(pcm)
 

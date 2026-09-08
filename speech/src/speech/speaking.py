@@ -17,6 +17,8 @@ _LOG = logging.getLogger(__name__)
 class PiperSpeaking:
     """One Piper voice, loaded once and held for the process."""
 
+    streams = False
+
     def __init__(self, model_name: str, cache: Path) -> None:
         """Remember the catalogue name and where ONNX files are kept."""
         self.model_name = model_name

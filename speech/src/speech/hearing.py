@@ -23,8 +23,18 @@ MIN_AUDIO_SECONDS: Final = 0.4
 SILENCE_SECONDS: Final = 0.7
 SPEECH_RMS: Final = 0.02
 POLL_WAIT_SECONDS: Final = 0.3
+MAX_FRAME_SECONDS: Final = 1.0
+MAX_UTTERANCE_SECONDS: Final = 30.0
 
 Transcribe = Callable[[bytes], str]
+
+
+class FrameTooLargeError(Exception):
+    """A single PCM frame exceeded the bound the session will accept."""
+
+
+def _max_pcm_bytes(sample_rate: int, seconds: float) -> int:
+    return int(seconds * sample_rate * BYTES_PER_SAMPLE)
 
 
 def _device_kind(device: str) -> str:
@@ -52,14 +62,22 @@ class HearingSession:
         self._last_pcm_len = 0
         self._heard_speech = False
         self._lock = threading.Lock()
+        self._max_frame_bytes = _max_pcm_bytes(sample_rate, MAX_FRAME_SECONDS)
+        self._max_utterance_bytes = _max_pcm_bytes(sample_rate, MAX_UTTERANCE_SECONDS)
 
     def add_pcm(self, data: bytes) -> None:
         """Append a raw 16-bit PCM frame."""
         if not data:
             return
+        if len(data) > self._max_frame_bytes:
+            raise FrameTooLargeError
         with self._lock:
-            self._pcm.extend(data)
-            if not is_silence(data, SPEECH_RMS):
+            room = self._max_utterance_bytes - len(self._pcm)
+            if room <= 0:
+                return
+            chunk = data if len(data) <= room else data[:room]
+            self._pcm.extend(chunk)
+            if not is_silence(chunk, SPEECH_RMS):
                 self._heard_speech = True
 
     def poll(self) -> dict[str, object] | None:
@@ -68,13 +86,10 @@ class HearingSession:
             duration = self._duration()
             if duration < MIN_AUDIO_SECONDS:
                 return None
-            if self._heard_speech and self._tail_is_silent():
-                pcm = bytes(self._pcm)
-                text = self._transcribe(pcm)
-                self._reset()
-                if not text:
-                    return None
-                return {"text": text, "final": True}
+            if duration >= MAX_UTTERANCE_SECONDS or (
+                self._heard_speech and self._tail_is_silent()
+            ):
+                return self._take_final_locked()
             now = time.monotonic()
             if (
                 now - self._last_transcribe_at < PARTIAL_PERIOD_SECONDS
@@ -93,14 +108,17 @@ class HearingSession:
     def flush(self) -> dict[str, object] | None:
         """Force a final for whatever is still buffered."""
         with self._lock:
-            if not self._pcm or not self._heard_speech:
-                self._reset()
-                return None
-            text = self._transcribe(bytes(self._pcm))
+            return self._take_final_locked()
+
+    def _take_final_locked(self) -> dict[str, object] | None:
+        if not self._pcm or not self._heard_speech:
             self._reset()
-            if not text:
-                return None
-            return {"text": text, "final": True}
+            return None
+        text = self._transcribe(bytes(self._pcm))
+        self._reset()
+        if not text:
+            return None
+        return {"text": text, "final": True}
 
     def _duration(self) -> float:
         return len(self._pcm) / (self._sample_rate * BYTES_PER_SAMPLE)

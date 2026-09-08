@@ -12,11 +12,14 @@ from speech.pcm import BYTES_PER_SAMPLE
 from speech.service import Runtime, create_app
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from fastapi import FastAPI
 
+    from speech.service import HearingEngine, SpeakingEngine
+
 SAMPLE_RATE = HEAR_SAMPLE_RATE
+SPEAK_SAMPLE_RATE = 22_050
 
 
 def sine_pcm(seconds: float, rate: int = SAMPLE_RATE, freq: float = 440.0) -> bytes:
@@ -29,8 +32,9 @@ def sine_pcm(seconds: float, rate: int = SAMPLE_RATE, freq: float = 440.0) -> by
 
 class FakeSpeaking:
     model_name = "fake-voice"
-    sample_rate = SAMPLE_RATE
+    sample_rate = SPEAK_SAMPLE_RATE
     ready = True
+    streams = False
 
     def __init__(self, *, ready: bool = True, fail: bool = False) -> None:
         self.ready = ready
@@ -44,7 +48,7 @@ class FakeSpeaking:
 
     def pcm_chunks(self, text: str) -> Iterator[bytes]:
         del text
-        pcm = sine_pcm(0.3)
+        pcm = sine_pcm(0.3, rate=self.sample_rate)
         mid = (len(pcm) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
         yield pcm[:mid]
         yield pcm[mid:]
@@ -82,14 +86,16 @@ class FakeHearing:
 
 
 def an_app(
-    speaking: FakeSpeaking | None = None,
-    hearing: FakeHearing | None = None,
+    speaking: SpeakingEngine | None = None,
+    hearing: HearingEngine | None = None,
     *,
     debug: bool = False,
+    memory_probe: Callable[[], int] | None = None,
 ) -> FastAPI:
     runtime = Runtime(
         speaking or FakeSpeaking(),
         hearing or FakeHearing(),
         debug=debug,
+        memory_probe=memory_probe if memory_probe is not None else (lambda: 0),
     )
     return create_app(runtime=runtime, load_models=False)

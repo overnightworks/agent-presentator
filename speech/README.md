@@ -11,7 +11,7 @@ owns the address.
 
 | Role | Hugging Face | Licence | Why this one |
 | --- | --- | --- | --- |
-| Speaking | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is GPL-3.0. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
+| Speaking | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/presentator` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
 | Hearing | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) | MIT (CTranslate2 conversion of [`openai/whisper-large-v3`](https://huggingface.co/openai/whisper-large-v3), also MIT) | Already cached on this machine. German is a documented language. Partials are chunked re-decode of a growing buffer, not a native streaming architecture. |
 
 Checked and not chosen:
@@ -32,15 +32,15 @@ Measured on this RTX 3090 (24 GB), German sentence of 14 words, `scripts/prove.p
 
 | What | Number |
 | --- | --- |
-| Time to first byte of `/speak` | 0.219 s |
-| Total `/speak` | 0.220 s |
-| WAV duration / RMS | 5.793 s / 0.163 (not silence) |
-| First partial transcript | 0.9 s after the first PCM frame (frame 9 of 100 ms frames), while frames were still being sent |
-| Final transcript | matched the spoken sentence |
-| Second utterance on the same socket | `"Die nächste Folie bitte."`, no reload |
-| Card before load | 1819 MiB |
-| Card with both resident | 5865 MiB |
-| Hearing footprint | ~4046 MiB GPU |
+| Time to first byte of `/speak` (wire, first HTTP body byte) | 0.216 s (`speaking.streams` is `false`; Piper allows the first byte when the sentence is done; limit 0.5 s) |
+| Total `/speak` | 0.226 s |
+| WAV duration / RMS | 5.515 s / 0.173 (not silence) |
+| First partial transcript | 0.968 s (frame 7 of 100 ms frames), while frames were still being sent |
+| Final transcript | matched the spoken sentence at 9.354 s |
+| Second utterance on the same socket | `"Die nächste Folie bitte."` at 3.027 s, no reload |
+| Card before load | 1557 MiB |
+| Card with both resident | 5437 MiB |
+| Hearing footprint | ~3880 MiB GPU |
 | Speaking footprint | 0 MiB GPU (CPU / ONNX) |
 
 CTranslate2 does not bundle CUDA. This project installs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` and preloads them at start.
@@ -52,8 +52,8 @@ Weights stay in:
 
 ## Contract
 
-- `GET /health` → `{"speaking": {"model", "ready"}, "hearing": {"model", "ready"}, "sample_rate", "card_memory_mb"}`. Answers while models are still loading, with `ready` false.
-- `POST /speak` with `{"text", "language"}` → chunked `audio/wav`, 16-bit PCM mono. One sentence per request. The WAV header carries Piper's native rate (22 050 Hz for Thorsten).
+- `GET /health` → `{"speaking": {"model", "ready", "streams"}, "hearing": {"model", "ready"}, "sample_rate", "card_memory_mb"}`. Answers while models are still loading, with `ready` false. `speaking.streams` is whether the voice yields PCM while it is still synthesising: `false` for Piper (one completed chunk per sentence, so the whole waveform exists before the first byte leaves), `true` for a model that yields as it goes.
+- `POST /speak` with `{"text", "language"}` → chunked `audio/wav`, 16-bit PCM mono. One sentence per request. The first bytes leave as early as the model allows; chunked transfer is kept so a later streaming voice can use it. The WAV header carries Piper's native rate (22 050 Hz for Thorsten).
 - `WS /hear?language=de` takes binary frames of raw 16-bit PCM mono at `sample_rate` (16 000 Hz) and sends `{"text", "final"}`. The socket stays open; the model is not reloaded between utterances.
 
 `sample_rate` is the hear rate. Speak is a WAV, so its rate is in the header. A caller that feeds speak output into hear must resample.

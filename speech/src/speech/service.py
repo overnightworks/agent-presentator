@@ -13,12 +13,22 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool
-from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
+from starlette.status import (
+    HTTP_503_SERVICE_UNAVAILABLE,
+    WS_1009_MESSAGE_TOO_BIG,
+    WS_1011_INTERNAL_ERROR,
+    WS_1013_TRY_AGAIN_LATER,
+)
 from starlette.websockets import WebSocketState
 
 from speech.card import card_memory_mb
 from speech.config import HEAR_SAMPLE_RATE, load_settings
-from speech.hearing import POLL_WAIT_SECONDS, HearingSession, hearing_from_settings
+from speech.hearing import (
+    POLL_WAIT_SECONDS,
+    FrameTooLargeError,
+    HearingSession,
+    hearing_from_settings,
+)
 from speech.pcm import wav_header
 from speech.speaking import speaking_from_settings
 
@@ -30,6 +40,8 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger(__name__)
 
 SpeakText = Annotated[str, Field(min_length=1)]
+HEARING_FAILED_REASON = "hearing failed"
+FRAME_TOO_LARGE_REASON = "frame too large"
 
 
 class SpeakRequest(BaseModel):
@@ -45,6 +57,7 @@ class SpeakingEngine(Protocol):
     model_name: str
     sample_rate: int
     ready: bool
+    streams: bool
 
     def load(self) -> None:
         """Load weights and become ready, or raise."""
@@ -75,11 +88,13 @@ class Runtime:
         hearing: HearingEngine,
         *,
         debug: bool = False,
+        memory_probe: Callable[[], int] | None = None,
     ) -> None:
         """Hold the two engines. They are not loaded until `load`."""
         self.speaking = speaking
         self.hearing = hearing
         self.debug = debug
+        self._memory_probe = memory_probe or card_memory_mb
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Runtime:
@@ -101,13 +116,14 @@ class Runtime:
             "speaking": {
                 "model": self.speaking.model_name,
                 "ready": self.speaking.ready,
+                "streams": self.speaking.streams,
             },
             "hearing": {
                 "model": self.hearing.model_name,
                 "ready": self.hearing.ready,
             },
             "sample_rate": HEAR_SAMPLE_RATE,
-            "card_memory_mb": card_memory_mb(),
+            "card_memory_mb": self._memory_probe(),
         }
 
 
@@ -189,18 +205,36 @@ def _mount_routes(app: FastAPI, runtime: Runtime) -> None:
     async def hear(websocket: WebSocket, language: str = "de") -> None:
         await websocket.accept()
         if not runtime.hearing.ready:
-            await websocket.close(code=1013)
+            await websocket.close(code=WS_1013_TRY_AGAIN_LATER)
             return
-        session = runtime.hearing.open_session(language)
         try:
+            session = runtime.hearing.open_session(language)
             await _hear_loop(websocket, session, debug=runtime.debug)
+            event = session.flush()
+            if event is None or websocket.client_state != WebSocketState.CONNECTED:
+                return
+            _log_text(debug=runtime.debug, kind="hear", text=str(event["text"]))
+            await websocket.send_json(event)
         except WebSocketDisconnect:
             return
-        event = session.flush()
-        if event is None or websocket.client_state != WebSocketState.CONNECTED:
-            return
-        _log_text(debug=runtime.debug, kind="hear", text=str(event["text"]))
-        await websocket.send_json(event)
+        except FrameTooLargeError:
+            await _close_open(
+                websocket,
+                code=WS_1009_MESSAGE_TOO_BIG,
+                reason=FRAME_TOO_LARGE_REASON,
+            )
+        except Exception:
+            _LOG.exception("hearing failed")
+            await _close_open(
+                websocket,
+                code=WS_1011_INTERNAL_ERROR,
+                reason=HEARING_FAILED_REASON,
+            )
+
+
+async def _close_open(websocket: WebSocket, *, code: int, reason: str) -> None:
+    if websocket.client_state == WebSocketState.CONNECTED:
+        await websocket.close(code=code, reason=reason)
 
 
 async def _hear_loop(
