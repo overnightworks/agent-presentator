@@ -223,6 +223,9 @@ Every refresh builds the decks whose commit moved. That needs a Node toolchain
 on the machine: `pnpm` on `PATH`, and a project whose dependencies are
 installed carrying Slidev — this repository's `frontend/`, installed with
 `pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
+A deck may name the official themes that project already carries — `default`,
+`seriph`, `apple-basic`, `bricks`, and `shibainu`; any other theme is a
+decision for the toolchain, not the deck.
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
