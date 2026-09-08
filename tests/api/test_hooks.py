@@ -209,7 +209,7 @@ def test_reading_the_hook_address_leads_to_the_login_like_any_other(
     )
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == "/login"
+    assert asked.headers["location"] == "/login?next=%2Fsources%2Falpha%2Ffetch"
 
 
 def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login() -> None:

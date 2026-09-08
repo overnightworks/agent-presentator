@@ -11,7 +11,7 @@ dependencies = [
     "cryptography==50.0.1",
     "fastapi==0.141.1",
     "jinja2==3.1.6",
-    "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.3.0/overnightworks_webauth-0.3.0-py3-none-any.whl",
+    "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.3.1/overnightworks_webauth-0.3.1-py3-none-any.whl",
     "pwdlib[argon2]==0.3.1",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
@@ -72,7 +72,6 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "webauth.passwords".msg = "Hashing is the adapter's; the host names the hasher."
-"webauth.dependencies".msg = "current_user_dependency waits for webauth v0.3.1's unauthenticated_response (issue #105); Identity still owns the session."
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -248,11 +247,11 @@ type = "forbidden"
 # ADR 0003: the library owns the login mechanism. Adapters fill its ports;
 # the host composes WebAuthConfig. The api is not in this list because the
 # routes call judge_credentials, login_attempt_budget, and CsrfOriginMiddleware,
-# and must read the installed config, sign and clear cookies, and read client
-# identity those helpers need (webauth.login, webauth.config, webauth.cookies,
+# and must read the installed config, sign and clear cookies, answer an
+# unauthenticated request, and read client identity those helpers need
+# (webauth.login, webauth.config, webauth.cookies, webauth.dependencies,
 # webauth.proxies, webauth.middleware). Import Linter cannot forbid a subset of
-# an external package's modules; ruff's banned-api holds hashing and, for now,
-# current_user_dependency.
+# an external package's modules; ruff's banned-api holds hashing.
 source_modules = [
     "presentator.application",
     "presentator.ports",

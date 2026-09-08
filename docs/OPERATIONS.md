@@ -17,18 +17,18 @@ says the same sentence it says for a wrong password. A session lasts twelve
 idle hours and slides forward on every request; logging out deletes the row.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax`, `Secure`
-whenever the request is https — is `webauth`'s mechanism now
-(`issue_session_cookies` / `clear_session_cookies`), as is the guard against a
-form another site submitted (issue #105, amends
-[ADR 0003](decisions/0003-libraries-for-models-and-auth.md)). Who is signed
-in, and the plain redirect to `/login` for whoever is not, stay this
-repository's own for now; that piece waits for a later webauth tag. `Secure`
-follows the connection the library sees, not a setting: a direct TLS run
-reports it itself, and behind a proxy it needs that proxy trusted (below) to
-read `X-Forwarded-Proto`. Two behaviours changed: a `same-site` or `none`
-`Sec-Fetch-Site` POST, which the old guard let through, is refused now; and a
-form POST carrying neither `Sec-Fetch-Site` nor `Origin` at all is refused now
-too, where the old guard let a header-less request through.
+whenever the request is https — is `webauth` v0.3.1's mechanism
+(`issue_session_cookies` / `clear_session_cookies`), as are the fail-closed
+CSRF-origin policy and the browser-or-JSON answer for a missing session. The
+host's `Identity` remains the authority that decides whether the cookie's
+session id names a person. A signed-out browser navigation is redirected to
+`/login?next=<requested-path-and-query>`; a JSON request receives 401. Every
+mutating path is protected unless it is exempted, and only the sessionless
+webhook prefix `/sources/` is exempt. `Secure` follows the connection the
+library sees, not a setting: a direct TLS run reports it itself, and behind a
+proxy it needs that proxy trusted (below) to read `X-Forwarded-Proto`. A
+`same-site` or `none` `Sec-Fetch-Site` POST, and a form POST carrying neither
+`Sec-Fetch-Site` nor `Origin`, are refused.
 
 A deck is code, so an instance builds every deck in a container of its own and
 refuses to start where it cannot ("Building the decks"). A run from a checkout,

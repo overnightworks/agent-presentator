@@ -61,36 +61,28 @@ User management (Settings · Users, password change, admin reset, deactivation)
 is not in this slice. It waits on `webauth` v0.3.0 and
 [#61](https://github.com/overnightworks/agent-presentator/issues/61).
 
-### Amendment 2026-09-08 — webauth v0.3.0 owns the cookie and the origin guard
+### Amendment 2026-09-08 — webauth v0.3.1 owns the public refusal and fail-closed guard
 
 Authority: [#105](https://github.com/overnightworks/agent-presentator/issues/105)
 (slice 13c of [#8](https://github.com/overnightworks/agent-presentator/issues/8)),
 independent-review findings on the same item.
 
-Two of the three pieces the amendment above kept as this repository's own move
-to the library. The cookie: `Identity.open_session` hands out the raw session
-id now, never a signed value, and the route calls `webauth.login`'s
-`issue_session_cookies` / `clear_session_cookies` to sign, set, and clear it —
+`webauth` v0.3.1 is pinned from its release wheel. It signs, sets, and clears
+the session cookie through `issue_session_cookies` / `clear_session_cookies`;
 `cookie_samesite` on `WebAuthConfig` (`"lax"`) is the flag they read, and
-`Secure` follows the connection the library sees (`request_is_https`), not a
-setting this host names; the own HMAC signer (`SessionCookieSigner`,
-`SignedSessionCookie`) is deleted. The origin guard:
-`webauth.middleware.csrf.CsrfOriginMiddleware` with a `CsrfPolicy` naming the
-protected paths replaces the Origin/`Sec-Fetch-Site` guard this repository
-wrote. `webauth.middleware` is no longer on the banned-API list;
-`webauth.passwords` and, for now, `webauth.dependencies` still are.
+`Secure` follows the connection the library sees. `Identity.open_session`
+hands out the raw session id, and `Identity.signed_in_user` remains the only
+authority that decides whether that id names a person.
 
-The redirect stays this repository's own a while longer: a review of the first
-cut of this slice found `current_user_dependency` invoked only through a
-`SessionRecordStore` stand-in that admits nothing, built solely to steal its
-302-or-401 answer — dual session authority, and five of its six port methods
-reached only by a test proving they raise. `Identity.signed_in_user` keeps
-deciding who is signed in, and a signed-out request gets this repository's
-plain redirect to `/login`, as before v0.3.0. webauth #21 (building) makes the
-answer a public function, `unauthenticated_response(request, login_redirect)`,
-callable without a store at all; the redirect moves to it, and `CsrfPolicy`
-moves to a protect-everything mode with named exemptions (its own review
-finding), when that tag lands.
+`CsrfOriginMiddleware` receives a `CsrfPolicy` with no explicit protected
+paths, so every mutating route is protected automatically. `/sources/` is its
+only exemption because its POST webhook authenticates with its own secret and
+has no session. The whole-app guard calls the library's public
+`unauthenticated_response(request, LoginRedirect(...))`: a browser navigation
+gets `/login` with its requested path and query in `next`, while a JSON request
+gets 401. It does not construct a session-store or audit stand-in merely to
+obtain that answer. `webauth.middleware` and `webauth.dependencies` are no
+longer banned APIs; `webauth.passwords` remains one.
 
 ### What exists today, and what does not
 
@@ -139,8 +131,8 @@ From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
 is implemented here at all — see below. `BodySizePolicy`,
 `SecurityHeadersPolicy`, and `AuditSink` are taken with their defaults and
-stubbed until something here needs them. `CsrfPolicy` names the paths
-`CsrfOriginMiddleware` protects (13c).
+stubbed until something here needs them. `CsrfPolicy` exempts the sessionless
+webhook prefix; its default protects every mutating path (13c).
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is

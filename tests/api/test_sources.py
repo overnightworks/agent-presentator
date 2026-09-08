@@ -1480,7 +1480,10 @@ def test_removal_posts_from_another_site_are_refused(
     instance: Lobby,
     step: str,
 ) -> None:
-    headers = {"origin": "https://another.example"}
+    headers = {
+        "origin": "https://another.example",
+        "sec-fetch-site": "cross-site",
+    }
 
     refused = (
         ask_removal(instance.client, "decks", headers=headers)

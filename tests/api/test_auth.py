@@ -6,6 +6,8 @@ from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
+from fastapi import Response
+from fastapi.testclient import TestClient
 
 from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
@@ -21,6 +23,7 @@ from tests.api.lobby import (
     USERNAME,
     Lobby,
     a_lobby,
+    a_lobby_app,
     a_lobby_behind_a_trusted_proxy,
     a_lobby_that_claims_no_origin_of_its_own,
     a_user_store,
@@ -52,7 +55,43 @@ def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
     answer = lobby.client.get("/")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == "/login?next=%2F"
+
+
+def test_a_signed_out_browser_keeps_its_requested_path_and_query_at_login(
+    lobby: Lobby,
+) -> None:
+    asked = lobby.client.get("/settings/sources?tab=recent")
+
+    assert asked.status_code == HTTPStatus.FOUND
+    assert (
+        asked.headers["location"] == "/login?next=%2Fsettings%2Fsources%3Ftab%3Drecent"
+    )
+
+
+def test_a_signed_out_json_request_is_refused_without_a_redirect(lobby: Lobby) -> None:
+    refused = lobby.client.get(
+        "/settings/sources?tab=recent",
+        headers={"accept": "application/json"},
+    )
+
+    assert refused.status_code == HTTPStatus.UNAUTHORIZED
+    assert refused.headers.get("location") is None
+
+
+def test_an_unlisted_mutating_route_refuses_a_foreign_form() -> None:
+    lobby, _clock = a_lobby_app()
+
+    def a_new_write() -> Response:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    lobby.add_api_route("/a-new-write", a_new_write, methods=["POST"])
+    refused = TestClient(lobby).post(
+        "/a-new-write",
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
 def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None:
@@ -251,7 +290,7 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     answer = lobby.client.get("/deck/knowledge-fabric")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == "/login?next=%2Fdeck%2Fknowledge-fabric"
 
 
 def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
@@ -295,7 +334,7 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == "/login"
+    assert asked.headers["location"] == "/login?next=%2Fsources%2Ftalks%2Ffetch"
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
@@ -379,7 +418,10 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert walked_out.headers["location"] == "/login"
+    assert (
+        walked_out.headers["location"]
+        == "/login?next=%2Fstatic%2F..%2Fdeck%2Fa-deck%2F"
+    )
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(

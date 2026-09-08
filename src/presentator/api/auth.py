@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.cookies import verify_session_cookie
+from webauth.dependencies import LoginRedirect, unauthenticated_response
 from webauth.login import (
     LoginOutcome,
     clear_session_cookies,
@@ -31,7 +32,7 @@ from webauth.proxies import client_user_agent, resolve_client_ip
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.pages import Pages, state_word
-from presentator.api.preferences import ACCOUNT, SETTINGS, THEME, preference_routes
+from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
@@ -75,11 +76,9 @@ _SETUP: Final = "/setup"
 # public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
 _CSRF_POLICY: Final = CsrfPolicy(
-    protected=PathRules(
-        exact=frozenset({_LOGIN, _LOGOUT, _SETUP, ACCOUNT, THEME}),
-        prefixes=(SETTINGS,),
-    ),
+    exempt=PathRules(prefixes=(HOOK_CALLS,)),
 )
+_LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
 
 
 async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -156,7 +155,7 @@ class _Surfaces:
             user_agent=client_user_agent(request),
         )
         if person is None:
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+            return unauthenticated_response(request, _LOGIN_REDIRECT)
         request.state.signed_in_person = person
         request.state.signed_in_session_id = session_id
         answer = await call_next(request)
