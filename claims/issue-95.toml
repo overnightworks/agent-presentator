@@ -1,0 +1,8 @@
+claim_id = "a768618ed5814537aaabd932e95b4018"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "32ff84f6fca911fda9d4b2d39cbbff4a34a12ac5"
+branch = "claude/issue-95-token-username"
+scope = ["src/gitmirror/mirror.py", "src/presentator/adapters/decks.py", "src/presentator/contracts/decks.py"]
+opened_commit = "69591e24275a17d7ed1e941ffaee40816d66f410"
+whole_reason = "the fix crosses the mirror helper, the failure contract and the adapter that maps it, plus their tests under tests/gitmirror and tests/adapters"
