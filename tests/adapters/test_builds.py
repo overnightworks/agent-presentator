@@ -357,10 +357,19 @@ case "$1" in
     version) echo "{api}";;
     info) echo "{driver}";;
     image) echo "sha256:the-image-of-this-deployment";;
-    create) printf 'one\\n' >> "{tried}"; exit {size};;
+    create) printf 'create\\n' >> "{tried}"; exit {size};;
     start) exit 0;;
-    rm) exit 0;;
+    rm) printf 'rm\\n' >> "{tried}"; exit 0;;
     ps) ;;
+esac
+"""
+_A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_MAKING_ONE = """#!/bin/sh
+case "$1" in
+    version) echo "1.52";;
+    info) echo "overlay2";;
+    image) echo "sha256:the-image-of-this-deployment";;
+    create) sleep 60;;
+    rm) printf '%s\\n' "$*" >> "{removed}";;
 esac
 """
 _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_A_SIZE = """#!/bin/sh
@@ -1299,11 +1308,36 @@ def test_a_daemon_that_refuses_that_container_bounds_nothing(
 ) -> None:
     # Which driver takes a size is not read off its name: this machine is
     # asked to run one bounded container, and it said no.
-    a_daemon(machine, tmp_path, size=_IT_TAKES_NO_SIZE)
+    tried = a_daemon(machine, tmp_path, size=_IT_TAKES_NO_SIZE)
 
     daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
 
     assert not daemon.bounds_a_container_filesystem
+    # A daemon that said it made nothing is not asked to take anything down.
+    assert tried.read_text(encoding="utf-8").split() == ["create"]
+
+
+def test_a_container_this_machine_may_have_made_is_taken_down_all_the_same(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # A daemon that made the container while the client stopped waiting is
+    # the one moment a probe could be left behind, so the name this call owns
+    # is taken down whatever the client heard.
+    machine.setattr(builds_module, "_DAEMON_ANSWERS_WITHIN", _A_SHORT_ANSWER)
+    removed = tmp_path / _RECORDED_REMOVAL
+    with_docker(
+        machine,
+        tmp_path,
+        _A_DAEMON_THAT_NEVER_ANSWERS_ABOUT_MAKING_ONE.format(removed=removed),
+    )
+
+    daemon = the_daemon_of_this_machine(image=_THE_BUILD_IMAGE, disk=_A_DISK_BOUND)
+
+    assert not daemon.bounds_a_container_filesystem
+    taken_down = removed.read_text(encoding="utf-8").split()
+    assert taken_down[:2] == ["rm", "--force"]
+    assert taken_down[2].startswith(f"presentator-a-size-{os.getpid()}-")
 
 
 def test_a_deployment_that_asks_for_no_size_has_this_machine_run_nothing(

@@ -28,6 +28,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
 from pathlib import Path
 from tempfile import mkdtemp
 from time import monotonic
@@ -96,6 +97,9 @@ _CONTAINER_PREFIX: Final = "presentator"
 # What the one container that asks about a size is called and needs: it runs
 # nothing, so it needs nothing, and its name says which start asked.
 _A_SIZE: Final = "a-size"
+# Two starts on one machine, and one start after another, are two containers:
+# the name carries which process asked and which of its calls did.
+_NAME_ENOUGH: Final = 4
 _A_PROBE_NEEDS: Final = "64m"
 # Whether a container's own filesystem can be held to a size is not read off
 # the driver's name: overlay2 takes one over xfs with project quotas and
@@ -166,6 +170,19 @@ _TOO_OLD: Final = (
 )
 
 _log = logging.getLogger(__name__)
+
+
+class _HowItAnswered(StrEnum):
+    """What one call to the container client came back with.
+
+    A refusal is the daemon saying in as many words that it did not do the
+    thing; never having said is a client that timed out or could not be run,
+    and what the daemon did then is not known here.
+    """
+
+    DID = "did"
+    REFUSED = "refused"
+    NEVER_SAID = "never said"
 
 
 class DaemonRefusedError(RuntimeError):
@@ -612,32 +629,39 @@ def _a_size_is_taken(image: str, disk: str) -> bool:
 
     One container of this instance's own, bounded like a build's and doing
     nothing at all: a machine that cannot hold it says so here, once, instead
-    of failing every build of every deck. It is made and started under a name
-    of this start's, so that a machine which never answers leaves a container
-    this call takes down rather than one nobody knows about.
+    of failing every build of every deck. The making of it is inside the same
+    hands as the taking down, because a daemon that made the container and a
+    client that never heard so is exactly the moment one would be left behind;
+    only a daemon that answered in as many words that it made nothing leaves
+    nothing to take down. The name is this start's and this call's alone.
     """
-    probe = f"{_CONTAINER_PREFIX}-{_A_SIZE}-{os.getpid()}"
-    if not _the_client_did(
-        "create",
-        f"--name={probe}",
-        *_SEALED,
-        f"--entrypoint={_NOTHING_AT_ALL}",
-        f"--memory={_A_PROBE_NEEDS}",
-        f"--pids-limit={_PROCESSES_AT_MOST}",
-        f"--storage-opt=size={disk}",
-        image,
-    ):
-        return False
+    probe = (
+        f"{_CONTAINER_PREFIX}-{_A_SIZE}-{os.getpid()}-{os.urandom(_NAME_ENOUGH).hex()}"
+    )
+    made = _HowItAnswered.NEVER_SAID
     try:
-        return _the_client_did("start", "--attach", probe)
+        made = _the_client_did(
+            "create",
+            f"--name={probe}",
+            *_SEALED,
+            f"--entrypoint={_NOTHING_AT_ALL}",
+            f"--memory={_A_PROBE_NEEDS}",
+            f"--pids-limit={_PROCESSES_AT_MOST}",
+            f"--storage-opt=size={disk}",
+            image,
+        )
+        if made is not _HowItAnswered.DID:
+            return False
+        return _the_client_did("start", "--attach", probe) is _HowItAnswered.DID
     finally:
-        stayed = _taken_down(probe, within=_REMOVAL_WITHIN)
-        if stayed is not None:
-            _log.error(_PROBE_STAYED, probe, stayed)
+        if made is not _HowItAnswered.REFUSED:
+            stayed = _taken_down(probe, within=_REMOVAL_WITHIN)
+            if stayed is not None:
+                _log.error(_PROBE_STAYED, probe, stayed)
 
 
-def _the_client_did(*arguments: str) -> bool:
-    """Whether that one call to the client came back saying it worked."""
+def _the_client_did(*arguments: str) -> _HowItAnswered:
+    """How that one call to the client came back, or that it never did."""
     try:
         asked = subprocess.run(
             [_DOCKER, *arguments],
@@ -648,11 +672,11 @@ def _the_client_did(*arguments: str) -> bool:
         )
     except (OSError, subprocess.TimeoutExpired) as unavailable:
         _log.warning(_NO_SIZE_IS_TAKEN, unavailable)
-        return False
+        return _HowItAnswered.NEVER_SAID
     if asked.returncode != 0:
         _log.warning(_NO_SIZE_IS_TAKEN, _tail(asked.stderr))
-        return False
-    return True
+        return _HowItAnswered.REFUSED
+    return _HowItAnswered.DID
 
 
 def _taken_down(container: str, *, within: timedelta) -> str | None:
