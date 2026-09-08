@@ -10,7 +10,7 @@ from copresenter.answer import CannedAnswerer
 from copresenter.app import create_app
 from copresenter.config import Settings
 
-from .conftest import EXAMPLE_DECK, FakeSpeech
+from .conftest import ALLOWED_ORIGIN, EXAMPLE_DECK, FakeSpeech
 
 
 class EndingUpstream:
@@ -47,8 +47,7 @@ class EndingSpeech(FakeSpeech):
         return self.upstream
 
 
-def test_hear_reports_unavailable_when_speech_cannot_open(app) -> None:
-    client = TestClient(app)
+def test_hear_reports_unavailable_when_speech_cannot_open(client) -> None:
     with client.websocket_connect("/hear?language=de") as socket:
         payload = socket.receive_json()
 
@@ -59,12 +58,16 @@ def test_hear_reports_unavailable_when_speech_cannot_open(app) -> None:
 def test_hear_proxy_closes_when_the_speech_socket_ends(example_deck) -> None:
     speech = EndingSpeech()
     app = create_app(
-        Settings(deck=EXAMPLE_DECK, speech_url="http://speech.test"),
+        Settings(
+            allowed_origin=ALLOWED_ORIGIN,
+            deck=EXAMPLE_DECK,
+            speech_url="http://speech.test",
+        ),
         deck=example_deck,
         speech=speech,
         answerer=CannedAnswerer(),
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
     with (
         client.websocket_connect("/hear?language=de") as socket,
         pytest.raises(WebSocketDisconnect),

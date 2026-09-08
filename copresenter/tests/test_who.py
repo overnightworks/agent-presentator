@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
-
-def test_who_reports_the_canned_answerer_and_speech_health(app) -> None:
-    response = TestClient(app).get("/who")
+def test_who_reports_the_canned_answerer_and_speech_health(client) -> None:
+    response = client.get("/who")
 
     assert response.status_code == 200
     body = response.json()

@@ -69,6 +69,7 @@ environment and never logged.
 
 ```sh
 # claude on PATH, already logged in (`claude` / `claude login`)
+export COPRESENTER_ALLOWED_ORIGIN="http://localhost:3030"   # where the talk is served
 export COPRESENTER_DECK="../examples/copresenter-deck"
 export COPRESENTER_CLAUDE_MODEL="claude-sonnet-4-6"   # optional
 # default speech is the #74 service:
@@ -100,16 +101,22 @@ The deck, from `frontend/` after `pnpm install --frozen-lockfile`:
 pnpm exec slidev ../examples/copresenter-deck/slides.md
 ```
 
-Open the talk and turn **Presenter** on. A different service address is
-`?copresenter=http://127.0.0.1:3040` on the talk URL.
+Open the talk and turn **Presenter** on. The overlay talks to
+`http://127.0.0.1:3040` unless the deck's `global-bottom.vue` sets
+`window.COPRESENTER_URL`; the deck is the only place that names the address, so
+a shared talk URL cannot point the microphone somewhere else. An `https://`
+address carries the hearing socket over `wss://`.
 
 Copy `global-bottom.vue` and `components/CoPresenter.vue` into any other deck
-folder to take the overlay with you.
+folder to take the overlay with you. A deck served from another machine sets
+`window.COPRESENTER_URL` to this service's public address, and that page's
+origin is what `COPRESENTER_ALLOWED_ORIGIN` must name.
 
 ### Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `COPRESENTER_ALLOWED_ORIGIN` | none, required | The one origin whose pages may call this service, for example `https://presentator.hallucinai.de`. `scheme://host[:port]`, http or https, nothing else: a wildcard, a path, credentials or a missing value each refuse the start and name the reason. Every route and the hearing socket refuse a call whose `Origin` is missing or different, `/who` included. |
 | `COPRESENTER_HOST` | `127.0.0.1` | Bind address |
 | `COPRESENTER_PORT` | `3040` | Bind port |
 | `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
@@ -128,7 +135,9 @@ The stage needs `claude` on PATH with a login, and the speech service.
   separators and per-slide frontmatter are read.
 - Split abbreviations such as `z.B.` correctly.
 - Search a knowledge graph, the web, or anything outside the deck folder.
-- Authenticate callers. It is a local demo process.
+- Authenticate callers. The origin gate stops other web pages, not a native
+  client that writes the header itself; whoever reaches the address asks Claude
+  with the operator's login. A public deployment needs a real gate in front.
 - Live inside the instance. Productising it is a later milestone.
 - Guarantee the real GPU speech service. If that process is not ready, run the
   stand-in and say so. `GET /who` reports which speech models answered.
