@@ -40,6 +40,7 @@ from presentator.contracts.decks import (
 from presentator.ports.decks import DeckFolders
 from tests.application.fakes import (
     BUILDS_ROOT,
+    LOCAL_MOUNT_EXAMPLE,
     PATIENCE,
     FakeBuildRunner,
     FakeDeckFolders,
@@ -1253,6 +1254,28 @@ def test_a_duplicate_name_or_url_is_refused() -> None:
         is SourceRefusal.DUPLICATE_NAME
     )
     assert _add(decks, name="other") is SourceRefusal.DUPLICATE_URL
+
+
+def test_a_different_spelling_of_an_existing_local_source_is_a_duplicate_url() -> None:
+    existing = Source(
+        id="the-existing-file-source",
+        name="talks",
+        url=f"{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        ref="main",
+        secret_location=None,
+        owner_id=_OWNER,
+    )
+    decks = decks_over(sources=having(existing))
+
+    refused = _add(
+        decks,
+        name="other",
+        url=f"file://{LOCAL_MOUNT_EXAMPLE}/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert refused is SourceRefusal.DUPLICATE_URL
 
 
 def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:

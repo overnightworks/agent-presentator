@@ -479,6 +479,7 @@ def builds_under(
     *,
     toolchain: DeckToolchain,
     output_megabytes: int = _A_TALK_THIS_BIG_IS_FINE,
+    local_mount: FilesystemLocalMount | None = None,
 ) -> SlidevBuilds:
     return SlidevBuilds(
         builds=tmp_path / "builds",
@@ -487,7 +488,11 @@ def builds_under(
             directory=tmp_path / "mirrors",
             credentials=OpenCredentials(),
             pull_timeout=_A_GENEROUS_BOUND,
-            local_mount=FilesystemLocalMount(mount=tmp_path),
+            local_mount=(
+                FilesystemLocalMount(mount=tmp_path)
+                if local_mount is None
+                else local_mount
+            ),
         ),
         output_megabytes=output_megabytes,
     )
@@ -656,6 +661,28 @@ def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     ) == _WHAT_A_TALK_SAYS
     assert artefacts.pdf.read_bytes().startswith(b"%PDF")
     assert artefacts.directory.is_relative_to(tmp_path / "builds")
+
+
+def test_a_build_of_a_source_that_left_its_mount_is_not_attempted(
+    remote: GitRemote,
+    source: Source,
+    tmp_path: Path,
+) -> None:
+    """A file-kind source that left its mount is unreadable at build time too.
+
+    Moved, deleted, or swapped for a symlink since it was fetched, no git
+    process is asked to open wherever the address now points — the same
+    refusal a poll makes.
+    """
+    builds = builds_under(
+        tmp_path,
+        toolchain=on_this_machine(tmp_path),
+        local_mount=FilesystemLocalMount(mount=tmp_path / "elsewhere"),
+    )
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert built == BuildFailure(text=None)
 
 
 def test_a_second_build_of_the_same_deck_leaves_the_first_one_where_it_stands(
