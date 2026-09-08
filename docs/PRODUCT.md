@@ -29,6 +29,19 @@ A decision record is a technical choice, not a claim that its slice exists.
 This index gains a section per subject once that subject has landed behavior to
 report.
 
+### Running an instance
+
+One image carries the packaged server, the Slidev toolchain it spawns and the
+Chromium the PDF export drives, and one compose file starts it with the
+database, the mirrors and the built talks in named volumes: a `docker compose
+down` and the next `up` find the accounts, the sources, the decks and the talks
+that were built, and build nothing again. Nothing is reachable from beyond this
+machine yet — the tunnel, the service that survives a reboot, and the first
+login from the laptop are
+[#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
+instance is started, upgraded and backed up, and what a fresh one must be
+given, is [OPERATIONS.md](OPERATIONS.md).
+
 ### Signing in
 
 The first start of an empty instance creates the admin at `/setup`, and that
@@ -66,8 +79,8 @@ instance defaults, and Sources lists each source with the state and age of its
 newest run — never fetched, reachable, or Error, never the internal reason a
 credential could not be resolved — and a Fetch now that refreshes that one
 source and returns to the list. An instance with no source says what a source
-is and what you need for it. Users is not a tab yet. There is no control to
-add a source, and a source has no page of its own yet. Everybody opens Account
+is and what you need for it. Users is not a tab yet. An admin adds a source
+there, and each source has a page of its own. Everybody opens Account
 and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,
 the instance default behind it — and "follow system" writes no `data-theme`
 attribute at all, so the browser decides
@@ -287,4 +300,13 @@ no network and nothing of the server mounted
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a) is open on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
 lands, a deck source is as trusted as the machine.
+
+### Local speech
+
+A sibling process under [`speech/`](../speech/README.md) holds a local speaking
+model and a local hearing model and offers them over HTTP. It is not wired into
+the instance; the co-presenter that will call it is
+[#73](https://github.com/overnightworks/agent-presentator/issues/73), and
+productising it is the speech milestone. Which models, what they cost on the
+card, and how to start it are owned by that README.
 

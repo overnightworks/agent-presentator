@@ -1,0 +1,41 @@
+# One service is the instance. What has to survive it stands in a named volume;
+# what may never be written down here comes from the environment.
+services:
+  presentator:
+    build: .
+    image: agent-presentator
+    # A build spawns a process tree of its own, and a step given up on leaves
+    # its grandchildren to be reaped by whatever is process 1.
+    init: true
+    # The tunnel of ADR 0007 runs on this machine and enters here, so the
+    # address is offered to this machine alone — and the instance sees that
+    # connection as the network's gateway below, which is the address
+    # PRESENTATOR_TRUSTED_PROXIES has to name.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Whatever the operator's own file carries, including the variable a
+    # source's credential names. This repository never writes that file.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
+    volumes:
+      - database:/data/database
+      - mirrors:/data/mirrors
+      - builds:/data/builds
+
+# Fixed, so that the address every connection through the published port
+# carries is a value the operator can write down rather than read off a
+# network Docker numbered by chance.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.255.0/24
+          gateway: 172.31.255.1
+
+volumes:
+  database:
+  mirrors:
+  builds:

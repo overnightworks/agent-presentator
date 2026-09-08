@@ -14,13 +14,16 @@ from pathlib import Path
 
 ALLOWED_ROOT_FILES: frozenset[str] = frozenset(
     {
+        ".dockerignore",
         ".gitattributes",
         ".gitignore",
         ".python-version",
         "AGENTS.md",
         "CLAUDE.md",
+        "Dockerfile",
         "LICENSE",
         "README.md",
+        "compose.yaml",
         "pyproject.toml",
         "sonar-project.properties",
         "uv.lock",
@@ -30,10 +33,12 @@ ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
     {
         ".agent-claim",
         ".github",
+        "copresenter",
         "docs",
         "examples",
         "frontend",
         "scripts",
+        "speech",
         "src",
         "tests",
     }

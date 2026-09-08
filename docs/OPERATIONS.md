@@ -21,7 +21,9 @@ export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
 uv run agent-presentator
 ```
 
-The rest carries defaults and varies by deployment: `PRESENTATOR_DATABASE` (the
+The rest carries defaults and varies by deployment. Every value in brackets
+below is what a direct run uses; the container image replaces some of them, and
+"Running it as a container" lists which. `PRESENTATOR_DATABASE` (the
 SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
 mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HTTPS` (marks the
 session cookie `Secure`, off), `PRESENTATOR_HOST` (`127.0.0.1`),
@@ -38,7 +40,10 @@ the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 Without it no form is accepted at all: the browser sends `Origin: https://…`
 while the app sees the tunnel connection as http, so the origins never match.
 The list is required for the product to work behind the tunnel, not only for
-a sharper budget.
+a sharper budget. `127.0.0.1` is the answer for a direct run, where the tunnel
+client and the server share one loopback; a container has a network of its own
+and sees that same client as its gateway, which the section after this one
+names.
 
 Starting an instance creates the tables it needs, and changes in place what it
 finds: a file written before a source was a row of its own keeps its decks and
@@ -83,18 +88,127 @@ neutralised, any inherited credential helper cleared, and `ssh` in batch mode
 with its own connect timeout — so nothing on the machine can turn a pull into a
 wait for an answer nobody will give.
 
+## Running it as a container
+
+`Dockerfile` builds one image: the packaged server, the Slidev toolchain it
+spawns, and the Chromium that toolchain exports a PDF with. `compose.yaml`
+starts it. Five of the settings this file names are not a deployment's choice
+inside a container but a fact of the image's own filesystem and network, so the
+image sets them and their defaults elsewhere here do not apply:
+
+| Setting | In this image |
+| --- | --- |
+| `PRESENTATOR_DATABASE` | `/data/database/presentator.sqlite3` |
+| `PRESENTATOR_MIRRORS` | `/data/mirrors` |
+| `PRESENTATOR_BUILDS` | `/data/builds` |
+| `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
+| `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
+
+Overriding one of the three paths in `.env` moves that state out of its volume,
+which is how an instance loses what it writes; every other setting is the
+operator's as before.
+
+`PRESENTATOR_SECRET_KEY` is the only value a fresh instance must be given, and
+compose refuses to start the service without it, naming it. Everything else is
+optional and reaches the container through `.env` beside `compose.yaml` — a
+file this repository never writes and git never sees.
+`PRESENTATOR_SOURCE_CREDENTIAL` is not a setting, so a line that names it does
+nothing in `.env` or in the shell. A value exported in the shell reaches
+compose itself, but the container is handed nothing but that file and the key.
+
+The second value this deployment needs is the trusted proxy. `cloudflared`
+([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)) runs on this
+machine and enters through the published port, so the container sees it as the
+gateway of its own network, never as `127.0.0.1`. `compose.yaml` fixes that
+network's subnet so the address is one to write down rather than one Docker
+numbered by chance — which also means one machine runs one such instance, since
+a second project from this file would ask for the same subnet:
+
+```sh
+printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
+printf 'PRESENTATOR_TRUSTED_PROXIES=%s\n' "172.31.255.1" >> .env
+docker compose up -d
+```
+
+Without that line the instance answers every request against the connection it
+has — http, and one login budget for the whole tunnel — so a browser's
+`Origin: https://…` matches nothing and no form is accepted. After a change to
+the subnet, what the running container's gateway really is:
+
+```sh
+docker compose ps -q presentator | xargs docker inspect \
+  --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'
+```
+
+An instance without a source runs and lists nothing; the settings above say
+what each further variable does and what a refused one costs. The first start
+offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
+
+Three named volumes hold what has to survive the container: `database`,
+`mirrors` and `builds`, under the name of the directory compose runs in.
+`docker compose down` keeps them, and the next `up` finds the accounts, the
+sources, the decks and the talks that were built, with nothing built again.
+`docker compose down -v` deletes them, which is the one command that loses an
+instance.
+
+An upgrade is the new tree, the image again, and the service again; a start
+changes the tables it finds in place, as above:
+
+```sh
+git pull && docker compose build && docker compose up -d
+```
+
+A backup is the database volume and the builds volume: a deck standing at the
+commit its talk was built from is never built again, so an instance restored
+without the built talks answers not-found for each of them until every deck is
+pushed anew. The mirrors are clones and cost a first pull. Both archives are
+taken through compose, which knows the project's volumes — naming them by hand
+archives an empty volume of a project that does not exist, and says it went
+well — and out of the mount points `/data/database` and `/data/builds`, which
+are where those volumes stand whatever `.env` says the settings are. Neither
+archive is believed until it has been read back:
+
+```sh
+set -euo pipefail
+docker compose stop
+for volume in database builds; do
+  docker compose run --rm --no-TTY presentator tar cz -C "/data/${volume}" . \
+    > "${volume}.tar.gz"
+done
+databases="$(tar tzf database.tar.gz | grep -c 'presentator\.sqlite3$' || true)"
+talks="$(tar tzf builds.tar.gz | grep -c 'talk/index\.html$' || true)"
+if [ "$databases" -lt 1 ] || [ "$talks" -lt 1 ]; then
+  echo "$databases databases and $talks talks in the archives:" \
+       "keep the backup before this one" >&2
+  exit 1
+fi
+docker compose start
+```
+
+Those files restore nothing by themselves. `PRESENTATOR_SECRET_KEY` belongs
+with them, because the sources' stored secrets are encrypted with a derivation
+of it — a restored instance without that key lists its decks and can pull none
+of them. A row that still names an environment variable is not restored by
+`.env`; it needs *Renew secret* on the source page.
+
 ## Building the decks
 
 Every refresh builds the decks whose commit moved. That needs a Node toolchain
 on the machine: `pnpm` on `PATH`, and a project whose dependencies are
 installed carrying Slidev — this repository's `frontend/`, installed with
 `pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
+A deck may name the official themes that project already carries — `default`,
+`seriph`, `apple-basic`, `bricks`, and `shibainu`; any other theme is a
+decision for the toolchain, not the deck.
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
-(`300`). The PDF export drives a browser, so the toolchain also needs
-`playwright-chromium` installed beside Slidev; without it a deck builds and its
-export fails, which leaves the previously delivered talk standing.
+(`300`). The PDF export drives a browser: `playwright-chromium` is one of that
+project's dependencies, and the browser itself is fetched once with `pnpm exec
+playwright install chromium`, which keeps it under the home directory of the
+user the server runs as — the two things the container image does for itself.
+Without that browser a deck builds and its export fails, which leaves the
+previously delivered talk standing.
 
 Without a toolchain the instance still runs: every build fails, the deck pages
 say no talk has been built, and the failure is in the server log.
@@ -110,6 +224,27 @@ of this instance is in reach through the environment; anything else that user
 can read or reach, a deck's build can too. Until the sandbox lands
 ([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 14a),
 configure only deck sources you would run code from.
+
+**A talk authored for another Slidev setup needs work before it builds here.**
+Proven by pushing the operator's own March 2026 talk through a deployed
+instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
+a deck folder carries no dependencies of its own, so a theme, addon, or
+plugin the talk's original `package.json` installed builds only if
+`frontend/` already carries it too — the operator's talk named
+`@slidev/theme-seriph`, one of the official themes above, so once that theme
+landed the build reached the deck's own content. A slide deck's own Vue
+components and global layers (`global-bottom.vue` and its kind) run again in
+this build, so a component wired to a service the deck does not bring with
+it — the operator's talk carried an AI overlay calling a chat backend from
+the tool it was written for — has to be stripped from the deck folder before
+pushing, because this instance has nowhere for it to call. A remote asset
+named in the frontmatter, such as a background image fetched by URL at build
+time, has to become a local file committed into the deck folder and named by
+a relative path instead — this instance's build never gets network, sandbox
+or not. With the theme resolved, the overlay stripped and the background
+made local, the operator's talk built, served all sixteen slides in the
+projector and presenter view at desktop and mobile widths, and exported a
+sixteen-page PDF.
 
 ## The fetch-now hook
 
@@ -202,6 +337,10 @@ No bypass actor exists: an administrator is subject to the same gates, and
 repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
+
+The `Container image` job that proves the image still builds is not in that
+list yet. Adding it is a ruleset change of its own, sent as the same body
+through the `PUT` above; until then a red image build does not hold a merge.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has
