@@ -42,7 +42,7 @@ USER root
 # day the archive moves, and the digest above is what makes the layer
 # repeatable.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git openssh-client \
+    && apt-get install --yes --no-install-recommends ca-certificates git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 /uv /usr/local/bin/uv

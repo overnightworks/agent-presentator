@@ -96,7 +96,10 @@ and hyphens, at most 64 characters, unique; the URL is unique too, and must
 not carry a password in its userinfo — that belongs in the Secret field. The
 access kind is derived from the URL scheme (`https://` is a token; `http://` is
 refused; `git@` and `ssh://` are a deploy key, not yet offered on the form).
-The secret is stored encrypted. SSH deploy keys are not offered yet.
+The secret is stored encrypted. SSH deploy keys are not offered yet. An HTTPS
+source needs the image's CA certificates to verify the git host's TLS
+certificate; the image carries them, and CI proves it with a live HTTPS fetch
+on every build.
 
 The server polls the source every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task
 beside the routes, and never twice at once; opening the deck list reads the
@@ -242,6 +245,9 @@ Every refresh builds the decks whose commit moved. That needs a Node toolchain
 on the machine: `pnpm` on `PATH`, and a project whose dependencies are
 installed carrying Slidev — this repository's `frontend/`, installed with
 `pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
+A deck may name the official themes that project already carries — `default`,
+`seriph`, `apple-basic`, `bricks`, and `shibainu`; any other theme is a
+decision for the toolchain, not the deck.
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
@@ -319,6 +325,27 @@ decks are all the operator's own can trade it the other way with
 `PRESENTATOR_BUILD_RUNNER=host`, which keeps the socket out of the container
 and runs every deck's code as the server; an instance serving a repository
 somebody else can push to does not.
+
+**A talk authored for another Slidev setup needs work before it builds here.**
+Proven by pushing the operator's own March 2026 talk through a deployed
+instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
+a deck folder carries no dependencies of its own, so a theme, addon, or
+plugin the talk's original `package.json` installed builds only if
+`frontend/` already carries it too — the operator's talk named
+`@slidev/theme-seriph`, one of the official themes above, so once that theme
+landed the build reached the deck's own content. A slide deck's own Vue
+components and global layers (`global-bottom.vue` and its kind) run again in
+this build, so a component wired to a service the deck does not bring with
+it — the operator's talk carried an AI overlay calling a chat backend from
+the tool it was written for — has to be stripped from the deck folder before
+pushing, because this instance has nowhere for it to call. A remote asset
+named in the frontmatter, such as a background image fetched by URL at build
+time, has to become a local file committed into the deck folder and named by
+a relative path instead — this instance's build never gets network, sandbox
+or not. With the theme resolved, the overlay stripped and the background
+made local, the operator's talk built, served all sixteen slides in the
+projector and presenter view at desktop and mobile widths, and exported a
+sixteen-page PDF.
 
 ## The fetch-now hook
 

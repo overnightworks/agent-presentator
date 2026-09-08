@@ -311,3 +311,12 @@ which. Building on this machine instead is one explicit setting, for a
 development run, and it costs the sandbox altogether. The price of the sandbox
 is the docker socket, which [OPERATIONS.md](OPERATIONS.md) names.
 
+### Local speech
+
+A sibling process under [`speech/`](../speech/README.md) holds a local speaking
+model and a local hearing model and offers them over HTTP. It is not wired into
+the instance; the co-presenter that will call it is
+[#73](https://github.com/overnightworks/agent-presentator/issues/73), and
+productising it is the speech milestone. Which models, what they cost on the
+card, and how to start it are owned by that README.
+

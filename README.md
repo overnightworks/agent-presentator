@@ -21,6 +21,7 @@ plus a PDF export survives a dead tunnel. Why it exists and where it is going is
 | Technical decisions | Records indexed by [docs/decisions/README.md](docs/decisions/README.md) |
 | How a change is proven | [docs/TESTING.md](docs/TESTING.md) |
 | Reusable agent policy | [AGENTS.md](AGENTS.md); [CLAUDE.md](CLAUDE.md) only loads it for Claude |
+| Local speech process | [speech/README.md](speech/README.md) |
 
 Do not copy an owner's facts into another document. Layers that have no owner
 yet are named in [docs/README.md](docs/README.md).

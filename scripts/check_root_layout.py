@@ -33,10 +33,12 @@ ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
     {
         ".agent-claim",
         ".github",
+        "copresenter",
         "docs",
         "examples",
         "frontend",
         "scripts",
+        "speech",
         "src",
         "tests",
     }
