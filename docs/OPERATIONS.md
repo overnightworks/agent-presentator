@@ -59,11 +59,13 @@ is lowercase letters, digits and hyphens, at most 64 characters, unique; the
 URL is unique too, and must not carry a password in its userinfo — that belongs
 in the Secret field. The access kind is derived from the URL scheme (`https://`
 is a token; `http://` is refused; `git@` and `ssh://` are a deploy key, not yet
-offered on the form). The secret is stored encrypted in the source's row and
-read with the instance key at every pull. Ciphertext this instance's key cannot
-open is refused rather than handed to `git`: that source's fetch fails and its
-decks stay listed. Keep `PRESENTATOR_SECRET_KEY` with the database backup — the
-file alone restores no working source.
+offered on the form). An HTTPS source needs the image's CA certificates to
+verify the git host's TLS certificate; the image carries them, and CI proves
+it with a live HTTPS fetch on every build. The secret is stored encrypted in
+the source's row and read with the instance key at every pull. Ciphertext
+this instance's key cannot open is refused rather than handed to `git`: that
+source's fetch fails and its decks stay listed. Keep `PRESENTATOR_SECRET_KEY`
+with the database backup — the file alone restores no working source.
 
 A source that still names only an environment variable — a row written before
 this instance stored secrets itself — stays listed and keeps its decks. Fetch
