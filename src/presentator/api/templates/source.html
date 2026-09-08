@@ -63,6 +63,9 @@
     <p data-secret-row>
       <samp data-secret-dots>{{ text.source_secret_dots }}</samp>
     </p>
+    {% if source.webhook_secret_held_elsewhere %}
+    <p>{{ text.source_webhook_held_elsewhere }}</p>
+    {% endif %}
     {% endif %}
     <form method="post" action="/settings/sources/{{ source.name }}/webhook"
           data-renew-webhook>

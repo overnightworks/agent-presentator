@@ -30,6 +30,7 @@ SourceView.fetched
 SourceView.secret_missing
 SourceView.address
 SourceView.webhook_secret
+SourceView.webhook_secret_held_elsewhere
 SourceView.runs
 SourceView.decks
 SourceRunRow.state
@@ -84,6 +85,7 @@ LobbyText.source_webhook_later
 LobbyText.source_webhook
 LobbyText.source_webhook_address
 LobbyText.source_webhook_secret
+LobbyText.source_webhook_held_elsewhere
 LobbyText.source_copy
 LobbyText.source_webhook_payload
 LobbyText.source_created_done

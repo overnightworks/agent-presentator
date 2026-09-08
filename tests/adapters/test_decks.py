@@ -972,15 +972,31 @@ def test_renewing_the_access_secret_on_a_leftover_row_stores_ciphertext(
     sources = a_source_store(database)
 
     sources.put_credential(leftover.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    with rows(database) as cursor:
+        old_ciphertext = cursor.execute(
+            _THE_ENCRYPTED_OF,
+            (leftover.id,),
+        ).fetchone()[0]
+
+    replacement = "another read-only secret"
+    sources.put_credential(leftover.id, replacement)
 
     assert sources.all()[0].secret_location is SecretLocation.STORED
+    with rows(database) as cursor:
+        new_ciphertext = cursor.execute(
+            _THE_ENCRYPTED_OF,
+            (leftover.id,),
+        ).fetchone()[0]
+        named = cursor.execute(_THE_CREDENTIAL_COLUMN, (leftover.id,)).fetchone()[0]
+    assert old_ciphertext is not None
+    assert new_ciphertext != old_ciphertext
+    assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in new_ciphertext
+    assert replacement.encode() not in new_ciphertext
+    assert named is None
     assert (
         a_resolver(database).resolve(CredentialReference(name=leftover.id))
-        == _WHAT_THE_GIT_HOST_EXPECTS
+        == replacement
     )
-    with rows(database) as cursor:
-        named = cursor.execute(_THE_CREDENTIAL_COLUMN, (leftover.id,)).fetchone()[0]
-    assert named is None
 
 
 def test_a_pre_change_file_whose_row_only_names_an_environment_variable_stays(

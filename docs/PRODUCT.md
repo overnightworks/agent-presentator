@@ -180,8 +180,8 @@ talk that stands and the build last attempted beside it, never stored.
 now, the access secret as a fixed run of dots with one Renew, the webhook
 address with Copy and its own Renew, the newest three runs with the commit as
 evidence, and the decks that come from here. Renewing the webhook secret shows
-the new value exactly once and never again; renewing the access secret takes a
-new value and shows nothing back. A source's secret stands in one place, the
+the new value exactly once to the session that created or renewed it, and never
+again; renewing the access secret takes a new value and shows nothing back. A source's secret stands in one place, the
 encrypted column, opened with a key derived from `PRESENTATOR_SECRET_KEY`
 ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)). A row
 that still names only an environment variable stays listed and keeps its built

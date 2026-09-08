@@ -76,7 +76,7 @@ Fetch now, the access secret as a fixed run of dots with Renew, the webhook
 address with Copy and its own Renew, the newest three runs with the commit as
 evidence, and the decks that come from here. Renewing the access secret takes a
 new value and shows nothing back. Renewing the webhook secret shows the new
-value exactly once.
+value exactly once, to the session that renewed it.
 
 The server polls every source every `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`)
 on a task beside the routes, and never twice at once; opening the deck list
@@ -249,9 +249,9 @@ sixteen-page PDF.
 ## The fetch-now hook
 
 Adding a source creates `POST /sources/<name>/fetch` for that source and shows
-its webhook secret exactly once. The secret is generated, shown on that
-screen, stored only as a SHA-256 hash, and never shown again until Renew mints
-another. The call carries the secret as `Authorization: Bearer …` or as
+its webhook secret exactly once, to the session that created it. The secret is
+generated, shown on that screen, stored only as a SHA-256 hash, and never
+shown again until Renew mints another. The call carries the secret as `Authorization: Bearer …` or as
 `X-Gitlab-Token`, and nothing else: no payload is read, which is what lets any
 host or a `post-receive` hook call it
 ([ADR 0010](decisions/0010-git-sources-mirror.md)). A wrong secret, a missing

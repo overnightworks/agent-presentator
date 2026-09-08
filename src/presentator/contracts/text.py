@@ -108,6 +108,7 @@ class LobbyText:
     source_webhook_address: str
     source_webhook_secret: str
     source_webhook_once: str
+    source_webhook_held_elsewhere: str
     source_copy: str
     source_webhook_payload: str
     source_created_done: str

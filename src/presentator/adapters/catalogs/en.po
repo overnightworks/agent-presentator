@@ -306,6 +306,9 @@ msgstr "Secret"
 msgid "source_webhook_once"
 msgstr "visible only now"
 
+msgid "source_webhook_held_elsewhere"
+msgstr "Shown to whoever created or renewed it."
+
 msgid "source_copy"
 msgstr "Copy"
 

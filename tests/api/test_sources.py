@@ -28,11 +28,13 @@ from tests.api.lobby import (
     NEIGHBOUR,
     NO_DECKS,
     NOW,
+    TYPED_WORDS,
     USERNAME,
     GivenDecks,
     Lobby,
     a_configured_source,
     a_lobby,
+    a_lobby_app,
     a_signed_in_lobby,
     a_user_store,
     an_account,
@@ -324,6 +326,30 @@ def the_created_page(client: TestClient, created: Response) -> Response:
     return client.get(created.headers["location"])
 
 
+def two_admin_sessions() -> tuple[TestClient, TestClient]:
+    """Two admin sessions over one app, each with its own cookie jar."""
+    app, _ = a_lobby_app(
+        users=a_user_store(
+            an_account(USERNAME, role=Role.ADMIN),
+            an_account(NEIGHBOUR, role=Role.ADMIN),
+        ),
+    )
+    creator = TestClient(app, follow_redirects=False)
+    other = TestClient(app, follow_redirects=False)
+    creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
+    other.post("/login", data={"username": NEIGHBOUR, "password": TYPED_WORDS})
+    return creator, other
+
+
+def a_one_time_secret(operation: str, creator: TestClient) -> Response:
+    """Mint a one-time secret, then the redirect that carries it to the page."""
+    if operation == "create":
+        return create_source(creator, name="talks")
+    created = create_source(creator, name="talks")
+    the_created_page(creator, created)
+    return creator.post(WEBHOOK.format(name="talks"))
+
+
 def test_the_list_and_the_empty_state_offer_add_source() -> None:
     empty = a_signed_in_lobby().get(SOURCES).text
     filled = (
@@ -434,6 +460,44 @@ def test_a_second_load_of_the_created_page_shows_the_secret_no_more() -> None:
     assert secret.group(1) not in second
     assert ENGLISH.source_webhook_once not in second
     assert hook_address("talks") in second
+
+
+@pytest.mark.parametrize("operation", ["create", "renew"])
+def test_the_once_shown_secret_is_bound_to_the_session_that_asked(
+    operation: str,
+) -> None:
+    creator, other = two_admin_sessions()
+    minted = a_one_time_secret(operation, creator)
+
+    assert minted.status_code == HTTPStatus.SEE_OTHER
+    first = creator.get(minted.headers["location"]).text
+    secret = _HOOK_SECRET.search(first)
+    assert secret is not None
+    assert secret.group(1) != _READ_ONLY
+    assert ENGLISH.source_webhook_once in first
+    assert _HOOK_SECRET.search(other.get(minted.headers["location"]).text) is None
+    reloaded = creator.get(minted.headers["location"]).text
+    assert secret.group(1) not in reloaded
+    assert _HOOK_SECRET.search(other.get(minted.headers["location"]).text) is None
+
+
+@pytest.mark.parametrize("operation", ["create", "renew"])
+def test_a_different_session_sees_the_held_sentence_and_no_secret(
+    operation: str,
+) -> None:
+    creator, other = two_admin_sessions()
+    minted = a_one_time_secret(operation, creator)
+
+    page = other.get(minted.headers["location"]).text
+    assert _HOOK_SECRET.search(page) is None
+    assert "data-hook-secret" not in page
+    assert ENGLISH.source_webhook_held_elsewhere in page
+    assert ENGLISH.source_secret_dots in page
+    assert ENGLISH.source_created_toast not in page
+    creator.get(minted.headers["location"])
+    after = other.get(minted.headers["location"]).text
+    assert ENGLISH.source_webhook_held_elsewhere not in after
+    assert "data-hook-secret" not in after
 
 
 def test_a_call_to_the_shown_address_with_the_shown_secret_answers_204() -> None:

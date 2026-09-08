@@ -6,6 +6,7 @@ exactly once.
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from http import HTTPStatus
 from typing import Annotated, Final
 
@@ -93,8 +94,25 @@ class SourceView:
     secret_missing: bool
     address: str
     webhook_secret: str | None
+    webhook_secret_held_elsewhere: bool
     runs: tuple[SourceRunRow, ...]
     decks: tuple[SourceDeckRow, ...]
+
+
+class _ShownOperation(StrEnum):
+    """Which mint put a webhook secret in the one-time map."""
+
+    CREATE = "create"
+    RENEW = "renew"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ShownOnceKey:
+    """A one-time webhook secret, owned by one session and one operation."""
+
+    session_id: str
+    name: str
+    operation: _ShownOperation
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -103,8 +121,9 @@ class _Surfaces:
 
     pages: Pages
     decks: Decks
-    _shown_once: dict[str, str] = field(default_factory=dict[str, str])
-    _just_created: set[str] = field(default_factory=set[str])
+    _shown_once: dict[_ShownOnceKey, str] = field(
+        default_factory=dict[_ShownOnceKey, str]
+    )
 
     def sources_page(self, request: Request) -> Response:
         """Show each source and what its newest run said, to an admin."""
@@ -155,8 +174,13 @@ class _Surfaces:
                     ),
                 ),
             )
-        self._shown_once[added.source.name] = added.webhook_secret
-        self._just_created.add(added.source.name)
+        self._shown_once[
+            _ShownOnceKey(
+                session_id=_session_id(request),
+                name=added.source.name,
+                operation=_ShownOperation.CREATE,
+            )
+        ] = added.webhook_secret
         return RedirectResponse(
             f"{SOURCES}/{added.source.name}",
             status_code=HTTPStatus.SEE_OTHER,
@@ -169,9 +193,14 @@ class _Surfaces:
         shown = self.decks.shown_source(name)
         if shown is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
-        secret = self._shown_once.pop(name, None)
-        if name in self._just_created:
-            self._just_created.discard(name)
+        session_id = _session_id(request)
+        created = _ShownOnceKey(
+            session_id=session_id,
+            name=name,
+            operation=_ShownOperation.CREATE,
+        )
+        if created in self._shown_once:
+            secret = self._shown_once.pop(created)
             return self.pages.page(
                 request,
                 "source_created.html",
@@ -179,11 +208,24 @@ class _Surfaces:
                 address=self._hook_url(request, name),
                 webhook_secret=secret,
             )
+        renewed = _ShownOnceKey(
+            session_id=session_id,
+            name=name,
+            operation=_ShownOperation.RENEW,
+        )
+        secret = self._shown_once.pop(renewed, None)
+        held_elsewhere = _held_elsewhere(self._shown_once, session_id, name)
         text = self.pages.appearance(request).text
         return self.pages.page(
             request,
             "source.html",
-            source=self._view(request, shown, text, webhook_secret=secret),
+            source=self._view(
+                request,
+                shown,
+                text,
+                webhook_secret=secret,
+                webhook_secret_held_elsewhere=held_elsewhere,
+            ),
         )
 
     def fetch_now(
@@ -229,7 +271,13 @@ class _Surfaces:
         minted = self.decks.renew_webhook(name)
         if minted is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
-        self._shown_once[name] = minted
+        self._shown_once[
+            _ShownOnceKey(
+                session_id=_session_id(request),
+                name=name,
+                operation=_ShownOperation.RENEW,
+            )
+        ] = minted
         return RedirectResponse(f"{SOURCES}/{name}", status_code=HTTPStatus.SEE_OTHER)
 
     def _form(
@@ -269,6 +317,7 @@ class _Surfaces:
         text: LobbyText,
         *,
         webhook_secret: str | None,
+        webhook_secret_held_elsewhere: bool = False,
     ) -> SourceView:
         return SourceView(
             name=shown.name,
@@ -284,6 +333,7 @@ class _Surfaces:
             secret_missing=shown.secret_missing,
             address=self._hook_url(request, shown.name),
             webhook_secret=webhook_secret,
+            webhook_secret_held_elsewhere=webhook_secret_held_elsewhere,
             runs=tuple(self._run_row(run, text) for run in shown.runs),
             decks=tuple(
                 SourceDeckRow(slug=deck.slug, title=deck.title) for deck in shown.decks
@@ -361,6 +411,21 @@ def _signed_in(request: Request) -> User:
     """The guard has already turned away everyone else on these addresses."""
     person: User = request.state.signed_in_person
     return person
+
+
+def _session_id(request: Request) -> str:
+    """The live session the guard stashed, so a secret binds to one session."""
+    session_id: str = request.state.signed_in_session_id
+    return session_id
+
+
+def _held_elsewhere(
+    shown_once: dict[_ShownOnceKey, str],
+    session_id: str,
+    name: str,
+) -> bool:
+    """Whether another session still holds a one-time secret for this source."""
+    return any(key.name == name and key.session_id != session_id for key in shown_once)
 
 
 def _refused() -> Response:
