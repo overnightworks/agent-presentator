@@ -1,7 +1,0 @@
-claim_id = "a0f053537a6d4cabb4dd383e38dd622a"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "775bb1978c73f85bd364cd105a05ac8815248453"
-branch = "claude/issue-77-hearing"
-scope = ["docs/VISION.md"]
-opened_commit = "6e2ae9547820897c63ecb21fdc10aed20cedc77a"
