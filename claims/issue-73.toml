@@ -1,8 +1,0 @@
-claim_id = "27cdf4b5a7b949a49e1b9fb02d0f116a"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "370e452c3597733d6c70babb1dbb664753653111"
-branch = "claude/issue-73-copresenter"
-scope = ["copresenter", "examples", "scripts/check_root_layout.py", "docs"]
-opened_commit = "6b6ef8d854c1cbfaf5bf661df66ce1d77dd15ec0"
-whole_reason = "A voice with nothing to say and a service nobody can hear are each half of one demo."
