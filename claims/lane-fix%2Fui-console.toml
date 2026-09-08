@@ -1,0 +1,8 @@
+claim_id = "b6279313871a4dc88704892900406975"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "9a29155d4a929f60448860ce90468a268f7628ea"
+branch = "fix/ui-console"
+scope = ["src/presentator/api/static/ui-tokens.css", "src/presentator/api/static/lobby.css", "src/presentator/api/templates/base.html"]
+opened_commit = "d1728789e678e02c361e2459ca234df11dee4da8"
+whole_reason = "the vendored stylesheet, its two references, the test that names it and the docs that name the package"
