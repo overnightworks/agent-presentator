@@ -39,7 +39,7 @@ from tests.api.lobby import (
     a_user_store,
     an_account,
 )
-from tests.application.fakes import FakeDeckStore
+from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
 _ADDRESS = "git@heimserver:decks.git"
 _OTHER_ADDRESS = "https://gitlab.example.invalid/decks.git"
@@ -452,7 +452,9 @@ def test_a_created_page_for_a_name_this_instance_does_not_have_is_not_found() ->
 def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
     page = (
         a_signed_in_lobby(
-            GivenDecks(source=a_configured_source("file:///tmp/decks.git")),
+            GivenDecks(
+                source=a_configured_source("http://git.example.invalid/decks.git")
+            ),
         )
         .get(SOURCES)
         .text
@@ -460,6 +462,7 @@ def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
 
     assert ENGLISH.source_access_token not in page
     assert ENGLISH.source_access_deploy_key not in page
+    assert ENGLISH.source_access_local not in page
 
 
 def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
@@ -479,6 +482,52 @@ def test_the_add_form_ships_https_live_and_ssh_and_check_disabled() -> None:
     assert ENGLISH.source_create in page
     assert 'name="secret"' in page
     assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+def test_the_add_form_offers_a_folder_on_this_box_option() -> None:
+    page = a_signed_in_lobby().get(NEW).text
+
+    assert ENGLISH.source_access_file in page
+    assert 'name="access" value="file"' in page
+    assert 'name="access" value="file" disabled' not in page
+
+
+def test_creating_a_source_on_this_box_accepts_a_file_address_under_the_mount() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+    listed = lobby.get(SOURCES).text
+
+    assert "talks" in listed
+    assert url in listed
+    assert ENGLISH.source_access_local in listed
+
+
+def test_a_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    refused = create_source(lobby, url=url, access="file", secret=_READ_ONLY)
+
+    assert ENGLISH.source_refused_secret_not_allowed in refused.text
+    assert _READ_ONLY not in refused.text
+
+
+def test_a_file_address_outside_the_mount_is_refused() -> None:
+    lobby = a_signed_in_lobby()
+
+    refused = create_source(
+        lobby,
+        url="/etc/talks.git",
+        access="file",
+        secret="",
+    )
+
+    assert ENGLISH.source_refused_outside_mount in refused.text
 
 
 def test_creating_a_source_stores_it_fetches_it_and_shows_address_and_secret() -> None:
@@ -838,6 +887,17 @@ def test_a_source_without_a_stored_secret_says_so_on_its_page() -> None:
     assert ENGLISH.source_secret_dots in page
 
 
+def test_a_source_on_this_box_offers_neither_dots_nor_renew_on_its_page() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+
+    the_created_page(lobby, create_source(lobby, url=url, access="file", secret=""))
+    page = lobby.get(f"{SOURCES}/talks").text
+
+    assert "data-renew-access" not in page
+    assert ENGLISH.source_access_local in page
+
+
 def test_fetch_now_from_the_source_page_refreshes_it_and_stays() -> None:
     configured = a_configured_source(_ADDRESS)
     lobby = a_signed_in_lobby(
@@ -919,6 +979,22 @@ def test_a_blank_access_renewal_comes_back_without_storing_and_without_the_value
     assert refused.status_code == HTTPStatus.OK
     assert ENGLISH.source_refused_secret in refused.text
     assert _READ_ONLY not in refused.text
+
+
+def test_renewing_the_access_secret_is_refused_for_a_source_on_this_box() -> None:
+    lobby = a_signed_in_lobby()
+    url = f"{LOCAL_MOUNT_EXAMPLE}/talks.git"
+    the_created_page(
+        lobby,
+        create_source(lobby, url=url, access="file", secret=""),
+    )
+
+    refused = lobby.post(ACCESS.format(name="talks"), data={"secret": _READ_ONLY})
+
+    assert refused.status_code == HTTPStatus.OK
+    assert _READ_ONLY not in refused.text
+    page = lobby.get(f"{SOURCES}/talks").text
+    assert "data-renew-access" not in page
 
 
 def test_the_source_page_never_derives_dot_count_from_a_secret() -> None:

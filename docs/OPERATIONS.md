@@ -122,6 +122,7 @@ elsewhere here do not apply, and compose adds the two the sandbox is:
 | `PRESENTATOR_DATABASE` | `/data/database/presentator.sqlite3` |
 | `PRESENTATOR_MIRRORS` | `/data/mirrors` |
 | `PRESENTATOR_BUILDS` | `/data/builds` |
+| `PRESENTATOR_LOCAL_SOURCES_MOUNT` | `/data/local-sources` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
 | `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
@@ -169,6 +170,62 @@ docker compose ps -q presentator | xargs docker inspect \
 An instance without a source runs and lists nothing; the settings above say
 what each further variable does and what a refused one costs. The first start
 offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
+
+A source need not leave this machine at all: a folder becomes one by being a
+bare git repository under a host directory mounted read-only into the
+instance at the fixed path `/data/local-sources`. `compose.yaml` cannot name
+that mount cleanly for an operator who wants none of it — an unset variable
+would bind the whole checkout in its place — so it stays out of the checked-in
+file; a `compose.override.yaml` beside it, which `docker compose up` merges on
+its own, without a `-f`, is the one addition an operator who wants this makes:
+
+```yaml
+services:
+  presentator:
+    volumes:
+      - ${PRESENTATOR_LOCAL_SOURCES}:/data/local-sources:ro
+```
+
+`PRESENTATOR_LOCAL_SOURCES` in `.env` names the host directory. A folder
+becomes a bare repository under it with three commands:
+
+```sh
+git init --bare --initial-branch main "$PRESENTATOR_LOCAL_SOURCES/talks.git"
+git -C ~/talks init --initial-branch main
+git -C ~/talks remote add box "$PRESENTATOR_LOCAL_SOURCES/talks.git"
+```
+
+The mirror runs as `presentator`, uid 1001, with its global and system git
+configuration neutralised the way every pull's is, so it can never read a
+`safe.directory` exception from a file — the repository it opens has to be
+owned by that uid outright, or git refuses it as "dubious ownership" whatever
+its mode bits say. Owning it that way still leaves it to whoever pushes: two
+more commands hand it to uid 1001 and the operator's own group, so both keep
+write access, and tell the operator's own git it may open a directory it does
+not own — done once per repository, after `git init --bare` made it, never
+before:
+
+```sh
+sudo chown -R 1001:"$(id -g)" "$PRESENTATOR_LOCAL_SOURCES/talks.git"
+sudo chmod -R u+rwX,g+rwX "$PRESENTATOR_LOCAL_SOURCES/talks.git"
+git config --global --add safe.directory "$PRESENTATOR_LOCAL_SOURCES/talks.git"
+```
+
+added under Settings · Sources with `/data/local-sources/talks.git` as its
+file address, "on this box" as the access kind, and no secret — one is
+refused there. An address resolved and decoded the way git itself opens
+one — following a symlink, an encoded or literal `..` — has to still stand
+under the mount or it is refused the same way, at the moment it is added and
+at every fetch after. A later change reaches the instance the way every
+other source's does: `git -C ~/talks push box main`, then the next poll
+(`PRESENTATOR_SOURCE_POLL_SECONDS`) or *Fetch now* on the source's page takes
+in what moved.
+
+Everything under the mount is trusted as the operator: its repositories,
+their metadata (a `gitdir` file, `objects/info/alternates`, a symlink), and
+everyone who can write there. This is not a door for a repository somebody
+else controls — only for the operator's own folder, and pushing over SSH to
+this box (line 4a) is what a stranger's repository would still need.
 
 Three named volumes hold what has to survive the container: `database`,
 `mirrors` and `builds`, each under the name of the project — the directory

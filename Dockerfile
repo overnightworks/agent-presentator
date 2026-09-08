@@ -74,7 +74,8 @@ ENV PRESENTATOR_DATABASE=/data/database/presentator.sqlite3 \
     PRESENTATOR_MIRRORS=/data/mirrors \
     PRESENTATOR_BUILDS=/data/builds \
     PRESENTATOR_TOOLCHAIN=/app/frontend \
-    PRESENTATOR_HOST=0.0.0.0
+    PRESENTATOR_HOST=0.0.0.0 \
+    PRESENTATOR_LOCAL_SOURCES_MOUNT=/data/local-sources
 USER presentator
 WORKDIR /app
 EXPOSE 8000

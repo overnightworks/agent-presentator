@@ -12,6 +12,7 @@ import pytest
 from gitmirror.mirror import credential_arguments, unattended_environment
 from gitmirror.model import CredentialReference, CredentialResolver
 from presentator.adapters.decks import (
+    FilesystemLocalMount,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -110,9 +111,15 @@ def folders_under(
     *,
     pull_timeout: timedelta = _A_GENEROUS_BOUND,
     credentials: CredentialResolver | None = None,
+    local_mount: FilesystemLocalMount | None = None,
 ) -> MirroredDeckFolders:
     return MirroredDeckFolders(
-        mirrors=mirrors_under(tmp_path, timeout=pull_timeout, credentials=credentials),
+        mirrors=mirrors_under(
+            tmp_path,
+            timeout=pull_timeout,
+            credentials=credentials,
+            local_mount=local_mount,
+        ),
     )
 
 
@@ -121,11 +128,15 @@ def mirrors_under(
     *,
     timeout: timedelta = _A_GENEROUS_BOUND,
     credentials: CredentialResolver | None = None,
+    local_mount: FilesystemLocalMount | None = None,
 ) -> SourceMirrors:
     return SourceMirrors(
         directory=tmp_path / "mirrors",
         credentials=OpenCredentials() if credentials is None else credentials,
         pull_timeout=timeout,
+        local_mount=(
+            FilesystemLocalMount(mount=tmp_path) if local_mount is None else local_mount
+        ),
     )
 
 
@@ -468,6 +479,117 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.UNREACHABLE
     assert "unreachable" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("address_template", "accepted"),
+    [
+        pytest.param("file://{repo}", True, id="file scheme"),
+        pytest.param("{repo}", True, id="bare path"),
+        pytest.param("{repo}/", True, id="trailing slash"),
+        pytest.param(
+            "file://{mount}/%2e%2e/database",
+            False,
+            id="encoded dots climb out of the mount",
+        ),
+        pytest.param(
+            "{mount}/../database",
+            False,
+            id="literal dots climb out of the mount",
+        ),
+        pytest.param("file://evil-host{repo}", False, id="a foreign authority"),
+        pytest.param("{escape}", False, id="a symlink resolves out of the mount"),
+        pytest.param("{outside}", False, id="a sibling directory of the mount"),
+    ],
+)
+def test_a_file_kind_address_is_canonicalized_the_way_git_resolves_it(
+    tmp_path: Path,
+    address_template: str,
+    *,
+    accepted: bool,
+) -> None:
+    """The one place that asks the real filesystem, the way git resolves it.
+
+    A symlink, an encoded or literal `..`, a foreign authority, and a
+    sibling of the mount are all refused, while the shapes an ordinary
+    address takes all resolve to the one real repository.
+    """
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    repo = mount / "repo.git"
+    repo.mkdir()
+    outside = tmp_path / "database"
+    outside.mkdir()
+    escape = mount / "escape.git"
+    escape.symlink_to(outside)
+    local_mount = FilesystemLocalMount(mount=mount)
+    address = address_template.format(
+        repo=repo, mount=mount, escape=escape, outside=outside
+    )
+
+    resolved = local_mount.canonical_repository(address)
+
+    assert resolved == (repo.resolve() if accepted else None)
+
+
+def test_a_credential_free_local_source_fetches_through_the_real_store(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    """A source on this box stores an empty secret, never a missing row.
+
+    The real store, the real encryption box, and the real mirror all agree
+    an empty, resolved secret fetches exactly like every other source's
+    does, asking git for no credential at all.
+    """
+    remote.commit_example_deck(at=_PUSHED_AT)
+    database = an_instance_that_was_set_up(tmp_path)
+    stored = add_a_source(
+        database,
+        write=SourceWrite(
+            name=_SOURCE_NAME,
+            url=remote.url,
+            ref=MAIN_BRANCH,
+            owner_id=_OWNER.id,
+            access_secret="",
+            hook_secret_hash=b"\x22" * 32,
+        ),
+    )
+
+    poll = folders_under(
+        tmp_path,
+        credentials=a_resolver(database),
+        local_mount=FilesystemLocalMount(mount=tmp_path),
+    ).folders(stored)
+
+    assert poll.failure is None
+    assert poll.commit == remote.head
+
+
+def test_a_file_source_whose_repository_left_the_mount_reads_failed(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    """A repository that left the mount since it was added is unreadable.
+
+    Moved, deleted, or swapped for a symlink out of the mount, it reads the
+    same reason a vanished repository does — never unreachable, which is a
+    dead host's word, not a directory's.
+    """
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    vanished = a_source(str(mount / "gone.git"))
+
+    with caplog.at_level(logging.WARNING):
+        poll = folders_under(
+            tmp_path, local_mount=FilesystemLocalMount(mount=mount)
+        ).folders(
+            vanished,
+        )
+
+    assert poll.folders is None
+    assert poll.failure is SourceRunFailure.FAILED
+    assert "no longer resolves" in caplog.text
 
 
 def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(

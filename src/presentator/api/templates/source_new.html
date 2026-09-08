@@ -28,13 +28,18 @@
                {% if not draft or draft.access == https_access %}checked{% endif %}>
         {{ text.source_access_https }}
       </label>
+      <label>
+        <input type="radio" name="access" value="{{ file_access }}"
+               {% if draft and draft.access == file_access %}checked{% endif %}>
+        {{ text.source_access_file }}
+      </label>
     </fieldset>
     <label for="secret">{{ text.source_secret }}</label>
     <details>
       <summary>{{ text.source_secret_info_mark }}</summary>
       <p>{{ text.source_secret_info }}</p>
     </details>
-    <input id="secret" name="secret" type="password" required autocomplete="off">
+    <input id="secret" name="secret" type="password" autocomplete="off">
     <p>{{ text.source_webhook_later }}</p>
     <button type="button" disabled>{{ text.source_check }}</button>
     <button type="submit">{{ text.source_create }}</button>

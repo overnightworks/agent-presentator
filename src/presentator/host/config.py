@@ -64,6 +64,10 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     secret_key: SecretStr = Field(min_length=SECRET_LENGTH)
     database: Path = Path("presentator.sqlite3")
     mirrors: Path = Path("mirrors")
+    # The one directory a file-kind source's address may resolve under; the
+    # image fixes it to the path a host directory is bound to, and a direct
+    # run keeps it beside the checkout like every other path above.
+    local_sources_mount: Path = Path("local-sources")
     # Where built talks are kept, and the Node project whose Slidev builds
     # them; both are places on the machine the instance runs on.
     builds: Path = Path("builds")

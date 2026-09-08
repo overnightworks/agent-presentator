@@ -33,6 +33,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import (
+    FilesystemLocalMount,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -139,10 +140,15 @@ def build_instance(settings: Settings) -> Instance:
         identifiers=identifiers,
         box=box,
     )
+    # The one mounted directory a file-kind source's address may resolve
+    # under, real filesystem and all: shared by every use, since a symlink or
+    # a remount between them must be caught the same way each time.
+    local_mount = FilesystemLocalMount(mount=settings.local_sources_mount)
     mirrors = SourceMirrors(
         directory=settings.mirrors,
         credentials=SourceCredentials(database=settings.database, box=box),
         pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
+        local_mount=local_mount,
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
@@ -161,6 +167,7 @@ def build_instance(settings: Settings) -> Instance:
         # reads a live build, only what a process that is gone left behind.
         build_bound=build_bound,
         clock=SystemClock(),
+        local_mount=local_mount,
     )
     pages = Pages(
         preferences=Preferences(
