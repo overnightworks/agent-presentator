@@ -1,6 +1,7 @@
 """One deck's page, the talk it leads into, and its PDF, as a browser gets them."""
 
 import shutil
+from dataclasses import replace
 from datetime import timedelta
 from http import HTTPStatus
 from pathlib import Path
@@ -11,15 +12,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from presentator.contracts.decks import Build, BuildAttempt, BuildOutcome, Deck
+from presentator.contracts.models import Role
+from presentator.contracts.text import Catalogs
 from tests.api.lobby import (
     ADMIN,
     ENGLISH,
     NOW,
     SOURCE_ID,
+    USERNAME,
     GivenDecks,
     a_configured_source,
     a_lobby,
     a_signed_in_lobby,
+    a_user_store,
+    an_account,
 )
 from tests.application.fakes import FakeDeckStore
 
@@ -247,6 +253,65 @@ def test_the_deck_page_omits_the_row_while_the_toolchain_cannot_be_read() -> Non
     page = signed_in.get(_PAGE).text
 
     assert "data-builds-with" not in page
+
+
+def test_the_builds_with_row_stays_one_paragraph_at_twelve_themes() -> None:
+    themes = tuple(f"theme-{index:02d}" for index in range(12))
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+            themes=themes,
+        ),
+    )
+
+    page = signed_in.get(_PAGE).text
+
+    # One wrapped sentence at any set size (R6): one paragraph, not one chip
+    # per theme and not a table.
+    assert page.count("data-builds-with") == 1
+    start = page.index("data-builds-with")
+    row = page[start : page.index("</p>", start)]
+    assert all(theme in row for theme in themes)
+
+
+def test_a_toolchain_manifest_package_json_does_not_carry_omits_the_row(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "frontend"
+    project.mkdir()
+    (project / "package.json").write_text('{"dependencies": ["@slidev/theme-seriph"]}')
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+            toolchain_project=project,
+        ),
+    )
+
+    page = signed_in.get(_PAGE)
+
+    assert page.status_code == HTTPStatus.OK
+    assert "data-builds-with" not in page.text
+
+
+def test_the_row_uses_the_catalogs_own_separator_between_names() -> None:
+    catalog = replace(ENGLISH, deck_theme_separator=" | ")
+    lobby = a_lobby(
+        users=a_user_store(an_account(USERNAME, role=Role.ADMIN)),
+        catalogs=Catalogs(by_tag={catalog.language_tag: catalog}),
+        given=GivenDecks(
+            store=a_deck_store(built=a_build()),
+            source=a_configured_source(_ADDRESS),
+            themes=_THEMES,
+        ),
+    )
+    lobby.log_in()
+
+    page = lobby.client.get(_PAGE).text
+
+    assert " | ".join(_THEMES) in page
+    assert ", ".join(_THEMES) not in page
 
 
 def test_a_built_decks_page_says_how_long_ago_its_talk_was_built() -> None:

@@ -42,14 +42,16 @@ The deck page names the themes this instance builds with, read from the
 toolchain project's `package.json` at `PRESENTATOR_TOOLCHAIN`: every
 `@slidev/theme-*` package its `dependencies` or `devDependencies` carry,
 stripped of that prefix, plus `default`, which ships with Slidev itself.
-`presentator.contracts.decks.theme_names` is the one reader of that shape;
-`presentator.adapters.builds.PackageJsonThemes` is the one place that opens
-the file, at every deck-page view rather than once at start — the file is
-small and local, and a value cached at start would need its own invalidation
-the moment a deployment's toolchain changes without a restart, for a cost
-this read does not have. A project this server cannot read, or a manifest
-that is not valid JSON, is not a set to derive a guess from: the page shows
-no row at all rather than an empty one that would read as "no themes".
+`package.json`'s own shape is `npm`'s convention, not a domain concept this
+product owns, so `presentator.adapters.builds.PackageJsonThemes` is the one
+reader of that shape and the one place that opens the file, at every
+deck-page view rather than once at start — the file is small and local, and a
+value cached at start would need its own invalidation the moment a
+deployment's toolchain changes without a restart, for a cost this read does
+not have. A project this server cannot read, a manifest that is not valid
+JSON or not an object, or a dependency section that is not a mapping of
+package name to version string, is not a set to derive a guess from: the page
+shows no row at all rather than an empty one that would read as "no themes".
 
 ## Consequences
 

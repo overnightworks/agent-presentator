@@ -1,6 +1,5 @@
 """What a deck and its source are, everywhere in this product (ADR 0005)."""
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -14,37 +13,11 @@ DECK_PATH: Final = "/deck"
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
 FAILURE_TEXT_LIMIT: Final = 2000
-# A deck names only what the toolchain project carries (ADR 0014): a package
-# under this prefix is a Slidev theme, named on a deck page by what follows
-# the prefix. `default` ships with Slidev itself, so it counts whether or not
-# the project's manifest lists it.
-_THEME_PACKAGE_PREFIX: Final = "@slidev/theme-"
-DEFAULT_THEME: Final = "default"
 
 
 def bounded_failure(said: str) -> str:
     """The last of what a build said, short enough for a page to carry."""
     return said[-FAILURE_TEXT_LIMIT:]
-
-
-def theme_names(package_json_text: str) -> tuple[str, ...]:
-    """The themes that manifest's dependencies carry, `default` always among them.
-
-    Every `@slidev/theme-*` package the toolchain project's `dependencies` or
-    `devDependencies` name counts, stripped of that prefix; widening the set is
-    one change to that file (ADR 0014), and this is its only reader. Malformed
-    JSON is not a set to derive a guess from, so it raises rather than
-    answering with one.
-    """
-    manifest = json.loads(package_json_text)
-    named = {
-        package.removeprefix(_THEME_PACKAGE_PREFIX)
-        for section in ("dependencies", "devDependencies")
-        for package in manifest.get(section, {})
-        if package.startswith(_THEME_PACKAGE_PREFIX)
-    }
-    named.add(DEFAULT_THEME)
-    return tuple(sorted(named))
 
 
 def talk_address(slug: str) -> str:

@@ -33,9 +33,6 @@ _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = "{slug}.pdf"
 _APPLICATION: Final = "index.html"
-# Names only, separated the way a spoken list is (R4): not localized, because a
-# comma-and-space list is not a sentence a catalog carries a word for.
-_THEME_SEPARATOR: Final = ", "
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -162,7 +159,8 @@ class _DeckPage:
         """
         if themes is None:
             return None
-        return text.deck_builds_with.format(themes=_THEME_SEPARATOR.join(themes))
+        separator = text.deck_theme_separator
+        return text.deck_builds_with.format(themes=separator.join(themes))
 
     def _when_it_was_built(
         self,
