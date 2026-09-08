@@ -23,7 +23,11 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@slidev/cli": "52.19.1",
+    "@slidev/theme-apple-basic": "0.25.1",
+    "@slidev/theme-bricks": "0.25.0",
     "@slidev/theme-default": "0.25.0",
+    "@slidev/theme-seriph": "0.25.0",
+    "@slidev/theme-shibainu": "0.25.0",
     "@vitest/coverage-v8": "5.0.0",
     "eslint": "10.10.0",
     "eslint-plugin-vue": "10.11.0",
