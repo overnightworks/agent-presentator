@@ -384,3 +384,7 @@ class DeckPage:
     built_ago: timedelta | None
     state: DeckState
     attempt: ShownAttempt | None
+    # The themes this instance's toolchain carries (ADR 0014), or nothing
+    # while its project cannot be read: an empty set is never shown as if it
+    # were the real one (R3).
+    themes: tuple[str, ...] | None

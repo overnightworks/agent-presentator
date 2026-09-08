@@ -17,6 +17,7 @@ filesystem and into its talk, and how much of what it prints this server ever
 holds.
 """
 
+import json
 import logging
 import os
 import select
@@ -32,7 +33,7 @@ from enum import StrEnum
 from pathlib import Path
 from tempfile import mkdtemp
 from time import monotonic
-from typing import IO, Final, Protocol
+from typing import IO, Final, Protocol, cast
 
 from gitmirror.model import MirrorError, Revision
 from presentator.adapters.decks import SourceMirrors
@@ -50,6 +51,15 @@ from presentator.contracts.decks import (
 _TOOLCHAIN: Final = "pnpm"
 _SLIDEV: Final = "slidev"
 _DOCKER: Final = "docker"
+_PACKAGE_JSON: Final = "package.json"
+# A deck names only what the toolchain project carries (ADR 0014): a package
+# under this prefix is a Slidev theme, named on a deck page by what follows
+# the prefix. `default` ships with Slidev itself, so it counts whether or not
+# the project's own manifest lists it — package.json's own shape, not this
+# product's, is what a reader of it has to trust or refuse.
+_THEME_PACKAGE_PREFIX: Final = "@slidev/theme-"
+_DEFAULT_THEME: Final = "default"
+_DEPENDENCY_SECTIONS: Final = ("dependencies", "devDependencies")
 _BUILD: Final = "build"
 _EXPORT: Final = "export"
 # The three directories one run of the build owns: the deck's own tree as the
@@ -436,6 +446,86 @@ class HostToolchain:
                 given_up=_nothing_outlives_the_tree,
             ),
         )
+
+
+def theme_names_of_manifest(manifest_text: str) -> tuple[str, ...]:
+    """The themes that manifest's dependencies carry, `default` always among them.
+
+    Not underscore-prefixed: `PackageJsonThemes.names` below is the only
+    caller across the product, but this parsing step is proven directly
+    against `package.json`'s own shape rather than only through that wrapper.
+
+    Every `@slidev/theme-*` package `dependencies` or `devDependencies` name
+    counts, stripped of that prefix; widening the set is one change to
+    `package.json` (ADR 0014), and this is its only reader. JSON this is not,
+    an object this is not, or a dependency section that is not a mapping of
+    package name to version string, is not a set to derive a guess from, so
+    each of them raises rather than answering with one.
+    """
+    parsed: object = json.loads(manifest_text)
+    if not isinstance(parsed, dict):
+        message = "package.json is not a JSON object"
+        raise TypeError(message)
+    manifest = cast("dict[str, object]", parsed)
+    named = {
+        package.removeprefix(_THEME_PACKAGE_PREFIX)
+        for section in _DEPENDENCY_SECTIONS
+        for package in _dependency_names(manifest, section)
+        if package.startswith(_THEME_PACKAGE_PREFIX)
+    }
+    named.add(_DEFAULT_THEME)
+    return tuple(sorted(named))
+
+
+def _dependency_names(manifest: dict[str, object], section: str) -> tuple[str, ...]:
+    """That section's package names, refusing a shape that is not one.
+
+    A missing section is no dependency at all, so it counts as empty; a
+    section that is not a mapping of package name to version string is not a
+    dependency list a theme name can be read from, so it is refused rather
+    than guessed at.
+    """
+    entries = manifest.get(section)
+    if entries is None:
+        return ()
+    if not isinstance(entries, dict):
+        message = f"{section} is not an object"
+        raise TypeError(message)
+    pairs = cast("dict[object, object]", entries)
+    names: list[str] = []
+    for name, version in pairs.items():
+        if not isinstance(name, str) or not isinstance(version, str):
+            message = f"{section} is not a mapping of package name to version"
+            raise TypeError(message)
+        names.append(name)
+    return tuple(names)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PackageJsonThemes:
+    """The theme names read off the toolchain project's `package.json` (ADR 0014).
+
+    Read at every call rather than cached at start: the file is small, on this
+    machine's own disk, and read is far cheaper than the toolchain step it
+    stands beside. Caching it would need its own invalidation the moment an
+    operator swaps `PRESENTATOR_TOOLCHAIN`'s contents without a restart, for a
+    cost this read does not have.
+    """
+
+    project: Path
+
+    def names(self) -> tuple[str, ...] | None:
+        """This project's theme names, or nothing while its manifest cannot be read."""
+        try:
+            manifest_text = (self.project / _PACKAGE_JSON).read_text()
+            return theme_names_of_manifest(manifest_text)
+        except (OSError, ValueError, TypeError):
+            # A missing project, an unreadable file, malformed JSON, and a
+            # manifest or dependency section whose shape package.json's own
+            # convention does not carry are all "cannot read" here: none of
+            # them is a set to derive a guess from (R3), so a deck page reads
+            # any of them the same way, as no row.
+            return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

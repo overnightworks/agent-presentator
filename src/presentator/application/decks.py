@@ -52,6 +52,7 @@ from presentator.ports.decks import (
     LocalMount,
     SourceRuns,
     SourceStore,
+    ToolchainThemes,
 )
 
 _log = logging.getLogger(__name__)
@@ -194,6 +195,7 @@ class Decks:
     store: DeckStore
     builder: BuildRunner
     source_runs: SourceRuns
+    toolchain_themes: ToolchainThemes
     clock: Clock
     local_mount: LocalMount
     # How long a build may take before the refresh stops believing it is still
@@ -407,6 +409,7 @@ class Decks:
             built_ago=None if built is None else self.clock.now() - built.built_at,
             state=_state_of(deck),
             attempt=self._shown(deck.attempt),
+            themes=self.toolchain_themes.names(),
         )
 
     def _shown(self, attempt: BuildAttempt | None) -> ShownAttempt | None:

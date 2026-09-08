@@ -124,6 +124,12 @@ msgstr "never built"
 msgid "deck_built"
 msgstr "built {age}"
 
+msgid "deck_builds_with"
+msgstr "Builds with: {themes}"
+
+msgid "deck_theme_separator"
+msgstr ", "
+
 msgid "deck_not_built_explanation"
 msgstr ""
 "No talk has been built from this deck yet, so there is no view to open."

@@ -284,9 +284,13 @@ Every refresh builds the decks whose commit moved. That needs a Node toolchain
 on the machine: `pnpm` on `PATH`, and a project whose dependencies are
 installed carrying Slidev — this repository's `frontend/`, installed with
 `pnpm install --frozen-lockfile` under the Node version its `.nvmrc` names.
-A deck may name the official themes that project already carries — `default`,
-`seriph`, `apple-basic`, `bricks`, and `shibainu`; any other theme is a
-decision for the toolchain, not the deck.
+A deck may name a theme or an addon only from what that project already
+carries; widening the set is a change to `frontend/package.json`, not a
+decision a deck's own push gets to make
+([ADR 0014](decisions/0014-toolchain-owns-build-dependencies.md)). That
+project's `package.json` is the set's one owner, and a deck's own page names
+it, so an operator does not read this file to learn what a deck may build
+with.
 `PRESENTATOR_TOOLCHAIN` says where that project is (`frontend`), and
 `PRESENTATOR_BUILDS` where the built talks and their PDFs are kept (`builds`).
 Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
@@ -392,8 +396,9 @@ instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
 a deck folder carries no dependencies of its own, so a theme, addon, or
 plugin the talk's original `package.json` installed builds only if
 `frontend/` already carries it too — the operator's talk named
-`@slidev/theme-seriph`, one of the official themes above, so once that theme
-landed the build reached the deck's own content. A slide deck's own Vue
+`@slidev/theme-seriph`, which the toolchain project already carried, so the
+build reached the deck's own content without a change to that project. A
+slide deck's own Vue
 components and global layers (`global-bottom.vue` and its kind) run again in
 this build, so a component wired to a service the deck does not bring with
 it — the operator's talk carried an AI overlay calling a chat backend from
