@@ -272,6 +272,47 @@ made local, the operator's talk built, served all sixteen slides in the
 projector and presenter view at desktop and mobile widths, and exported a
 sixteen-page PDF.
 
+## The co-presenter on stage
+
+The voice that answers beside a talk is two processes on the machine that holds
+the GPU, not part of the instance: the speech service on `127.0.0.1:8090`
+(`speech/`, never exposed) and the co-presenter on `127.0.0.1:3040`
+(`copresenter/`), which proxies hearing and asks Claude through the installed
+`claude` executable with the operator's own login. Speech starts first and is
+ready when `GET /health` says both models are; the co-presenter is pointed at
+the deck folder it should know, at that speech address, and at the one origin it
+answers. Both run as `systemctl --user` units so they outlive the shell that
+started them, which needs `loginctl show-user <user> -p Linger` to say
+`Linger=yes`.
+
+```sh
+# speech/, then copresenter/, each as a user unit with these values
+SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090            uv run presentator-speech
+COPRESENTER_HOST=127.0.0.1 COPRESENTER_PORT=3040 \
+COPRESENTER_SPEECH_URL=http://127.0.0.1:8090 \
+COPRESENTER_DECK=<the deck folder> \
+COPRESENTER_ALLOWED_ORIGIN=https://presentator.hallucinai.de \
+  uv run copresenter
+```
+
+The overlay rides in the deck: `global-bottom.vue` next to `slides.md` mounts
+`components/CoPresenter.vue` and sets `window.COPRESENTER_URL` to the address
+the browser can reach, `https://` there giving `wss://` for the hearing socket.
+The service answers exactly the origin `COPRESENTER_ALLOWED_ORIGIN` names — one
+origin, no list and no pattern — and refuses to start without it; a page from
+any other origin is refused, sockets included. That address is public through
+the same tunnel as the instance, one more ingress entry above the
+`http_status:404` catch-all, and one proxied DNS record:
+
+```
+  - hostname: copresenter.hallucinai.de
+    service: http://localhost:3040
+```
+
+The co-presenter has no login of its own, so whoever reaches that name spends
+the operator's Claude session. Put a Cloudflare Access policy on the hostname,
+and take the ingress entry out again after the talk.
+
 ## The fetch-now hook
 
 Adding a source creates `POST /sources/<name>/fetch` for that source and shows
