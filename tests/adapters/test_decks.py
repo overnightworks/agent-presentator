@@ -1026,6 +1026,56 @@ def test_promoting_a_draft_encrypts_its_private_half_and_consumes_it(
     assert minted.private_key.encode() not in encrypted
 
 
+@pytest.mark.parametrize(
+    "draft_owner",
+    [None, "another-admin-entirely"],
+    ids=["missing draft", "another account's draft"],
+)
+def test_promoting_a_missing_or_foreign_draft_creates_no_source(
+    tmp_path: Path,
+    draft_owner: str | None,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    drafts = a_key_drafts_store(database)
+    minted = None if draft_owner is None else drafts.mint(draft_owner, at=_PUSHED_AT)
+
+    promoted = sources.add_from_draft(
+        a_write(),
+        draft_id="a-draft-that-does-not-exist" if minted is None else minted.id,
+    )
+
+    assert promoted is None
+    assert sources.all() == ()
+    if minted is not None:
+        assert drafts.bind(minted.id, owner_id=draft_owner) == minted
+
+
+def test_promoting_an_undecryptable_draft_keeps_it_and_creates_no_source(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    minted = a_key_drafts_store(database).mint(_OWNER.id, at=_PUSHED_AT)
+    corrupted = b"not fernet ciphertext"
+    with rows(database) as cursor:
+        cursor.execute(
+            "UPDATE source_key_drafts SET encrypted_private_key = ? WHERE id = ?",
+            (corrupted, minted.id),
+        )
+
+    promoted = sources.add_from_draft(a_write(), draft_id=minted.id)
+
+    assert promoted is None
+    assert sources.all() == ()
+    with rows(database) as cursor:
+        stored = cursor.execute(
+            "SELECT encrypted_private_key FROM source_key_drafts WHERE id = ?",
+            (minted.id,),
+        ).fetchone()
+    assert stored == (corrupted,)
+
+
 def test_a_failed_draft_promotion_keeps_the_draft_and_creates_no_source(
     tmp_path: Path,
 ) -> None:
