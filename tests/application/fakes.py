@@ -256,21 +256,6 @@ class CountingIdentifierFactory:
 
 
 @dataclass
-class MarkingCookieSigner:
-    """A signature a test can forge on purpose."""
-
-    marker: str = "signed-"
-
-    def sign(self, session_id: str) -> str:
-        return f"{self.marker}{session_id}"
-
-    def session_id_from(self, cookie_value: str) -> str | None:
-        if not cookie_value.startswith(self.marker):
-            return None
-        return cookie_value.removeprefix(self.marker)
-
-
-@dataclass
 class UserStoreThatLostTheRace(FakeUserStore):
     """Another first start has written; this one still sees the count it read."""
 

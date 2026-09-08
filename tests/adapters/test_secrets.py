@@ -11,9 +11,9 @@ from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 # below are a usable Fernet key without any padding of their own.
 _INSTANCE_KEY = "an instance key of thirty-two ch"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
-# `host.main` hands `HmacSessionCookieSigner` the instance key's own bytes, so
-# these are the cookie signer's key material, character for character.
-_COOKIE_SIGNERS_MATERIAL = _INSTANCE_KEY.encode()
+# The instance key's own bytes, un-derived: what the box must not accept as
+# a stand-in for the key it derives from them.
+_THE_RAW_INSTANCE_KEY = _INSTANCE_KEY.encode()
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 
 
@@ -52,13 +52,13 @@ def test_bytes_somebody_changed_since_are_refused() -> None:
     assert box.decrypt(tampered) is None
 
 
-def test_the_box_does_not_encrypt_with_the_cookie_signers_own_material() -> None:
+def test_the_box_does_not_encrypt_with_the_raw_instance_key() -> None:
     box = secret_box(_INSTANCE_KEY)
-    signers_box = Fernet(urlsafe_b64encode(_COOKIE_SIGNERS_MATERIAL))
+    raw_box = Fernet(urlsafe_b64encode(_THE_RAW_INSTANCE_KEY))
 
-    assert box.decrypt(signers_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode())) is None
+    assert box.decrypt(raw_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode())) is None
     with pytest.raises(InvalidToken):
-        signers_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
+        raw_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
 
 
 def test_the_same_instance_key_answers_the_same_fingerprint_key_every_time() -> None:

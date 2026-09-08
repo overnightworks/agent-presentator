@@ -72,6 +72,7 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "webauth.passwords".msg = "Hashing is the adapter's; the host names the hasher."
+"webauth.dependencies".msg = "current_user_dependency waits for webauth v0.3.1's unauthenticated_response (issue #105); Identity still owns the session."
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -246,11 +247,12 @@ name = "Only adapters and the host import webauth"
 type = "forbidden"
 # ADR 0003: the library owns the login mechanism. Adapters fill its ports;
 # the host composes WebAuthConfig. The api is not in this list because the
-# routes call judge_credentials, login_attempt_budget, CsrfOriginMiddleware,
-# and current_user_dependency, and must read the installed config and client
-# identity those helpers need (webauth.login, webauth.config, webauth.proxies,
-# webauth.middleware, webauth.dependencies). Import Linter cannot forbid a
-# subset of an external package's modules; ruff's banned-api holds hashing.
+# routes call judge_credentials, login_attempt_budget, and CsrfOriginMiddleware,
+# and must read the installed config, sign and clear cookies, and read client
+# identity those helpers need (webauth.login, webauth.config, webauth.cookies,
+# webauth.proxies, webauth.middleware). Import Linter cannot forbid a subset of
+# an external package's modules; ruff's banned-api holds hashing and, for now,
+# current_user_dependency.
 source_modules = [
     "presentator.application",
     "presentator.ports",

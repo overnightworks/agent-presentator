@@ -10,7 +10,7 @@ from httpx2 import Response
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
 from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, DeckFolder, Source
-from tests.api.lobby import ADMIN, NOW, GivenDecks, Lobby, a_lobby, login_asking_for
+from tests.api.lobby import ADMIN, NOW, GivenDecks, Lobby, a_lobby
 
 _SOURCE_A = "alpha"
 _SOURCE_B = "beta"
@@ -209,7 +209,7 @@ def test_reading_the_hook_address_leads_to_the_login_like_any_other(
     )
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == login_asking_for(hook_address(_SOURCE_A))
+    assert asked.headers["location"] == "/login"
 
 
 def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login() -> None:

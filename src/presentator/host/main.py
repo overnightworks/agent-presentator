@@ -46,7 +46,6 @@ from presentator.adapters.decks import (
 from presentator.adapters.identity import (
     Argon2PasswordHasher,
     IdleWindow,
-    SignedSessionCookie,
     SqliteLoginAttemptStore,
     SqliteSessionRecordStore,
     SqliteUserStore,
@@ -133,7 +132,6 @@ def build_instance(settings: Settings) -> Instance:
         hasher=hasher,
         clock=clock,
         identifiers=identifiers,
-        cookies=SignedSessionCookie(settings.secret_key.get_secret_value().encode()),
         liveness=IdleWindow(liveness),
     )
     sources = SqliteSourceStore(
@@ -196,10 +194,7 @@ def build_instance(settings: Settings) -> Instance:
             identity=identity,
             decks=decks,
             pages=pages,
-            auth=InstalledAuth(
-                config=web_auth,
-                secure_cookies=settings.https,
-            ),
+            auth=InstalledAuth(config=web_auth),
         ),
         poller=SourcePoller(
             refresh=decks.refresh,

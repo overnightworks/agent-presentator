@@ -7,18 +7,23 @@ and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 
 import posixpath
 from dataclasses import dataclass
-from datetime import datetime
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Annotated, Final, NoReturn
+from typing import Annotated, Final
 
-from fastapi import FastAPI, Form, HTTPException, Request, Response
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
-from webauth.dependencies import LoginRedirect, current_user_dependency
-from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
+from webauth.cookies import verify_session_cookie
+from webauth.login import (
+    LoginOutcome,
+    clear_session_cookies,
+    issue_session_cookies,
+    judge_credentials,
+    login_attempt_budget,
+)
 from webauth.middleware.csrf import CsrfOriginMiddleware
 from webauth.policies import CsrfPolicy, PathRules
 from webauth.proxies import client_user_agent, resolve_client_ip
@@ -29,7 +34,7 @@ from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import ACCOUNT, SETTINGS, THEME, preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import Identity
 from presentator.contracts.models import Account, FirstStartClosedError
 from presentator.contracts.text import LobbyText
 
@@ -69,121 +74,12 @@ _SETUP: Final = "/setup"
 # stylesheet has to render the login and setup pages themselves, so it is
 # public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
-# The asked-for path a signed-out browser is sent back to after logging in;
-# the app named no query of its own for this before, so the redirect carries
-# the library's default name (webauth #16).
-_ASKED_FOR_PATH_PARAM: Final = "next"
-_A_SESSIONLESS_STORE_ADMITTED_A_SESSION: Final = (
-    "current_user_dependency admitted a session from a store that never has one"
-)
-_SESSION_LIFECYCLE_IS_IDENTITYS: Final = (
-    "opening, touching, and ending a session stays Identity's own (ADR 0003);"
-    " this store only feeds current_user_dependency its confirmed refusal"
-)
-
-
-class NoLiveSessions:
-    """Feeds `current_user_dependency` only the shape of its own refusal.
-
-    `Identity.signed_in_user` has already decided nobody is signed in before
-    this store is ever asked (ADR 0003 keeps that decision here); a store
-    that never admits a session is what makes the library's redirect-or-401
-    choice — the asked-for path, the Accept negotiation — run for real
-    without this app re-implementing it (issue #105).
-    """
-
-    def load(self, session_id: str) -> None:
-        """Admit no session, ever, so the caller's refusal is always genuine."""
-        del session_id
-
-    def touch(
-        self,
-        record: object,
-        *,
-        ip_address: str,
-        user_agent: str,
-        now: datetime,
-    ) -> NoReturn:
-        """Refuse: `load` never admits a session for this to renew."""
-        del record, ip_address, user_agent, now
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-    def create(
-        self,
-        user_id: str,
-        expires_at: datetime,
-        *,
-        ip_address: str,
-        user_agent: str,
-    ) -> NoReturn:
-        """Refuse: `Identity.open_session` is where a session begins."""
-        del user_id, expires_at, ip_address, user_agent
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-    def delete(self, session_id: str) -> NoReturn:
-        """Refuse: `Identity.log_out` is where a session ends."""
-        del session_id
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-    def delete_for_user(self, user_id: str) -> NoReturn:
-        """Refuse: this store never named a user's sessions to end them all."""
-        del user_id
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-    def prune_overflow(self, user_id: str, max_sessions: int) -> NoReturn:
-        """Refuse: this store never named a user's sessions to cap them."""
-        del user_id, max_sessions
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-
-class NoAudit:
-    """The identity-drift audit `current_user_dependency` asks for.
-
-    Never reached: the confirmed-refusal call this app makes raises before
-    any audit sink is read.
-    """
-
-    def session_identity_changed(self, event: object) -> NoReturn:
-        """Refuse: `NoLiveSessions` never loads a session to compare drift on."""
-        del event
-        raise NotImplementedError(_SESSION_LIFECYCLE_IS_IDENTITYS)
-
-
-_NO_LIVE_SESSIONS: Final = NoLiveSessions()
-_NO_AUDIT: Final = NoAudit()
-# `session_store` and `audit_sink` are FastAPI `Depends()` defaults this app
-# never asks the framework to resolve: `_login_redirect_or_refusal` calls
-# `current_user` directly, passing `_NO_LIVE_SESSIONS`/`_NO_AUDIT` itself, so
-# these lambdas only satisfy `current_user_dependency`'s own signature.
-_LOGIN_REFUSAL: Final = current_user_dependency(
-    session_store=lambda: _NO_LIVE_SESSIONS,
-    audit_sink=lambda: _NO_AUDIT,
-    on_authenticated=lambda _user: None,
-    login_redirect=LoginRedirect(_LOGIN, _ASKED_FOR_PATH_PARAM),
-)
 _CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(
         exact=frozenset({_LOGIN, _LOGOUT, _SETUP, ACCOUNT, THEME}),
         prefixes=(SETTINGS,),
     ),
 )
-
-
-def _login_redirect_or_refusal(request: Request) -> Response:
-    """The library's own choice for a request with no live session.
-
-    A browser preferring HTML gets 302 to `/login` carrying the asked-for
-    path as `next`; anything else gets 401 (webauth.dependencies.LoginRedirect).
-    """
-    try:
-        _LOGIN_REFUSAL.current_user(
-            request,
-            sessions=_NO_LIVE_SESSIONS,
-            audit=_NO_AUDIT,
-        )
-    except HTTPException as refused:
-        return Response(status_code=refused.status_code, headers=refused.headers)
-    raise AssertionError(_A_SESSIONLESS_STORE_ADMITTED_A_SESSION)
 
 
 async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -204,12 +100,20 @@ def _is_a_stylesheet(path: str) -> bool:
     )
 
 
+def _session_id_from_cookie(request: Request) -> str:
+    """The raw session id a signed cookie names, or "" for none or a forged one."""
+    cookie_value = request.cookies.get(SESSION_COOKIE, "")
+    if not cookie_value:
+        return ""
+    signing_key = web_auth_config(request).signing_key
+    return verify_session_cookie(cookie_value, signing_key) or ""
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class InstalledAuth:
-    """The library configuration and the cookie flags this host chose."""
+    """The library configuration this host runs the lobby with."""
 
     config: WebAuthConfig
-    secure_cookies: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -230,7 +134,6 @@ class _Surfaces:
     identity: Identity
     decks: Decks
     pages: Pages
-    secure_cookies: bool
 
     async def only_signed_in(
         self,
@@ -246,20 +149,21 @@ class _Surfaces:
         ):
             request.state.signed_in_person = None
             return await call_next(request)
-        cookie_value = request.cookies.get(SESSION_COOKIE, "")
+        session_id = _session_id_from_cookie(request)
         person = self.identity.signed_in_user(
-            cookie_value,
+            session_id,
             ip_address=resolve_client_ip(request),
             user_agent=client_user_agent(request),
         )
         if person is None:
-            return _login_redirect_or_refusal(request)
+            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         request.state.signed_in_person = person
-        request.state.signed_in_session_id = self.identity.cookies.session_id_from(
-            cookie_value
-        )
+        request.state.signed_in_session_id = session_id
         answer = await call_next(request)
-        self._set_session_cookie(request, answer, cookie_value)
+        # Every authenticated answer re-signs and re-sets the cookie, so an
+        # active talk's idle window keeps sliding on the browser's own copy
+        # too, not only in the session row the store holds.
+        issue_session_cookies(answer, request, session_id, web_auth_config(request))
         return answer
 
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
@@ -338,14 +242,9 @@ class _Surfaces:
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
-        self.identity.log_out(request.cookies.get(SESSION_COOKIE, ""))
+        self.identity.log_out(_session_id_from_cookie(request))
         answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
-        answer.delete_cookie(
-            SESSION_COOKIE,
-            httponly=True,
-            samesite=web_auth_config(request).cookie_samesite,
-            secure=self.secure_cookies,
-        )
+        clear_session_cookies(answer, web_auth_config(request))
         return answer
 
     def setup_page(self, request: Request) -> Response:
@@ -367,7 +266,7 @@ class _Surfaces:
         if password != repeated_password:
             return self._setup(request, mismatch=True)
         try:
-            cookie_value = self.identity.create_first_admin(
+            session_id = self.identity.create_first_admin(
                 username=username,
                 password=password,
                 ip_address=resolve_client_ip(request),
@@ -376,7 +275,7 @@ class _Surfaces:
         except FirstStartClosedError:
             # Another first start won the race between the count and the write.
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._signed_in(request, cookie_value)
+        return self._signed_in(request, session_id)
 
     def _login(self, request: Request, *, refused: bool) -> Response:
         return self.pages.page(request, "login.html", refused=refused)
@@ -384,31 +283,10 @@ class _Surfaces:
     def _setup(self, request: Request, *, mismatch: bool) -> Response:
         return self.pages.page(request, "setup.html", mismatch=mismatch)
 
-    def _signed_in(self, request: Request, cookie_value: str) -> Response:
+    def _signed_in(self, request: Request, session_id: str) -> Response:
         answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
-        self._set_session_cookie(request, answer, cookie_value)
+        issue_session_cookies(answer, request, session_id, web_auth_config(request))
         return answer
-
-    def _set_session_cookie(
-        self,
-        request: Request,
-        answer: Response,
-        cookie_value: str,
-    ) -> None:
-        """Hand the browser its cookie, `SameSite` read from the installed config.
-
-        Every authenticated answer re-sets it, so an active talk's idle
-        window keeps sliding on the browser's own copy too, not only in the
-        session row the store holds.
-        """
-        answer.set_cookie(
-            SESSION_COOKIE,
-            cookie_value,
-            max_age=int(IDLE_WINDOW.total_seconds()),
-            httponly=True,
-            samesite=web_auth_config(request).cookie_samesite,
-            secure=self.secure_cookies,
-        )
 
 
 def create_lobby(
@@ -424,12 +302,7 @@ def create_lobby(
     stored source and its secret is answered alike, and GET stays behind the
     session.
     """
-    surfaces = _Surfaces(
-        identity=identity,
-        decks=decks,
-        pages=pages,
-        secure_cookies=auth.secure_cookies,
-    )
+    surfaces = _Surfaces(identity=identity, decks=decks, pages=pages)
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the

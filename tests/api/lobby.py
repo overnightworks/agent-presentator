@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlencode
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -63,7 +62,6 @@ from tests.application.fakes import (
     FakeToolchainThemes,
     FakeUserStore,
     FrozenClock,
-    MarkingCookieSigner,
     MatchingLiveness,
     ReversibleHasher,
 )
@@ -84,14 +82,10 @@ SOURCE_ID: Final = "the-source-the-instance-carries"
 TYPED_WORDS: Final = "the words only this test types"
 # A real browser always sends both: navigation prefers text/html, and a
 # same-site request carries Sec-Fetch-Site since Chrome 76 and Firefox 90. A
-# test proving the JSON-client half of the redirect, or a header-less
-# request, overrides these explicitly (issue #105).
+# test proving what an absent or a foreign claim does overrides these
+# explicitly (issue #105).
 A_BROWSERS_HEADERS: Final = {"accept": "text/html", "sec-fetch-site": "same-origin"}
-
-
-def login_asking_for(path: str) -> str:
-    """Where the guard sends a signed-out browser that asked for `path`."""
-    return f"/login?{urlencode({'next': path})}"
+_NO_TRUSTED_PROXIES: Final = TrustedProxies()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,13 +146,17 @@ def a_user_store(*people: Account) -> FakeUserStore:
     )
 
 
-def a_web_auth(*, hasher: ReversibleHasher) -> WebAuthConfig:
+def a_web_auth(
+    *,
+    hasher: ReversibleHasher,
+    trusted_proxies: TrustedProxies = _NO_TRUSTED_PROXIES,
+) -> WebAuthConfig:
     """The library configuration a route test runs, over the fake hasher."""
     idle_seconds = int(IDLE_WINDOW.total_seconds())
     failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
         session_secret=SecretStr("t" * 32),
-        trusted_proxies=TrustedProxies(),
+        trusted_proxies=trusted_proxies,
         password_hasher=hasher,
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset({"testserver"}),
@@ -211,7 +209,7 @@ NO_DECKS: Final = GivenDecks()
 
 def a_lobby_app(
     *,
-    secure_cookies: bool = False,
+    trusted_proxies: TrustedProxies = _NO_TRUSTED_PROXIES,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
@@ -226,7 +224,6 @@ def a_lobby_app(
         hasher=hasher,
         clock=clock,
         identifiers=CountingIdentifierFactory(),
-        cookies=MarkingCookieSigner(),
         liveness=MatchingLiveness(),
     )
     stored = (
@@ -283,8 +280,7 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(hasher=hasher),
-            secure_cookies=secure_cookies,
+            config=a_web_auth(hasher=hasher, trusted_proxies=trusted_proxies),
         ),
     )
     return lobby, clock
@@ -292,18 +288,12 @@ def a_lobby_app(
 
 def a_lobby(
     *,
-    secure_cookies: bool = False,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
-    lobby, clock = a_lobby_app(
-        secure_cookies=secure_cookies,
-        users=users,
-        catalogs=catalogs,
-        given=given,
-    )
+    lobby, clock = a_lobby_app(users=users, catalogs=catalogs, given=given)
     client = TestClient(lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS)
     return Lobby(client=client, clock=clock)
 
@@ -320,6 +310,23 @@ def a_lobby_that_claims_no_origin_of_its_own(
     """
     lobby, clock = a_lobby_app(users=users)
     client = TestClient(lobby, follow_redirects=False, headers={"accept": "text/html"})
+    return Lobby(client=client, clock=clock)
+
+
+def a_lobby_behind_a_trusted_proxy(*, peer: str) -> Lobby:
+    """A browser reaching this lobby through a proxy this config trusts.
+
+    The library reads `Secure` off the connection itself (issue #105): a
+    test proving it needs a peer the config names in `trusted_proxies` and a
+    client that really connects from that peer, not only a header claiming it.
+    """
+    lobby, clock = a_lobby_app(trusted_proxies=TrustedProxies.parse(peer))
+    client = TestClient(
+        lobby,
+        follow_redirects=False,
+        client=(peer, 50000),
+        headers=A_BROWSERS_HEADERS,
+    )
     return Lobby(client=client, clock=clock)
 
 

@@ -11,7 +11,6 @@ from webauth.liveness import IdleWindowLiveness
 from presentator.adapters.identity import (
     Argon2PasswordHasher,
     IdleWindow,
-    SignedSessionCookie,
     SqliteLoginAttemptStore,
     SqliteSessionRecordStore,
     SqliteUserStore,
@@ -29,7 +28,6 @@ from presentator.contracts.models import (
 from tests.application.fakes import FrozenClock
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
-_INSTANCE_KEY = b"thirty-two-bytes-of-instance-key"
 _TYPED_WORDS = "the words only this test types"
 _STORED_HASH = "a hash of something else"
 _ADDRESS = "203.0.113.7"
@@ -273,41 +271,6 @@ def test_a_successful_attempt_does_not_spend_the_budget(database: Path) -> None:
             username="felix",
         )
         == 0
-    )
-
-
-def test_a_cookie_this_instance_signed_names_its_session() -> None:
-    signer = SignedSessionCookie(_INSTANCE_KEY)
-
-    cookie = signer.sign("session-1")
-
-    assert "session-1" in cookie
-    assert signer.session_id_from(cookie) == "session-1"
-
-
-@pytest.mark.parametrize(
-    "cookie",
-    [
-        pytest.param("session-1", id="no-signature"),
-        pytest.param("session-1.00", id="wrong-signature"),
-        pytest.param("session-2.{signature}", id="signature-of-another-session"),
-    ],
-)
-def test_a_cookie_that_was_not_signed_here_names_nothing(cookie: str) -> None:
-    signer = SignedSessionCookie(_INSTANCE_KEY)
-    tampered = cookie.format(signature=signer.sign("session-1").split(".")[1])
-
-    assert signer.session_id_from(tampered) is None
-
-
-def test_another_instance_key_refuses_the_cookie() -> None:
-    cookie = SignedSessionCookie(_INSTANCE_KEY).sign("session-1")
-
-    assert (
-        SignedSessionCookie(b"another-instances-thirty-two-key").session_id_from(
-            cookie,
-        )
-        is None
     )
 
 

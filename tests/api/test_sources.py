@@ -41,7 +41,6 @@ from tests.api.lobby import (
     a_signed_in_lobby,
     a_user_store,
     an_account,
-    login_asking_for,
 )
 from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
@@ -359,9 +358,9 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     posting = fetch(lobby.client, "decks")
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == login_asking_for(SOURCES)
+    assert reading.headers["location"] == "/login"
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == login_asking_for(_FETCH.format(name="decks"))
+    assert posting.headers["location"] == "/login"
 
 
 def check_source(
@@ -918,9 +917,9 @@ def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
     posting = create_source(lobby.client)
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == login_asking_for(NEW)
+    assert reading.headers["location"] == "/login"
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == login_asking_for(NEW)
+    assert posting.headers["location"] == "/login"
 
 
 def a_deck_from(source: Source) -> Deck:

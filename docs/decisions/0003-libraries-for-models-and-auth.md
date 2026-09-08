@@ -61,33 +61,36 @@ User management (Settings · Users, password change, admin reset, deactivation)
 is not in this slice. It waits on `webauth` v0.3.0 and
 [#61](https://github.com/overnightworks/agent-presentator/issues/61).
 
-### Amendment 2026-09-08 — webauth v0.3.0 owns the cookie, the origin guard, and the redirect
+### Amendment 2026-09-08 — webauth v0.3.0 owns the cookie and the origin guard
 
 Authority: [#105](https://github.com/overnightworks/agent-presentator/issues/105)
-(slice 13c of [#8](https://github.com/overnightworks/agent-presentator/issues/8)).
+(slice 13c of [#8](https://github.com/overnightworks/agent-presentator/issues/8)),
+independent-review findings on the same item.
 
-The three pieces the amendment above kept as this repository's own move to the
-library: `cookie_samesite` on `WebAuthConfig` (`"lax"`, this host's cookie flag
-since 13a) replaces the hardcoded `SameSite=Lax` string;
+Two of the three pieces the amendment above kept as this repository's own move
+to the library. The cookie: `Identity.open_session` hands out the raw session
+id now, never a signed value, and the route calls `webauth.login`'s
+`issue_session_cookies` / `clear_session_cookies` to sign, set, and clear it —
+`cookie_samesite` on `WebAuthConfig` (`"lax"`) is the flag they read, and
+`Secure` follows the connection the library sees (`request_is_https`), not a
+setting this host names; the own HMAC signer (`SessionCookieSigner`,
+`SignedSessionCookie`) is deleted. The origin guard:
 `webauth.middleware.csrf.CsrfOriginMiddleware` with a `CsrfPolicy` naming the
 protected paths replaces the Origin/`Sec-Fetch-Site` guard this repository
-wrote; and `webauth.dependencies.current_user_dependency` with a
-`LoginRedirect("/login", "next")` decides the 302-with-asked-for-path or 401
-choice a signed-out request gets. `webauth.middleware` and
-`webauth.dependencies` are no longer on the banned-API list; only
-`webauth.passwords` still is.
+wrote. `webauth.middleware` is no longer on the banned-API list;
+`webauth.passwords` and, for now, `webauth.dependencies` still are.
 
-Session authentication itself stays this repository's own: `Identity` and its
-SQLite session store are the ADR 0003 truth `current_user_dependency` would
-otherwise need reshaped into (a `SessionRecordStore` whose loaded record
-carries a full `UserRecord`, hash included) — a change belonging to
-[#61](https://github.com/overnightworks/agent-presentator/issues/61)'s user
-model, not to this slice. The guard asks `Identity.signed_in_user` first, as
-before; only once that says nobody is signed in does it call
-`current_user_dependency` — backed by a store that never admits a session — to
-get the library's own redirect-or-401 answer for real, rather than
-re-implementing that choice here. The one behaviour change: a `same-site` or
-`none` `Sec-Fetch-Site` POST, which the old guard let through, is refused now.
+The redirect stays this repository's own a while longer: a review of the first
+cut of this slice found `current_user_dependency` invoked only through a
+`SessionRecordStore` stand-in that admits nothing, built solely to steal its
+302-or-401 answer — dual session authority, and five of its six port methods
+reached only by a test proving they raise. `Identity.signed_in_user` keeps
+deciding who is signed in, and a signed-out request gets this repository's
+plain redirect to `/login`, as before v0.3.0. webauth #21 (building) makes the
+answer a public function, `unauthenticated_response(request, login_redirect)`,
+callable without a store at all; the redirect moves to it, and `CsrfPolicy`
+moves to a protect-everything mode with named exemptions (its own review
+finding), when that tag lands.
 
 ### What exists today, and what does not
 
@@ -134,12 +137,10 @@ From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
-is implemented here at all — see below. `BodySizePolicy` and
-`SecurityHeadersPolicy` are taken with their defaults and stubbed until
-something here needs them. `CsrfPolicy` names the paths `CsrfOriginMiddleware`
-protects (13c); `AuditSink` is implemented as a store that is never asked,
-since the store behind `current_user_dependency` never admits a session for it
-to compare drift on (13c).
+is implemented here at all — see below. `BodySizePolicy`,
+`SecurityHeadersPolicy`, and `AuditSink` are taken with their defaults and
+stubbed until something here needs them. `CsrfPolicy` names the paths
+`CsrfOriginMiddleware` protects (13c).
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is

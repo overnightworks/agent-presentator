@@ -14,7 +14,6 @@ from typing import Final
 
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
-from webauth.cookies import sign_session_id, verify_session_cookie
 from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.sqlite import apply_schema, rows
@@ -359,21 +358,6 @@ class TokenIdentifierFactory:
     def new_id(self) -> str:
         """Mint one url-safe token."""
         return secrets.token_urlsafe(_IDENTIFIER_BYTES)
-
-
-@dataclass(frozen=True, slots=True)
-class SignedSessionCookie:
-    """A cookie value is the session id HMAC-signed with the instance key."""
-
-    secret_key: bytes
-
-    def sign(self, session_id: str) -> str:
-        """Build the value the browser carries."""
-        return sign_session_id(session_id, self.secret_key)
-
-    def session_id_from(self, cookie_value: str) -> str | None:
-        """Return the id only for a value this instance signed."""
-        return verify_session_cookie(cookie_value, self.secret_key)
 
 
 @dataclass

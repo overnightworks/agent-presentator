@@ -2,14 +2,12 @@
 
 import logging
 import re
-from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
 
-from presentator.api import auth as auth_module
-from presentator.api.auth import SESSION_COOKIE, NoAudit, NoLiveSessions
+from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
 from presentator.application.identity import (
     FAILURE_WINDOW,
@@ -19,20 +17,20 @@ from presentator.application.identity import (
 from presentator.contracts.models import Account, Role
 from tests.api.lobby import (
     ENGLISH,
-    NOW,
     TYPED_WORDS,
     USERNAME,
     Lobby,
     a_lobby,
+    a_lobby_behind_a_trusted_proxy,
     a_lobby_that_claims_no_origin_of_its_own,
     a_user_store,
-    login_asking_for,
 )
 from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _WINNERS_HASH = "the hash the winning first start stored"
 _WRONG_WORDS = "guessed"
+_TUNNEL_PEER = "127.0.0.1"
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -54,7 +52,7 @@ def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
     answer = lobby.client.get("/")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == login_asking_for("/")
+    assert answer.headers["location"] == "/login"
 
 
 def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None:
@@ -74,11 +72,17 @@ def test_the_session_cookie_travels_locked_down(lobby: Lobby) -> None:
     assert "Secure" not in cookie
 
 
-def test_an_https_instance_marks_the_session_cookie_secure() -> None:
-    lobby = a_lobby(secure_cookies=True)
+def test_a_session_behind_a_trusted_proxy_is_marked_secure() -> None:
+    """`Secure` follows the connection the library sees, not a setting.
 
-    assert "Secure" in lobby.set_up_admin().headers["set-cookie"]
-    assert "Secure" in lobby.client.post("/logout").headers["set-cookie"]
+    The test peer stands in `trusted_proxies`, so `X-Forwarded-Proto: https`
+    is believed, exactly as it would be for the tunnel client (ADR 0007).
+    """
+    lobby = a_lobby_behind_a_trusted_proxy(peer=_TUNNEL_PEER)
+
+    created = lobby.set_up_admin(headers={"x-forwarded-proto": "https"})
+
+    assert "Secure" in created.headers["set-cookie"]
 
 
 def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> None:
@@ -247,7 +251,7 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     answer = lobby.client.get("/deck/knowledge-fabric")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == login_asking_for("/deck/knowledge-fabric")
+    assert answer.headers["location"] == "/login"
 
 
 def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
@@ -291,7 +295,7 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == login_asking_for(hook_address("talks"))
+    assert asked.headers["location"] == "/login"
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
@@ -306,15 +310,6 @@ def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
     created = lobby.set_up_admin(headers={"sec-fetch-site": "same-origin"})
 
     assert created.status_code == HTTPStatus.SEE_OTHER
-
-
-def test_a_json_client_that_is_not_signed_in_gets_401_not_a_redirect(
-    lobby: Lobby,
-) -> None:
-    asked = lobby.client.get("/", headers={"accept": "application/json"})
-
-    assert asked.status_code == HTTPStatus.UNAUTHORIZED
-    assert "location" not in asked.headers
 
 
 @pytest.mark.parametrize("fetch_site", ["same-site", "none"])
@@ -336,34 +331,9 @@ def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
-def test_the_guard_fails_loud_if_the_library_ever_admitted_a_dead_store(
-    lobby: Lobby,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`NoLiveSessions` guarantees `current_user_dependency` always refuses.
-
-    A store that admits nothing cannot honestly return a person, so a
-    successful call would mean the guarantee broke; this proves the guard
-    would rather crash than sign a visitor in on that broken promise.
-    """
-
-    class _AlwaysAdmits:
-        def current_user(self, *args: object, **kwargs: object) -> object:
-            del args, kwargs
-            return object()
-
-    monkeypatch.setattr(auth_module, "_LOGIN_REFUSAL", _AlwaysAdmits())
-
-    with pytest.raises(AssertionError):
-        lobby.client.get("/")
-
-
-def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
-    signed_in_lobby: Lobby,
-) -> None:
+def test_logging_out_expires_the_cookie_at_once(signed_in_lobby: Lobby) -> None:
     cleared = signed_in_lobby.client.post("/logout").headers["set-cookie"]
 
-    assert "HttpOnly" in cleared
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
 
@@ -409,7 +379,7 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert walked_out.headers["location"] == login_asking_for("/static/../deck/a-deck/")
+    assert walked_out.headers["location"] == "/login"
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
@@ -446,50 +416,3 @@ def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
     assert ENGLISH.wordmark in page
     assert ENGLISH.log_out not in page
     assert USERNAME not in page
-
-
-def _touch() -> None:
-    NoLiveSessions().touch(object(), ip_address="", user_agent="", now=NOW)
-
-
-def _create() -> None:
-    NoLiveSessions().create("a-user", NOW, ip_address="", user_agent="")
-
-
-def _delete() -> None:
-    NoLiveSessions().delete("a-session")
-
-
-def _delete_for_user() -> None:
-    NoLiveSessions().delete_for_user("a-user")
-
-
-def _prune_overflow() -> None:
-    NoLiveSessions().prune_overflow("a-user", 1)
-
-
-def _session_identity_changed() -> None:
-    NoAudit().session_identity_changed(object())
-
-
-@pytest.mark.parametrize(
-    "call",
-    [
-        _touch,
-        _create,
-        _delete,
-        _delete_for_user,
-        _prune_overflow,
-        _session_identity_changed,
-    ],
-)
-def test_the_sessionless_store_never_carries_a_session_lifecycle_of_its_own(
-    call: Callable[[], None],
-) -> None:
-    """`Identity` owns opening, touching, and ending a session (ADR 0003).
-
-    A call into any of these means something routed session lifecycle
-    through the login-refusal store instead, which is always a defect.
-    """
-    with pytest.raises(NotImplementedError):
-        call()

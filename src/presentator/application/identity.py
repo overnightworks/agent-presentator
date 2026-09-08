@@ -16,7 +16,6 @@ from presentator.ports.identity import (
     IdentifierFactory,
     LoginAttemptStore,
     PasswordHasher,
-    SessionCookieSigner,
     SessionLiveness,
     SessionRecordStore,
     UserStore,
@@ -29,7 +28,11 @@ FAILURES_BEFORE_THROTTLE: Final = 5
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Identity:
-    """Every use case the lobby has around who is signed in."""
+    """Every use case the lobby has around who is signed in.
+
+    A session id is this use case's own currency; turning one into the
+    signed cookie a browser carries, and back, is `webauth`'s (issue #105).
+    """
 
     users: UserStore
     sessions: SessionRecordStore
@@ -37,7 +40,6 @@ class Identity:
     hasher: PasswordHasher
     clock: Clock
     identifiers: IdentifierFactory
-    cookies: SessionCookieSigner
     liveness: SessionLiveness
 
     def first_start_is_open(self) -> bool:
@@ -52,7 +54,7 @@ class Identity:
         ip_address: str = "",
         user_agent: str = "",
     ) -> str:
-        """Return the cookie for the new admin, or refuse if one already exists.
+        """Return the id of a session for the new admin, or refuse if one exists.
 
         Hashing happens before the store is asked, so the slow part is outside
         the write the store takes to keep first start single.
@@ -85,24 +87,24 @@ class Identity:
         ip_address: str,
         user_agent: str,
     ) -> str:
-        """Return the cookie for a fresh session of this person."""
+        """Return the id of a fresh session of this person."""
         session = self.sessions.create(
             user.id,
             self.clock.now() + IDLE_WINDOW,
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        return self.cookies.sign(session.id)
+        return session.id
 
     def signed_in_user(
         self,
-        cookie_value: str,
+        session_id: str,
         *,
         ip_address: str = "",
         user_agent: str = "",
     ) -> User | None:
-        """Return who the cookie stands for, sliding the idle window along."""
-        session = self._live_session(cookie_value)
+        """Return who the session id stands for, sliding the idle window along."""
+        session = self._live_session(session_id)
         if session is None:
             return None
         self.sessions.touch(
@@ -113,15 +115,13 @@ class Identity:
         )
         return self.users.get(session.user_id)
 
-    def log_out(self, cookie_value: str) -> None:
-        """End the session behind the cookie so the value cannot come back."""
-        session_id = self.cookies.session_id_from(cookie_value)
-        if session_id is not None:
+    def log_out(self, session_id: str) -> None:
+        """End the session so the id cannot come back."""
+        if session_id:
             self.sessions.delete(session_id)
 
-    def _live_session(self, cookie_value: str) -> Session | None:
-        session_id = self.cookies.session_id_from(cookie_value)
-        if session_id is None:
+    def _live_session(self, session_id: str) -> Session | None:
+        if not session_id:
             return None
         session = self.sessions.load(session_id)
         if session is None:
