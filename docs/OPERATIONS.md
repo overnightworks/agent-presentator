@@ -96,7 +96,10 @@ and hyphens, at most 64 characters, unique; the URL is unique too, and must
 not carry a password in its userinfo — that belongs in the Secret field. The
 access kind is derived from the URL scheme (`https://` is a token; `http://` is
 refused; `git@` and `ssh://` are a deploy key, not yet offered on the form).
-The secret is stored encrypted. SSH deploy keys are not offered yet.
+The secret is stored encrypted. SSH deploy keys are not offered yet. An HTTPS
+source needs the image's CA certificates to verify the git host's TLS
+certificate; the image carries them, and CI proves it with a live HTTPS fetch
+on every build.
 
 The server polls the source every `PRESENTATOR_SOURCE_POLL_SECONDS` on a task
 beside the routes, and never twice at once; opening the deck list reads the
