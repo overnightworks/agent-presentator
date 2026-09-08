@@ -97,8 +97,8 @@ file and not a change to code, and each catalog names itself. The instance name
 is kept and shown back under Settings; nothing else reads it yet.
 
 The lobby's colours come from the vendored
-[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
-v0.1.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
+[`overnightworks/ui-console`](https://github.com/overnightworks/ui-console)
+v0.2.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
 still use this product's Pico markup; the package grammar is adopted when
 Users lands
 ([#61](https://github.com/overnightworks/agent-presentator/issues/61)).
