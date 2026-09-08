@@ -30,21 +30,6 @@ class ConfigurationError(ValueError):
     """What the environment carries is not a configuration to run on."""
 
 
-def _a_real_secret(given: SecretStr) -> SecretStr:
-    """Refuse a secret too short or too blank to guard anything.
-
-    An empty value would otherwise arm the hook with a secret every caller
-    already carries, which is worse than the closed hook it looks like.
-    """
-    if len(given.get_secret_value().strip()) < SECRET_LENGTH:
-        message = (
-            f"is at least {SECRET_LENGTH} characters that are not blank;"
-            " leave it unset to keep the hook closed"
-        )
-        raise ValueError(message)
-    return given
-
-
 def _a_size_or_nothing(given: str | None) -> str | None:
     """An empty size is no bound at all, which an operator may mean."""
     return given or None
@@ -83,21 +68,9 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     build_memory: str = "4g"
     build_disk: Annotated[str | None, AfterValidator(_a_size_or_nothing)] = "8g"
     build_output_megabytes: int = 300
-    source_url: str | None = None
-    source_ref: str = "main"
-    # The name the source answers to in its hook address, and the secret a call
-    # there has to carry; a stored source owns both once Settings does. Without
-    # a secret there is no hook address at all, only the poll.
-    source_name: str = "decks"
-    source_hook_secret: Annotated[SecretStr, AfterValidator(_a_real_secret)] | None = (
-        None
-    )
     # Polling is what makes a push arrive at all, so it runs whether or not any
     # host ever calls the hook.
     source_poll_seconds: float = 300.0
-    # The name of the environment variable holding the read-only secret, never
-    # the secret itself, so no durable record of this instance carries a value.
-    source_credential: str | None = None
     # A pull that hangs would hold the tick it runs on, so it is bounded.
     source_timeout_seconds: float = 20.0
     https: bool = False

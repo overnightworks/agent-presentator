@@ -26,7 +26,7 @@
     {% endif %}
     <p>{{ text.source_webhook_payload }}</p>
   </section>
-  <p><a href="/settings/sources">{{ text.source_created_done }}</a></p>
+  <p><a href="/settings/sources/{{ source_name }}">{{ text.source_created_done }}</a></p>
   {% if webhook_secret %}
   <p role="status">{{ text.source_created_toast }}</p>
   {% endif %}

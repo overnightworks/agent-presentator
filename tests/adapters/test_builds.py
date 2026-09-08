@@ -13,11 +13,13 @@ import subprocess
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from gitmirror.model import CredentialReference
 from presentator.adapters import builds as builds_module
 from presentator.adapters.builds import (
     ContainerToolchain,
@@ -27,7 +29,7 @@ from presentator.adapters.builds import (
     SlidevBuilds,
     the_daemon_of_this_machine,
 )
-from presentator.adapters.decks import EnvironmentCredentials, SourceMirrors
+from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
     SLIDES_FILE,
@@ -91,6 +93,15 @@ _A_BUILT_PAGE = "index.html"
 _TOOLCHAIN_PROGRAM = "pnpm"
 _CONTAINER_PROGRAM = "docker"
 _WHAT_A_TALK_SAYS = "a talk"
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCredentials:
+    """A stand-in so a local bare remote can be pulled without a stored secret."""
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        return "unused-on-a-file-url"
+
 
 _A_TOOLCHAIN_THAT_BUILDS = """#!/bin/sh
 set -eu
@@ -377,7 +388,7 @@ def builds_under(
         toolchain=toolchain,
         mirrors=SourceMirrors(
             directory=tmp_path / "mirrors",
-            credentials=EnvironmentCredentials(),
+            credentials=OpenCredentials(),
             pull_timeout=_A_GENEROUS_BOUND,
         ),
         output_megabytes=output_megabytes,

@@ -32,14 +32,17 @@ def talk_address(slug: str) -> str:
 class SecretLocation(StrEnum):
     """Where a source's read-only secret stands, never the secret itself.
 
-    A row is the truth about its own secret; this says which of the two forms
-    that row anchors, so nobody has to read a value to find out. The
-    environment form is what an instance configured from `PRESENTATOR_SOURCE_*`
-    still carries, and it goes when that configuration does.
+    A row is the truth about its own secret. The one place is the encrypted
+    column: a source whose row carries ciphertext is stored, and a source
+    whose row does not has no secret this instance can hand to git.
     """
 
-    ENVIRONMENT = "environment"
     STORED = "stored"
+
+
+# The Source board draws three runs, and that page is the first reader of the
+# log, so the table keeps the same three: older rows have no caller.
+RECENT_SOURCE_RUNS: Final = 3
 
 
 class AccessKind(StrEnum):
@@ -263,6 +266,38 @@ class ListedSource:
     access: AccessKind | None
     state: SourceState
     age: timedelta | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShownSourceRun:
+    """One recent poll as the source page shows it: age, commit, or why not."""
+
+    outcome: SourceRunOutcome
+    age: timedelta
+    commit: str | None
+    reason: SourceRunFailure | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDeck:
+    """A deck this source carries, named the way the page's chips name it."""
+
+    slug: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourcePage:
+    """What one source's page says: is it working, and what comes from it."""
+
+    name: str
+    url: str
+    access: AccessKind | None
+    state: SourceState
+    age: timedelta | None
+    secret_missing: bool
+    runs: tuple[ShownSourceRun, ...]
+    decks: tuple[SourceDeck, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

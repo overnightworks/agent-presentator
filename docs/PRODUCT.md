@@ -80,8 +80,8 @@ instance defaults, and Sources lists each source with the state and age of its
 newest run — never fetched, reachable, or Error, never the internal reason a
 credential could not be resolved — and a Fetch now that refreshes that one
 source and returns to the list. An instance with no source says what a source
-is and what you need for it. Users is not a tab yet. There is no control to
-add a source, and a source has no page of its own yet. Everybody opens Account
+is and what you need for it. Users is not a tab yet. An admin adds a source
+there, and each source has a page of its own. Everybody opens Account
 and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,
 the instance default behind it — and "follow system" writes no `data-theme`
 attribute at all, so the browser decides
@@ -122,13 +122,10 @@ once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
 URL carrying a password in its userinfo is refused, `http://` is refused, and
 the access kind is derived from the URL scheme — a mismatch with the chosen
 radio is refused.
-SSH deploy keys are not offered yet. The one an instance already runs on still
-comes from `PRESENTATOR_SOURCE_URL`, an optional
-`PRESENTATOR_SOURCE_REF`, and an optional `PRESENTATOR_SOURCE_CREDENTIAL`
-naming the environment variable that carries a read-only secret — the
-configuration holds the reference, never the value — and is written into that
-table at every start and at the beginning of every refresh, keyed by its URL so
-it is written once; adding a source does not rewrite that credential. Every deck names the source that carried it, and a refresh
+SSH deploy keys are not offered yet. An instance starts with no source;
+`PRESENTATOR_SOURCE_URL` and the other `PRESENTATOR_SOURCE_*` identity
+settings are gone, so a leftover line in the environment does not add a row.
+Every deck names the source that carried it, and a refresh
 walks the sources one after another, taking each one in and building its decks
 before it reads the next. `gitmirror` keeps a bare
 mirror of each source's repository under `PRESENTATOR_MIRRORS` by driving `git` as a
@@ -153,8 +150,8 @@ into the one refresh that runs at a time. Every poll of a source, reachable or
 not, records one run: the moment, whether it reached the source, and either the
 commit it found or a typed reason it did not — never the raw error a git
 command left behind. A source's newest run is what the Sources list reads to show
-whether it is working; every run before that stays in the table too, with
-nothing yet trimming it. Opening the deck list only reads the
+whether it is working; older runs of that source are dropped so the table
+keeps the newest three, which is what the source page shows. Opening the deck list only reads the
 database. The empty deck list points an admin at Sources. A source that cannot be read is logged and says nothing about what it
 carries, so every deck stays listed; a folder whose manifest cannot be read is
 logged too and counts as a folder without a title, so the deck row it belongs to
@@ -173,23 +170,24 @@ first, and a deck belongs to the account that owns the source it came from — f
 a configured source, the admin that first start created. While no deck exists,
 the list says so and names the Git address instead of showing an empty table,
 as long as one source is all there is to name;
-there is no upload, no editing, and no way to add a source in the lobby
+there is no upload and no editing
 ([ADR 0005](decisions/0005-deck-folder-and-slidev.md)).
 
 Every row carries the state of its deck's build in one word — ready, building,
 failed, or never built — with a shape and a colour of its own, read off the
 talk that stands and the build last attempted beside it, never stored.
 
-There is no Sources page yet. A source's row can hold its read-only secret
-itself, encrypted with a key derived from `PRESENTATOR_SECRET_KEY`
-([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)), and
-the one resolver that answers at every pull reads whichever of the two columns
-the row carries; nothing fills the encrypted one until the page for adding a
-source does, so the source an instance runs on still names an environment
-variable. Removing a source is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8). Nothing
-prunes a source's older runs yet, so the table grows without bound; that is
-open on #8 (slice 12.6).
+`/settings/sources/<name>` is that source's page: state and fetched age, Fetch
+now, the access secret as a fixed run of dots with one Renew, the webhook
+address with Copy and its own Renew, the newest three runs with the commit as
+evidence, and the decks that come from here. Renewing the webhook secret shows
+the new value exactly once to the session that created or renewed it, and never
+again; renewing the access secret takes a new value and shows nothing back. A source's secret stands in one place, the
+encrypted column, opened with a key derived from `PRESENTATOR_SECRET_KEY`
+([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)). A row
+that still names only an environment variable stays listed and keeps its built
+talks; fetch fails with a typed reason until Renew. Removing a source is open
+on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
 ### A deck's page, and the talk behind it
 

@@ -6,7 +6,6 @@ between its vocabulary and the product's, and holds the deck table (ADR 0006).
 
 import json
 import logging
-import os
 import sqlite3
 import tomllib
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from presentator.adapters.secrets import SecretBox
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
+    RECENT_SOURCE_RUNS,
     Build,
     BuildAttempt,
     BuildOutcome,
@@ -40,11 +40,11 @@ from presentator.contracts.decks import (
     SourceRunOutcome,
     SourceWrite,
 )
-from presentator.ports.identity import IdentifierFactory, UserStore
+from presentator.ports.identity import IdentifierFactory
 
 # A deck's source is nullable because a file written before sources were rows
-# gains the column with nothing in it; the seed attaches those decks, and every
-# deck taken in since names the source that carried it.
+# gains the column with nothing in it; every deck taken in since names the
+# source that carried it.
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,
@@ -108,32 +108,24 @@ INSERT INTO sources (id, name, url, ref, encrypted_secret, hook_secret_hash, own
 VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 _HOOK_HASH_BY_NAME: Final = "SELECT hook_secret_hash FROM sources WHERE name = ?"
-# Every uniqueness the table has, not the URL alone: a configuration naming a
-# new URL under the name another source already answers to is a configuration
-# to correct, never a row to overwrite.
-_SEED_SOURCE: Final = """
-INSERT INTO sources (id, name, url, ref, credential_reference, owner_id)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT DO NOTHING
-"""
 _ALL_SOURCES: Final = """
 SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id
 FROM sources
 """
-_SOURCE_BY_URL: Final = f"{_ALL_SOURCES} WHERE url = ?"
-_ADOPT_ORPHANED_DECKS: Final = "UPDATE decks SET source_id = ? WHERE source_id IS NULL"
 # The ciphertext is written on its own: everything else about a source is what
 # the operator typed, while this is the one value the instance key can open.
-_PUT_ENCRYPTED_VALUE: Final = "UPDATE sources SET encrypted_secret = ? WHERE id = ?"
-# What a pull needs and nothing else: the two columns that say where this
-# source's secret stands.
-_SOURCE_ANCHOR: Final = """
-SELECT encrypted_secret, credential_reference
-FROM sources
+# A leftover environment reference is cleared so the row no longer names a
+# place this instance does not read.
+_PUT_ENCRYPTED_VALUE: Final = """
+UPDATE sources
+SET encrypted_secret = ?, credential_reference = NULL
 WHERE id = ?
 """
+_PUT_HOOK_HASH: Final = "UPDATE sources SET hook_secret_hash = ? WHERE name = ?"
+_ONE_ROW: Final = 1
+# What a pull needs and nothing else: the ciphertext this instance can open.
+_SOURCE_ANCHOR: Final = "SELECT encrypted_secret FROM sources WHERE id = ?"
 _SourceRow = tuple[str, str, str, str, str | None, bytes | None, str]
-_AnchorRow = tuple[bytes | None, str | None]
 # Nothing a build wrote is touched by this statement, on purpose: taking a deck
 # in again must not unpresent the talk that already stands, nor take away the
 # PDF that is already downloadable (line 16). Whether the row is marked removed
@@ -189,9 +181,6 @@ UPDATE decks SET removed_at = NULL
 WHERE removed_at IS NOT NULL AND source_id = ?
   AND slug IN (SELECT value FROM json_each(?))
 """
-# What the upsert changed: the one row it wrote, or nothing where the slug is
-# another source's.
-_ONE_ROW: Final = 1
 # The deck row as SQLite hands it back: what the source carries, then what the
 # build wrote, then the attempt beside it — each group four values or none.
 _DeckRow = tuple[
@@ -213,11 +202,6 @@ _DeckRow = tuple[
 _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
 _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
-# The name and never the URL: a URL may carry userinfo, and a log line is read
-# by more eyes than the store is.
-_NAME_ALREADY_TAKEN: Final = (
-    "the configured source is not stored: another source answers to the name %s"
-)
 _RECORD_SOURCE_RUN: Final = """
 INSERT INTO source_runs (source_id, at, outcome, commit_sha, reason)
 VALUES (?, ?, ?, ?, ?)
@@ -230,6 +214,23 @@ FROM source_runs
 WHERE source_id = ?
 ORDER BY id DESC
 LIMIT 1
+"""
+_RECENT_SOURCE_RUNS: Final = """
+SELECT source_id, at, outcome, commit_sha, reason
+FROM source_runs
+WHERE source_id = ?
+ORDER BY id DESC
+LIMIT ?
+"""
+_PRUNE_OLDER_RUNS: Final = """
+DELETE FROM source_runs
+WHERE source_id = ?
+  AND id NOT IN (
+    SELECT id FROM source_runs
+    WHERE source_id = ?
+    ORDER BY id DESC
+    LIMIT ?
+  )
 """
 _SourceRunRow = tuple[str, str, str, str | None, str | None]
 # `gitmirror`'s own words never reach a `SourceRun`; a connection that carries
@@ -293,93 +294,18 @@ def _add_missing(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _SeededRow:
-    """What the configured source writes into the table, column by column."""
-
-    id: str
-    name: str
-    url: str
-    ref: str
-    credential_reference: str | None
-    owner_id: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ConfiguredSource:
-    """The single source an installation carries in its configuration.
-
-    Nobody creates it at a surface, so the account that set the instance up
-    owns it; from the sources page on, a source belongs to whoever added it.
-    """
-
-    name: str
-    url: str | None
-    ref: str
-    credential_reference: str | None
-    accounts: UserStore
-
-    def to_be_seeded(self, *, identifier: str) -> _SeededRow | None:
-        """The row this configuration asks for, once a URL and an admin exist.
-
-        A row, not a `Source`: the environment variable's name is a column of
-        the table and belongs to nobody above it.
-        """
-        owner = self.accounts.first_admin()
-        if self.url is None or owner is None:
-            return None
-        return _SeededRow(
-            id=identifier,
-            name=self.name,
-            url=self.url,
-            ref=self.ref,
-            credential_reference=self.credential_reference,
-            owner_id=owner.id,
-        )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SqliteSourceStore:
-    """The sources table, and the one row the configuration still writes."""
+    """The sources table: one row per repository this instance mirrors."""
 
     database: Path
-    configured: ConfiguredSource
     identifiers: IdentifierFactory
     box: SecretBox
-
-    def seed(self) -> None:
-        """Write the configured source once, and adopt the decks that name none.
-
-        The URL identifies the row, so an instance that has run before finds
-        its source rather than writing a second one, and the decks a file
-        written before this table carries belong to it.
-        """
-        asked_for = self.configured.to_be_seeded(identifier=self.identifiers.new_id())
-        if asked_for is None:
-            return
-        with rows(self.database) as cursor:
-            cursor.execute(
-                _SEED_SOURCE,
-                (
-                    asked_for.id,
-                    asked_for.name,
-                    asked_for.url,
-                    asked_for.ref,
-                    asked_for.credential_reference,
-                    asked_for.owner_id,
-                ),
-            )
-            stored = cursor.execute(_SOURCE_BY_URL, (asked_for.url,)).fetchone()
-            if stored is None:
-                _log.warning(_NAME_ALREADY_TAKEN, asked_for.name)
-                return
-            cursor.execute(_ADOPT_ORPHANED_DECKS, (_source(stored).id,))
 
     def add(self, write: SourceWrite) -> Source | None:
         """Write a new source with its secrets, leaving every existing row alone.
 
         A name or URL this table already carries is IntegrityError rather than
-        an overwrite: the seeded source keeps the credential it was written
-        with, and a second source with the same identity is not stored.
+        an overwrite: a second source with the same identity is not stored.
         """
         identifier = self.identifiers.new_id()
         try:
@@ -421,10 +347,17 @@ class SqliteSourceStore:
 
         The value is written down in the one form this instance can open
         again, so what stands in the file is of no use to whoever reads the
-        file without the instance key.
+        file without the instance key. A leftover environment-variable name
+        on the row is cleared: this instance no longer reads one.
         """
         with rows(self.database) as cursor:
             cursor.execute(_PUT_ENCRYPTED_VALUE, (self.box.encrypt(secret), source_id))
+
+    def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
+        """Replace that source's webhook-secret hash, or nothing when it is missing."""
+        with rows(self.database) as cursor:
+            written = cursor.execute(_PUT_HOOK_HASH, (digest, name))
+            return written.rowcount == _ONE_ROW
 
     def all(self) -> tuple[Source, ...]:
         """Read every source this instance mirrors decks from."""
@@ -434,52 +367,31 @@ class SqliteSourceStore:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class EnvironmentCredentials:
-    """Resolves a credential reference to the value the environment carries.
-
-    The configuration holds the name, so the durable record never holds a
-    secret; the value is read out of the process environment at every pull.
-    """
-
-    def resolve(self, reference: CredentialReference) -> str | None:
-        """The secret behind the reference, or nothing when it leads nowhere."""
-        return os.environ.get(reference.name)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceCredentials:
-    """Answers with the secret the source's own row anchors, at the pull.
+    """Answers with the secret the source's own row stores, at the pull.
 
-    One resolver for both forms a row can anchor, and the row says which:
-    a source carrying ciphertext is read out of the box, and one that still
-    names an environment variable is read out of the environment. Which it is
-    is never guessed from what a value looks like.
+    The one place a secret stands is the ciphertext column. A row that still
+    names an environment variable, and a row that names none, both answer
+    with nothing until a secret is written into that column.
     """
 
     database: Path
     box: SecretBox
-    environment: EnvironmentCredentials
 
     def resolve(self, reference: CredentialReference) -> str | None:
         """The secret of the source that reference anchors, or nothing.
 
         Nothing is the honest answer to a source this instance no longer
-        carries, to a row holding no secret at all, and to ciphertext another
+        carries, to a row holding no ciphertext, and to ciphertext another
         instance key wrote; the pull that asked reads all three as a
         credential it cannot resolve.
         """
         with rows(self.database) as cursor:
             found = cursor.execute(_SOURCE_ANCHOR, (reference.name,)).fetchone()
-        return None if found is None else self._behind(found)
-
-    def _behind(self, row: _AnchorRow) -> str | None:
-        """What the row anchors, read where the column it carries points."""
-        encrypted, variable = row
-        if encrypted is not None:
-            return self.box.decrypt(encrypted)
-        if variable is None:
+        if found is None:
             return None
-        return self.environment.resolve(CredentialReference(name=variable))
+        encrypted: bytes | None = found[0]
+        return None if encrypted is None else self.box.decrypt(encrypted)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -501,12 +413,11 @@ class SourceMirrors:
                 url=source.url,
                 ref=source.ref,
                 # The source's own id is the anchor, because the row is what
-                # knows where its secret stands; the resolver reads it there.
-                credential=(
-                    None
-                    if source.secret_location is None
-                    else CredentialReference(name=source.id)
-                ),
+                # knows whether a secret stands; the resolver reads it there.
+                # A leftover environment row has no ciphertext, so the
+                # resolver answers with nothing and the pull is unresolvable
+                # rather than an anonymous fetch that would look like success.
+                credential=CredentialReference(name=source.id),
             ),
             # A URL is not a directory name, and two sources must not share a
             # mirror.
@@ -673,12 +584,12 @@ class SqliteDeckStore:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SqliteSourceRunStore:
-    """The `source_runs` table: one row per poll, kept for every run so far."""
+    """The `source_runs` table: the newest polls of each source, bounded."""
 
     database: Path
 
     def record(self, run: SourceRun) -> None:
-        """Add the run as a new row; an older run of the same source stands."""
+        """Add the run and drop older ones of that source past the bound."""
         with rows(self.database) as cursor:
             cursor.execute(
                 _RECORD_SOURCE_RUN,
@@ -690,6 +601,10 @@ class SqliteSourceRunStore:
                     None if run.reason is None else run.reason.value,
                 ),
             )
+            cursor.execute(
+                _PRUNE_OLDER_RUNS,
+                (run.source_id, run.source_id, RECENT_SOURCE_RUNS),
+            )
 
     def newest(self, source_id: str) -> SourceRun | None:
         """Read that source's newest row, or nothing while it carries none."""
@@ -697,33 +612,36 @@ class SqliteSourceRunStore:
             found = cursor.execute(_NEWEST_SOURCE_RUN, (source_id,)).fetchone()
         return None if found is None else _source_run(found)
 
+    def recent(self, source_id: str) -> tuple[SourceRun, ...]:
+        """Read that source's newest rows, newest first, no more than the bound."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(
+                _RECENT_SOURCE_RUNS,
+                (source_id, RECENT_SOURCE_RUNS),
+            ).fetchall()
+        return tuple(_source_run(row) for row in found)
+
 
 def _source(row: _SourceRow) -> Source:
-    identifier, name, url, ref, reference, encrypted, owner_id = row
+    identifier, name, url, ref, _, encrypted, owner_id = row
     return Source(
         id=identifier,
         name=name,
         url=url,
         ref=ref,
-        secret_location=_where_the_secret_stands(reference, encrypted),
+        secret_location=_where_the_secret_stands(encrypted),
         owner_id=owner_id,
     )
 
 
-def _where_the_secret_stands(
-    reference: str | None,
-    encrypted: bytes | None,
-) -> SecretLocation | None:
-    """Which form the row anchors: the column it carries says so, not a value.
+def _where_the_secret_stands(encrypted: bytes | None) -> SecretLocation | None:
+    """Stored when the row carries ciphertext; nothing while it does not.
 
-    The stored form wins where a row carries both, so a secret this instance
-    was given replaces the environment variable an older configuration named
-    without waiting for that configuration to go.
+    A leftover environment-variable name is not a secret this instance can
+    hand to git, so it does not count as a place the secret stands.
     """
     if encrypted is not None:
         return SecretLocation.STORED
-    if reference is not None:
-        return SecretLocation.ENVIRONMENT
     return None
 
 

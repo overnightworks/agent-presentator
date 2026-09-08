@@ -25,19 +25,11 @@ class SourceStore(Protocol):
     """The sources decks are mirrored from, one row each."""
 
     @abstractmethod
-    def seed(self) -> None:
-        """Make the source the configuration names a row of its own, once.
-
-        The row an installation already runs on is written from what it is
-        configured with; writing it again writes nothing.
-        """
-
-    @abstractmethod
     def add(self, write: SourceWrite) -> Source | None:
         """Write a new source with its secrets, or nothing when name or URL is taken.
 
         The access secret is stored encrypted; the webhook secret is stored
-        only as the hash. A seeded row is not rewritten.
+        only as the hash. An existing row is not rewritten.
         """
 
     @abstractmethod
@@ -46,6 +38,18 @@ class SourceStore(Protocol):
 
         The name is matched against stored names and is never a path.
         """
+
+    @abstractmethod
+    def put_credential(self, source_id: str, secret: str) -> None:
+        """Replace that source's read-only secret with this value, encrypted.
+
+        Nothing of the value is returned. A row that still named an
+        environment variable keeps its identity and gains a stored secret.
+        """
+
+    @abstractmethod
+    def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
+        """Replace that source's webhook-secret hash, or nothing when it is missing."""
 
     @abstractmethod
     def all(self) -> tuple[Source, ...]:
@@ -66,20 +70,19 @@ class DeckFolders(Protocol):
 
 
 class SourceRuns(Protocol):
-    """Every source's history of polls, one row per attempt, kept forever.
-
-    Named here only what a caller needs today: recording every run, and
-    reading the newest one for a board to show whether a source is working.
-    Reading the fuller history is added once something asks for it.
-    """
+    """Every source's recent polls, bounded to the newest the page reads."""
 
     @abstractmethod
     def record(self, run: SourceRun) -> None:
-        """Add this run to that source's history, without replacing an older one."""
+        """Add this run and drop older ones of the same source past the bound."""
 
     @abstractmethod
     def newest(self, source_id: str) -> SourceRun | None:
         """That source's newest run, or nothing while it has never been polled."""
+
+    @abstractmethod
+    def recent(self, source_id: str) -> tuple[SourceRun, ...]:
+        """That source's newest runs, newest first, no more than the page shows."""
 
 
 class DeckStore(Protocol):

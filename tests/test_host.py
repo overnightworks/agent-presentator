@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.adapters.decks import (
-    ConfiguredSource,
     SqliteDeckStore,
     SqliteSourceStore,
 )
@@ -29,9 +28,9 @@ from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import FAILURES_BEFORE_THROTTLE
+from presentator.contracts.decks import SourceWrite
 from presentator.host import main
 from presentator.host.config import (
-    SECRET_LENGTH,
     ConfigurationError,
     load_settings,
 )
@@ -317,8 +316,8 @@ def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_vie
     tmp_path: Path,
 ) -> None:
     a_container_run(environment, tmp_path, _A_DAEMON_THAT_BUILDS_NOTHING)
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -439,29 +438,36 @@ def logged_in(instance: Instance) -> TestClient:
 
 
 def a_polled_source(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
     *,
     armed: bool = True,
+    name: str = _SOURCE_NAME,
 ) -> Instance:
-    """A real stack reading that remote, with the env hook secret set while armed."""
-    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
-    environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
-    if armed:
-        environment.setenv(
-            "PRESENTATOR_SOURCE_HOOK_SECRET",
-            _WHAT_THE_HOST_CARRIES,
-        )
-    return a_real_instance()
-
-
-def arm_the_seeded_hook(database: Path, secret: str) -> None:
-    """Write the webhook hash onto the seeded row, as adding a source would."""
-    with rows(database) as cursor:
-        cursor.execute(
-            "UPDATE sources SET hook_secret_hash = ? WHERE name = ?",
-            (hash_webhook_secret(secret), _SOURCE_NAME),
-        )
+    """A real stack with that remote stored as a source after first start."""
+    instance = a_real_instance()
+    signed_in(instance)
+    database = tmp_path / "presentator.sqlite3"
+    admin = SqliteUserStore(database).first_admin()
+    assert admin is not None
+    added = sources_over(database).add(
+        SourceWrite(
+            name=name,
+            url=remote.url,
+            ref="main",
+            owner_id=admin.id,
+            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
+        ),
+    )
+    assert added is not None
+    if not armed:
+        with rows(database) as cursor:
+            cursor.execute(
+                "UPDATE sources SET hook_secret_hash = NULL WHERE name = ?",
+                (name,),
+            )
+    return instance
 
 
 def listed_addresses(page: str) -> list[str]:
@@ -492,46 +498,18 @@ def sources_over(
     """
     return SqliteSourceStore(
         database=database,
-        configured=ConfiguredSource(
-            name=_SOURCE_NAME,
-            url=None,
-            ref="main",
-            credential_reference=None,
-            accounts=SqliteUserStore(database),
-        ),
         identifiers=TokenIdentifierFactory(),
         box=secret_box(instance_key),
     )
 
 
-def test_a_source_that_names_an_environment_variable_fetches_while_it_is_there(
-    environment: pytest.MonkeyPatch,
-    remote: GitRemote,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_CREDENTIAL", _CREDENTIAL_VARIABLE)
-    environment.delenv(_CREDENTIAL_VARIABLE, raising=False)
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
-    remote.commit_example_deck(at=_PUSHED_AT)
-
-    asyncio.run(instance.poller.tick())
-    while_the_variable_was_unset = lobby.get("/").text
-
-    environment.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
-    asyncio.run(instance.poller.tick())
-    after_it_was_set = lobby.get("/").text
-
-    assert EXAMPLE_TITLE not in while_the_variable_was_unset
-    assert EXAMPLE_TITLE in after_it_was_set
-
-
+@pytest.mark.usefixtures("environment")
 def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
     database = tmp_path / "presentator.sqlite3"
     stored = sources_over(database).all()[0]
@@ -552,12 +530,13 @@ def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
     assert EXAMPLE_TITLE in after_this_instance_wrote_it
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     before_the_tick = lobby.get("/").text
@@ -569,15 +548,14 @@ def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
     assert f'href="/deck/{EXAMPLE_SLUG}"' in after_the_tick
 
 
+@pytest.mark.usefixtures("environment")
 def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
-    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     called = call_the_hook(lobby, carrying=_WHAT_THE_HOST_CARRIES)
@@ -586,15 +564,14 @@ def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
     assert EXAMPLE_TITLE in lobby.get("/").text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     asyncio.run(instance.poller.tick())
-    arm_the_seeded_hook(tmp_path / "presentator.sqlite3", _WHAT_THE_HOST_CARRIES)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     refused = call_the_hook(lobby, carrying="guessed")
@@ -603,11 +580,12 @@ def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
     assert EXAMPLE_TITLE not in lobby.get("/").text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    lobby = signed_in(a_polled_source(environment, remote, armed=False))
+    lobby = logged_in(a_polled_source(remote, tmp_path, armed=False))
     remote.commit_example_deck(at=_PUSHED_AT)
     lobby.cookies.clear()
 
@@ -618,39 +596,12 @@ def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
     assert EXAMPLE_TITLE not in signed_in(a_real_instance()).get("/").text
 
 
-@pytest.mark.parametrize(
-    "given",
-    ["", "   ", "x", "a" * (SECRET_LENGTH - 1)],
-    ids=["empty", "blank", "one character", "one character short"],
-)
-def test_a_hook_secret_that_guards_nothing_refuses_to_start(
-    environment: pytest.MonkeyPatch,
-    given: str,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_HOOK_SECRET", given)
-
-    with pytest.raises(ConfigurationError, match="source_hook_secret"):
-        load_settings()
-
-
-def test_a_refused_hook_secret_is_never_quoted_back(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    environment.setenv("PRESENTATOR_SOURCE_HOOK_SECRET", _TYPED_WORDS)
-
-    with pytest.raises(ConfigurationError) as refused:
-        load_settings()
-
-    assert _TYPED_WORDS not in str(refused.value)
-
-
+@pytest.mark.usefixtures("environment")
 def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
     remote.commit_example_deck(at=_PUSHED_AT)
     database = tmp_path / "presentator.sqlite3"
 
@@ -668,8 +619,8 @@ def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
     tmp_path: Path,
 ) -> None:
     environment.setenv("PRESENTATOR_TOOLCHAIN", str(tmp_path / "no-toolchain-here"))
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -683,10 +634,11 @@ def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
 def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
     environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -697,12 +649,13 @@ def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
     assert "<table" not in listed.text
 
 
+@pytest.mark.usefixtures("environment")
 def test_a_source_that_has_gone_away_still_leaves_its_decks_listed(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(instance.poller.tick())
 
@@ -721,13 +674,32 @@ def test_an_instance_without_a_source_shows_the_empty_list() -> None:
     assert "<table" not in listed.text
 
 
-def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
+def test_a_configured_source_url_in_the_environment_changes_nothing(
     environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_SOURCE_URL", remote.url)
+    environment.setenv("PRESENTATOR_SOURCE_NAME", _SOURCE_NAME)
+    environment.setenv("PRESENTATOR_SOURCE_CREDENTIAL", _CREDENTIAL_VARIABLE)
+    environment.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
+    lobby = a_signed_in_instance()
+
+    listed = lobby.get("/")
+    sources = lobby.get("/settings/sources")
+
+    assert listed.status_code == HTTPStatus.OK
+    assert "<table" not in listed.text
+    assert "<table" not in sources.text
+    assert remote.url not in sources.text
+
+
+@pytest.mark.usefixtures("environment")
+def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    instance = a_polled_source(environment, remote)
-    lobby = signed_in(instance)
+    instance = a_polled_source(remote, tmp_path)
+    lobby = logged_in(instance)
     database = tmp_path / "presentator.sqlite3"
     remote.commit_example_deck(at=_PUSHED_AT)
     remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
@@ -749,31 +721,31 @@ def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     assert owner_of(database, EXAMPLE_SLUG) == owner_before_the_delete
 
 
-def test_an_instance_carries_its_configured_source_from_the_moment_it_starts(
-    environment: pytest.MonkeyPatch,
-    remote: GitRemote,
-) -> None:
-    signed_in(a_polled_source(environment, remote))
-
-    started_again = a_polled_source(environment, remote)
-    listed = logged_in(started_again).get("/")
-
-    assert listed.status_code == HTTPStatus.OK
-    assert remote.url in listed.text
-
-
+@pytest.mark.usefixtures("environment")
 def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
-    environment: pytest.MonkeyPatch,
     remote: GitRemote,
     another_remote: GitRemote,
+    tmp_path: Path,
 ) -> None:
-    first = a_polled_source(environment, remote)
-    lobby = signed_in(first)
+    first = a_polled_source(remote, tmp_path)
+    lobby = logged_in(first)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(first.poller.tick())
     another_remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
-    environment.setenv("PRESENTATOR_SOURCE_URL", another_remote.url)
-    environment.setenv("PRESENTATOR_SOURCE_NAME", _ANOTHER_SOURCE_NAME)
+    database = tmp_path / "presentator.sqlite3"
+    admin = SqliteUserStore(database).first_admin()
+    assert admin is not None
+    added = sources_over(database).add(
+        SourceWrite(
+            name=_ANOTHER_SOURCE_NAME,
+            url=another_remote.url,
+            ref="main",
+            owner_id=admin.id,
+            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
+        ),
+    )
+    assert added is not None
     both = a_real_instance()
 
     asyncio.run(both.poller.tick())
