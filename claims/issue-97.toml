@@ -1,8 +1,0 @@
-claim_id = "697b30d2adf64cc990a24bdd290d04ca"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "4d793d7d991dd50da25094b71889b91838482c8f"
-branch = "claude/issue-97-check-connection"
-scope = ["src/presentator/api/sources.py", "src/presentator/api/templates/source_new.html", "src/gitmirror/mirror.py"]
-opened_commit = "326c8cbd90e0d2ea865d9a2b93c543e90ecf8aca"
-whole_reason = "Check connection crosses the form, the route and the mirror probe plus their tests"
