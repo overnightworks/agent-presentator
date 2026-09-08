@@ -31,13 +31,14 @@ report.
 
 ### Running an instance
 
-One image carries the packaged server, the Slidev toolchain it spawns and the
-Chromium the PDF export drives, and one compose file starts it with the
-database, the mirrors and the built talks in named volumes: a `docker compose
-down` and the next `up` find the accounts, the sources, the decks and the talks
-that were built, and build nothing again. Nothing is reachable from beyond this
-machine yet — the tunnel, the service that survives a reboot, and the first
-login from the laptop are
+One image carries the Slidev toolchain and the Chromium the PDF export drives,
+and is what every deck's build runs in; a second, built on top of it, carries
+the packaged server as well. One compose file builds both and starts the server
+with the database, the mirrors and the built talks in named volumes: a `docker
+compose down` and the next `up` find the accounts, the sources, the decks and
+the talks that were built, and build nothing again. Nothing is reachable from
+beyond this machine yet — the tunnel, the service that survives a reboot, and
+the first login from the laptop are
 [#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
 instance is started, upgraded and backed up, and what a fresh one must be
 given, is [OPERATIONS.md](OPERATIONS.md).
@@ -269,15 +270,12 @@ restarted mid-build — and is counted failed once it is older than
 `PRESENTATOR_BUILD_TIMEOUT_SECONDS`, so nothing reads as building for ever.
 
 A build writes the deck's tree at its commit out of the bare mirror into a
-temporary working directory — nothing is ever checked out into the mirror —
-and runs the Slidev toolchain over it from `PRESENTATOR_TOOLCHAIN` as a
-subprocess: `slidev build` against the address the talk is delivered under,
-then `slidev export` for the PDF. Both write into a directory of that run's own
-under `PRESENTATOR_BUILDS`, which nothing points at while it is being written.
-Each step runs inside `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and with an
-environment holding nothing but `PATH` and `HOME`, so neither a source's
-read-only secret nor this instance's key is in reach of what a deck's build
-runs.
+directory of that run's own under `PRESENTATOR_BUILDS` — nothing is ever
+checked out into the mirror — and runs the Slidev toolchain over it: `slidev
+build` against the address the talk is delivered under, then `slidev export`
+for the PDF. Both write into that same run's directory, which nothing points at
+while it is being written. Each step runs inside
+`PRESENTATOR_BUILD_TIMEOUT_SECONDS`.
 
 Only when both artefacts exist, and only after they are resolved and found to
 stand under the builds root, does one statement switch the four columns over.
@@ -294,12 +292,17 @@ the directory a deck delivers from is never removed, so a request that read the 
 pointer still finds a directory. Cleaning up the builds that were pointed at is
 open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
 
-**A deck is code, and it is not sandboxed yet.** The Vue components a deck
-carries execute on this host during the build, with this process's rights over
-the filesystem and the network. Bounded today are the environment the child is
-given, the time it may take, and where its result may stand; the container with
-no network and nothing of the server mounted
-([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a) is open on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8). Until it
-lands, a deck source is as trusted as the machine.
+**A deck is code, and its build runs in a container of its own.** Where an
+instance is given a build image and the volume its builds root is a directory
+of — which `compose.yaml` does — the server asks its machine's daemon for a
+container per step ([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line
+14a): no network, every capability dropped, a bound on memory and processes,
+none of this server's environment, and nothing of this machine's filesystem but
+the deck's own tree, read-only, and the directory that run writes. A component
+that reads a file the deck does not carry, or opens a connection, fails the
+build with the toolchain's own words on the deck page,
+while the talk that stood keeps standing. Naming neither image nor volume is
+the development run, where the toolchain is a subprocess of the server with its
+rights; naming one without the other refuses to start. The price is the docker
+socket, which [OPERATIONS.md](OPERATIONS.md) names.
 

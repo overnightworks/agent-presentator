@@ -16,7 +16,12 @@ from webauth.liveness import IdleWindowLiveness
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
-from presentator.adapters.builds import SlidevBuilds
+from presentator.adapters.builds import (
+    ContainerToolchain,
+    DeckToolchain,
+    HostToolchain,
+    SlidevBuilds,
+)
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
@@ -135,9 +140,8 @@ def build_instance(settings: Settings) -> Instance:
         store=SqliteDeckStore(database=settings.database),
         builder=SlidevBuilds(
             builds=settings.builds,
-            toolchain=settings.toolchain,
+            toolchain=_what_builds_a_deck(settings, bound=build_bound),
             mirrors=mirrors,
-            build_timeout=build_bound,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
         # One toolchain step's bound, which is what the refresh needs: it never
@@ -170,6 +174,24 @@ def build_instance(settings: Settings) -> Instance:
             refresh=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
+    )
+
+
+def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchain:
+    """A container of the build's own, or this machine's toolchain project.
+
+    A deck is code (line 14a), so an instance that is given an image and the
+    volume its builds root is a directory of runs every deck's build in a
+    container with no network and nothing of this server in it. Naming neither
+    is the development run, and the configuration refuses to name only one.
+    """
+    if settings.build_image is None or settings.build_volume is None:
+        return HostToolchain(project=settings.toolchain, bound=bound)
+    return ContainerToolchain(
+        image=settings.build_image,
+        volume=settings.build_volume,
+        memory=settings.build_memory,
+        bound=bound,
     )
 
 

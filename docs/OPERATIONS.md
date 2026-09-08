@@ -115,11 +115,20 @@ path without one is open work on
 
 ## Running it as a container
 
-`Dockerfile` builds one image: the packaged server, the Slidev toolchain it
-spawns, and the Chromium that toolchain exports a PDF with. `compose.yaml`
-starts it. Five of the settings this file names are not a deployment's choice
-inside a container but a fact of the image's own filesystem and network, so the
-image sets them and their defaults elsewhere here do not apply:
+`Dockerfile` builds two images, and the first is a layer of the second: the
+Slidev toolchain with the Chromium it exports a PDF with, which is what a
+deck's own build runs in, and the whole instance on top of it. `compose.yaml`
+starts the instance and builds both:
+
+```sh
+docker compose --profile images build
+```
+
+Without that profile only the instance is built, and the sandbox image stays as
+it was; "Building the decks" says what it is for. Five of the settings this
+file names are not a deployment's choice inside a container but a fact of the
+image's own filesystem and network, so the image sets them and their defaults
+elsewhere here do not apply, and compose adds the two the sandbox is:
 
 | Setting | In this image |
 | --- | --- |
@@ -128,14 +137,20 @@ image sets them and their defaults elsewhere here do not apply:
 | `PRESENTATOR_BUILDS` | `/data/builds` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
+| `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
+| `PRESENTATOR_BUILD_VOLUME` | `agent-presentator-builds`, set by `compose.yaml` |
 
 Overriding one of the three paths in `.env` moves that state out of its volume,
 which is how an instance loses what it writes; every other setting is the
 operator's as before.
 
-`PRESENTATOR_SECRET_KEY` is the only value a fresh instance must be given, and
-compose refuses to start the service without it, naming it. Everything else is
-optional and reaches the container through `.env` beside `compose.yaml` — a
+`PRESENTATOR_SECRET_KEY` and `PRESENTATOR_DOCKER_GROUP` are the values a fresh
+instance must be given, and compose refuses to start the service without either
+of them, naming it. The second is the numeric id of this machine's `docker`
+group — `getent group docker | cut -d: -f3` — because the server asks the
+daemon for a container for every build and a group id is not a name.
+Everything else is optional and reaches the container through `.env` beside
+`compose.yaml` — a
 file this repository never writes and git never sees, and the only channel that
 carries the variable `PRESENTATOR_SOURCE_CREDENTIAL` names, because only the
 operator knows what it is called. A value exported in the shell reaches compose
@@ -170,8 +185,10 @@ An instance without a source runs and lists nothing; the settings above say
 what each further variable does and what a refused one costs. The first start
 offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
 
-Three named volumes hold what has to survive the container: `database`,
-`mirrors` and `builds`, under the name of the directory compose runs in.
+Three named volumes hold what has to survive the container: `database` and
+`mirrors` under the name of the directory compose runs in, and
+`agent-presentator-builds`, which carries a name of its own because the server
+hands that name to the daemon for every build.
 `docker compose down` keeps them, and the next `up` finds the accounts, the
 sources, the decks and the talks that were built, with nothing built again.
 `docker compose down -v` deletes them, which is the one command that loses an
@@ -181,7 +198,7 @@ An upgrade is the new tree, the image again, and the service again; a start
 changes the tables it finds in place, as above:
 
 ```sh
-git pull && docker compose build && docker compose up -d
+git pull && docker compose --profile images build && docker compose up -d
 ```
 
 A backup is the database volume and the builds volume: a deck standing at the
@@ -240,13 +257,40 @@ Builds are kept per deck and per run, and none is ever deleted, so
 `PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
 ([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20).
 
-**A deck is code, and the build is not sandboxed yet.** A deck's own Vue
-components run on this machine during the build, as the user the server runs
-as. The build's environment carries nothing but `PATH` and `HOME`, so no secret
-of this instance is in reach through the environment; anything else that user
-can read or reach, a deck's build can too. Until the sandbox lands
-([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 14a),
-configure only deck sources you would run code from.
+**A deck is code, and its build runs in a container of its own.**
+`PRESENTATOR_BUILD_IMAGE` and `PRESENTATOR_BUILD_VOLUME` are what say so: the
+image the toolchain stands in, and the volume `PRESENTATOR_BUILDS` is a
+directory of. Compose sets both. An instance that names one without the other
+refuses to start, because the other half of a sandbox is this machine; naming
+neither is the development run, where a deck's Vue components execute as the
+server process with its rights over files and the network.
+
+Every step of a build is then a container the server asks this machine's daemon
+for: no network at all, every capability dropped, no new privilege from a
+setuid program, `PRESENTATOR_BUILD_MEMORY` (`4g`) of memory, at most 512
+processes, and none of this server's environment — no key, no source secret,
+not even the variables it was started with. What the build can reach of this
+machine's filesystem is two directories of the builds volume: the deck's own
+tree, read-only, and the directory that run writes its talk and its PDF into.
+Everything else it writes is the container's own and goes with it. It runs as
+the image's unprivileged user. Each step keeps the bound above, and a step that
+runs past it takes its container down rather than leaving it. A deck that reads
+a file it does not carry, or opens a connection, fails the build with the
+toolchain's own words on the deck page, and the talk that stood before it keeps
+standing. No seccomp or AppArmor profile of this repository's own stands behind
+that: with no network, no capability and nothing of this host mounted, Docker's
+default profiles already deny what there is to deny. The container's own root
+is left writable because Slidev's PDF export writes its dependency cache inside
+the toolchain it runs from; that filesystem is the image's and lives as long as
+the one build.
+
+The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
+instance and puts the server in the `docker` group, so the server may ask the
+daemon for any container this machine could run — an authority wider than the
+one it uses, and the reason `PRESENTATOR_DOCKER_GROUP` exists. An instance
+whose every deck source is the operator's own may leave image and volume unset
+and keep the socket out of the container instead; an instance serving a
+repository somebody else can push to builds in the container.
 
 ## The fetch-now hook
 
@@ -328,6 +372,7 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
           {"context": "Python: architecture, lint, types"},
           {"context": "Python: tests"},
           {"context": "Frontend: lint, types, tests, deck build"},
+          {"context": "Container image"},
           {"context": "Secret scan"},
           {"context": "pr-check"},
           {"context": "SonarCloud scan"}
@@ -344,10 +389,6 @@ No bypass actor exists: an administrator is subject to the same gates, and
 repository is reviewed by agents before the pull request opens, not through
 GitHub review requests. Only `squash` and `rebase` are offered because a merge
 commit would violate the linear history the same ruleset requires.
-
-The `Container image` job that proves the image still builds is not in that
-list yet. Adding it is a ruleset change of its own, sent as the same body
-through the `PUT` above; until then a red image build does not hold a merge.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has

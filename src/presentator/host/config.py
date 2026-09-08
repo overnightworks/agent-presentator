@@ -3,7 +3,13 @@
 from pathlib import Path
 from typing import Annotated, Final
 
-from pydantic import AfterValidator, Field, SecretStr, ValidationError
+from pydantic import (
+    AfterValidator,
+    Field,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 from pydantic_settings import BaseSettings
 from webauth.proxies import TrustedProxies
 
@@ -52,6 +58,15 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # A build that hangs would hold every later build behind it, so each step
     # of the toolchain is bounded.
     build_timeout_seconds: float = 300.0
+    # A deck is code, so an instance carrying anyone's decks builds each of
+    # them in a container of its own: the image the toolchain stands in, and
+    # the volume the builds root is a directory of. Both are facts of the
+    # deployment this repository's `compose.yaml` sets up; without them the
+    # toolchain runs on this machine, which is the development run.
+    build_image: str | None = None
+    build_volume: str | None = None
+    # What one build may take of this machine's memory, in Docker's own words.
+    build_memory: str = "4g"
     source_url: str | None = None
     source_ref: str = "main"
     # The name the source answers to in its hook address, and the secret a call
@@ -76,6 +91,22 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
 
+    @model_validator(mode="after")
+    def sandboxed_or_not_at_all(self) -> "Settings":
+        """Refuse half a sandbox, because the other half of it is this machine.
+
+        A deployment naming the image but not the volume, or the volume but not
+        the image, would go on building every deck's own code here and say
+        nothing about it — the one failure a sandbox exists to prevent.
+        """
+        if (self.build_image is None) != (self.build_volume is None):
+            message = (
+                "build_image and build_volume are given together or not at all;"
+                " without both, a build runs the deck's own code on this machine"
+            )
+            raise ValueError(message)
+        return self
+
 
 def load_settings() -> Settings:
     """Read what the environment carries, refusing what cannot start an instance.
@@ -94,7 +125,12 @@ def load_settings() -> Settings:
 
 def _what_is_wrong(refused: ValidationError) -> str:
     named = ", ".join(
-        f"{'.'.join(str(part) for part in fault['loc'])}: {fault['msg']}"
+        f"{where}: {fault['msg']}" if (where := _where(fault["loc"])) else fault["msg"]
         for fault in refused.errors()
     )
     return f"{_REFUSED}: {named}"
+
+
+def _where(location: tuple[int | str, ...]) -> str:
+    """The field a refusal is about, or nothing where it is about all of them."""
+    return ".".join(str(part) for part in location)

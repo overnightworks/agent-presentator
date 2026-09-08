@@ -17,7 +17,7 @@ in for a higher one.
 | --- | --- | --- |
 | `contracts`, `application` | Pure logic, including the run state machine | Direct calls. Fakes at the ports. No key, no browser, no subprocess. |
 | `ports` | A protocol | It is a protocol; it is not proven by a port suite. Application tests against a fake of that port prove it. Tests do not invent the port. |
-| `adapters` | The real dependency, in a temporary form | A tmp SQLite file; a tmp bare git repository; real Slidev in a container in tmp for the build adapter. A fixture sits next to the test that reads it. |
+| `adapters` | The real dependency, in a temporary form | A tmp SQLite file; a tmp bare git repository; a `pnpm` and a `docker` the test wrote, on PATH, for the build adapter. A fixture sits next to the test that reads it. |
 | `api` | Routes and wire schemas | FastAPI `TestClient` driving the real routes with the real application and fake or tmp adapters. |
 | Template | Lobby HTML as the surface of a route | A ruled person-sentence is proven by a delegated agent driving the real interface. A route or fragment is FastAPI `TestClient` on the real route. A direct Jinja unit test is not the proof. |
 | `host` | Composition | Once: start the app with a test configuration. |

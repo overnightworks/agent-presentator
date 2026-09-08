@@ -55,6 +55,11 @@ _WRONG_WORDS = "guessed"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
+_A_HALF_NAMED_SANDBOX = "named-here-but-not-beside-it"
+# Neither exists on any machine this suite runs on, so a build that may only
+# happen in a container never happens at all.
+_NO_IMAGE_ON_THIS_MACHINE = "an-image-nothing-on-this-machine-carries"
+_NO_VOLUME_ON_THIS_MACHINE = "a-volume-nothing-on-this-machine-carries"
 
 
 @pytest.fixture
@@ -211,6 +216,39 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
 
     with pytest.raises(ConfigurationError, match="trusted_proxies"):
         load_settings()
+
+
+@pytest.mark.parametrize(
+    "half",
+    ["PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],
+    ids=["an image without a volume", "a volume without an image"],
+)
+def test_an_instance_naming_half_a_build_sandbox_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    half: str,
+) -> None:
+    environment.setenv(half, _A_HALF_NAMED_SANDBOX)
+
+    with pytest.raises(ConfigurationError, match="build_image and build_volume"):
+        load_settings()
+
+
+def test_a_deck_an_instance_may_only_build_in_a_container_it_lacks_offers_no_view(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+) -> None:
+    environment.setenv("PRESENTATOR_BUILD_IMAGE", _NO_IMAGE_ON_THIS_MACHINE)
+    environment.setenv("PRESENTATOR_BUILD_VOLUME", _NO_VOLUME_ON_THIS_MACHINE)
+    instance = a_polled_source(environment, remote)
+    lobby = signed_in(instance)
+    remote.commit_example_deck(at=_PUSHED_AT)
+
+    asyncio.run(instance.poller.tick())
+    page = lobby.get(f"/deck/{EXAMPLE_SLUG}")
+
+    assert page.status_code == HTTPStatus.OK
+    assert EXAMPLE_TITLE in page.text
+    assert f"/deck/{EXAMPLE_SLUG}/presenter/" not in page.text
 
 
 def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(

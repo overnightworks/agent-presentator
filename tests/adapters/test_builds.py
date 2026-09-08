@@ -1,9 +1,10 @@
 """Building a deck with a toolchain on PATH, against a real bare repository.
 
-The toolchain here is a script this test wrote, not Slidev: what belongs to
-this adapter is which command it runs, in which environment, under which bound,
-and where the result is allowed to stand. That Slidev itself builds a deck is
-proven by driving the real interface, and by the frontend job's example build.
+The toolchain here is a script this test wrote, not Slidev, and the container
+runner's `docker` is one too: what belongs to this adapter is which command it
+runs, in which environment, under which bound, and where the result is allowed
+to stand. That Slidev itself builds a deck, and that the container really
+denies it this machine, is proven by driving the real interface.
 """
 
 import os
@@ -15,7 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from presentator.adapters.builds import SlidevBuilds
+from presentator.adapters.builds import (
+    ContainerToolchain,
+    DeckToolchain,
+    HostToolchain,
+    SlidevBuilds,
+)
 from presentator.adapters.decks import EnvironmentCredentials, SourceMirrors
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
@@ -29,6 +35,11 @@ from tests.conftest import EXAMPLE_SLUG, MAIN_BRANCH, GitRemote
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _A_GENEROUS_BOUND = timedelta(seconds=30)
+# What a deployment names: the image the toolchain stands in, the volume the
+# builds root is a directory of, and what one build may take of the machine.
+_THE_BUILD_IMAGE = "the-build-image-of-this-deployment"
+_THE_BUILDS_VOLUME = "the-builds-volume-of-this-deployment"
+_A_MEMORY_BOUND = "3g"
 _NO_BUDGET_AT_ALL = timedelta(0)
 _OWNER = "the-admin"
 _SOURCE_ID = "the-source-that-carried-it"
@@ -40,6 +51,7 @@ _RECORDED_COMMAND = "command"
 _RECORDED_ENVIRONMENT = "environment"
 _A_BUILT_PAGE = "index.html"
 _TOOLCHAIN_PROGRAM = "pnpm"
+_CONTAINER_PROGRAM = "docker"
 _WHAT_A_TALK_SAYS = "a talk"
 
 _A_TOOLCHAIN_THAT_BUILDS = """#!/bin/sh
@@ -83,6 +95,25 @@ exit 1
 _A_TOOLCHAIN_THAT_NEVER_ENDS = """#!/bin/sh
 sleep 60
 """
+# The `docker` stand-ins. A step names the same paths inside a container as
+# outside it, so the toolchain scripts above double as a `docker` that runs
+# them; these two are about the container itself, which only a step that was
+# given up on has anything to say about.
+_A_DOCKER_THAT_TAKES_ITS_CONTAINER_DOWN = """#!/bin/sh
+if [ "$1" = "rm" ]; then
+    printf '%s\\n' "$*" >> "{recorded}/removed"
+    exit 0
+fi
+sleep 60
+"""
+_A_DOCKER_WHOSE_CONTAINER_STAYS = """#!/bin/sh
+if [ "$1" = "rm" ]; then
+    echo "there is no such container" >&2
+    exit 1
+fi
+sleep 60
+"""
+_RECORDED_REMOVAL = "removed"
 # A background child of its own, the way slidev export's own Chromium is a
 # child of slidev rather than of pnpm: only a kill of the whole group reaches
 # it, so the pid it wrote down is this test's proof.
@@ -123,22 +154,36 @@ def a_deck(remote: GitRemote, *, slug: str = EXAMPLE_SLUG) -> Deck:
     )
 
 
-def builds_under(
+def on_this_machine(
     tmp_path: Path,
     *,
-    build_timeout: timedelta = _A_GENEROUS_BOUND,
-) -> SlidevBuilds:
-    working = tmp_path / "frontend"
-    working.mkdir(exist_ok=True)
+    bound: timedelta = _A_GENEROUS_BOUND,
+) -> HostToolchain:
+    """The toolchain a development run builds with: a project on this machine."""
+    project = tmp_path / "frontend"
+    project.mkdir(exist_ok=True)
+    return HostToolchain(project=project, bound=bound)
+
+
+def in_a_container(*, bound: timedelta = _A_GENEROUS_BOUND) -> ContainerToolchain:
+    """The toolchain an instance carrying anyone's decks builds with."""
+    return ContainerToolchain(
+        image=_THE_BUILD_IMAGE,
+        volume=_THE_BUILDS_VOLUME,
+        memory=_A_MEMORY_BOUND,
+        bound=bound,
+    )
+
+
+def builds_under(tmp_path: Path, *, toolchain: DeckToolchain) -> SlidevBuilds:
     return SlidevBuilds(
         builds=tmp_path / "builds",
-        toolchain=working,
+        toolchain=toolchain,
         mirrors=SourceMirrors(
             directory=tmp_path / "mirrors",
             credentials=EnvironmentCredentials(),
             pull_timeout=_A_GENEROUS_BOUND,
         ),
-        build_timeout=build_timeout,
     )
 
 
@@ -146,10 +191,13 @@ def builds_ready_for(
     tmp_path: Path,
     source: Source,
     *,
-    build_timeout: timedelta = _A_GENEROUS_BOUND,
+    toolchain: DeckToolchain | None = None,
 ) -> SlidevBuilds:
     """The adapter with the source already mirrored, as a take-in leaves it."""
-    builds = builds_under(tmp_path, build_timeout=build_timeout)
+    builds = builds_under(
+        tmp_path,
+        toolchain=toolchain if toolchain is not None else on_this_machine(tmp_path),
+    )
     assert builds.mirrors.of(source).connect().revision is not None
     return builds
 
@@ -175,27 +223,47 @@ def machine(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     return monkeypatch
 
 
-def with_the_toolchain(
+def with_the_program(
     machine: pytest.MonkeyPatch,
     tmp_path: Path,
+    program: str,
     script: str,
 ) -> None:
-    """Put a `pnpm` this test wrote on PATH, ahead of any real one."""
-    somewhere_on_path = tmp_path / "toolchain-on-path"
+    """Put a program this test wrote on PATH, ahead of any real one."""
+    somewhere_on_path = tmp_path / "programs-on-path"
     somewhere_on_path.mkdir(exist_ok=True)
-    stand_in = somewhere_on_path / _TOOLCHAIN_PROGRAM
+    stand_in = somewhere_on_path / program
     stand_in.write_text(script, encoding="utf-8")
     stand_in.chmod(stand_in.stat().st_mode | stat.S_IEXEC)
     machine.setenv("PATH", a_path_carrying(somewhere_on_path))
 
 
-def recording(machine: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """A toolchain that writes down the command line and environment it got."""
+def with_the_toolchain(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    script: str,
+) -> None:
+    """Put a `pnpm` this test wrote on PATH, for a build on this machine."""
+    with_the_program(machine, tmp_path, _TOOLCHAIN_PROGRAM, script)
+
+
+def with_docker(machine: pytest.MonkeyPatch, tmp_path: Path, script: str) -> None:
+    """Put a `docker` this test wrote on PATH, for a build in a container."""
+    with_the_program(machine, tmp_path, _CONTAINER_PROGRAM, script)
+
+
+def recording(
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    program: str = _TOOLCHAIN_PROGRAM,
+) -> Path:
+    """A program that writes down the command line and environment it got."""
     recorded = tmp_path / "recorded"
     recorded.mkdir()
-    with_the_toolchain(
+    with_the_program(
         machine,
         tmp_path,
+        program,
         _A_TOOLCHAIN_THAT_RECORDS.format(recorded=recorded),
     )
     return recorded
@@ -284,10 +352,12 @@ def test_a_build_that_did_not_finish_says_why_and_leaves_nothing_to_point_at(
     tmp_path: Path,
     toolchain: tuple[str, timedelta, str | None],
 ) -> None:
-    script, build_timeout, said = toolchain
+    script, bound, said = toolchain
     with_the_toolchain(machine, tmp_path, script)
 
-    builds = builds_ready_for(tmp_path, source, build_timeout=build_timeout)
+    builds = builds_ready_for(
+        tmp_path, source, toolchain=on_this_machine(tmp_path, bound=bound)
+    )
     built = builds.build(a_deck(remote), source=source)
 
     assert built == BuildFailure(text=said)
@@ -325,7 +395,7 @@ def test_a_build_past_its_bound_takes_the_whole_toolchain_tree_down_with_it(
     builds = builds_ready_for(
         tmp_path,
         source,
-        build_timeout=_A_BOUND_A_SHELL_STARTS_WELL_WITHIN,
+        toolchain=on_this_machine(tmp_path, bound=_A_BOUND_A_SHELL_STARTS_WELL_WITHIN),
     )
 
     built = builds.build(a_deck(remote), source=source)
@@ -402,7 +472,7 @@ def test_artefacts_that_do_not_stand_under_the_root_are_not_held(
     tmp_path: Path,
     reached: str,
 ) -> None:
-    builds = builds_under(tmp_path)
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
     builds.builds.mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -414,9 +484,153 @@ def test_artefacts_that_do_not_stand_under_the_root_are_not_held(
 
 
 def test_artefacts_that_were_never_written_are_not_held(tmp_path: Path) -> None:
-    builds = builds_under(tmp_path)
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
     never_written = builds.builds / EXAMPLE_SLUG / "talk"
 
     assert not builds.holds(
         Artefacts(directory=never_written, pdf=never_written / "deck.pdf"),
     )
+
+
+def test_a_deck_built_in_a_container_stands_where_this_machine_would_stand_it(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with_docker(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source, toolchain=in_a_container())
+
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
+
+    assert builds.holds(artefacts)
+    assert (artefacts.directory / _A_BUILT_PAGE).read_text(
+        encoding="utf-8",
+    ) == _WHAT_A_TALK_SAYS
+    assert artefacts.pdf.read_bytes().startswith(b"%PDF")
+
+
+def test_a_build_container_gets_no_network_no_privilege_and_no_environment(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded = recording(machine, tmp_path, _CONTAINER_PROGRAM)
+
+    builds_ready_for(tmp_path, source, toolchain=in_a_container()).build(
+        a_deck(remote),
+        source=source,
+    )
+
+    ran = (recorded / _RECORDED_COMMAND).read_text(encoding="utf-8").splitlines()[0]
+    assert ran.startswith("run --rm --name=")
+    for sealed in (
+        "--network=none",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pull=never",
+        f"--memory={_A_MEMORY_BOUND}",
+        "--pids-limit=",
+    ):
+        assert sealed in ran
+    # Nothing of this server's environment is handed on, and what runs in the
+    # container is the toolchain of the image the deployment named.
+    assert "--env" not in ran
+    assert f"{_THE_BUILD_IMAGE} pnpm exec slidev build " in ran
+
+
+def test_a_build_container_reads_the_deck_read_only_and_writes_only_its_own_run(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded = recording(machine, tmp_path, _CONTAINER_PROGRAM)
+
+    builds_ready_for(tmp_path, source, toolchain=in_a_container()).build(
+        a_deck(remote),
+        source=source,
+    )
+
+    ran = (recorded / _RECORDED_COMMAND).read_text(encoding="utf-8").splitlines()[0]
+    written = Path(_what_follows(ran, "--out")).parent
+    run = written.parent
+    inside = run.relative_to(tmp_path / "builds")
+    # Slidev writes its virtual modules into the deck it reads, and the deck is
+    # read-only, so that one directory is a filesystem of the container's own.
+    assert f"--tmpfs={run / 'deck' / 'node_modules'}:mode=1777" in ran
+    assert _mount_of(ran, run / "deck") == (
+        f"--mount=type=volume,src={_THE_BUILDS_VOLUME},"
+        f"dst={run / 'deck'},"
+        f"volume-subpath={inside}/deck,readonly"
+    )
+    assert _mount_of(ran, written) == (
+        f"--mount=type=volume,src={_THE_BUILDS_VOLUME},"
+        f"dst={written},"
+        f"volume-subpath={inside}/out"
+    )
+
+
+def _what_follows(command: str, flag: str) -> str:
+    """The value the toolchain was given for that flag, out of one command line."""
+    given = command.split()
+    return given[given.index(flag) + 1]
+
+
+def _mount_of(command: str, at: Path) -> str:
+    """The one mount that command makes at that place, or nothing like it."""
+    mounts = [
+        given
+        for given in command.split()
+        if given.startswith("--mount=type=volume") and f"dst={at}," in given
+    ]
+    assert len(mounts) == 1
+    return mounts[0]
+
+
+def test_a_build_container_past_its_bound_is_taken_down_rather_than_left_running(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded = tmp_path / "recorded"
+    recorded.mkdir()
+    with_docker(
+        machine,
+        tmp_path,
+        _A_DOCKER_THAT_TAKES_ITS_CONTAINER_DOWN.format(recorded=recorded),
+    )
+    builds = builds_ready_for(
+        tmp_path,
+        source,
+        toolchain=in_a_container(bound=_A_BOUND_A_SHELL_STARTS_WELL_WITHIN),
+    )
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert built == BuildFailure(text=None)
+    taken_down = (recorded / _RECORDED_REMOVAL).read_text(encoding="utf-8").split()
+    assert taken_down[:2] == ["rm", "--force"]
+    assert list((builds.builds / EXAMPLE_SLUG).iterdir()) == []
+
+
+def test_a_build_container_that_stays_up_is_named_in_the_log(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with_docker(machine, tmp_path, _A_DOCKER_WHOSE_CONTAINER_STAYS)
+    builds = builds_ready_for(
+        tmp_path,
+        source,
+        toolchain=in_a_container(bound=_A_BOUND_A_SHELL_STARTS_WELL_WITHIN),
+    )
+
+    built = builds.build(a_deck(remote), source=source)
+
+    assert built == BuildFailure(text=None)
+    assert EXAMPLE_SLUG in caplog.text

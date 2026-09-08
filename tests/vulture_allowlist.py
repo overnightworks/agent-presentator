@@ -72,3 +72,6 @@ LobbyText.source_created
 
 # Still loaded from the environment; the hook compares the per-source hash.
 Settings.source_hook_secret
+
+# pydantic calls it while `load_settings` validates what the environment carries.
+Settings.sandboxed_or_not_at_all
