@@ -710,6 +710,9 @@ def test_the_source_page_shows_state_newest_runs_and_the_decks_from_here() -> No
     assert "3 minutes ago" in page
     assert _COMMIT[:7] in page
     assert ENGLISH.source_run_unreachable in page
+    assert ENGLISH.source_run_column_state in page
+    assert ENGLISH.source_run_column_fetched in page
+    assert ENGLISH.source_run_column_detail in page
     assert "Kundenfeedback Q3" in page
     assert "kundenfeedback" in page
     assert ENGLISH.sources_fetch_now in page
