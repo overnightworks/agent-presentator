@@ -41,8 +41,10 @@ state colours — defined once. A theme is one token file. Switching a theme or
 adding one is configuration, not code, and no template names a colour.
 
 That token file is the vendored pin of
-[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
-(`src/presentator/api/static/ui-tokens.css`, currently v0.1.0). `lobby.css`
+[`overnightworks/ui-console`](https://github.com/overnightworks/ui-console)
+(`src/presentator/api/static/ui-console.css`, currently v0.2.0). The package
+owns tokens and the grammar of a console page — no components, no layout, no
+JavaScript, no fonts. `lobby.css`
 is this product's Pico bridge and leftover chrome — page layout, Pico
 theming, `[data-state]` and the rest of the first theme's overlays — not a
 second theme. The settings grammar classes in the package have no markup

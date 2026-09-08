@@ -54,6 +54,20 @@ class Connection:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ConnectionCheck:
+    """What a bounded `ls-remote` probe found, without ever writing a mirror to disk.
+
+    Ready's own answer is the ref's full head commit; every other state
+    carries git's own sanitised first line instead, or nothing when the
+    probe never reached git at all.
+    """
+
+    state: ConnectionState
+    commit: str | None
+    detail: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Change:
     """The commit that last touched one path, and when it did."""
 

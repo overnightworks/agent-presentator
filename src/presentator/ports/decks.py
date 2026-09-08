@@ -14,6 +14,7 @@ from presentator.contracts.decks import (
     Build,
     BuildAttempt,
     BuildFailure,
+    ConnectionCheckResult,
     Deck,
     Source,
     SourcePoll,
@@ -107,6 +108,14 @@ class DeckFolders(Protocol):
         so a caller that must not go on believing a mirror was cleared can
         stop rather than take that on faith.
         """
+
+
+class ConnectionChecker(Protocol):
+    """Probes an unsaved source's URL and secret, writing nothing to disk."""
+
+    @abstractmethod
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        """What answered: no failure and the head commit, or which failure and why."""
 
 
 class SourceRuns(Protocol):

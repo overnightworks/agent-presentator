@@ -10,7 +10,7 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Form, Request, Response
+from fastapi import APIRouter, Depends, Form, Request, Response
 from starlette.responses import RedirectResponse
 from webauth.proxies import request_is_https
 
@@ -20,12 +20,14 @@ from presentator.api.preferences import SETTINGS
 from presentator.application.decks import (
     AddedSource,
     Decks,
+    NewSourceDraft,
     SourceRefusal,
     SourceRemovalRefusal,
     SourceRemovalStale,
 )
 from presentator.contracts.decks import (
     AccessKind,
+    ConnectionCheckResult,
     ShownSourceRun,
     SourcePage,
     SourceRemoval,
@@ -38,6 +40,7 @@ from presentator.contracts.text import LobbyText
 
 SOURCES: Final = f"{SETTINGS}/sources"
 NEW: Final = f"{SOURCES}/new"
+CHECK: Final = f"{NEW}/check"
 PAGE: Final = f"{SOURCES}/{{name}}"
 FETCH: Final = f"{SOURCES}/{{name}}/fetch"
 ACCESS: Final = f"{SOURCES}/{{name}}/access"
@@ -63,13 +66,39 @@ class SourceRow:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CheckBanner:
+    """What Check connection last found, and the proof Create needs to trust it."""
+
+    state: str
+    message: str
+    detail: str | None
+    fingerprint: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceDraft:
-    """What the Add source form shows after a refusal: everything but the secret."""
+    """What the Add source form shows again: everything but the secret.
+
+    A create refusal fills `reason`; a connection check fills `check`; the
+    two never speak at once, and both leave the fields exactly as typed.
+    """
 
     name: str
     url: str
     access: str
-    reason: str
+    reason: str | None = None
+    check: CheckBanner | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _NewSourcePost:
+    """The Add form's own fields exactly as Create posts them, name included."""
+
+    name: Annotated[str, Form()] = ""
+    url: Annotated[str, Form()] = ""
+    access: Annotated[str, Form()] = _HTTPS_ACCESS
+    secret: Annotated[str, Form()] = ""
+    fingerprint: Annotated[str, Form()] = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -180,29 +209,29 @@ class _Surfaces:
     def create_source(
         self,
         request: Request,
-        name: Annotated[str, Form()] = "",
-        url: Annotated[str, Form()] = "",
-        access: Annotated[str, Form()] = _HTTPS_ACCESS,
-        secret: Annotated[str, Form()] = "",
+        posted: Annotated[_NewSourcePost, Depends()],
     ) -> Response:
         """Store the source, fetch it once, and show the webhook secret once."""
         person = _signed_in(request)
         if not person.is_admin:
             return _refused()
         added = self.decks.add_source(
-            name=name,
-            url=url,
-            access=access,
-            secret=secret,
+            NewSourceDraft(
+                name=posted.name,
+                url=posted.url,
+                access=posted.access,
+                secret=posted.secret,
+                fingerprint=posted.fingerprint,
+            ),
             owner_id=person.id,
         )
         if not isinstance(added, AddedSource):
             return self._form(
                 request,
                 draft=SourceDraft(
-                    name=name,
-                    url=url,
-                    access=access or _HTTPS_ACCESS,
+                    name=posted.name,
+                    url=posted.url,
+                    access=posted.access or _HTTPS_ACCESS,
                     reason=_refusal_sentence(
                         added,
                         self.pages.appearance(request).text,
@@ -219,6 +248,34 @@ class _Surfaces:
         return RedirectResponse(
             f"{SOURCES}/{added.source.name}",
             status_code=HTTPStatus.SEE_OTHER,
+        )
+
+    def check_source(
+        self,
+        request: Request,
+        name: Annotated[str, Form()] = "",
+        url: Annotated[str, Form()] = "",
+        access: Annotated[str, Form()] = _HTTPS_ACCESS,
+        secret: Annotated[str, Form()] = "",
+    ) -> Response:
+        """Probe the form's own URL and secret, and show what answered.
+
+        Nothing is written down: not a source row, and not the secret — the
+        form comes back with the fields exactly as typed and, once the probe
+        answers reachable, the one proof Create later checks against.
+        """
+        if not _signed_in(request).is_admin:
+            return _refused()
+        checked = self.decks.check_connection(url=url, secret=secret)
+        text = self.pages.appearance(request).text
+        return self._form(
+            request,
+            draft=SourceDraft(
+                name=name,
+                url=url,
+                access=access or _HTTPS_ACCESS,
+                check=_check_banner(checked, text),
+            ),
         )
 
     def source_page(self, request: Request, name: str) -> Response:
@@ -461,6 +518,7 @@ def source_routes(*, pages: Pages, decks: Decks) -> APIRouter:
     router.add_api_route(SOURCES, surfaces.sources_page, methods=["GET"])
     router.add_api_route(NEW, surfaces.add_page, methods=["GET"])
     router.add_api_route(NEW, surfaces.create_source, methods=["POST"])
+    router.add_api_route(CHECK, surfaces.check_source, methods=["POST"])
     router.add_api_route(FETCH, surfaces.fetch_now, methods=["POST"])
     router.add_api_route(ACCESS, surfaces.renew_access, methods=["POST"])
     router.add_api_route(WEBHOOK, surfaces.renew_webhook, methods=["POST"])
@@ -580,9 +638,34 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
         SourceRefusal.USERINFO: text.source_refused_password,
         SourceRefusal.ACCESS_MISMATCH: text.source_refused_access,
         SourceRefusal.BLANK_ACCESS: text.source_refused_secret,
+        SourceRefusal.NOT_CHECKED: text.source_refused_not_checked,
         SourceRefusal.CREDENTIAL_NOT_ALLOWED: text.source_refused_secret_not_allowed,
         SourceRefusal.OUTSIDE_MOUNT: text.source_refused_outside_mount,
     }[reason]
+
+
+def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanner:
+    """What Check connection shows for that probe, in the source list's own words.
+
+    The four banners keep the four states the probe itself can answer with,
+    never folded into the sources list's own coarser `SourceState` — a wrong
+    token and a dead host must read apart here, not both as one error. Their
+    words are exactly `_run_reason`'s own, so a check and a recorded run read
+    alike; only `failed` carries git's own sanitised line beneath it.
+    """
+    if checked.failure is None:
+        return CheckBanner(
+            state=SourceState.REACHABLE.value,
+            message=text.source_check_reachable.format(commit=checked.commit),
+            detail=None,
+            fingerprint=checked.fingerprint,
+        )
+    return CheckBanner(
+        state=checked.failure.value,
+        message=_run_reason(checked.failure, text),
+        detail=checked.detail if checked.failure is SourceRunFailure.FAILED else None,
+        fingerprint=None,
+    )
 
 
 def _signed_in(request: Request) -> User:

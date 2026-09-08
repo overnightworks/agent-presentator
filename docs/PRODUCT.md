@@ -97,8 +97,8 @@ file and not a change to code, and each catalog names itself. The instance name
 is kept and shown back under Settings; nothing else reads it yet.
 
 The lobby's colours come from the vendored
-[`overnightworks/ui-tokens`](https://github.com/overnightworks/ui-tokens)
-v0.1.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
+[`overnightworks/ui-console`](https://github.com/overnightworks/ui-console)
+v0.2.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
 still use this product's Pico markup; the package grammar is adopted when
 Users lands
 ([#61](https://github.com/overnightworks/agent-presentator/issues/61)).
@@ -123,12 +123,16 @@ once, and the next screen shows the webhook address and its secret exactly
 once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
 URL carrying a password in its userinfo is refused, `http://` is refused, and
 the access kind is derived from the URL scheme — a mismatch with the chosen
-radio is refused.
+radio is refused. *Check connection* runs the same probe a pull would against
+the typed URL and secret before anything is stored, and *Create* is refused
+server-side unless a check just proved those exact values reachable.
 SSH deploy keys are not offered yet, and a fourth kind reads none at all: a
 folder made a bare repository under the host directory `compose.override.yaml`
 mounts read-only at `/data/local-sources` is added with a `file://` or
 bare-path address under that mount, "on this box" as the access kind, and no
-secret ([OPERATIONS.md](OPERATIONS.md)). An instance starts with no source;
+secret ([OPERATIONS.md](OPERATIONS.md)); *Check connection* probes that path
+too, refusing one outside the mount rather than reading it. An instance
+starts with no source;
 `PRESENTATOR_SOURCE_URL` and the other `PRESENTATOR_SOURCE_*` identity
 settings are gone, so a leftover line in the environment does not add a row.
 Every deck names the source that carried it, and a refresh

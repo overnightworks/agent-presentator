@@ -36,6 +36,7 @@ from presentator.application.identity import (
 )
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import (
+    ConnectionCheckResult,
     DeckFolder,
     Source,
     SourceRun,
@@ -44,9 +45,11 @@ from presentator.contracts.decks import (
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from tests.application.fakes import (
+    A_REACHABLE_CHECK,
     DEFAULT_THEME_SET,
     CountingIdentifierFactory,
     FakeBuildRunner,
+    FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
     FakeInstanceSettingsStore,
@@ -68,6 +71,9 @@ NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
 # No route test waits for a build, so the bound only has to be longer than the
 # ages the tests arrange.
 BUILD_BOUND: Final = timedelta(minutes=5)
+# What this lobby signs a Check connection fingerprint with; no test reads
+# this value, only the fingerprint a real Check response carries.
+_FINGERPRINT_KEY: Final = b"what only this test's lobby signs a fingerprint with"
 CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
@@ -184,6 +190,7 @@ class GivenDecks:
     # real one left on a filesystem that refuses the delete would.
     stuck_mirror: bool = False
     hook_hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    checked: ConnectionCheckResult = A_REACHABLE_CHECK
     themes: tuple[str, ...] | None = DEFAULT_THEME_SET
     # Set only by a test proving the real reader end to end; every other test
     # names `themes` and gets the fake above instead.
@@ -241,12 +248,14 @@ def a_lobby_app(
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner(),
         source_runs=run_store,
+        checker=FakeConnectionChecker(answer=given.checked),
         toolchain_themes=(
             PackageJsonThemes(project=given.toolchain_project)
             if given.toolchain_project is not None
             else FakeToolchainThemes(names_to_return=given.themes)
         ),
         build_bound=BUILD_BOUND,
+        fingerprint_key=_FINGERPRINT_KEY,
         clock=clock,
         local_mount=FakeLocalMount(),
     )

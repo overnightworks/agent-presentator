@@ -316,7 +316,7 @@ def test_the_three_stylesheets_are_linked_on_the_open_setup_and_login_pages(
         page = lobby.client.get(path).text
 
         assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
-        assert '<link rel="stylesheet" href="/static/ui-tokens.css">' in page
+        assert '<link rel="stylesheet" href="/static/ui-console.css">' in page
         assert '<link rel="stylesheet" href="/static/lobby.css">' in page
 
 
@@ -326,18 +326,18 @@ def test_the_three_stylesheets_are_linked_on_the_signed_in_home_page(
     page = signed_in_lobby.client.get("/").text
 
     assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
-    assert '<link rel="stylesheet" href="/static/ui-tokens.css">' in page
+    assert '<link rel="stylesheet" href="/static/ui-console.css">' in page
     assert '<link rel="stylesheet" href="/static/lobby.css">' in page
 
 
 def test_the_theme_files_are_served_without_signing_in(lobby: Lobby) -> None:
-    tokens = lobby.client.get("/static/ui-tokens.css")
+    console = lobby.client.get("/static/ui-console.css")
     leftover = lobby.client.get("/static/lobby.css")
     pico = lobby.client.get("/static/pico.classless.min.css")
 
-    assert tokens.status_code == HTTPStatus.OK
-    assert "--canvas:" in tokens.text
-    assert "@media (prefers-color-scheme: dark)" in tokens.text
+    assert console.status_code == HTTPStatus.OK
+    assert "--canvas:" in console.text
+    assert "@media (prefers-color-scheme: dark)" in console.text
     assert leftover.status_code == HTTPStatus.OK
     assert "--pico-background-color:" in leftover.text
     assert pico.status_code == HTTPStatus.OK

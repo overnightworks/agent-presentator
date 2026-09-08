@@ -363,6 +363,12 @@ msgstr ""
 msgid "source_refused_secret"
 msgstr "A source needs a secret."
 
+msgid "source_refused_not_checked"
+msgstr "Check connection again — the URL or secret changed since the last check."
+
+msgid "source_check_reachable"
+msgstr "Repository read, head {commit}."
+
 msgid "source_refused_secret_not_allowed"
 msgstr "A source on this box needs no secret — leave it blank."
 

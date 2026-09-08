@@ -192,6 +192,23 @@ class SourcePoll:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ConnectionCheckResult:
+    """What a bounded probe of an unsaved source found, without writing anything.
+
+    No failure and a commit is reachable; a failure and no commit is not, and
+    carries git's own sanitised first line only for `SourceRunFailure.FAILED`
+    — the one reason with no fixed sentence of its own. The fingerprint is
+    the proof the form later needs to create what this probe found, and
+    travels only when the state is reachable.
+    """
+
+    failure: SourceRunFailure | None
+    commit: str | None
+    detail: str | None
+    fingerprint: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceRun:
     """One poll of a source, kept so a board can show that it was ever tried.
 

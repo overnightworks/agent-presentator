@@ -34,6 +34,7 @@ from presentator.adapters.catalog import (
 )
 from presentator.adapters.decks import (
     FilesystemLocalMount,
+    MirroredConnectionChecker,
     MirroredDeckFolders,
     SourceCredentials,
     SourceMirrors,
@@ -58,7 +59,7 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
-from presentator.adapters.secrets import secret_box
+from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
@@ -140,6 +141,7 @@ def build_instance(settings: Settings) -> Instance:
         identifiers=identifiers,
         box=box,
     )
+    source_timeout = timedelta(seconds=settings.source_timeout_seconds)
     # The one mounted directory a file-kind source's address may resolve
     # under, real filesystem and all: shared by every use, since a symlink or
     # a remount between them must be caught the same way each time.
@@ -147,7 +149,7 @@ def build_instance(settings: Settings) -> Instance:
     mirrors = SourceMirrors(
         directory=settings.mirrors,
         credentials=SourceCredentials(database=settings.database, box=box),
-        pull_timeout=timedelta(seconds=settings.source_timeout_seconds),
+        pull_timeout=source_timeout,
         local_mount=local_mount,
     )
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
@@ -162,10 +164,19 @@ def build_instance(settings: Settings) -> Instance:
             output_megabytes=settings.build_output_megabytes,
         ),
         source_runs=SqliteSourceRunStore(database=settings.database),
+        # The same bound a scheduled pull takes: Check connection asks the
+        # same remote for the same one thing, just without writing it down.
+        checker=MirroredConnectionChecker(
+            check_timeout=source_timeout,
+            local_mount=local_mount,
+        ),
         toolchain_themes=PackageJsonThemes(project=settings.toolchain),
         # One toolchain step's bound, which is what the refresh needs: it never
         # reads a live build, only what a process that is gone left behind.
         build_bound=build_bound,
+        fingerprint_key=connection_fingerprint_key(
+            settings.secret_key.get_secret_value(),
+        ),
         clock=SystemClock(),
         local_mount=local_mount,
     )
