@@ -1,10 +1,12 @@
 """What a caller hands in and gets back; no git command appears here."""
 
 from abc import abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from types import MappingProxyType
+from typing import Final, Protocol
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -45,12 +47,42 @@ class ConnectionState(StrEnum):
     UNREACHABLE = "unreachable"
 
 
+class ConnectionNextAction(StrEnum):
+    """The one action a caller can take after each connection state."""
+
+    NONE = "none"
+    RESOLVE_CREDENTIAL = "resolve-credential"
+    REPAIR_ACCESS = "repair-access"
+    CHECK_REACHABILITY = "check-reachability"
+    INSPECT_FAILURE = "inspect-failure"
+
+
+_CONNECTION_NEXT_ACTIONS: Final[Mapping[ConnectionState, ConnectionNextAction]] = (
+    MappingProxyType(
+        {
+            ConnectionState.READY: ConnectionNextAction.NONE,
+            ConnectionState.CREDENTIAL_UNRESOLVABLE: (
+                ConnectionNextAction.RESOLVE_CREDENTIAL
+            ),
+            ConnectionState.REFUSED: ConnectionNextAction.REPAIR_ACCESS,
+            ConnectionState.UNREACHABLE: ConnectionNextAction.CHECK_REACHABILITY,
+            ConnectionState.FAILED: ConnectionNextAction.INSPECT_FAILURE,
+        }
+    )
+)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Connection:
     """What a pull found: the state, and the revision when the state is ready."""
 
     state: ConnectionState
     revision: Revision | None
+
+    @property
+    def next_action(self) -> ConnectionNextAction:
+        """The action this connection state calls for."""
+        return _CONNECTION_NEXT_ACTIONS[self.state]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,6 +97,11 @@ class ConnectionCheck:
     state: ConnectionState
     commit: str | None
     detail: str | None
+
+    @property
+    def next_action(self) -> ConnectionNextAction:
+        """The action this connection state calls for."""
+        return _CONNECTION_NEXT_ACTIONS[self.state]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

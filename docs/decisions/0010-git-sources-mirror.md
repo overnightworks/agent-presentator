@@ -54,6 +54,12 @@ It owns:
 - **A "commit arrived" event** and a connection check. Source ownership,
   credential storage and rotation, and the fetch log belong to the caller.
 
+Connection results carry one closed next-action vocabulary derived from their
+state: ready needs no action, an unresolvable credential needs resolving,
+refused access needs repair, an unreachable source needs reachability checked,
+and another failure needs inspection. Callers receive this typed action rather
+than infer it from a result's operational detail.
+
 It does not own building. Turning a mirrored folder into a presentable deck is
 this product's job ([ADR 0005](0005-deck-folder-and-slidev.md)), and the deck
 build's container isolation is stated there.
