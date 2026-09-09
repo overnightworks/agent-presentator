@@ -61,9 +61,9 @@ class _Surfaces:
     def save_settings(
         self,
         request: Request,
-        name: Annotated[str, Form()],
         language: Annotated[str, Form()],
         theme: Annotated[ThemeChoice, Form()],
+        name: Annotated[str, Form()] = InstanceSettings().name,
     ) -> Response:
         """Keep what every person without an override of their own reads."""
         if not _signed_in(request).is_admin:

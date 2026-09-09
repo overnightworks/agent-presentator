@@ -94,6 +94,22 @@ def test_an_admin_sets_the_instance_name_the_language_and_the_default_theme(
     assert 'data-theme="dark"' in page
 
 
+def test_an_admin_with_a_fresh_unnamed_instance_saves_the_default_theme(
+    instance: Lobby,
+) -> None:
+    saved = save_settings(instance, name="", theme=ThemeChoice.DARK)
+
+    assert saved.status_code == HTTPStatus.SEE_OTHER
+    assert saved.headers["location"] == SETTINGS
+    page = instance.client.get(SETTINGS).text
+    assert 'id="instance-name" name="name" value=""' in page
+    assert what_the_selects_show(page) == [
+        ENGLISH.language_tag,
+        ThemeChoice.DARK.value,
+    ]
+    assert 'data-theme="dark"' in page
+
+
 def test_the_instance_default_theme_reaches_a_person_who_chose_nothing(
     instance: Lobby,
 ) -> None:
