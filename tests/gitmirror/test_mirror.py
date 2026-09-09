@@ -3,6 +3,8 @@
 import base64
 import functools
 import logging
+import shlex
+import shutil
 import socket
 import subprocess
 import threading
@@ -18,12 +20,14 @@ from typing import cast
 
 import pytest
 
+from gitmirror import mirror as mirror_module
 from gitmirror.mirror import (
     CREDENTIAL_USER_NAME,
     GitMirror,
     check_connection,
     connection_state_for_failure,
     credential_arguments,
+    is_ssh_remote,
     unattended_environment,
 )
 from gitmirror.model import (
@@ -36,7 +40,8 @@ from gitmirror.model import (
     MirrorError,
     Revision,
 )
-from tests.conftest import MAIN_BRANCH, GitRemote
+from presentator.adapters.secrets import generate_deploy_key
+from tests.conftest import MAIN_BRANCH, GitRemote, with_the_program
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _PUSHED_LATER = datetime(2026, 1, 16, 9, tzinfo=UTC)
@@ -478,6 +483,249 @@ def test_git_runs_without_the_machine_settings_that_could_hang_or_leak_it() -> N
     }
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("ssh://git@example.invalid/talks.git", True),
+        ("git@example.invalid:talks.git", True),
+        ("https://example.invalid/talks.git", False),
+        ("/an/absolute/path", False),
+    ],
+    ids=["ssh scheme", "scp form", "https", "bare path"],
+)
+def test_is_ssh_remote_reads_the_urls_own_shape(url: str, *, expected: bool) -> None:
+    assert is_ssh_remote(url) is expected
+
+
+# The stub consumes every `-i key` / `-o value` pair `_ssh_command` builds,
+# records the key path and its mode for the test to read back, then runs the
+# real `git-upload-pack` locally — exactly what git would have asked the real
+# `ssh` to run on the far end, against a bare repository already on this disk.
+_STUB_SSH = """#!/bin/sh
+key=""
+printf '%s' "$*" > "{recorded}/arguments"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -i) key="$2"; shift 2 ;;
+    -o) shift 2 ;;
+    *) break ;;
+  esac
+done
+printf '%s' "$key" > "{recorded}/key-path"
+stat -c %a "$key" > "{recorded}/key-mode"
+stat -c %a "$(dirname "$key")" > "{recorded}/key-directory-mode"
+shift
+exec sh -c "$*"
+"""
+
+
+def ssh_stub_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> tuple[str, Path]:
+    """Install the local ssh transport and return its remote URL and record."""
+    recorded = tmp_path / "recorded"
+    recorded.mkdir()
+    with_the_program(monkeypatch, tmp_path, "ssh", _STUB_SSH.format(recorded=recorded))
+    return f"git@ssh-stub-host:{remote.bare}", recorded
+
+
+def assert_ssh_deploy_key_transport(recorded: Path, *, known_hosts: Path) -> None:
+    """Assert the observable key-file and SSH invocation contract."""
+    assert (recorded / "key-mode").read_text().strip() == "600"
+    assert (recorded / "key-directory-mode").read_text().strip() == "700"
+    arguments = shlex.split((recorded / "arguments").read_text())
+    assert "IdentitiesOnly=yes" in arguments
+    assert "BatchMode=yes" in arguments
+    assert "ConnectTimeout=10" in arguments
+    assert "StrictHostKeyChecking=accept-new" in arguments
+    assert f"UserKnownHostsFile={known_hosts}" in arguments
+    key_path = Path((recorded / "key-path").read_text())
+    assert not key_path.exists()
+    assert not key_path.parent.exists()
+
+
+def test_an_ssh_fetch_uses_a_0600_key_file_removed_after(
+    monkeypatch: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit(_A_DECK, at=_PUSHED_AT)
+    url, recorded = ssh_stub_transport(monkeypatch, remote, tmp_path)
+    private_key = generate_deploy_key().private_key
+    mirror = a_mirror(
+        url,
+        directory=tmp_path / "ssh-mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(private_key),
+    )
+
+    connection = mirror.connect()
+
+    assert connection.state is ConnectionState.READY
+    assert connection.revision is not None
+    assert connection.revision.commit == remote.head
+    assert_ssh_deploy_key_transport(
+        recorded,
+        known_hosts=tmp_path / "ssh-mirror" / "known_hosts",
+    )
+
+
+def test_an_ssh_check_uses_a_real_key_and_configured_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    remote.commit(_A_DECK, at=_PUSHED_AT)
+    url, recorded = ssh_stub_transport(monkeypatch, remote, tmp_path)
+    private_key = generate_deploy_key().private_key
+    assert private_key.count("\n") > 1
+    known_hosts = tmp_path / "instance-known-hosts"
+
+    connection = check_connection(
+        url=url,
+        ref=MAIN_BRANCH,
+        secret=private_key,
+        timeout=_A_GENEROUS_BOUND,
+        known_hosts=known_hosts,
+    )
+
+    assert connection.state is ConnectionState.READY
+    assert connection.commit == remote.head
+    assert_ssh_deploy_key_transport(recorded, known_hosts=known_hosts)
+
+
+@pytest.mark.parametrize("outcome", ["refusal", "timeout", "exception"])
+def test_an_ssh_key_file_is_removed_after_every_fetch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    captured: list[Path] = []
+
+    def fetch_failure(
+        arguments: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[bytes]:
+        if "fetch" not in arguments:
+            return subprocess.CompletedProcess(arguments, 0, stdout=b"")
+        environment = cast("dict[str, str]", kwargs["env"])
+        captured.append(Path(shlex.split(environment["GIT_SSH_COMMAND"])[2]))
+        if outcome == "refusal":
+            return subprocess.CompletedProcess(
+                arguments,
+                1,
+                stderr=b"Permission denied (publickey)",
+            )
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(arguments, 1)
+        message = "subprocess failed"
+        raise OSError(message)
+
+    monkeypatch.setattr(mirror_module.subprocess, "run", fetch_failure)
+    mirror = a_mirror(
+        "git@ssh-stub-host:talks.git",
+        directory=tmp_path,
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(generate_deploy_key().private_key),
+    )
+
+    if outcome == "exception":
+        with pytest.raises(OSError, match="subprocess failed"):
+            mirror.connect()
+    else:
+        connection = mirror.connect()
+        assert connection.revision is None
+
+    [key_path] = captured
+    assert not key_path.exists()
+    assert not key_path.parent.exists()
+
+
+def test_an_ssh_key_directory_is_removed_when_setting_its_mode_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "deploy-key-directory"
+
+    def make_directory(*_args: object, **_kwargs: object) -> str:
+        directory.mkdir()
+        return str(directory)
+
+    def refuse_mode(*_args: object, **_kwargs: object) -> None:
+        message = "mode denied"
+        raise OSError(message)
+
+    monkeypatch.setattr(mirror_module.tempfile, "mkdtemp", make_directory)
+    monkeypatch.setattr(Path, "chmod", refuse_mode)
+
+    mirror = a_mirror(
+        "git@ssh-stub-host:talks.git",
+        directory=tmp_path / "mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(generate_deploy_key().private_key),
+    )
+
+    with pytest.raises(OSError, match="mode denied"):
+        mirror.connect()
+
+    assert not directory.exists()
+
+
+def test_an_ssh_key_directory_setup_failure_surfaces_without_cleanup_masking_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def refuse_directory(*_args: object, **_kwargs: object) -> str:
+        message = "directory unavailable"
+        raise OSError(message)
+
+    def refuse_cleanup(*_args: object, **_kwargs: object) -> None:
+        message = "cleanup must not mask setup"
+        raise OSError(message)
+
+    monkeypatch.setattr(mirror_module.tempfile, "mkdtemp", refuse_directory)
+    monkeypatch.setattr(mirror_module.shutil, "rmtree", refuse_cleanup)
+    mirror = a_mirror(
+        "git@ssh-stub-host:talks.git",
+        directory=tmp_path / "mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(generate_deploy_key().private_key),
+    )
+
+    with pytest.raises(OSError, match="directory unavailable"):
+        mirror.connect()
+
+
+def test_an_ssh_key_cleanup_failure_is_surfaced(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def refuse_cleanup(*_args: object, **_kwargs: object) -> None:
+        message = "cleanup denied"
+        raise OSError(message)
+
+    recorded = tmp_path / "recorded"
+    recorded.mkdir()
+    with_the_program(monkeypatch, tmp_path, "ssh", _STUB_SSH.format(recorded=recorded))
+    remove_directory = shutil.rmtree
+    monkeypatch.setattr(mirror_module.shutil, "rmtree", refuse_cleanup)
+    mirror = a_mirror(
+        "git@ssh-stub-host:talks.git",
+        directory=tmp_path / "mirror",
+        credential=_TOKEN_REFERENCE,
+        resolver=_FixedSecret(generate_deploy_key().private_key),
+    )
+
+    with pytest.raises(OSError, match="cleanup denied"):
+        mirror.connect()
+
+    key_path = Path((recorded / "key-path").read_text())
+    directory = key_path.parent
+    remove_directory(directory)
+
+
 def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
     remote: GitRemote,
     tmp_path: Path,
@@ -515,6 +763,12 @@ def test_a_pull_that_runs_past_its_bound_is_named_unreachable(
             "The requested URL returned error: 401",
             ConnectionState.REFUSED,
             id="bare-401-status",
+        ),
+        pytest.param(
+            "git@host.example: Permission denied (publickey).\n"
+            "fatal: Could not read from remote repository.",
+            ConnectionState.REFUSED,
+            id="ssh-deploy-key-no-longer-registered",
         ),
         pytest.param(
             "fatal: unable to access 'https://host.example/repo.git/': "

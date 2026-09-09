@@ -47,10 +47,13 @@ from tests.application.fakes import (
     BUILDS_ROOT,
     LOCAL_MOUNT_EXAMPLE,
     PATIENCE,
+    ConnectionCheckerThatMustNotRun,
+    DeckFoldersThatMustNotRun,
     FakeBuildRunner,
     FakeConnectionChecker,
     FakeDeckFolders,
     FakeDeckStore,
+    FakeDeployKeyDrafts,
     FakeLocalMount,
     FakeSourceRunStore,
     FakeSourceStore,
@@ -76,6 +79,14 @@ def a_source(name: str, *, identifier: str) -> Source:
 
 _SOURCE = a_source("decks", identifier="the-configured-source")
 _ANOTHER_SOURCE = a_source("talks", identifier="a-second-source")
+_HTTPS_SOURCE = Source(
+    id="the-token-source",
+    name="tokens",
+    url="https://git.example.invalid/tokens.git",
+    ref="main",
+    secret_location=None,
+    owner_id=_OWNER,
+)
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
@@ -131,6 +142,7 @@ class DecksFakes:
     toolchain_themes: FakeToolchainThemes = field(default_factory=FakeToolchainThemes)
     clock: FrozenClock = field(default_factory=lambda: FrozenClock(instant=_NOW))
     local_mount: FakeLocalMount = field(default_factory=FakeLocalMount)
+    key_drafts: FakeDeployKeyDrafts = field(default_factory=FakeDeployKeyDrafts)
 
 
 def decks_over(
@@ -140,8 +152,11 @@ def decks_over(
     fakes: DecksFakes | None = None,
 ) -> Decks:
     resolved = DecksFakes() if fakes is None else fakes
+    source_store = having(_SOURCE) if sources is None else sources
+    source_store.key_drafts = resolved.key_drafts
     return Decks(
-        sources=having(_SOURCE) if sources is None else sources,
+        sources=source_store,
+        key_drafts=resolved.key_drafts,
         folders=carrying(*folders) if mirror is None else mirror,
         store=resolved.store,
         builder=resolved.builder,
@@ -1065,7 +1080,13 @@ def _add(
     access: str = "https",
     secret: str = _READ_ONLY,
 ) -> AddedSource | SourceRefusal:
-    checked = decks.check_connection(url=url, secret=secret)
+    checked = decks.check_connection(
+        url=url,
+        access=access,
+        secret=secret,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     return decks.add_source(
         NewSourceDraft(
             name=name,
@@ -1079,7 +1100,13 @@ def _add(
 
 
 def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> None:
-    reachable = decks_over().check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    reachable = decks_over().check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     refused = decks_over(
         fakes=DecksFakes(
             checker=FakeConnectionChecker(
@@ -1090,7 +1117,13 @@ def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> Non
                 ),
             ),
         ),
-    ).check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    ).check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
 
     assert reachable.failure is None
     assert reachable.fingerprint is not None
@@ -1123,6 +1156,148 @@ def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> 
         stored_hash.hex() == hashlib.sha256(added.webhook_secret.encode()).hexdigest()
     )
     assert run_store.newest(added.source.id) is not None
+
+
+_SSH_URL = "git@example.invalid:talks.git"
+# A draft nobody creates a source from is discarded after this long (operator
+# ruling 07.09.2026).
+_A_DAY = timedelta(days=1)
+
+
+def test_opening_add_reuses_a_young_draft_and_mints_a_fresh_one_once_stale() -> None:
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(fakes=DecksFakes(clock=clock))
+
+    first = decks.source_key_draft(owner_id=_OWNER)
+    second = decks.source_key_draft(owner_id=_OWNER)
+
+    assert second.id == first.id
+
+    clock.advance(by=_A_DAY + timedelta(seconds=1))
+
+    aged_out = decks.source_key_draft(owner_id=_OWNER)
+    assert aged_out.id != first.id
+
+
+def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
+    store = having()
+    decks = decks_over(sources=store)
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    checked = decks.check_connection(
+        url=_SSH_URL,
+        access="ssh",
+        secret="",
+        owner_id=_OWNER,
+        key_draft_id=draft.id,
+    )
+    added = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint=checked.fingerprint or "",
+            key_draft_id=draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert isinstance(added, AddedSource)
+    assert added.source.public_key == draft.public_key
+    assert decks.key_drafts.unconsumed_for(_OWNER, newer_than=_NOW - _A_DAY) is None
+
+
+def test_an_ssh_create_without_its_own_check_proof_is_refused() -> None:
+    decks = decks_over(sources=having())
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint="",
+            key_draft_id=draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
+    assert decks.source_key_draft(owner_id=_OWNER).id == draft.id
+
+
+def test_an_ssh_check_proof_cannot_create_for_another_account() -> None:
+    decks = decks_over(sources=having())
+    owner_draft = decks.source_key_draft(owner_id=_OWNER)
+    checked = decks.check_connection(
+        url=_SSH_URL,
+        access="ssh",
+        secret="",
+        owner_id=_OWNER,
+        key_draft_id=owner_draft.id,
+    )
+    another_owner = "another admin entirely"
+    other_draft = decks.source_key_draft(owner_id=another_owner)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint=checked.fingerprint or "",
+            key_draft_id=other_draft.id,
+        ),
+        owner_id=another_owner,
+    )
+
+    assert refused is SourceRefusal.NOT_CHECKED
+
+
+def test_a_foreign_or_missing_draft_id_is_refused_and_mints_a_fresh_one() -> None:
+    decks = decks_over()
+    someone_elses_draft = decks.key_drafts.mint("another admin entirely", at=_NOW)
+
+    refused = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=_SSH_URL,
+            access="ssh",
+            secret="",
+            fingerprint="",
+            key_draft_id=someone_elses_draft.id,
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert refused is SourceRefusal.DEPLOY_KEY_UNAVAILABLE
+    fresh = decks.source_key_draft(owner_id=_OWNER)
+    assert fresh.id != someone_elses_draft.id
+
+
+def test_an_https_create_leaves_the_admins_draft_untouched() -> None:
+    decks = decks_over(sources=having())
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    added = _add(decks)
+
+    assert isinstance(added, AddedSource)
+    assert decks.source_key_draft(owner_id=_OWNER).id == draft.id
+
+
+def test_a_refresh_sweeps_drafts_a_day_old() -> None:
+    clock = FrozenClock(instant=_NOW)
+    decks = decks_over(fakes=DecksFakes(clock=clock))
+    stale = decks.key_drafts.mint(_OWNER, at=_NOW)
+
+    clock.advance(by=_A_DAY + timedelta(seconds=1))
+    decks.refresh()
+
+    # The row itself is gone, not merely too old for `unconsumed_for`'s own
+    # filter: a bind of its exact id, which ignores age, finds nothing either.
+    assert decks.key_drafts.bind(stale.id, owner_id=_OWNER) is None
 
 
 @pytest.mark.parametrize(
@@ -1315,7 +1490,13 @@ def test_a_source_never_checked_for_these_values_is_refused() -> None:
 def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
     store = having()
     decks = decks_over(sources=store)
-    checked = decks.check_connection(url=_HTTPS_URL, secret=_READ_ONLY)
+    checked = decks.check_connection(
+        url=_HTTPS_URL,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
     assert checked.fingerprint is not None
 
     refused = decks.add_source(
@@ -1447,20 +1628,38 @@ def test_a_name_this_instance_does_not_have_has_no_source_page() -> None:
 
 
 def test_renewing_the_access_secret_stores_the_new_value() -> None:
-    store = having(_SOURCE)
+    store = having(_HTTPS_SOURCE)
     decks = decks_over(sources=store)
 
-    assert decks.renew_access(_SOURCE.name, "the-new-token")
-    assert store.secrets[_SOURCE.id] == "the-new-token"
+    assert decks.renew_access(_HTTPS_SOURCE.name, "the-new-token")
+    assert store.secrets[_HTTPS_SOURCE.id] == "the-new-token"
     assert store.all()[0].secret_location is SecretLocation.STORED
 
 
 def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
-    store = having(_SOURCE)
+    store = having(_HTTPS_SOURCE)
 
-    assert not decks_over(sources=store).renew_access(_SOURCE.name, "  ")
+    assert not decks_over(sources=store).renew_access(_HTTPS_SOURCE.name, "  ")
     assert store.secrets == {}
     assert store.all()[0].secret_location is None
+
+
+def test_renewing_an_ssh_sources_deploy_key_needs_no_input_or_remote_operation() -> (
+    None
+):
+    store = having(_SOURCE)
+    fakes = DecksFakes(
+        checker=ConnectionCheckerThatMustNotRun(),
+    )
+    decks = decks_over(
+        sources=store,
+        mirror=DeckFoldersThatMustNotRun(),
+        fakes=fakes,
+    )
+
+    assert decks.renew_access(_SOURCE.name, "")
+    assert store.all()[0].public_key != _SOURCE.public_key
+    assert store.secrets == {}
 
 
 def test_renewing_the_webhook_secret_returns_a_new_value_and_replaces_the_hash() -> (

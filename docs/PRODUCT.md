@@ -117,22 +117,20 @@ each arrives with the slice that fills it.
 
 A source is a row: an id, a name and a URL that are each unique, the ref it
 follows, and the account that owns it. An admin adds one under Settings ·
-Sources with a name, a Git URL, HTTPS token access, and a read-only secret;
-the secret is stored encrypted and never shown again, the source is fetched
-once, and the next screen shows the webhook address and its secret exactly
-once. The name is `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a
-URL carrying a password in its userinfo is refused, `http://` is refused, and
-the access kind is derived from the URL scheme — a mismatch with the chosen
-radio is refused. *Check connection* runs the same probe a pull would against
-the typed URL and secret before anything is stored, and *Create* is refused
-server-side unless a check just proved those exact values reachable.
-SSH deploy keys are not offered yet, and a fourth kind reads none at all: a
-folder made a bare repository under the host directory `compose.override.yaml`
-mounts read-only at `/data/local-sources` is added with a `file://` or
-bare-path address under that mount, "on this box" as the access kind, and no
-secret ([OPERATIONS.md](OPERATIONS.md)); *Check connection* probes that path
-too, refusing one outside the mount rather than reading it. An instance
-starts with no source;
+Sources with a name and Git URL. HTTPS needs a read-only token; SSH opens Add
+with one account-owned ed25519 public key to register at the Git host. *Check
+connection* probes the typed HTTPS token or owned SSH draft before anything is
+stored, and *Create* is refused unless that exact check succeeded. The private
+halves and HTTPS tokens are encrypted and never shown. The name is
+`[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a URL carrying a
+password in its userinfo is refused, `http://` is refused, and the access kind
+is derived from the URL scheme — a mismatch with the chosen radio is refused.
+A fourth kind reads none at all: a folder made a bare repository under the host
+directory `compose.override.yaml` mounts read-only at `/data/local-sources` is
+added with a `file://` or bare-path address under that mount, "on this box" as
+the access kind, and no secret ([OPERATIONS.md](OPERATIONS.md)); *Check
+connection* probes that path too, refusing one outside the mount rather than
+reading it. An instance starts with no source;
 `PRESENTATOR_SOURCE_URL` and the other `PRESENTATOR_SOURCE_*` identity
 settings are gone, so a leftover line in the environment does not add a row.
 Every deck names the source that carried it, and a refresh
@@ -188,11 +186,14 @@ failed, or never built — with a shape and a colour of its own, read off the
 talk that stands and the build last attempted beside it, never stored.
 
 `/settings/sources/<name>` is that source's page: state and fetched age, Fetch
-now, the access secret as a fixed run of dots with one Renew, the webhook
-address with Copy and its own Renew, the newest three runs with the commit as
-evidence, and the decks that come from here. Renewing the webhook secret shows
-the new value exactly once to the session that created or renewed it, and never
-again; renewing the access secret takes a new value and shows nothing back. A source's secret stands in one place, the
+now, the HTTPS secret as fixed dots with one Renew, or an SSH Deploy-Key with
+its public half, Copy and direct Renew. SSH Renew replaces the local pair
+immediately and leaves the replacement public half ready to register; it does
+not update the Git host or promise uninterrupted fetching. The webhook address
+has Copy and its own Renew, and the page shows the newest three runs and its
+decks. Renewing the webhook secret shows the new value exactly once to the
+session that created or renewed it, and never again; HTTPS renewal takes a new
+value and shows nothing back. A source's secret stands in one place, the
 encrypted column, opened with a key derived from `PRESENTATOR_SECRET_KEY`
 ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)). A row
 that still names only an environment variable stays listed and keeps its built
@@ -342,4 +343,3 @@ the instance; the co-presenter that will call it is
 [#73](https://github.com/overnightworks/agent-presentator/issues/73), and
 productising it is the speech milestone. Which models, what they cost on the
 card, and how to start it are owned by that README.
-

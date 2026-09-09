@@ -59,10 +59,10 @@ beyond what a start does itself, so an older shape a start cannot upgrade is
 still a file to delete and set up again.
 
 An instance starts with no source. An admin adds one under Settings · Sources
-with a name, a Git URL, HTTPS token access, and the read-only secret; *Check
-connection* probes that URL and secret the same way before anything is
-stored, and *Create* stays disabled until a check just answered reachable for
-the exact values still in the form. The name
+with a name and Git URL. HTTPS needs a read-only token; SSH uses the owned
+deploy-key draft Add shows for registration at the Git host. *Check
+connection* probes that exact token or draft before anything is stored, and
+*Create* stays disabled until it answers reachable. The name
 is lowercase letters, digits and hyphens, at most 64 characters, unique; the
 URL is unique too, and must not carry a password in its userinfo — that belongs
 in the Secret field. A user name in the URL is optional: when the URL names
@@ -71,14 +71,24 @@ of its own so a host that insists on one still reaches the token; a token the
 host turns down shows as refused on the source's row, a host that answers
 with anything else shows as failed, and unreachable is only a host that never
 answers at all. The access kind is derived from the URL scheme (`https://`
-is a token; `http://` is refused; `git@` and `ssh://` are a deploy key, not yet
-offered on the form). An HTTPS source needs the image's CA certificates to
-verify the git host's TLS certificate; the image carries them, and CI proves
-it with a live HTTPS fetch on every build. The secret is stored encrypted in
-the source's row and read with the instance key at every pull. Ciphertext
-this instance's key cannot open is refused rather than handed to `git`: that
-source's fetch fails and its decks stay listed. Keep `PRESENTATOR_SECRET_KEY`
-with the database backup — the file alone restores no working source.
+is a token; `http://` is refused; `git@` and `ssh://` are a deploy key). An
+HTTPS source needs the image's CA certificates to verify the git host's TLS
+certificate; the image carries them, and CI proves it with a live HTTPS fetch
+on every build. The secret is stored encrypted in the source's row and read
+with the instance key at every pull. Ciphertext this instance's key cannot
+open is refused rather than handed to `git`: that source's fetch fails and its
+decks stay listed. Keep `PRESENTATOR_SECRET_KEY` with the database backup —
+the file alone restores no working source.
+
+Opening Add with the SSH radio mints this admin an ed25519 deploy key — or
+shows the one already minted for them today — as a `source_key_drafts` row
+carrying the public half in clear and the private half encrypted the same way
+as any other secret; *Create* binds it to the new source and deletes the
+draft, and a draft nobody creates a source from is swept a day after it was
+minted. An SSH fetch writes the private half to a 0600 file in a 0700
+directory it removes in a `finally`, and runs `ssh` against it alone
+(`IdentitiesOnly=yes`), with the host key pinned on first contact
+(`StrictHostKeyChecking=accept-new`) and refused if it ever changes.
 
 A source that still names only an environment variable — a row written before
 this instance stored secrets itself — stays listed and keeps its decks. Fetch
@@ -87,11 +97,14 @@ fails until the operator opens that source's page and presses *Renew secret*.
 not settings; leaving them in the environment does nothing.
 
 The source's own page is `/settings/sources/<name>`: state and fetched age,
-Fetch now, the access secret as a fixed run of dots with Renew, the webhook
-address with Copy and its own Renew, the newest three runs with the commit as
-evidence, and the decks that come from here. Renewing the access secret takes a
-new value and shows nothing back. Renewing the webhook secret shows the new
-value exactly once, to the session that renewed it.
+Fetch now, the HTTPS token as fixed dots with Renew, or the SSH public key with
+Copy and direct Renew, the webhook address with Copy and its own Renew, the
+newest three runs, and its decks. SSH Renew immediately replaces the local
+encrypted pair and shows the replacement public key; register it at the Git
+host before the next fetch. It neither contacts that host nor preserves an
+old-key overlap. HTTPS renewal takes a new value and shows nothing back.
+Webhook renewal shows its new value exactly once, to the session that renewed
+it.
 
 The server polls every source every `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`)
 on a task beside the routes, and never twice at once; opening the deck list

@@ -678,6 +678,10 @@
     align-items: center;
   }
 
+  .source-detail-ssh .actions .btn {
+    box-sizing: border-box;
+  }
+
   /* ---------- state markers: shape + colour ---------- */
 
   .state {
@@ -2560,6 +2564,181 @@
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1.5 9h9M7.5 5.5 11 9l-3.5 3.5"></path><rect x="12.5" y="3" width="4" height="12" rx="1"></rect></svg>
                   <span>Push inbox — the home server offers its own Git when it can't reach your company Git</span>
                   <span class="later-mark">later</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board source-detail-ssh">
+        <figcaption class="board-cap">
+          <div class="board-title">Source — SSH deploy key <span class="w">1024 px</span></div>
+          <p class="board-note">The source still answers whether it works; its access section answers which public key to register.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+              <div class="person">
+                <span class="person-btn" tabindex="0">
+                  <span class="avatar">FH</span>
+                  <span class="person-name">felix</span>
+                  <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                </span>
+              </div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#sources">← Sources</a>
+              <div class="deck-head">
+                <h1>firmen-gitlab</h1>
+                <div class="meta">
+                  <span class="src-url">git@gitlab.firma.intern:vortraege/decks.git</span>
+                  <span class="state state--ok"><span class="glyph"></span>reachable</span>
+                  <span class="stand"><span class="lbl">Fetched</span><span>3 minutes ago</span></span>
+                  <span class="pair"><span class="tag">Built isolated</span><span class="info" tabindex="0">i<span class="pop">A deck is code. Every build runs in its own container with no network and none of the server's secrets.</span></span></span>
+                </div>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="actions">
+                <span class="btn btn--primary btn--s">Fetch now</span>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Access to the Git</span>
+                <div class="pair">
+                  <span class="tag">Deploy-Key</span>
+                  <span class="info" tabindex="0">i<span class="pop">Register this public key at the Git host with read access. Renew makes a replacement key on this source.</span></span>
+                </div>
+                <span class="mini">Public key</span>
+                <div class="block">
+                  <code>ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8p2r0vQ9m4kZt7bXcW1sLdJqR6yN3oP presentator</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="actions">
+                  <span class="btn btn--s">Renew</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Webhook</span>
+                <div class="block">
+                  <code>https://presentator.local/sources/firmen-gitlab/fetch</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="pair">
+                  <span class="dots-line">••••••••••••••••••</span>
+                  <span class="btn btn--s">Renew secret</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Recent runs</span>
+                <div class="log">
+                  <div class="log-row">
+                    <span class="state state--ok"><span class="glyph"></span>fetched</span>
+                    <span class="age">3 minutes ago</span>
+                    <span><span class="sha">a3f19c2</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span class="state state--fail"><span class="glyph"></span>Error</span>
+                    <span class="age">13 minutes ago</span>
+                    <span class="why">Host unreachable</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board source-detail-ssh">
+        <figcaption class="board-cap">
+          <div class="board-title">Source — SSH deploy key <span class="w">390 px</span></div>
+          <p class="board-note">The visible key wraps inside its own block, while Copy and direct Renew remain separate reachable actions.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/settings/sources/firmen-gitlab</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+              <div class="person"><span class="person-btn" tabindex="0"><span class="avatar">FH</span><span class="person-name">felix</span><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span></div>
+            </div>
+            <div class="body">
+              <a class="crumb" href="#sources">← Sources</a>
+              <div class="deck-head">
+                <h1>firmen-gitlab</h1>
+                <div class="meta">
+                  <span class="src-url">git@gitlab.firma.intern:vortraege/decks.git</span>
+                  <span class="state state--ok"><span class="glyph"></span>reachable</span>
+                  <span class="stand"><span class="lbl">Fetched</span><span>3 minutes ago</span></span>
+                </div>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+              </nav>
+
+              <div class="actions"><span class="btn btn--primary btn--s">Fetch now</span></div>
+
+              <div class="form-part">
+                <span class="sub">Access to the Git</span>
+                <div class="pair">
+                  <span class="tag">Deploy-Key</span>
+                  <span class="info" tabindex="0">i<span class="pop">Register this public key at the Git host with read access. Renew makes a replacement key on this source.</span></span>
+                </div>
+                <span class="mini">Public key</span>
+                <div class="block">
+                  <code>ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8p2r0vQ9m4kZt7bXcW1sLdJqR6yN3oP presentator</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="actions"><span class="btn btn--s">Renew</span></div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Webhook</span>
+                <div class="block">
+                  <code>https://presentator.local/sources/firmen-gitlab/fetch</code>
+                  <span class="btn btn--s">Copy</span>
+                </div>
+                <div class="pair">
+                  <span class="dots-line">••••••••••••••••••</span>
+                  <span class="btn btn--s">Renew secret</span>
+                </div>
+              </div>
+
+              <div class="form-part">
+                <span class="sub">Recent runs</span>
+                <div class="log">
+                  <div class="log-row">
+                    <span class="state state--ok"><span class="glyph"></span>fetched</span>
+                    <span class="age">3 minutes ago</span>
+                    <span><span class="sha">a3f19c2</span></span>
+                  </div>
+                  <div class="log-row">
+                    <span class="state state--fail"><span class="glyph"></span>Error</span>
+                    <span class="age">13 minutes ago</span>
+                    <span class="why">Host unreachable</span>
+                  </div>
                 </div>
               </div>
             </div>

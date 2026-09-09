@@ -67,7 +67,9 @@ _SHORT_ACCESS = "zz-short-token"
 _LONG_ACCESS = f"long-{_READ_ONLY}-and-then-some"
 _SECRET_DOT_ROWS = 2
 _HOOK_SECRET = re.compile(r"data-hook-secret>([^<]+)<")
+_DEPLOY_PUBLIC_KEY = re.compile(r"data-deploy-public-key>([^<]+)<")
 _FINGERPRINT = re.compile(r'name="fingerprint"\s+value="([^"]*)"')
+_DRAFT_ID = re.compile(r'name="key_draft_id"\s+value="([^"]*)"')
 
 
 def another_source() -> Source:
@@ -420,7 +422,12 @@ def check_source(
 ) -> Response:
     return client.post(
         CHECK,
-        data={"name": "talks", "url": url, "access": access, "secret": secret},
+        data={
+            "name": "talks",
+            "url": url,
+            "access": access,
+            "secret": secret,
+        },
         headers=headers,
     )
 
@@ -429,6 +436,20 @@ def fingerprint_of(checked: Response) -> str:
     """The proof a reachable Check response carries in its hidden field."""
     found = _FINGERPRINT.search(checked.text)
     return found.group(1) if found else ""
+
+
+def draft_id_of(page: str) -> str:
+    """The Add form's own draft key id, carried in its hidden field."""
+    found = _DRAFT_ID.search(page)
+    assert found is not None
+    return found.group(1)
+
+
+def _deploy_public_key_of(page: str) -> str:
+    """The clear public half the source page exposes for host registration."""
+    found = _DEPLOY_PUBLIC_KEY.search(page)
+    assert found is not None
+    return found.group(1)
 
 
 def create_source(
@@ -559,9 +580,7 @@ def create_button_of(page: str) -> str:
     return _button_tag_of(page, ENGLISH.source_create)
 
 
-def test_the_add_form_ships_https_live_ssh_disabled_check_live_create_disabled() -> (
-    None
-):
+def test_the_add_form_ships_https_and_ssh_live_check_live_create_disabled() -> None:
     page = a_signed_in_lobby().get(NEW).text
 
     assert ENGLISH.sources_add in page
@@ -569,7 +588,8 @@ def test_the_add_form_ships_https_live_ssh_disabled_check_live_create_disabled()
     assert ENGLISH.source_url in page
     assert ENGLISH.source_access_https in page
     assert ENGLISH.source_access_ssh in page
-    assert 'name="access" value="ssh" disabled' in page
+    assert 'name="access" value="ssh"' in page
+    assert 'name="access" value="ssh" disabled' not in page
     assert 'name="access" value="https"' in page
     assert "checked" in page
     assert ENGLISH.source_check in page
@@ -578,6 +598,89 @@ def test_the_add_form_ships_https_live_ssh_disabled_check_live_create_disabled()
     assert "disabled" in create_button_of(page)
     assert 'name="secret"' in page
     assert 'value="' not in page.split('name="secret"')[1].split(">")[0]
+
+
+def test_opening_add_shows_a_draft_deploy_keys_public_half_to_paste() -> None:
+    page = a_signed_in_lobby().get(NEW).text
+
+    assert 'name="key_draft_id" value="draft-1"' in page
+    assert "ssh-ed25519 AAAAtestkey1 presentator" in page
+    assert ENGLISH.source_deploy_key_heading in page
+    assert "-----BEGIN OPENSSH PRIVATE KEY-----" not in page
+
+
+def test_opening_add_twice_keeps_the_same_draft_key() -> None:
+    client = a_signed_in_lobby()
+
+    first = draft_id_of(client.get(NEW).text)
+    second = draft_id_of(client.get(NEW).text)
+
+    assert first == second
+
+
+def create_ssh_source(
+    client: TestClient,
+    *,
+    name: str = "talks",
+    url: str = _ADDRESS,
+    key_draft_id: str,
+) -> Response:
+    checked = client.post(
+        CHECK,
+        data={
+            "name": name,
+            "url": url,
+            "access": "ssh",
+            "secret": "",
+            "key_draft_id": key_draft_id,
+        },
+    )
+    proven = fingerprint_of(checked)
+    return client.post(
+        NEW,
+        data={
+            "name": name,
+            "url": url,
+            "access": "ssh",
+            "key_draft_id": key_draft_id,
+            "fingerprint": proven,
+        },
+    )
+
+
+def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
+    client = a_signed_in_lobby()
+    draft_id = draft_id_of(client.get(NEW).text)
+
+    created = create_ssh_source(client, key_draft_id=draft_id)
+
+    assert created.status_code == HTTPStatus.SEE_OTHER
+    reopened = draft_id_of(client.get(NEW).text)
+    assert reopened != draft_id
+
+
+def test_a_foreign_draft_id_is_refused_with_a_freshly_minted_draft() -> None:
+    creator, other = two_admin_sessions()
+    creators_draft = draft_id_of(creator.get(NEW).text)
+    others_draft = draft_id_of(other.get(NEW).text)
+
+    refused = create_ssh_source(other, key_draft_id=creators_draft)
+
+    assert refused.status_code == HTTPStatus.OK
+    assert ENGLISH.source_refused_deploy_key in refused.text
+    reopened = draft_id_of(refused.text)
+    assert reopened not in (creators_draft, others_draft)
+
+
+def test_an_https_create_leaves_the_admins_draft_key_where_it_is() -> None:
+    client = a_signed_in_lobby()
+    draft_id = draft_id_of(client.get(NEW).text)
+
+    created = create_source(client)
+
+    assert created.status_code == HTTPStatus.SEE_OTHER
+    reopened = draft_id_of(client.get(NEW).text)
+    assert reopened == draft_id
 
 
 _A_REFUSED_CHECK = ConnectionCheckResult(
@@ -1189,6 +1292,23 @@ def test_a_blank_access_renewal_comes_back_without_storing_and_without_the_value
     assert refused.status_code == HTTPStatus.OK
     assert ENGLISH.source_refused_secret in refused.text
     assert _READ_ONLY not in refused.text
+
+
+def test_renewing_an_ssh_deploy_key_needs_no_secret_and_shows_the_replacement() -> None:
+    lobby = a_signed_in_lobby()
+    draft_id = draft_id_of(lobby.get(NEW).text)
+    the_created_page(lobby, create_ssh_source(lobby, key_draft_id=draft_id))
+    first = _deploy_public_key_of(lobby.get(f"{SOURCES}/talks").text)
+
+    renewed = lobby.post(ACCESS.format(name="talks"), data={})
+
+    assert renewed.status_code == HTTPStatus.SEE_OTHER
+    replacement = lobby.get(renewed.headers["location"]).text
+    assert ENGLISH.source_access_deploy_key in replacement
+    assert ENGLISH.source_public_key in replacement
+    assert ENGLISH.source_deploy_key_renew in replacement
+    assert _deploy_public_key_of(replacement) != first
+    assert 'type="password"' not in replacement
 
 
 def test_renewing_the_access_secret_is_refused_for_a_source_on_this_box() -> None:

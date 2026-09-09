@@ -10,6 +10,9 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -71,6 +74,13 @@ _UNATTENDED: Final = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_NOSYSTEM": "1",
 }
+# A deploy key's private half lives on disk only for the length of one fetch
+# (ADR 0013): a 0700 directory holding one 0600 file, removed in a `finally`
+# whatever the fetch did.
+_SSH_KEY_DIRECTORY_MODE: Final = 0o700
+_SSH_KEY_FILE_MODE: Final = 0o600
+_SSH_KEY_FILE_NAME: Final = "id_ed25519"
+_KNOWN_HOSTS_FILE_NAME: Final = "known_hosts"
 # git prints exactly what the format asks for, so the commit and the time of
 # one change arrive on a single line with this between them.
 _LAST_CHANGE: Final = "--format=%H %cI"
@@ -99,6 +109,8 @@ _REFUSED_WORDS: Final = (
     "authentication failed",
     "invalid username or token",
     "returned error: 401",
+    # ssh's own words for a deploy key the far end no longer accepts.
+    "permission denied (publickey)",
 )
 # git's own words for a host that never answered at all — no TCP connection,
 # no DNS name, no reply before the timeout above already caught it.
@@ -132,7 +144,8 @@ class GitMirror:
         secret = self.credentials.resolve(self.source.credential)
         if secret is None:
             return _CREDENTIAL_UNRESOLVABLE
-        _reject_unsafe_secret(secret)
+        if not is_ssh_remote(self.source.url):
+            _reject_unsafe_secret(secret)
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -183,23 +196,28 @@ class GitMirror:
         # The URL is the one argument that may carry a user name, so this is the
         # only call that never turns its command line into an error message.
         try:
-            pulled = subprocess.run(
-                [
-                    _git_executable(),
-                    *credential_arguments(secret),
-                    "--git-dir",
-                    str(self.directory),
-                    "fetch",
-                    "--no-tags",
-                    "--",
-                    self.source.url,
-                    f"+refs/heads/{ref}:refs/heads/{ref}",
-                ],
-                capture_output=True,
-                check=False,
-                env=unattended_environment(secret),
-                timeout=self.pull_timeout.total_seconds(),
-            )
+            with _credentials(self.source.url, secret) as (credential, ssh_key):
+                pulled = subprocess.run(
+                    [
+                        _git_executable(),
+                        *credential_arguments(credential),
+                        "--git-dir",
+                        str(self.directory),
+                        "fetch",
+                        "--no-tags",
+                        "--",
+                        self.source.url,
+                        f"+refs/heads/{ref}:refs/heads/{ref}",
+                    ],
+                    capture_output=True,
+                    check=False,
+                    env=unattended_environment(
+                        credential,
+                        ssh_key=ssh_key,
+                        known_hosts=self.directory.parent / _KNOWN_HOSTS_FILE_NAME,
+                    ),
+                    timeout=self.pull_timeout.total_seconds(),
+                )
         except subprocess.TimeoutExpired:
             # A remote nobody can reach must not hold the page that asked for it.
             return _UNREACHABLE
@@ -241,6 +259,7 @@ def check_connection(
     ref: str,
     secret: str | None,
     timeout: timedelta,
+    known_hosts: Path | None = None,
 ) -> ConnectionCheck:
     """Ask the remote for one ref's head, without ever writing a mirror to disk.
 
@@ -248,27 +267,32 @@ def check_connection(
     repository before Add source stores anything, through the same
     credential helper, environment, and classifier `_pull` uses.
     """
-    if secret is not None:
+    if secret is not None and not is_ssh_remote(url):
         try:
             _reject_unsafe_secret(secret)
         except InvalidCredentialError:
             return _REFUSED_CHECK
     try:
-        probed = subprocess.run(
-            [
-                _git_executable(),
-                *credential_arguments(secret),
-                "ls-remote",
-                "--exit-code",
-                "--",
-                url,
-                f"refs/heads/{ref}",
-            ],
-            capture_output=True,
-            check=False,
-            env=unattended_environment(secret),
-            timeout=timeout.total_seconds(),
-        )
+        with _credentials(url, secret) as (credential, ssh_key):
+            probed = subprocess.run(
+                [
+                    _git_executable(),
+                    *credential_arguments(credential),
+                    "ls-remote",
+                    "--exit-code",
+                    "--",
+                    url,
+                    f"refs/heads/{ref}",
+                ],
+                capture_output=True,
+                check=False,
+                env=unattended_environment(
+                    credential,
+                    ssh_key=ssh_key,
+                    known_hosts=known_hosts,
+                ),
+                timeout=timeout.total_seconds(),
+            )
     except subprocess.TimeoutExpired:
         return _UNREACHABLE_CHECK
     if probed.returncode != 0:
@@ -304,11 +328,81 @@ def credential_arguments(secret: str | None) -> tuple[str, ...]:
     return (*cleared, "-c", f"credential.helper={_CREDENTIAL_HELPER}")
 
 
-def unattended_environment(secret: str | None) -> dict[str, str]:
-    """The whole environment git runs in, with the secret only when there is one."""
+def unattended_environment(
+    secret: str | None,
+    *,
+    ssh_key: Path | None = None,
+    known_hosts: Path | None = None,
+) -> dict[str, str]:
+    """The whole environment git runs in, with the secret only when there is one.
+
+    An ssh key file overrides `GIT_SSH_COMMAND` to name it, so a deploy-key
+    fetch authenticates through that file rather than through any identity
+    the machine's own `ssh` would otherwise offer.
+    """
     inherited = {name: os.environ[name] for name in _INHERITED if name in os.environ}
     carried = {} if secret is None else {_CREDENTIAL_VARIABLE: secret}
-    return {**inherited, **_UNATTENDED, **carried}
+    environment = {**inherited, **_UNATTENDED, **carried}
+    if ssh_key is not None and known_hosts is not None:
+        environment["GIT_SSH_COMMAND"] = _ssh_command(ssh_key, known_hosts)
+    return environment
+
+
+def is_ssh_remote(url: str) -> bool:
+    """Whether this git remote is reached over ssh: `ssh://` or the scp form."""
+    return url.startswith("ssh://") or ("://" not in url and "@" in url)
+
+
+def _ssh_command(key: Path, known_hosts: Path) -> str:
+    """The `ssh` git is told to run: this key alone, host key pinned on first use."""
+    return (
+        f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes "
+        f"-o ConnectTimeout={_SSH_CONNECT_SECONDS} -o StrictHostKeyChecking=accept-new "
+        f"-o UserKnownHostsFile={known_hosts}"
+    )
+
+
+@contextmanager
+def _credentials(
+    url: str,
+    secret: str | None,
+) -> Generator[tuple[str | None, Path | None]]:
+    """The secret to hand git's credential helper, and an ssh key file when needed.
+
+    An ssh remote authenticates through the key file alone, never through the
+    helper, so the secret travels as a file rather than as the environment
+    value the helper would otherwise read.
+    """
+    if secret is not None and is_ssh_remote(url):
+        with _ssh_key_file(secret) as key:
+            yield None, key
+    else:
+        yield secret, None
+
+
+@contextmanager
+def _ssh_key_file(secret: str) -> Generator[Path]:
+    """A deploy key's private half, written for the length of one fetch (ADR 0013).
+
+    A 0700 directory holding one 0600 file, both gone in the `finally`
+    whatever the fetch did with them.
+    """
+    directory: Path | None = None
+    try:
+        directory = Path(tempfile.mkdtemp(prefix="gitmirror-deploy-key-"))
+        directory.chmod(_SSH_KEY_DIRECTORY_MODE)
+        key = directory / _SSH_KEY_FILE_NAME
+        descriptor = os.open(
+            key,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            _SSH_KEY_FILE_MODE,
+        )
+        with os.fdopen(descriptor, "w") as key_file:
+            key_file.write(secret)
+        yield key
+    finally:
+        if directory is not None:
+            shutil.rmtree(directory)
 
 
 def _reject_unsafe_secret(secret: str) -> None:

@@ -39,6 +39,7 @@ from presentator.adapters.decks import (
     SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
+    SqliteSourceKeyDrafts,
     SqliteSourceRunStore,
     SqliteSourceStore,
     create_deck_tables,
@@ -141,6 +142,11 @@ def build_instance(settings: Settings) -> Instance:
         identifiers=identifiers,
         box=box,
     )
+    key_drafts = SqliteSourceKeyDrafts(
+        database=settings.database,
+        identifiers=identifiers,
+        box=box,
+    )
     source_timeout = timedelta(seconds=settings.source_timeout_seconds)
     # The one mounted directory a file-kind source's address may resolve
     # under, real filesystem and all: shared by every use, since a symlink or
@@ -155,6 +161,7 @@ def build_instance(settings: Settings) -> Instance:
     build_bound = timedelta(seconds=settings.build_timeout_seconds)
     decks = Decks(
         sources=sources,
+        key_drafts=key_drafts,
         folders=MirroredDeckFolders(mirrors=mirrors),
         store=SqliteDeckStore(database=settings.database),
         builder=SlidevBuilds(
@@ -169,6 +176,7 @@ def build_instance(settings: Settings) -> Instance:
         checker=MirroredConnectionChecker(
             check_timeout=source_timeout,
             local_mount=local_mount,
+            known_hosts=settings.mirrors / "known_hosts",
         ),
         toolchain_themes=PackageJsonThemes(project=settings.toolchain),
         # One toolchain step's bound, which is what the refresh needs: it never
