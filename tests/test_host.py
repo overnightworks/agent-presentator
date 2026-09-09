@@ -36,6 +36,7 @@ from presentator.host.config import (
     load_settings,
 )
 from presentator.host.main import Instance
+from tests.api.lobby import A_BROWSERS_HEADERS
 from tests.conftest import (
     EXAMPLE_SLUG,
     EXAMPLE_TITLE,
@@ -131,12 +132,16 @@ def a_real_instance() -> Instance:
 
 def a_real_lobby() -> TestClient:
     """A browser at that stack."""
-    return TestClient(a_real_instance().lobby, follow_redirects=False)
+    return TestClient(
+        a_real_instance().lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+    )
 
 
 def signed_in(instance: Instance) -> TestClient:
     """A browser at that stack with the instance's admin created and signed in."""
-    client = TestClient(instance.lobby, follow_redirects=False)
+    client = TestClient(
+        instance.lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+    )
     client.post(
         "/setup",
         data={
@@ -171,7 +176,12 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
 def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
     """A browser whose ASGI peer is an address, so a proxy list can trust it."""
-    return TestClient(instance.lobby, follow_redirects=False, client=(peer, 50000))
+    return TestClient(
+        instance.lobby,
+        follow_redirects=False,
+        client=(peer, 50000),
+        headers=A_BROWSERS_HEADERS,
+    )
 
 
 def an_admin_signed_out(instance: Instance) -> TestClient:
@@ -197,24 +207,6 @@ def spend_the_address_budget(lobby: TestClient, *, forwarded: str) -> None:
             data={"username": f"nobody-{index}", "password": _WRONG_WORDS},
             headers={"x-forwarded-for": forwarded},
         )
-
-
-def post_from_the_tunnel(lobby: TestClient) -> Response:
-    """First start as the tunnel's browser: https Origin on an http connection."""
-    host = str(lobby.base_url).removeprefix("http://").rstrip("/")
-    return lobby.post(
-        "/setup",
-        data={
-            "username": _PERSON,
-            "password": _TYPED_WORDS,
-            "repeated_password": _TYPED_WORDS,
-        },
-        headers={
-            "origin": f"https://{host}",
-            "sec-fetch-site": "same-origin",
-            "x-forwarded-proto": "https",
-        },
-    )
 
 
 @pytest.mark.usefixtures("environment")
@@ -358,17 +350,6 @@ def a_container_run(
     with_the_program(environment, tmp_path, "docker", docker)
 
 
-def test_a_https_origin_behind_the_tunnel_is_accepted_only_from_a_trusted_proxy(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    refused = post_from_the_tunnel(a_browser(a_real_instance()))
-    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
-    accepted = post_from_the_tunnel(a_browser(a_real_instance()))
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert accepted.status_code == HTTPStatus.SEE_OTHER
-
-
 @pytest.mark.usefixtures("environment")
 def test_the_real_stack_signs_a_person_in_and_out_and_keeps_the_password_quiet(
     caplog: pytest.LogCaptureFixture,
@@ -450,7 +431,9 @@ def a_signed_in_instance() -> TestClient:
 
 def logged_in(instance: Instance) -> TestClient:
     """A browser at that stack, signed in as the account it already carries."""
-    client = TestClient(instance.lobby, follow_redirects=False)
+    client = TestClient(
+        instance.lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+    )
     client.post("/login", data={"username": _PERSON, "password": _TYPED_WORDS})
     return client
 

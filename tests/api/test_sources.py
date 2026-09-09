@@ -36,6 +36,7 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role
 from tests.api.lobby import (
+    A_BROWSERS_HEADERS,
     ADMIN,
     ENGLISH,
     NEIGHBOUR,
@@ -394,7 +395,7 @@ def test_fetch_now_from_another_site_is_refused(instance: Lobby) -> None:
     refused = fetch(
         instance.client,
         "decks",
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -407,9 +408,12 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     posting = fetch(lobby.client, "decks")
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login"
+    assert reading.headers["location"] == "/login?next=%2Fsettings%2Fsources"
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == "/login"
+    assert (
+        posting.headers["location"]
+        == "/login?next=%2Fsettings%2Fsources%2Fdecks%2Ffetch"
+    )
 
 
 def check_source(
@@ -479,18 +483,24 @@ def the_created_page(client: TestClient, created: Response) -> Response:
     return client.get(created.headers["location"])
 
 
-def two_admin_sessions() -> tuple[TestClient, TestClient]:
-    """Two admin sessions over one app, each with its own cookie jar."""
+def two_admin_sessions(
+    *,
+    other_username: str = NEIGHBOUR,
+) -> tuple[TestClient, TestClient]:
+    """Two browser sessions over one app, each with its own cookie jar."""
+    accounts = [an_account(USERNAME, role=Role.ADMIN)]
+    if other_username != USERNAME:
+        accounts.append(an_account(other_username, role=Role.ADMIN))
     app, _ = a_lobby_app(
-        users=a_user_store(
-            an_account(USERNAME, role=Role.ADMIN),
-            an_account(NEIGHBOUR, role=Role.ADMIN),
-        ),
+        users=a_user_store(*accounts),
     )
-    creator = TestClient(app, follow_redirects=False)
-    other = TestClient(app, follow_redirects=False)
+    creator = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
+    other = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
     creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
-    other.post("/login", data={"username": NEIGHBOUR, "password": TYPED_WORDS})
+    other.post(
+        "/login",
+        data={"username": other_username, "password": TYPED_WORDS},
+    )
     return creator, other
 
 
@@ -618,6 +628,16 @@ def test_opening_add_twice_keeps_the_same_draft_key() -> None:
     assert first == second
 
 
+def test_two_sessions_for_one_admin_see_the_same_draft_key() -> None:
+    first, second = two_admin_sessions(other_username=USERNAME)
+
+    first_page = first.get(NEW).text
+    second_page = second.get(NEW).text
+
+    assert draft_id_of(first_page) == draft_id_of(second_page)
+    assert _deploy_public_key_of(first_page) == _deploy_public_key_of(second_page)
+
+
 def create_ssh_source(
     client: TestClient,
     *,
@@ -657,6 +677,43 @@ def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
     assert created.status_code == HTTPStatus.SEE_OTHER
     reopened = draft_id_of(client.get(NEW).text)
     assert reopened != draft_id
+
+
+def test_a_cross_site_ssh_create_keeps_its_checked_draft_for_same_site_create() -> None:
+    client = a_signed_in_lobby()
+    draft_id = draft_id_of(client.get(NEW).text)
+    checked = client.post(
+        CHECK,
+        data={
+            "name": "talks",
+            "url": _ADDRESS,
+            "access": "ssh",
+            "secret": "",
+            "key_draft_id": draft_id,
+        },
+    )
+    assert checked.status_code == HTTPStatus.OK
+    creation = {
+        "name": "talks",
+        "url": _ADDRESS,
+        "access": "ssh",
+        "key_draft_id": draft_id,
+        "fingerprint": fingerprint_of(checked),
+    }
+
+    refused = client.post(
+        NEW,
+        data=creation,
+        headers={"origin": "https://another.example", "sec-fetch-site": "cross-site"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert f'href="{SOURCES}/talks"' not in client.get(SOURCES).text
+    assert draft_id_of(client.get(NEW).text) == draft_id
+
+    created = client.post(NEW, data=creation)
+
+    assert created.status_code == HTTPStatus.SEE_OTHER
 
 
 def test_a_foreign_draft_id_is_refused_with_a_freshly_minted_draft() -> None:
@@ -791,7 +848,7 @@ def test_check_connection_from_another_site_is_refused() -> None:
 
     refused = check_source(
         lobby,
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -1054,7 +1111,7 @@ def test_add_source_from_another_site_is_refused() -> None:
             "access": "https",
             "secret": _READ_ONLY,
         },
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -1067,9 +1124,9 @@ def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
     posting = create_source(lobby.client)
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login"
+    assert reading.headers["location"] == "/login?next=%2Fsettings%2Fsources%2Fnew"
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == "/login"
+    assert posting.headers["location"] == "/login?next=%2Fsettings%2Fsources%2Fnew"
 
 
 def a_deck_from(source: Source) -> Deck:
@@ -1377,7 +1434,7 @@ def test_source_page_posts_from_another_site_are_refused(
     refused = instance.client.post(
         path,
         data={"secret": _READ_ONLY, "stay": "page"},
-        headers={"origin": "https://another.example"},
+        headers={"sec-fetch-site": "cross-site"},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -1599,7 +1656,10 @@ def test_removal_posts_from_another_site_are_refused(
     instance: Lobby,
     step: str,
 ) -> None:
-    headers = {"origin": "https://another.example"}
+    headers = {
+        "origin": "https://another.example",
+        "sec-fetch-site": "cross-site",
+    }
 
     refused = (
         ask_removal(instance.client, "decks", headers=headers)

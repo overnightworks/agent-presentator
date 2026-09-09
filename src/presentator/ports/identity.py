@@ -1,8 +1,9 @@
 """The capabilities the login calls out through; adapters fill them.
 
-The stores, hasher, and cookie signer are this product's implementations of
-the `webauth` ports (ADR 0003). First start and the first admin stay here
-until `webauth[users]` ships them.
+The stores and the hasher are this product's implementations of the
+`webauth` ports (ADR 0003); the session cookie is the library's own (issue
+#105). First start and the first admin stay here until `webauth[users]`
+ships them.
 """
 
 from abc import abstractmethod
@@ -126,18 +127,6 @@ class IdentifierFactory(Protocol):
     @abstractmethod
     def new_id(self) -> str:
         """A user id is minted here."""
-
-
-class SessionCookieSigner(Protocol):
-    """A cookie is a signed session id, so a tampered one dies before the store."""
-
-    @abstractmethod
-    def sign(self, session_id: str) -> str:
-        """Turn a session id into the value the browser carries."""
-
-    @abstractmethod
-    def session_id_from(self, cookie_value: str) -> str | None:
-        """Return the signed id, or nothing when the value was not signed here."""
 
 
 class SessionLiveness(Protocol):

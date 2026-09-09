@@ -2,7 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, see below
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07 and 2026-09-08, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -61,6 +61,29 @@ User management (Settings · Users, password change, admin reset, deactivation)
 is not in this slice. It waits on `webauth` v0.3.0 and
 [#61](https://github.com/overnightworks/agent-presentator/issues/61).
 
+### Amendment 2026-09-08 — webauth v0.3.1 owns the public refusal and fail-closed guard
+
+Authority: [#105](https://github.com/overnightworks/agent-presentator/issues/105)
+(slice 13c of [#8](https://github.com/overnightworks/agent-presentator/issues/8)),
+independent-review findings on the same item.
+
+`webauth` v0.3.1 is pinned from its release wheel. It signs, sets, and clears
+the session cookie through `issue_session_cookies` / `clear_session_cookies`;
+`cookie_samesite` on `WebAuthConfig` (`"lax"`) is the flag they read, and
+`Secure` follows the connection the library sees. `Identity.open_session`
+hands out the raw session id, and `Identity.signed_in_user` remains the only
+authority that decides whether that id names a person.
+
+`CsrfOriginMiddleware` receives a `CsrfPolicy` with no explicit protected
+paths, so every mutating route is protected automatically. `/sources/` is its
+only exemption because its POST webhook authenticates with its own secret and
+has no session. The whole-app guard calls the library's public
+`unauthenticated_response(request, LoginRedirect(...))`: a browser navigation
+gets `/login` with its requested path and query in `next`, while a JSON request
+gets 401. It does not construct a session-store or audit stand-in merely to
+obtain that answer. `webauth.middleware` and `webauth.dependencies` are no
+longer banned APIs; `webauth.passwords` remains one.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as
@@ -106,13 +129,10 @@ From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
-is implemented here at all — see below. `AuditSink`, `BodySizePolicy`, and
-`SecurityHeadersPolicy` are taken with their defaults and stubbed until
-something here needs them. `CsrfPolicy` is the one that could not wait: first
-start and login are answered without a cookie, so `SameSite` does not protect
-them, and the bridge refuses a form whose origin is not this instance. That
-check is containment with the same removal path as the rest of the bridge — it
-goes when the library's policy arrives.
+is implemented here at all — see below. `BodySizePolicy`,
+`SecurityHeadersPolicy`, and `AuditSink` are taken with their defaults and
+stubbed until something here needs them. `CsrfPolicy` exempts the sessionless
+webhook prefix; its default protects every mutating path (13c).
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is
