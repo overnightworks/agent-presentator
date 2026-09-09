@@ -107,6 +107,9 @@ class _LockSerializedVoice:
 
     Mirrors production Chatterbox's `with self._lock: yield ...` shape so a
     disconnect regression proves the voice lock is released, not a stand-in.
+    The acquire itself is bounded: if a production regression ever leaves a
+    prior generator holding this lock forever, a later request fails fast
+    with a clear exception instead of hanging the test process.
     """
 
     model_name = "gated-voice"
@@ -124,13 +127,18 @@ class _LockSerializedVoice:
 
     def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
         del text, language
-        with self._lock:
+        if not self._lock.acquire(timeout=_ASGI_TIMEOUT_SECONDS):
+            message = "voice lock still held after the bound: synthesis never released"
+            raise TimeoutError(message)
+        try:
             self.entered_first_step.set()
             self.release_first_step.wait(timeout=_ASGI_TIMEOUT_SECONDS)
             pcm = sine_pcm(0.05, rate=self.sample_rate)
             mid = (len(pcm) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
             yield pcm[:mid]
             yield pcm[mid:]
+        finally:
+            self._lock.release()
 
 
 def _speak_scope() -> dict[str, object]:
