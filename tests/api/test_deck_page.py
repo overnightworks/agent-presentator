@@ -41,7 +41,6 @@ _PAGE: Final = f"/deck/{_SLUG}"
 _PROJECTOR: Final = f"/deck/{_SLUG}/"
 _PRESENTER: Final = f"/deck/{_SLUG}/presenter/"
 _PDF: Final = f"/deck/{_SLUG}/pdf"
-_LOGIN: Final = "/login"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = f'attachment; filename="{_SLUG}.pdf"'
 _ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
@@ -430,11 +429,27 @@ def test_a_deck_whose_build_directory_was_removed_answers_nothing(
 
 
 @pytest.mark.parametrize(
-    "address",
-    [_PAGE, _PROJECTOR, _PRESENTER, f"{_PROJECTOR}index.html", _PDF],
-    ids=["page", "projector", "presenter", "an asset", "the pdf"],
+    ("address", "login_redirect"),
+    [
+        pytest.param(_PAGE, "/login?next=%2Fdeck%2Fhello-deck", id="page"),
+        pytest.param(_PROJECTOR, "/login?next=%2Fdeck%2Fhello-deck%2F", id="projector"),
+        pytest.param(
+            _PRESENTER,
+            "/login?next=%2Fdeck%2Fhello-deck%2Fpresenter%2F",
+            id="presenter",
+        ),
+        pytest.param(
+            f"{_PROJECTOR}index.html",
+            "/login?next=%2Fdeck%2Fhello-deck%2Findex.html",
+            id="an asset",
+        ),
+        pytest.param(_PDF, "/login?next=%2Fdeck%2Fhello-deck%2Fpdf", id="the pdf"),
+    ],
 )
-def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(address: str) -> None:
+def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(
+    address: str,
+    login_redirect: str,
+) -> None:
     signed_out = a_lobby(
         given=GivenDecks(
             store=a_deck_store(built=a_build()),
@@ -445,7 +460,7 @@ def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(address: str) -
     refused = signed_out.client.get(address)
 
     assert refused.status_code == HTTPStatus.FOUND
-    assert refused.headers["location"] == _LOGIN
+    assert refused.headers["location"] == login_redirect
     assert _TITLE not in refused.text
 
 

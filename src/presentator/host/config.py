@@ -94,7 +94,6 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     source_poll_seconds: float = 300.0
     # A pull that hangs would hold the tick it runs on, so it is bounded.
     source_timeout_seconds: float = 20.0
-    https: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
     # Empty: the login budget keys on the ASGI peer. A list is the peers whose

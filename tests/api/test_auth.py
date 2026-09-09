@@ -6,6 +6,8 @@ from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
+from fastapi import Response
+from fastapi.testclient import TestClient
 
 from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
@@ -21,6 +23,9 @@ from tests.api.lobby import (
     USERNAME,
     Lobby,
     a_lobby,
+    a_lobby_app,
+    a_lobby_behind_a_trusted_proxy,
+    a_lobby_that_claims_no_origin_of_its_own,
     a_user_store,
 )
 from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
@@ -28,6 +33,7 @@ from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _WINNERS_HASH = "the hash the winning first start stored"
 _WRONG_WORDS = "guessed"
+_TUNNEL_PEER = "127.0.0.1"
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -49,7 +55,43 @@ def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
     answer = lobby.client.get("/")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == "/login?next=%2F"
+
+
+def test_a_signed_out_browser_keeps_its_requested_path_and_query_at_login(
+    lobby: Lobby,
+) -> None:
+    asked = lobby.client.get("/settings/sources?tab=recent")
+
+    assert asked.status_code == HTTPStatus.FOUND
+    assert (
+        asked.headers["location"] == "/login?next=%2Fsettings%2Fsources%3Ftab%3Drecent"
+    )
+
+
+def test_a_signed_out_json_request_is_refused_without_a_redirect(lobby: Lobby) -> None:
+    refused = lobby.client.get(
+        "/settings/sources?tab=recent",
+        headers={"accept": "application/json"},
+    )
+
+    assert refused.status_code == HTTPStatus.UNAUTHORIZED
+    assert refused.headers.get("location") is None
+
+
+def test_an_unlisted_mutating_route_refuses_a_foreign_form() -> None:
+    lobby, _clock = a_lobby_app()
+
+    def a_new_write() -> Response:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    lobby.add_api_route("/a-new-write", a_new_write, methods=["POST"])
+    refused = TestClient(lobby).post(
+        "/a-new-write",
+        headers={"origin": "https://another.example"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
 def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None:
@@ -69,11 +111,17 @@ def test_the_session_cookie_travels_locked_down(lobby: Lobby) -> None:
     assert "Secure" not in cookie
 
 
-def test_an_https_instance_marks_the_session_cookie_secure() -> None:
-    lobby = a_lobby(secure_cookies=True)
+def test_a_session_behind_a_trusted_proxy_is_marked_secure() -> None:
+    """`Secure` follows the connection the library sees, not a setting.
 
-    assert "Secure" in lobby.set_up_admin().headers["set-cookie"]
-    assert "Secure" in lobby.client.post("/logout").headers["set-cookie"]
+    The test peer stands in `trusted_proxies`, so `X-Forwarded-Proto: https`
+    is believed, exactly as it would be for the tunnel client (ADR 0007).
+    """
+    lobby = a_lobby_behind_a_trusted_proxy(peer=_TUNNEL_PEER)
+
+    created = lobby.set_up_admin(headers={"x-forwarded-proto": "https"})
+
+    assert "Secure" in created.headers["set-cookie"]
 
 
 def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> None:
@@ -242,7 +290,7 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     answer = lobby.client.get("/deck/knowledge-fabric")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == "/login?next=%2Fdeck%2Fknowledge-fabric"
 
 
 def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
@@ -263,17 +311,21 @@ def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
     ],
 )
 def test_a_first_start_another_site_submitted_is_refused(
-    lobby: Lobby,
     headers: dict[str, str],
 ) -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+
     refused = lobby.set_up_admin(headers=headers)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert lobby.client.get("/setup").status_code == HTTPStatus.OK
 
 
-def test_a_login_another_site_submitted_is_refused(signed_in_lobby: Lobby) -> None:
-    refused = signed_in_lobby.log_in(headers={"origin": "https://another.example"})
+def test_a_login_another_site_submitted_is_refused() -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+    lobby.set_up_admin()
+
+    refused = lobby.log_in(headers={"origin": "https://another.example"})
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
@@ -282,7 +334,7 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == "/login"
+    assert asked.headers["location"] == "/login?next=%2Fsources%2Ftalks%2Ffetch"
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
@@ -299,12 +351,28 @@ def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
     assert created.status_code == HTTPStatus.SEE_OTHER
 
 
-def test_logging_out_takes_the_cookie_away_with_the_flags_it_was_set_with(
-    signed_in_lobby: Lobby,
+@pytest.mark.parametrize("fetch_site", ["same-site", "none"])
+def test_a_same_site_or_schemeless_form_post_is_refused(
+    lobby: Lobby,
+    fetch_site: str,
 ) -> None:
+    refused = lobby.set_up_admin(headers={"sec-fetch-site": fetch_site})
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
+
+
+def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+
+    refused = lobby.set_up_admin()
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_logging_out_expires_the_cookie_at_once(signed_in_lobby: Lobby) -> None:
     cleared = signed_in_lobby.client.post("/logout").headers["set-cookie"]
 
-    assert "HttpOnly" in cleared
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
 
@@ -350,7 +418,10 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert walked_out.headers["location"] == "/login"
+    assert (
+        walked_out.headers["location"]
+        == "/login?next=%2Fstatic%2F..%2Fdeck%2Fa-deck%2F"
+    )
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(

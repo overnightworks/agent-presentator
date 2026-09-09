@@ -16,8 +16,18 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
-from webauth.login import LoginOutcome, judge_credentials, login_attempt_budget
-from webauth.proxies import client_user_agent, request_is_https, resolve_client_ip
+from webauth.cookies import verify_session_cookie
+from webauth.dependencies import LoginRedirect, unauthenticated_response
+from webauth.login import (
+    LoginOutcome,
+    clear_session_cookies,
+    issue_session_cookies,
+    judge_credentials,
+    login_attempt_budget,
+)
+from webauth.middleware.csrf import CsrfOriginMiddleware
+from webauth.policies import CsrfPolicy, PathRules
+from webauth.proxies import client_user_agent, resolve_client_ip
 
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
@@ -25,7 +35,7 @@ from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import Identity
 from presentator.contracts.models import Account, FirstStartClosedError
 from presentator.contracts.text import LobbyText
 
@@ -65,7 +75,10 @@ _SETUP: Final = "/setup"
 # stylesheet has to render the login and setup pages themselves, so it is
 # public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
-_SAME_SITE_FETCHES: Final = frozenset({"same-origin", "same-site", "none"})
+_CSRF_POLICY: Final = CsrfPolicy(
+    exempt=PathRules(prefixes=(HOOK_CALLS,)),
+)
+_LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
 
 
 async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -86,21 +99,20 @@ def _is_a_stylesheet(path: str) -> bool:
     )
 
 
-def _comes_from_elsewhere(request: Request) -> bool:
-    origin = request.headers.get("origin")
-    if origin is not None:
-        scheme = "https" if request_is_https(request) else "http"
-        return origin != f"{scheme}://{request.url.netloc}"
-    fetch_site = request.headers.get("sec-fetch-site")
-    return fetch_site is not None and fetch_site not in _SAME_SITE_FETCHES
+def _session_id_from_cookie(request: Request) -> str:
+    """The raw session id a signed cookie names, or "" for none or a forged one."""
+    cookie_value = request.cookies.get(SESSION_COOKIE, "")
+    if not cookie_value:
+        return ""
+    signing_key = web_auth_config(request).signing_key
+    return verify_session_cookie(cookie_value, signing_key) or ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class InstalledAuth:
-    """The library configuration and the cookie flags this host chose."""
+    """The library configuration this host runs the lobby with."""
 
     config: WebAuthConfig
-    secure_cookies: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -121,24 +133,6 @@ class _Surfaces:
     identity: Identity
     decks: Decks
     pages: Pages
-    secure_cookies: bool
-
-    async def same_origin_only(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        """Refuse a form another site submitted.
-
-        `webauth.middleware.csrf.CsrfOriginMiddleware` checks Origin against a
-        host allowlist and does not read Sec-Fetch-Site, so a cross-site POST
-        this instance's own Origin header could not describe would pass it.
-        The ruled refusal is Origin and Sec-Fetch-Site against this request's
-        own origin (issue #8), which is what this guard still does.
-        """
-        if self._is_a_foreign_form(request):
-            return Response(status_code=HTTPStatus.FORBIDDEN)
-        return await call_next(request)
 
     async def only_signed_in(
         self,
@@ -154,28 +148,22 @@ class _Surfaces:
         ):
             request.state.signed_in_person = None
             return await call_next(request)
-        cookie_value = request.cookies.get(SESSION_COOKIE, "")
+        session_id = _session_id_from_cookie(request)
         person = self.identity.signed_in_user(
-            cookie_value,
+            session_id,
             ip_address=resolve_client_ip(request),
             user_agent=client_user_agent(request),
         )
         if person is None:
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
+            return unauthenticated_response(request, _LOGIN_REDIRECT)
         request.state.signed_in_person = person
-        request.state.signed_in_session_id = self.identity.cookies.session_id_from(
-            cookie_value
-        )
+        request.state.signed_in_session_id = session_id
         answer = await call_next(request)
-        self._carry_session(answer, cookie_value)
+        # Every authenticated answer re-signs and re-sets the cookie, so an
+        # active talk's idle window keeps sliding on the browser's own copy
+        # too, not only in the session row the store holds.
+        issue_session_cookies(answer, request, session_id, web_auth_config(request))
         return answer
-
-    def _is_a_foreign_form(self, request: Request) -> bool:
-        if request.method != HTTPMethod.POST:
-            return False
-        if self._is_a_call_from_a_source_host(request):
-            return False
-        return _comes_from_elsewhere(request)
 
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
         """Whether this is the sessionless, cross-origin POST the hook is for.
@@ -243,6 +231,7 @@ class _Surfaces:
             self.identity.note_failed_login(ip_address=ip_address, username=username)
             return self._login(request, refused=True)
         return self._signed_in(
+            request,
             self.identity.open_session(
                 account.as_user(),
                 ip_address=ip_address,
@@ -252,14 +241,9 @@ class _Surfaces:
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
-        self.identity.log_out(request.cookies.get(SESSION_COOKIE, ""))
+        self.identity.log_out(_session_id_from_cookie(request))
         answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
-        answer.delete_cookie(
-            SESSION_COOKIE,
-            httponly=True,
-            samesite="lax",
-            secure=self.secure_cookies,
-        )
+        clear_session_cookies(answer, web_auth_config(request))
         return answer
 
     def setup_page(self, request: Request) -> Response:
@@ -281,7 +265,7 @@ class _Surfaces:
         if password != repeated_password:
             return self._setup(request, mismatch=True)
         try:
-            cookie_value = self.identity.create_first_admin(
+            session_id = self.identity.create_first_admin(
                 username=username,
                 password=password,
                 ip_address=resolve_client_ip(request),
@@ -290,7 +274,7 @@ class _Surfaces:
         except FirstStartClosedError:
             # Another first start won the race between the count and the write.
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._signed_in(cookie_value)
+        return self._signed_in(request, session_id)
 
     def _login(self, request: Request, *, refused: bool) -> Response:
         return self.pages.page(request, "login.html", refused=refused)
@@ -298,20 +282,10 @@ class _Surfaces:
     def _setup(self, request: Request, *, mismatch: bool) -> Response:
         return self.pages.page(request, "setup.html", mismatch=mismatch)
 
-    def _signed_in(self, cookie_value: str) -> Response:
+    def _signed_in(self, request: Request, session_id: str) -> Response:
         answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
-        self._carry_session(answer, cookie_value)
+        issue_session_cookies(answer, request, session_id, web_auth_config(request))
         return answer
-
-    def _carry_session(self, answer: Response, cookie_value: str) -> None:
-        answer.set_cookie(
-            SESSION_COOKIE,
-            cookie_value,
-            max_age=int(IDLE_WINDOW.total_seconds()),
-            httponly=True,
-            samesite="lax",
-            secure=self.secure_cookies,
-        )
 
 
 def create_lobby(
@@ -327,18 +301,13 @@ def create_lobby(
     stored source and its secret is answered alike, and GET stays behind the
     session.
     """
-    surfaces = _Surfaces(
-        identity=identity,
-        decks=decks,
-        pages=pages,
-        secure_cookies=auth.secure_cookies,
-    )
+    surfaces = _Surfaces(identity=identity, decks=decks, pages=pages)
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.same_origin_only)
+    lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
