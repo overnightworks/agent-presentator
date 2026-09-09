@@ -167,6 +167,11 @@ UPDATE sources
 SET encrypted_secret = ?, credential_reference = NULL
 WHERE id = ?
 """
+_PUT_DEPLOY_KEY: Final = """
+UPDATE sources
+SET encrypted_secret = ?, ssh_public_key = ?, credential_reference = NULL
+WHERE id = ?
+"""
 _PUT_HOOK_HASH: Final = "UPDATE sources SET hook_secret_hash = ? WHERE name = ?"
 _ONE_ROW: Final = 1
 # What a pull needs and nothing else: the ciphertext this instance can open.
@@ -469,6 +474,17 @@ class SqliteSourceStore:
         """
         with rows(self.database) as cursor:
             cursor.execute(_PUT_ENCRYPTED_VALUE, (self.box.encrypt(secret), source_id))
+
+    def renew_deploy_key(self, source_id: str) -> bool:
+        """Replace one source's generated pair without touching its Add draft."""
+        pair = generate_deploy_key()
+        encrypted_private_key = self.box.encrypt(pair.private_key)
+        with rows(self.database) as cursor:
+            written = cursor.execute(
+                _PUT_DEPLOY_KEY,
+                (encrypted_private_key, pair.public_key, source_id),
+            )
+        return written.rowcount == _ONE_ROW
 
     def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
         """Replace that source's webhook-secret hash, or nothing when it is missing."""

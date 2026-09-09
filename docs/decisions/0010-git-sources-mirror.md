@@ -3,9 +3,9 @@
 Audience: humans and agents adding a deck source, or building the second caller
 of this package.
 
-- Status: ACCEPTED 2026-09-06 — `src/gitmirror` exists and mirrors one source,
-  which the server polls and a hook can hurry; secret rotation and the fetch log
-  are still open
+- Status: ACCEPTED 2026-09-06 — `src/gitmirror` mirrors one source, which the
+  server polls and a hook can hurry; the host owns credential storage and
+  rotation
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -42,18 +42,17 @@ as `agent_providers` and `webauth` are ([ADR 0003](0003-libraries-for-models-and
 
 It owns:
 
-- **A source as configuration** — a git URL plus a reference to one read-only
-  credential. Either a deploy key this server generates, whose private half
-  never leaves the server, or an HTTPS token the operator pastes, stored
-  encrypted and never shown again. Any git remote qualifies; no hosting product
-  is the default.
+- **A source as configuration** — a git URL, ref, and optional read-only
+  credential reference. It asks the host to resolve that reference at fetch
+  time; it does not store, generate, or rotate a credential. Any git remote
+  qualifies; no hosting product is the default.
 - **Pull-based mirroring** — polling on an interval, plus a generic "fetch now"
   webhook carrying its own per-source secret. That endpoint reads no payload
   from its caller, which is what makes it host-neutral: the same URL works from
   a hosted service, a self-hosted one, or a `post-receive` hook on a bare
   repository. The mirror never writes back.
-- **A "commit arrived" event**, a connection check, secret rotation, a fetch
-  log, and an owner per source from day one.
+- **A "commit arrived" event** and a connection check. Source ownership,
+  credential storage and rotation, and the fetch log belong to the caller.
 
 It does not own building. Turning a mirrored folder into a presentable deck is
 this product's job ([ADR 0005](0005-deck-folder-and-slidev.md)), and the deck
@@ -95,8 +94,8 @@ that ignores the known second caller is a rewrite:
 3. Every source has an owner.
 4. The connection check returns a typed result — `ready`,
    `credential-unresolvable`, or `unreachable` — never a string to be parsed.
-5. Secrets appear only as references, per atelier-2 ADR 0017.
-6. A secret rotates without downtime.
+5. Credentials reach the library only through a host-resolved reference, per
+   atelier-2 ADR 0017. Storage and rotation remain outside the library.
 
 Neither caller needs a write path. Pushing and opening pull requests stay
 atelier-2's own git-transport concern, and this product never writes back.

@@ -55,6 +55,10 @@ class SourceStore(Protocol):
         """
 
     @abstractmethod
+    def renew_deploy_key(self, source_id: str) -> bool:
+        """Replace one source's generated deploy key, if its row still exists."""
+
+    @abstractmethod
     def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
         """Replace that source's webhook-secret hash, or nothing when it is missing."""
 

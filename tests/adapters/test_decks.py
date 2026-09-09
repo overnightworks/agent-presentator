@@ -1,6 +1,7 @@
 """Deck folders read out of a real repository, and deck rows in a real file."""
 
 import logging
+import sqlite3
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -30,7 +31,7 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
-from presentator.adapters.secrets import SecretBox, secret_box
+from presentator.adapters.secrets import DeployKeyPair, SecretBox, secret_box
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
@@ -928,6 +929,187 @@ def test_adding_an_ssh_source_stores_its_public_key_in_clear(tmp_path: Path) -> 
     assert added is not None
     assert added.public_key == _A_PUBLIC_KEY
     assert sources.all()[0].public_key == _A_PUBLIC_KEY
+
+
+def test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    target = sources.add(
+        a_write(name="target", url=_ADDRESS, public_key=_A_PUBLIC_KEY),
+    )
+    neighbour = sources.add(
+        a_write(
+            name="neighbour",
+            url="git@another.example.invalid:talks.git",
+            public_key="ssh-ed25519 AAAAneighbour presentator",
+        ),
+    )
+    assert target is not None
+    assert neighbour is not None
+    draft = a_key_drafts_store(database).mint(_OWNER.id, at=_PUSHED_AT)
+    pair = DeployKeyPair(
+        private_key="-----BEGIN OPENSSH PRIVATE KEY-----\nreplacement",
+        public_key="ssh-ed25519 AAAAreplacement presentator",
+    )
+    monkeypatch.setattr("presentator.adapters.decks.generate_deploy_key", lambda: pair)
+    with rows(database) as cursor:
+        target_before = cursor.execute(
+            "SELECT credential_reference, encrypted_secret, ssh_public_key "
+            "FROM sources WHERE id = ?",
+            (target.id,),
+        ).fetchone()
+        neighbour_before = cursor.execute(
+            "SELECT credential_reference, encrypted_secret, ssh_public_key "
+            "FROM sources WHERE id = ?",
+            (neighbour.id,),
+        ).fetchone()
+        draft_before = cursor.execute(
+            "SELECT public_key, encrypted_private_key FROM source_key_drafts "
+            "WHERE id = ?",
+            (draft.id,),
+        ).fetchone()
+
+    assert sources.renew_deploy_key(target.id)
+
+    with rows(database) as cursor:
+        target_after = cursor.execute(
+            "SELECT credential_reference, encrypted_secret, ssh_public_key "
+            "FROM sources WHERE id = ?",
+            (target.id,),
+        ).fetchone()
+        neighbour_after = cursor.execute(
+            "SELECT credential_reference, encrypted_secret, ssh_public_key "
+            "FROM sources WHERE id = ?",
+            (neighbour.id,),
+        ).fetchone()
+        draft_after = cursor.execute(
+            "SELECT public_key, encrypted_private_key FROM source_key_drafts "
+            "WHERE id = ?",
+            (draft.id,),
+        ).fetchone()
+
+    assert target_before is not None
+    assert target_after is not None
+    assert target_after[0] is None
+    assert target_after[1] != target_before[1]
+    assert pair.private_key.encode() not in target_after[1]
+    assert target_after[2] == pair.public_key
+    assert (
+        a_resolver(database).resolve(CredentialReference(name=target.id))
+        == pair.private_key
+    )
+    assert neighbour_after == neighbour_before
+    assert draft_after == draft_before
+
+
+def test_a_deploy_key_preparation_failure_keeps_every_source_and_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    target = sources.add(
+        a_write(name="target", url=_ADDRESS, public_key=_A_PUBLIC_KEY),
+    )
+    neighbour = sources.add(
+        a_write(
+            name="neighbour",
+            url="git@another.example.invalid:talks.git",
+            public_key="ssh-ed25519 AAAAneighbour presentator",
+        ),
+    )
+    assert target is not None
+    assert neighbour is not None
+    draft = a_key_drafts_store(database).mint(_OWNER.id, at=_PUSHED_AT)
+    with rows(database) as cursor:
+        before = (
+            cursor.execute(
+                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
+                "FROM sources "
+                "ORDER BY id",
+            ).fetchall(),
+            cursor.execute(
+                "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
+            ).fetchall(),
+        )
+    monkeypatch.setattr(
+        "presentator.adapters.decks.generate_deploy_key",
+        lambda: (_ for _ in ()).throw(RuntimeError("key generation failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="key generation failed"):
+        sources.renew_deploy_key(target.id)
+
+    with rows(database) as cursor:
+        after = (
+            cursor.execute(
+                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
+                "FROM sources "
+                "ORDER BY id",
+            ).fetchall(),
+            cursor.execute(
+                "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
+            ).fetchall(),
+        )
+    assert after == before
+    assert draft.id
+
+
+def test_a_deploy_key_update_failure_keeps_every_source_and_draft(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+    sources = a_source_store(database)
+    target = sources.add(
+        a_write(name="target", url=_ADDRESS, public_key=_A_PUBLIC_KEY),
+    )
+    neighbour = sources.add(
+        a_write(
+            name="neighbour",
+            url="git@another.example.invalid:talks.git",
+            public_key="ssh-ed25519 AAAAneighbour presentator",
+        ),
+    )
+    assert target is not None
+    assert neighbour is not None
+    draft = a_key_drafts_store(database).mint(_OWNER.id, at=_PUSHED_AT)
+    with rows(database) as cursor:
+        before = (
+            cursor.execute(
+                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
+                "FROM sources "
+                "ORDER BY id",
+            ).fetchall(),
+            cursor.execute(
+                "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
+            ).fetchall(),
+        )
+    with rows(database) as cursor:
+        cursor.execute(
+            "CREATE TRIGGER reject_deploy_key_replacement "
+            "BEFORE UPDATE OF encrypted_secret, ssh_public_key ON sources "
+            "BEGIN SELECT RAISE(ABORT, 'deploy key write refused'); END",
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="deploy key write refused"):
+        sources.renew_deploy_key(target.id)
+
+    with rows(database) as cursor:
+        after = (
+            cursor.execute(
+                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
+                "FROM sources "
+                "ORDER BY id",
+            ).fetchall(),
+            cursor.execute(
+                "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
+            ).fetchall(),
+        )
+    assert after == before
+    assert draft.id
 
 
 def test_a_minted_draft_is_this_owners_own_and_reused_while_unconsumed(

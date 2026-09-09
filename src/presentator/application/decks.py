@@ -353,17 +353,19 @@ class Decks:
         )
 
     def renew_access(self, name: str, secret: str) -> bool:
-        """Replace that source's access secret. Nothing of the value is returned.
+        """Replace a source's token or generated deploy key.
 
-        A blank value is not stored: the caller shows the form again. A name
-        nobody stored is not a source to renew. A source on this box carries
-        no secret at all, the same rule creation enforces, so renewing one is
-        refused rather than quietly given a credential its own kind refuses.
+        An SSH source needs no input because it gets a new pair immediately.
+        HTTPS still needs a nonblank replacement token. A local or unknown
+        source has no access value this operation can renew.
         """
-        if not secret.strip():
-            return False
         source = self._named(name)
-        if source is None or access_kind_of(source.url) is AccessKind.FILE:
+        if source is None:
+            return False
+        kind = access_kind_of(source.url)
+        if kind is AccessKind.SSH:
+            return self.sources.renew_deploy_key(source.id)
+        if kind is not AccessKind.HTTPS or not secret.strip():
             return False
         self.sources.put_credential(source.id, secret)
         return True

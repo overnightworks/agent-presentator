@@ -361,6 +361,31 @@ class FakeSourceStore:
             for source in self.sources
         ]
 
+    def renew_deploy_key(self, source_id: str) -> bool:
+        source = next(
+            (source for source in self.sources if source.id == source_id), None
+        )
+        if source is None:
+            return False
+        self.minted += 1
+        self.sources = [
+            replace(
+                existing,
+                public_key=(
+                    f"ssh-ed25519 AAAAtestkey{self.minted} presentator"
+                    if existing.id == source_id
+                    else existing.public_key
+                ),
+                secret_location=(
+                    SecretLocation.STORED
+                    if existing.id == source_id
+                    else existing.secret_location
+                ),
+            )
+            for existing in self.sources
+        ]
+        return True
+
     def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
         if not any(source.name == name for source in self.sources):
             return False
@@ -494,6 +519,14 @@ class FakeConnectionChecker:
 
 
 @dataclass
+class ConnectionCheckerThatMustNotRun(FakeConnectionChecker):
+    """Fails a test if an operation unexpectedly probes a remote."""
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        raise AssertionError
+
+
+@dataclass
 class FakeDeckFolders:
     """What each source carries, or nothing where one cannot be read.
 
@@ -535,6 +568,14 @@ class FakeDeckFolders:
             return False
         self.carried.pop(source.id, None)
         return True
+
+
+@dataclass
+class DeckFoldersThatMustNotRun(FakeDeckFolders):
+    """Fails a test if an operation unexpectedly fetches or refreshes a source."""
+
+    def folders(self, source: Source) -> SourcePoll:
+        raise AssertionError
 
 
 @dataclass

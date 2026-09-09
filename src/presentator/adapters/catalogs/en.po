@@ -423,6 +423,15 @@ msgstr ""
 "Stored encrypted and never shown again since entry. Renewing replaces it "
 "with a new one."
 
+msgid "source_deploy_key_info"
+msgstr "Register this public key at the Git host with read access. Renew replaces it immediately on this source."
+
+msgid "source_public_key"
+msgstr "Public key"
+
+msgid "source_deploy_key_renew"
+msgstr "Renew"
+
 msgid "source_run_fetched"
 msgstr "fetched"
 

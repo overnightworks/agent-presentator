@@ -47,6 +47,8 @@ from tests.application.fakes import (
     BUILDS_ROOT,
     LOCAL_MOUNT_EXAMPLE,
     PATIENCE,
+    ConnectionCheckerThatMustNotRun,
+    DeckFoldersThatMustNotRun,
     FakeBuildRunner,
     FakeConnectionChecker,
     FakeDeckFolders,
@@ -77,6 +79,14 @@ def a_source(name: str, *, identifier: str) -> Source:
 
 _SOURCE = a_source("decks", identifier="the-configured-source")
 _ANOTHER_SOURCE = a_source("talks", identifier="a-second-source")
+_HTTPS_SOURCE = Source(
+    id="the-token-source",
+    name="tokens",
+    url="https://git.example.invalid/tokens.git",
+    ref="main",
+    secret_location=None,
+    owner_id=_OWNER,
+)
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT = "a3f19c2"
@@ -1618,20 +1628,38 @@ def test_a_name_this_instance_does_not_have_has_no_source_page() -> None:
 
 
 def test_renewing_the_access_secret_stores_the_new_value() -> None:
-    store = having(_SOURCE)
+    store = having(_HTTPS_SOURCE)
     decks = decks_over(sources=store)
 
-    assert decks.renew_access(_SOURCE.name, "the-new-token")
-    assert store.secrets[_SOURCE.id] == "the-new-token"
+    assert decks.renew_access(_HTTPS_SOURCE.name, "the-new-token")
+    assert store.secrets[_HTTPS_SOURCE.id] == "the-new-token"
     assert store.all()[0].secret_location is SecretLocation.STORED
 
 
 def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
-    store = having(_SOURCE)
+    store = having(_HTTPS_SOURCE)
 
-    assert not decks_over(sources=store).renew_access(_SOURCE.name, "  ")
+    assert not decks_over(sources=store).renew_access(_HTTPS_SOURCE.name, "  ")
     assert store.secrets == {}
     assert store.all()[0].secret_location is None
+
+
+def test_renewing_an_ssh_sources_deploy_key_needs_no_input_or_remote_operation() -> (
+    None
+):
+    store = having(_SOURCE)
+    fakes = DecksFakes(
+        checker=ConnectionCheckerThatMustNotRun(),
+    )
+    decks = decks_over(
+        sources=store,
+        mirror=DeckFoldersThatMustNotRun(),
+        fakes=fakes,
+    )
+
+    assert decks.renew_access(_SOURCE.name, "")
+    assert store.all()[0].public_key != _SOURCE.public_key
+    assert store.secrets == {}
 
 
 def test_renewing_the_webhook_secret_returns_a_new_value_and_replaces_the_hash() -> (

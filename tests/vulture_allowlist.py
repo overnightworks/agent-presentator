@@ -46,6 +46,8 @@ SourceView.address
 SourceView.webhook_secret
 SourceView.webhook_secret_held_elsewhere
 SourceView.carries_no_secret
+SourceView.renews_deploy_key
+SourceView.public_key
 SourceView.runs
 SourceView.decks
 SourceRunRow.state
@@ -122,6 +124,9 @@ LobbyText.source_renew
 LobbyText.source_secret_dots
 LobbyText.source_secret_missing
 LobbyText.source_access_renew_info
+LobbyText.source_deploy_key_info
+LobbyText.source_public_key
+LobbyText.source_deploy_key_renew
 LobbyText.source_run_fetched
 LobbyText.source_run_unreachable
 LobbyText.source_run_secret

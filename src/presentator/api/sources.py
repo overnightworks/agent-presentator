@@ -150,6 +150,9 @@ class SourceView:
     # A source on this box carries no secret at all, so its page offers
     # neither the dots nor Renew: there is nothing there to renew.
     carries_no_secret: bool
+    # The SSH URL kind owns the direct pair replacement control. Its presence
+    # does not depend on a stored public half, which is data rather than a UI state.
+    renews_deploy_key: bool
     # A deploy key's public half, shown in clear beside the tag instead of
     # the dots — nothing for a source that carries an HTTPS token instead.
     public_key: str | None
@@ -508,6 +511,7 @@ class _Surfaces:
             webhook_secret=webhook_secret,
             webhook_secret_held_elsewhere=webhook_secret_held_elsewhere,
             carries_no_secret=shown.access is AccessKind.FILE,
+            renews_deploy_key=shown.access is AccessKind.SSH,
             public_key=shown.public_key,
             runs=tuple(self._run_row(run, text) for run in shown.runs),
             decks=tuple(

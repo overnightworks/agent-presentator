@@ -143,6 +143,9 @@ class LobbyText:
     source_secret_dots: str
     source_secret_missing: str
     source_access_renew_info: str
+    source_deploy_key_info: str
+    source_public_key: str
+    source_deploy_key_renew: str
     source_run_fetched: str
     source_run_unreachable: str
     source_run_secret: str

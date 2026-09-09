@@ -67,6 +67,7 @@ _SHORT_ACCESS = "zz-short-token"
 _LONG_ACCESS = f"long-{_READ_ONLY}-and-then-some"
 _SECRET_DOT_ROWS = 2
 _HOOK_SECRET = re.compile(r"data-hook-secret>([^<]+)<")
+_DEPLOY_PUBLIC_KEY = re.compile(r"data-deploy-public-key>([^<]+)<")
 _FINGERPRINT = re.compile(r'name="fingerprint"\s+value="([^"]*)"')
 _DRAFT_ID = re.compile(r'name="key_draft_id"\s+value="([^"]*)"')
 
@@ -440,6 +441,13 @@ def fingerprint_of(checked: Response) -> str:
 def draft_id_of(page: str) -> str:
     """The Add form's own draft key id, carried in its hidden field."""
     found = _DRAFT_ID.search(page)
+    assert found is not None
+    return found.group(1)
+
+
+def _deploy_public_key_of(page: str) -> str:
+    """The clear public half the source page exposes for host registration."""
+    found = _DEPLOY_PUBLIC_KEY.search(page)
     assert found is not None
     return found.group(1)
 
@@ -1284,6 +1292,23 @@ def test_a_blank_access_renewal_comes_back_without_storing_and_without_the_value
     assert refused.status_code == HTTPStatus.OK
     assert ENGLISH.source_refused_secret in refused.text
     assert _READ_ONLY not in refused.text
+
+
+def test_renewing_an_ssh_deploy_key_needs_no_secret_and_shows_the_replacement() -> None:
+    lobby = a_signed_in_lobby()
+    draft_id = draft_id_of(lobby.get(NEW).text)
+    the_created_page(lobby, create_ssh_source(lobby, key_draft_id=draft_id))
+    first = _deploy_public_key_of(lobby.get(f"{SOURCES}/talks").text)
+
+    renewed = lobby.post(ACCESS.format(name="talks"), data={})
+
+    assert renewed.status_code == HTTPStatus.SEE_OTHER
+    replacement = lobby.get(renewed.headers["location"]).text
+    assert ENGLISH.source_access_deploy_key in replacement
+    assert ENGLISH.source_public_key in replacement
+    assert ENGLISH.source_deploy_key_renew in replacement
+    assert _deploy_public_key_of(replacement) != first
+    assert 'type="password"' not in replacement
 
 
 def test_renewing_the_access_secret_is_refused_for_a_source_on_this_box() -> None:

@@ -59,10 +59,10 @@ beyond what a start does itself, so an older shape a start cannot upgrade is
 still a file to delete and set up again.
 
 An instance starts with no source. An admin adds one under Settings · Sources
-with a name, a Git URL, HTTPS token access, and the read-only secret; *Check
-connection* probes that URL and secret the same way before anything is
-stored, and *Create* stays disabled until a check just answered reachable for
-the exact values still in the form. The name
+with a name and Git URL. HTTPS needs a read-only token; SSH uses the owned
+deploy-key draft Add shows for registration at the Git host. *Check
+connection* probes that exact token or draft before anything is stored, and
+*Create* stays disabled until it answers reachable. The name
 is lowercase letters, digits and hyphens, at most 64 characters, unique; the
 URL is unique too, and must not carry a password in its userinfo — that belongs
 in the Secret field. A user name in the URL is optional: when the URL names
@@ -97,12 +97,13 @@ fails until the operator opens that source's page and presses *Renew secret*.
 not settings; leaving them in the environment does nothing.
 
 The source's own page is `/settings/sources/<name>`: state and fetched age,
-Fetch now, the access secret as a fixed run of dots with Renew — an SSH
-source's public key with Copy in its place, since that half is never a
-secret — the webhook address with Copy and its own Renew, the newest three
-runs with the commit as evidence, and the decks that come from here. Renewing
-the access secret takes a new value and shows nothing back. Renewing the
-webhook secret shows the new value exactly once, to the session that renewed
+Fetch now, the HTTPS token as fixed dots with Renew, or the SSH public key with
+Copy and direct Renew, the webhook address with Copy and its own Renew, the
+newest three runs, and its decks. SSH Renew immediately replaces the local
+encrypted pair and shows the replacement public key; register it at the Git
+host before the next fetch. It neither contacts that host nor preserves an
+old-key overlap. HTTPS renewal takes a new value and shows nothing back.
+Webhook renewal shows its new value exactly once, to the session that renewed
 it.
 
 The server polls every source every `PRESENTATOR_SOURCE_POLL_SECONDS` (`300`)
