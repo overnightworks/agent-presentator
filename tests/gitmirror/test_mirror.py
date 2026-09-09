@@ -20,6 +20,7 @@ from typing import cast
 
 import pytest
 
+import gitmirror
 from gitmirror import mirror as mirror_module
 from gitmirror.mirror import (
     CREDENTIAL_USER_NAME,
@@ -32,13 +33,18 @@ from gitmirror.mirror import (
 )
 from gitmirror.model import (
     Change,
+    Connection,
+    ConnectionCheck,
+    ConnectionNextAction,
     ConnectionState,
     CredentialReference,
+    CredentialResolver,
     GitSource,
     GitUnavailableError,
     InvalidCredentialError,
     MirrorError,
     Revision,
+    TreeEntry,
 )
 from presentator.adapters.secrets import generate_deploy_key
 from tests.conftest import MAIN_BRANCH, GitRemote, with_the_program
@@ -82,6 +88,83 @@ class _FixedSecret:
 
     def resolve(self, reference: CredentialReference) -> str | None:
         return self.value
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        pytest.param(
+            ConnectionState.READY,
+            ConnectionNextAction.NONE,
+            id="ready-needs-nothing",
+        ),
+        pytest.param(
+            ConnectionState.CREDENTIAL_UNRESOLVABLE,
+            ConnectionNextAction.RESOLVE_CREDENTIAL,
+            id="unresolvable-credential",
+        ),
+        pytest.param(
+            ConnectionState.REFUSED,
+            ConnectionNextAction.REPAIR_ACCESS,
+            id="refused-access",
+        ),
+        pytest.param(
+            ConnectionState.UNREACHABLE,
+            ConnectionNextAction.CHECK_REACHABILITY,
+            id="unreachable-source",
+        ),
+        pytest.param(
+            ConnectionState.FAILED,
+            ConnectionNextAction.INSPECT_FAILURE,
+            id="other-failure",
+        ),
+    ],
+)
+def test_connection_results_name_the_one_next_action_for_their_state(
+    state: ConnectionState,
+    expected: ConnectionNextAction,
+) -> None:
+    assert Connection(state=state, revision=None).next_action is expected
+    assert (
+        ConnectionCheck(state=state, commit=None, detail=None).next_action is expected
+    )
+
+
+def test_connection_next_action_package_root_provides_the_interim_contract() -> None:
+    assert set(gitmirror.__all__) == {
+        "Change",
+        "Connection",
+        "ConnectionCheck",
+        "ConnectionNextAction",
+        "ConnectionState",
+        "CredentialReference",
+        "CredentialResolver",
+        "GitMirror",
+        "GitSource",
+        "GitUnavailableError",
+        "InvalidCredentialError",
+        "MirrorError",
+        "Revision",
+        "TreeEntry",
+        "check_connection",
+    }
+    assert tuple(getattr(gitmirror, name) for name in gitmirror.__all__) == (
+        Change,
+        Connection,
+        ConnectionCheck,
+        ConnectionNextAction,
+        ConnectionState,
+        CredentialReference,
+        CredentialResolver,
+        GitMirror,
+        GitSource,
+        GitUnavailableError,
+        InvalidCredentialError,
+        MirrorError,
+        Revision,
+        TreeEntry,
+        check_connection,
+    )
 
 
 def a_mirror(
