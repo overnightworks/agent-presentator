@@ -303,6 +303,12 @@ msgid "source_webhook_later"
 msgstr ""
 "The webhook address and its secret are created only once you add the source."
 
+msgid "source_deploy_key_heading"
+msgstr "Enter on the other side"
+
+msgid "source_deploy_key_hint"
+msgstr "The server's public key — as a deploy key with read access"
+
 msgid "source_check"
 msgstr "Check connection"
 
@@ -377,6 +383,9 @@ msgstr ""
 "The address has to name a path under /data/local-sources, where the host "
 "directory is mounted."
 
+msgid "source_refused_deploy_key"
+msgstr "That deploy key is no longer yours to use — here is a fresh one to enter."
+
 msgid "source_access_heading"
 msgstr "Access to the Git"
 
@@ -413,6 +422,15 @@ msgid "source_access_renew_info"
 msgstr ""
 "Stored encrypted and never shown again since entry. Renewing replaces it "
 "with a new one."
+
+msgid "source_deploy_key_info"
+msgstr "Register this public key at the Git host with read access. Renew replaces it immediately on this source."
+
+msgid "source_public_key"
+msgstr "Public key"
+
+msgid "source_deploy_key_renew"
+msgstr "Renew"
 
 msgid "source_run_fetched"
 msgstr "fetched"

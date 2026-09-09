@@ -13,8 +13,15 @@ from dataclasses import dataclass
 from typing import Final
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+)
 
 # The salt is a constant of this product rather than a secret: the instance key
 # is the only secret input, and a salt that varied per row would have to be
@@ -25,6 +32,35 @@ _SALT: Final = b"presentator/secrets/v1"
 _PURPOSE: Final = b"presentator/source-access-secret/v1"
 _FINGERPRINT_PURPOSE: Final = b"presentator/source-check-fingerprint/v1"
 _KEY_LENGTH: Final = 32
+# The one comment every deploy key this instance mints carries, so the far
+# end's list of registered keys names which server it came from.
+_DEPLOY_KEY_COMMENT: Final = "presentator"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeployKeyPair:
+    """A freshly generated ed25519 keypair: the private half never leaves here."""
+
+    private_key: str
+    public_key: str
+
+
+def generate_deploy_key() -> DeployKeyPair:
+    """A new ed25519 deploy key (ADR 0013): an OpenSSH private and public half."""
+    private = Ed25519PrivateKey.generate()
+    private_pem = private.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption(),
+    )
+    public_line = private.public_key().public_bytes(
+        encoding=Encoding.OpenSSH,
+        format=PublicFormat.OpenSSH,
+    )
+    return DeployKeyPair(
+        private_key=private_pem.decode(),
+        public_key=f"{public_line.decode()} {_DEPLOY_KEY_COMMENT}",
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -107,6 +107,8 @@ class LobbyText:
     source_secret_info_mark: str
     source_secret_info: str
     source_webhook_later: str
+    source_deploy_key_heading: str
+    source_deploy_key_hint: str
     source_check: str
     source_create: str
     source_created: str
@@ -129,6 +131,7 @@ class LobbyText:
     source_check_reachable: str
     source_refused_secret_not_allowed: str
     source_refused_outside_mount: str
+    source_refused_deploy_key: str
     source_access_heading: str
     source_webhook_heading: str
     source_recent_runs: str
@@ -140,6 +143,9 @@ class LobbyText:
     source_secret_dots: str
     source_secret_missing: str
     source_access_renew_info: str
+    source_deploy_key_info: str
+    source_public_key: str
+    source_deploy_key_renew: str
     source_run_fetched: str
     source_run_unreachable: str
     source_run_secret: str

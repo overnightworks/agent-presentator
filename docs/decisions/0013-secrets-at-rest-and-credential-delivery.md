@@ -3,11 +3,10 @@
 Audience: humans and agents storing a secret in this product, or handing one to
 `git`.
 
-- Status: ACCEPTED 2026-09-07 — the box, the ciphertext column and the resolver
-  that reads it exist; Add source writes the column; the source page renews
-  either secret; the environment-configured source is gone. The deploy key
-  (12.7) is open on
-  [#8](https://github.com/overnightworks/agent-presentator/issues/8)
+- Status: ACCEPTED 2026-09-07 — Add, Check, and Create encrypt generated SSH
+  keys and HTTPS tokens; each fetch receives a private key through one guarded
+  file; the source page renews either access form; the environment-configured
+  source is gone
 - Date: 2026-09-07
 - Decision authority: the reviewed breakdown of #8 slice 12, recorded on
   [#8](https://github.com/overnightworks/agent-presentator/issues/8)
@@ -92,24 +91,17 @@ field, no template context, no log record and no exception message.
   mitigation is scope, not erasure. The plaintext exists in one frame and one
   child process, and nothing keeps a reference beyond them.
 
-### Decided here, built later
-
-A record says what was decided on its date, not what stands. These parameters
-belong to this decision, so the slices that build them take them rather than
-inventing them:
+### Current behavior
 
 - **The webhook secret is hashed, not encrypted** (12.5). It is shown once and
   never read back, so nothing needs a reversible form: `secrets.token_urlsafe(32)`,
   stored as its SHA-256 only, compared with `compare_digest`. Only the access
   secret must be handed to `git` on every fetch.
-- **A deploy key reaches `git` through a key file that lives for one fetch**
-  (12.7). `ssh` reads a private key from a file or an agent and nothing else:
-  a directory at 0700, the key written exclusively at 0600, removed in a
-  `finally`. `StrictHostKeyChecking=accept-new` with a known-hosts file of this
-  instance's own, because `ask` under `BatchMode=yes` would fail every first
-  fetch with no surface anywhere for pasting a host key. That is trust on first
-  use: a first-contact machine-in-the-middle is possible, and a *changed* host
-  key is refused, which is the attack that matters after setup.
+- **A generated deploy key reaches `git` through one file per fetch.** `ssh`
+  reads its private half from a 0600 file in a 0700 directory, both removed in
+  a `finally`. `StrictHostKeyChecking=accept-new` uses this instance's
+  known-hosts file: first contact has the usual TOFU machine-in-the-middle
+  risk, while a changed host key is refused.
 
 ## Consequences
 

@@ -21,6 +21,7 @@ from presentator.contracts.decks import (
     ConnectionCheckResult,
     Deck,
     DeckFolder,
+    DeployKeyDraft,
     SecretLocation,
     Source,
     SourcePoll,
@@ -298,6 +299,7 @@ class FakeSourceStore:
     sources: list[Source] = field(default_factory=list[Source])
     hashes: dict[str, bytes] = field(default_factory=dict[str, bytes])
     secrets: dict[str, str] = field(default_factory=dict[str, str])
+    key_drafts: FakeDeployKeyDrafts | None = None
     minted: int = 0
 
     def add(self, write: SourceWrite) -> Source | None:
@@ -314,10 +316,22 @@ class FakeSourceStore:
             ref=write.ref,
             secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
+            public_key=write.public_key,
         )
         self.sources.append(stored)
         self.hashes[write.name] = write.hook_secret_hash
         self.secrets[stored.id] = write.access_secret
+        return stored
+
+    def add_from_draft(self, write: SourceWrite, *, draft_id: str) -> Source | None:
+        if self.key_drafts is None:
+            return None
+        draft = self.key_drafts.drafts.get(write.owner_id)
+        if draft is None or draft.id != draft_id:
+            return None
+        stored = self.add(write)
+        if stored is not None:
+            self.key_drafts.bind(draft_id, owner_id=write.owner_id)
         return stored
 
     def hook_secret_hash(self, name: str) -> bytes | None:
@@ -331,6 +345,31 @@ class FakeSourceStore:
             else source
             for source in self.sources
         ]
+
+    def renew_deploy_key(self, source_id: str) -> bool:
+        source = next(
+            (source for source in self.sources if source.id == source_id), None
+        )
+        if source is None:
+            return False
+        self.minted += 1
+        self.sources = [
+            replace(
+                existing,
+                public_key=(
+                    f"ssh-ed25519 AAAAtestkey{self.minted} presentator"
+                    if existing.id == source_id
+                    else existing.public_key
+                ),
+                secret_location=(
+                    SecretLocation.STORED
+                    if existing.id == source_id
+                    else existing.secret_location
+                ),
+            )
+            for existing in self.sources
+        ]
+        return True
 
     def put_hook_secret_hash(self, name: str, digest: bytes) -> bool:
         if not any(source.name == name for source in self.sources):
@@ -350,6 +389,59 @@ class FakeSourceStore:
         if gone is not None:
             self.hashes.pop(gone.name, None)
         self.secrets.pop(source_id, None)
+
+
+@dataclass
+class FakeDeployKeyDrafts:
+    """One admin's own unbound draft keypair at a time, the way the table is."""
+
+    drafts: dict[str, DeployKeyDraft] = field(default_factory=dict[str, DeployKeyDraft])
+    minted: int = 0
+
+    def unconsumed_for(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+    ) -> DeployKeyDraft | None:
+        draft = self.drafts.get(owner_id)
+        return draft if draft is not None and draft.created_at >= newer_than else None
+
+    def mint(self, owner_id: str, *, at: datetime) -> DeployKeyDraft:
+        self.minted += 1
+        draft = DeployKeyDraft(
+            id=f"draft-{self.minted}",
+            owner_id=owner_id,
+            public_key=f"ssh-ed25519 AAAAtestkey{self.minted} presentator",
+            private_key=f"-----BEGIN OPENSSH PRIVATE KEY-----\ntest-{self.minted}",
+            created_at=at,
+        )
+        self.drafts[owner_id] = draft
+        return draft
+
+    def get_or_mint(
+        self,
+        owner_id: str,
+        *,
+        newer_than: datetime,
+        at: datetime,
+    ) -> DeployKeyDraft:
+        existing = self.unconsumed_for(owner_id, newer_than=newer_than)
+        return existing if existing is not None else self.mint(owner_id, at=at)
+
+    def bind(self, draft_id: str, *, owner_id: str) -> DeployKeyDraft | None:
+        draft = self.drafts.get(owner_id)
+        if draft is None or draft.id != draft_id:
+            return None
+        del self.drafts[owner_id]
+        return draft
+
+    def sweep(self, *, older_than: datetime) -> None:
+        self.drafts = {
+            owner: draft
+            for owner, draft in self.drafts.items()
+            if draft.created_at >= older_than
+        }
 
 
 @dataclass
@@ -412,6 +504,14 @@ class FakeConnectionChecker:
 
 
 @dataclass
+class ConnectionCheckerThatMustNotRun(FakeConnectionChecker):
+    """Fails a test if an operation unexpectedly probes a remote."""
+
+    def check(self, *, url: str, ref: str, secret: str) -> ConnectionCheckResult:
+        raise AssertionError
+
+
+@dataclass
 class FakeDeckFolders:
     """What each source carries, or nothing where one cannot be read.
 
@@ -453,6 +553,14 @@ class FakeDeckFolders:
             return False
         self.carried.pop(source.id, None)
         return True
+
+
+@dataclass
+class DeckFoldersThatMustNotRun(FakeDeckFolders):
+    """Fails a test if an operation unexpectedly fetches or refreshes a source."""
+
+    def folders(self, source: Source) -> SourcePoll:
+        raise AssertionError
 
 
 @dataclass

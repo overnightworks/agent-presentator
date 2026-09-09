@@ -4,8 +4,20 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+from cryptography.hazmat.primitives.serialization import (
+    load_ssh_private_key,
+    load_ssh_public_key,
+)
 
-from presentator.adapters.secrets import connection_fingerprint_key, secret_box
+from presentator.adapters.secrets import (
+    connection_fingerprint_key,
+    generate_deploy_key,
+    secret_box,
+)
 
 # Exactly the thirty-two characters an instance key is at least, so the bytes
 # below are a usable Fernet key without any padding of their own.
@@ -84,3 +96,23 @@ def test_the_fingerprint_key_never_matches_the_secret_boxs_own_key() -> None:
     )
     with pytest.raises(InvalidToken):
         fingerprint_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
+
+
+def test_a_generated_deploy_key_is_a_valid_openssh_ed25519_pair() -> None:
+    pair = generate_deploy_key()
+
+    private = load_ssh_private_key(pair.private_key.encode(), password=None)
+    assert isinstance(private, Ed25519PrivateKey)
+    public_line, comment = pair.public_key.rsplit(" ", 1)
+    public = load_ssh_public_key(public_line.encode())
+    assert isinstance(public, Ed25519PublicKey)
+    assert comment == "presentator"
+    assert public.public_bytes_raw() == private.public_key().public_bytes_raw()
+
+
+def test_two_generated_deploy_keys_never_share_their_private_half() -> None:
+    first = generate_deploy_key()
+    second = generate_deploy_key()
+
+    assert first.private_key != second.private_key
+    assert first.public_key != second.public_key

@@ -29,17 +29,34 @@
   </p>
   <section>
     <h2>{{ text.source_access_heading }}</h2>
-    <p data-secret-row>
+    <div data-secret-row>
       {% if source.access %}<span data-tag>{{ source.access }}</span>{% endif %}
-      {% if not source.carries_no_secret %}
+      {% if source.renews_deploy_key %}
+      <details>
+        <summary>{{ text.source_secret_info_mark }}</summary>
+        <p>{{ text.source_deploy_key_info }}</p>
+      </details>
+      {% elif not source.carries_no_secret %}
       <samp data-secret-dots>{{ text.source_secret_dots }}</samp>
       <details>
         <summary>{{ text.source_secret_info_mark }}</summary>
         <p>{{ text.source_access_renew_info }}</p>
       </details>
       {% endif %}
+    </div>
+    {% if source.renews_deploy_key %}
+    {% if source.public_key %}
+    <p><small>{{ text.source_public_key }}</small></p>
+    <p>
+      <code data-deploy-public-key>{{ source.public_key }}</code>
+      <button type="button" data-copy>{{ text.source_copy }}</button>
     </p>
-    {% if not source.carries_no_secret %}
+    {% endif %}
+    <form method="post" action="/settings/sources/{{ source.name }}/access"
+          data-renew-access>
+      <button type="submit">{{ text.source_deploy_key_renew }}</button>
+    </form>
+    {% elif not source.carries_no_secret %}
     <form method="post" action="/settings/sources/{{ source.name }}/access"
           data-renew-access>
       <label for="secret">{{ text.source_secret }}</label>
