@@ -153,11 +153,17 @@ def _speak_body() -> bytes:
 
 
 class _DisconnectingReceive:
-    """Delivers the request body once, then waits for the test to signal disconnect."""
+    """Delivers the request body once, then waits for the test to signal disconnect.
+
+    `delivered` fires once this call has actually handed `http.disconnect` back to
+    its caller (the response's own `listen_for_disconnect` loop), so a test can
+    wait on that instead of guessing how long delivery takes.
+    """
 
     def __init__(self) -> None:
         self._sent_body = False
         self._disconnect = asyncio.Event()
+        self.delivered = asyncio.Event()
 
     def disconnect(self) -> None:
         self._disconnect.set()
@@ -167,6 +173,7 @@ class _DisconnectingReceive:
             self._sent_body = True
             return {"type": "http.request", "body": _speak_body(), "more_body": False}
         await self._disconnect.wait()
+        self.delivered.set()
         return {"type": "http.disconnect"}
 
 
@@ -213,13 +220,14 @@ async def _speak_once(app: FastAPI) -> list[dict[str, object]]:
     """One full, undisturbed request through the raw ASGI boundary."""
     messages: list[dict[str, object]] = []
     sent = False
+    no_disconnect = asyncio.Event()  # never set: this request is never disturbed
 
     async def receive() -> dict[str, object]:
         nonlocal sent
         if not sent:
             sent = True
             return {"type": "http.request", "body": _speak_body(), "more_body": False}
-        await asyncio.sleep(_ASGI_TIMEOUT_SECONDS * 2)
+        await no_disconnect.wait()
         return {"type": "http.disconnect"}
 
     async def send(message: dict[str, object]) -> None:
@@ -283,7 +291,7 @@ def test_speak_disconnect_during_synthesis_frees_the_voice() -> None:
         call = asyncio.create_task(app(_speak_scope(), receive, send))
         await asyncio.to_thread(voice.entered_first_step.wait, _ASGI_TIMEOUT_SECONDS)
         receive.disconnect()
-        await asyncio.sleep(0.05)  # let cancellation reach the task group mid-`next()`
+        await asyncio.wait_for(receive.delivered.wait(), timeout=_ASGI_TIMEOUT_SECONDS)
         voice.release_first_step.set()  # the in-flight step now returns normally
         await asyncio.wait_for(call, timeout=_ASGI_TIMEOUT_SECONDS)
 
