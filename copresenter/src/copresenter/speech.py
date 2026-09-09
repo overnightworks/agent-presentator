@@ -97,7 +97,11 @@ class LocalSpeech:
             chunks = bytearray()
             async for chunk in response.aiter_bytes():
                 chunks.extend(chunk)
-            return bytes(chunks)
+            speech = bytes(chunks)
+            if not speech:
+                message = "speech response is empty"
+                raise ValueError(message)
+            return speech
 
     def hear_url(self, language: str) -> str:
         """The speech service's hearing socket for this language."""
