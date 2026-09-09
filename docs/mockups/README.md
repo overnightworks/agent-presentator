@@ -62,6 +62,8 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/sources-check-unreachable.png` | Check: unreachable | 4a |
 | `m0-lobby/sources-created.png` | Created — shown once | 1 |
 | `m0-lobby/sources-detail.png` | Source | 7, 14a, 4a |
+| `m0-lobby/sources-detail-ssh.png` | Source — SSH deploy key, 1024 px | 1, 7, 14a, 4a |
+| `m0-lobby/sources-detail-ssh-narrow.png` | Source — SSH deploy key, 390 px | 1, 7, 14a, 4a |
 
 ### Settings · Users (lines 14, 14b)
 
