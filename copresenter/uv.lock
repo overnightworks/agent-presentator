@@ -84,7 +84,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "overnightworks-agent-providers", url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.0/overnightworks_agent_providers-0.1.0-py3-none-any.whl" },
+    { name = "overnightworks-agent-providers", url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.2/overnightworks_agent_providers-0.1.2-py3-none-any.whl" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "uvicorn", specifier = "==0.52.4" },
     { name = "websockets", specifier = ">=14,<16" },
@@ -237,15 +237,15 @@ wheels = [
 
 [[package]]
 name = "overnightworks-agent-providers"
-version = "0.1.0"
-source = { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.0/overnightworks_agent_providers-0.1.0-py3-none-any.whl" }
+version = "0.1.2"
+source = { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.2/overnightworks_agent_providers-0.1.2-py3-none-any.whl" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
     { name = "pydantic" },
 ]
 wheels = [
-    { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.0/overnightworks_agent_providers-0.1.0-py3-none-any.whl", hash = "sha256:abd5ae053a4413a5bb3d8ed6b13ac0e455a72b7f7e44a9dfed1f3fdad8e6e433" },
+    { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.1.2/overnightworks_agent_providers-0.1.2-py3-none-any.whl", hash = "sha256:23418830b64377655406c80f53674c707a2e86dc034ff685e3904a0dbef21710" },
 ]
 
 [package.metadata]
