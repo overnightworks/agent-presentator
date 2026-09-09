@@ -1,7 +1,0 @@
-claim_id = "e1600884f358458893f2012988c1b69c"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "2bd4e512b80e1467e612af32686cbc47b5999958"
-branch = "claude/issue-120-provider-0-1-2"
-scope = ["copresenter/pyproject.toml", "copresenter/uv.lock"]
-opened_commit = "5ffccc912c23ad28aade697d38cafcf7419beb1d"
