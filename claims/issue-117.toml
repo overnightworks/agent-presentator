@@ -1,0 +1,7 @@
+claim_id = "a2e29e58c2e44d7eb9ce3b71135765ac"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "e3d58380fb596c1468181d54f2a742957ef5976e"
+branch = "codex/issue-117-empty-speech"
+scope = ["copresenter/src/copresenter/speech.py", "copresenter/tests/test_speech.py", "copresenter/tests/test_ask.py"]
+opened_commit = "8e6c25ee30f5496043738c21b979a7634407cb34"
