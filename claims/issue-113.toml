@@ -1,0 +1,8 @@
+claim_id = "299d92c46d5c440a9f3a62b06770b242"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "98695d61917967417cad5d42b5df88ce4ace3627"
+branch = "codex/issue-113-connection-next-action"
+scope = ["src/gitmirror/model.py", "src/gitmirror/__init__.py", "tests/gitmirror/test_mirror.py", "docs/decisions/0010-git-sources-mirror.md"]
+opened_commit = "4ef7789e0b7533678e1a55cf1276c645a3e50c2e"
+whole_reason = "One pure value mapping, its package entry point, behavior proof and owning decision record form the smallest complete public-contract slice."
