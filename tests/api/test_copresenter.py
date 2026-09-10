@@ -20,6 +20,7 @@ from presentator.contracts.copresenter import (
     AnswerEvent,
     Audio,
     CoPresenterReadiness,
+    CoPresenterUnavailable,
     Done,
     HearingTranscript,
     HearingUnavailable,
@@ -74,9 +75,14 @@ class RecordingPrivateCoPresenter:
     hold_answers: bool = False
     hearing_opens: int = 0
     hearing: RecordingHearing = field(default_factory=RecordingHearing)
+    readiness_unavailable: bool = False
+    answer_unavailable: bool = False
+    hearing_unavailable: bool = False
 
     async def readiness(self) -> CoPresenterReadiness:
         self.readiness_calls += 1
+        if self.readiness_unavailable:
+            raise CoPresenterUnavailable
         return CoPresenterReadiness(
             answerer_model="canned",
             hearing_sample_rate=16_000,
@@ -90,6 +96,8 @@ class RecordingPrivateCoPresenter:
         @asynccontextmanager
         async def operation() -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
             self.questions.append(question)
+            if self.answer_unavailable:
+                raise CoPresenterUnavailable
 
             async def events() -> AsyncIterator[AnswerEvent]:
                 yield Text(text="Eine Antwort")
@@ -110,6 +118,8 @@ class RecordingPrivateCoPresenter:
         async def operation() -> AsyncGenerator[PrivateHearing]:
             assert language == "de"
             self.hearing_opens += 1
+            if self.hearing_unavailable:
+                raise CoPresenterUnavailable
             yield self.hearing
 
         return operation()
@@ -157,6 +167,22 @@ def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> Non
     assert signed_out.status_code == HTTPStatus.UNAUTHORIZED
     assert forged.status_code == HTTPStatus.UNAUTHORIZED
     assert private.readiness_calls == 0
+
+    for cookie in (None, "forged"):
+        if cookie is None:
+            client.cookies.clear()
+        else:
+            client.cookies.set("presentator_session", cookie)
+        with (
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect(
+                "/copresenter/hear?language=de",
+                headers={"origin": PUBLIC_ORIGIN},
+            ),
+        ):
+            pass
+        assert refused.value.code == POLICY_VIOLATION
+    assert private.hearing_opens == 0
 
 
 @pytest.mark.parametrize("role", [Role.ADMIN, Role.USER])
@@ -282,6 +308,35 @@ def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None
 
     assert private.hearing.frames == [b"first"]
     assert private.hearing.closed == 1
+
+
+def test_private_failures_expose_only_public_failure_shapes() -> None:
+    client, private, _clock = a_copresenter_lobby()
+    sign_in(client)
+    private.readiness_unavailable = True
+
+    who = client.get("/copresenter/who")
+    private.readiness_unavailable = False
+    private.answer_unavailable = True
+    answer = client.post(
+        "/copresenter/ask",
+        json=QUESTION,
+        headers={"x-csrf-token": client.cookies["csrf_token"]},
+    )
+    private.hearing_unavailable = True
+    with client.websocket_connect(
+        "/copresenter/hear?language=de",
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        socket.send_bytes(b"pcm")
+        hearing = socket.receive_json()
+
+    assert who.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert who.json() == {"detail": "Co-presenter unavailable"}
+    assert answer.text == (
+        'event: error\ndata: {"message": "the answer could not be spoken"}\n\n'
+    )
+    assert hearing == {"text": "", "final": True, "error": "hearing unavailable"}
 
 
 def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:

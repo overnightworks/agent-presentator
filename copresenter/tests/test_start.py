@@ -65,6 +65,30 @@ def test_unix_start_prebinds_an_owned_private_socket(tmp_path: Path) -> None:
     assert not (directory / "copresenter.sock").exists()
 
 
+def test_unix_start_refuses_and_preserves_a_preexisting_path(tmp_path: Path) -> None:
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700)
+    path = directory / "copresenter.sock"
+    path.write_text("belongs to another process", encoding="utf-8")
+
+    with (
+        pytest.raises(RuntimeError, match="already exists"),
+        private_listener(unix_settings(directory)),
+    ):
+        pass
+
+    assert path.read_text(encoding="utf-8") == "belongs to another process"
+
+
+def test_unix_transport_requires_an_absolute_directory() -> None:
+    with pytest.raises(ValueError, match="absolute"):
+        Settings(
+            transport=Transport.UNIX,
+            socket_directory=Path("relative/private"),
+            runtime_uid=os.geteuid(),
+        )
+
+
 @pytest.mark.parametrize("bad_directory", ["symlink", "open-mode", "file"])
 def test_unix_start_refuses_an_unowned_directory_shape(
     tmp_path: Path,

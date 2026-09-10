@@ -229,16 +229,22 @@ class _TalkFiles(StaticFiles):
 
     def _the_application(self) -> Response:
         """The built talk's own `index.html`, or nothing if that file is gone."""
-        index = self._root / _APPLICATION
-        if not index.is_file():
+        index = _contained_path(self._root, _APPLICATION)
+        if index is None or not index.is_file():
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
         return FileResponse(index)
 
 
 def _leaves_the_talk(directory: Path, path: str) -> bool:
     """Whether resolving this path would step outside the talk's directory."""
+    return _contained_path(directory, path) is None
+
+
+def _contained_path(directory: Path, path: str) -> Path | None:
+    """The resolved path below the talk, if resolving it stays there."""
     root = directory.resolve()
-    return not (directory / path).resolve().is_relative_to(root)
+    resolved = (directory / path).resolve()
+    return resolved if resolved.is_relative_to(root) else None
 
 
 def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:

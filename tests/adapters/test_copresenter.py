@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from presentator.adapters.copresenter import UdsCoPresenter
 from presentator.contracts.copresenter import (
@@ -122,6 +122,76 @@ def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
             await UdsCoPresenter(tmp_path / "missing.sock").readiness()
 
     asyncio.run(refused())
+
+
+def test_private_status_and_malformed_protocol_map_to_typed_unavailability(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_refuse_private_failures(tmp_path))
+
+
+async def _refuse_private_failures(tmp_path: Path) -> None:
+    app = FastAPI()
+
+    async def _who() -> JSONResponse:
+        return JSONResponse({"private": "detail"}, status_code=503)
+
+    async def _ask() -> StreamingResponse:
+        async def events() -> AsyncIterator[bytes]:
+            yield b'event: audio\ndata: {"text":"Antwort","wav_b64":"not base64"}\n\n'
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    async def _hear(socket: WebSocket) -> None:
+        await socket.accept()
+        await socket.send_json({"text": ["not", "text"], "final": True})
+
+    app.add_api_route("/who", _who, methods=["GET"])
+    app.add_api_route("/ask", _ask, methods=["POST"])
+    app.add_api_websocket_route("/hear", _hear)
+    socket_path = tmp_path / "copresenter.sock"
+    adapter = UdsCoPresenter(socket_path)
+
+    async with _Serving(app, socket_path):
+        with pytest.raises(CoPresenterUnavailable):
+            await adapter.readiness()
+        with pytest.raises(CoPresenterUnavailable):
+            async with adapter.answer(
+                Question(said="Frage", slide=1, language=None)
+            ) as answer:
+                await anext(answer)
+        with pytest.raises(CoPresenterUnavailable):
+            async with adapter.hear("de") as hearing:
+                await hearing.receive()
+
+
+def test_cancelled_native_answer_closes_the_private_stream(tmp_path: Path) -> None:
+    asyncio.run(_cancel_native_answer(tmp_path))
+
+
+async def _cancel_native_answer(tmp_path: Path) -> None:
+    app = FastAPI()
+    stream_closed = asyncio.Event()
+
+    async def _ask() -> StreamingResponse:
+        async def events() -> AsyncIterator[bytes]:
+            try:
+                yield b'event: text\ndata: {"text":"Antwort"}\n\n'
+                await asyncio.Future()
+            finally:
+                stream_closed.set()
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    app.add_api_route("/ask", _ask, methods=["POST"])
+    socket_path = tmp_path / "copresenter.sock"
+
+    async with _Serving(app, socket_path):
+        async with UdsCoPresenter(socket_path).answer(
+            Question(said="Frage", slide=1, language=None)
+        ) as answer:
+            assert await anext(answer) == Text(text="Antwort")
+        await asyncio.wait_for(stream_closed.wait(), timeout=1)
 
 
 class _Serving:

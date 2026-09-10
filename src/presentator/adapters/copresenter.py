@@ -5,7 +5,7 @@ from __future__ import annotations
 import binascii
 from base64 import b64decode
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import httpx2
 from httpx2.websockets import (
@@ -178,6 +178,7 @@ class UdsCoPresenter:
     async def hear(self, language: str) -> AsyncGenerator[PrivateHearing]:
         """Open one native private WebSocket hearing operation."""
         client = self._client()
+        opened = False
         try:
             async with (
                 client,
@@ -186,9 +187,26 @@ class UdsCoPresenter:
                     params={"language": language},
                 ) as socket,
             ):
+                opened = True
                 yield _UdsHearing(socket)
+        except BaseExceptionGroup as refused:
+            if _is_expected_private_failure(refused):
+                raise CoPresenterUnavailable from refused
+            raise
         except (httpx2.HTTPError, HTTPXWSException, TypeError, ValueError) as refused:
+            if opened and isinstance(refused, (TypeError, ValueError)):
+                raise
             raise CoPresenterUnavailable from refused
+
+
+def _is_expected_private_failure(refused: BaseException) -> bool:
+    if isinstance(refused, BaseExceptionGroup):
+        group = cast("BaseExceptionGroup[BaseException]", refused)
+        return all(_is_expected_private_failure(error) for error in group.exceptions)
+    return isinstance(
+        refused,
+        (CoPresenterUnavailable, httpx2.HTTPError, HTTPXWSException),
+    )
 
 
 def _answer_event(event: httpx2.ServerSentEvent) -> AnswerEvent:
