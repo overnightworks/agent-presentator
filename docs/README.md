@@ -13,7 +13,7 @@ this map and an owner disagree, the owner is right.
 | Why does this tool exist, and what does the operator want from it? | Vision | [`VISION.md`](VISION.md) |
 | What exists today? | Product | [`PRODUCT.md`](PRODUCT.md) |
 | Why was it built this way? | Decisions | Records indexed by [`decisions/README.md`](decisions/README.md) |
-| What must it be able to do? | Requirements | No owner yet. `docs/requirements/` is created with the first ruled expectation list. |
+| What must it be able to do? | Requirements | [`0001-voice-models.md`](requirements/0001-voice-models.md) |
 | How is this installation started, protected, and scanned? | Operations | [`OPERATIONS.md`](OPERATIONS.md) |
 | How is a change proven? | Testing | [`TESTING.md`](TESTING.md) |
 | What does the lobby look like? | Picture | [`mockups/README.md`](mockups/README.md) |
