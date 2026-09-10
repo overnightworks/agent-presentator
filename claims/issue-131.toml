@@ -1,0 +1,7 @@
+claim_id = "52099ef4789549e38fd04a9239ba74c8"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "7a3b912695128eeedb7ba71626d04d469b577faa"
+branch = "codex/issue-131-spa-fallback-containment"
+scope = ["src/presentator/api/decks.py", "tests/api/test_deck_page.py"]
+opened_commit = "6228ced9f5a16d6ab2f3c22567ec37f2c564c155"
