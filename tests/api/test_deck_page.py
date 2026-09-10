@@ -519,6 +519,34 @@ def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
     assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
+@pytest.mark.parametrize(
+    "address",
+    [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}a-route-the-build-did-not-write"],
+    ids=["projector", "presenter", "a missing route"],
+)
+def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
+    tmp_path: Path,
+    address: str,
+) -> None:
+    marker = "outside the built talk"
+    outside = tmp_path / "outside.html"
+    outside.write_text(marker, encoding="utf-8")
+    talk = tmp_path / "talk"
+    talk.mkdir()
+    (talk / "index.html").symlink_to(outside)
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk)),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    refused = signed_in.get(address)
+
+    assert refused.status_code == HTTPStatus.NOT_FOUND
+    assert marker not in refused.text
+
+
 def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
     tmp_path: Path,
 ) -> None:
