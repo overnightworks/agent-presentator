@@ -1,0 +1,7 @@
+claim_id = "699554151ff54feeb9a01e8d6f9abbf0"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "921c53f250e05458b8a1e20f26e2af951fcf4fc3"
+branch = "claude/issue-119-disconnect-source"
+scope = ["speech/src/speech/service.py", "speech/src/speech/speaking.py", "speech/src/speech/chatterbox.py"]
+opened_commit = "8b7f790aeffb7200d85926a01155ca0f20d0f8f0"
