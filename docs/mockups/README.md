@@ -13,8 +13,9 @@ surface starts here: extend this sheet, get the blessing on the owning item,
 re-render, then rule.
 
 The Settings · Voice picture was blessed by the operator on 10.09.2026 (issue
-#123, parent #108). Its functional expectation lines are not yet ruled — see
-the approval tag on the section and the Lines column marked TBD.
+#123, parent #108). Its adopted V1–V9 behavior contract is owned by
+[`docs/requirements/0001-voice-models.md`](../requirements/0001-voice-models.md);
+the mockup remains future surface evidence, not an implementation claim.
 
 ## M0 lobby sheet
 
@@ -23,7 +24,8 @@ wide). Per-artboard renders in `m0-lobby/`, device scale factor 2, cropped to
 each `.board` element, in document order. "Lines" gives the issue #8
 expectation lines the artboard's own caption cites; where the caption cites
 none, the group's line range from the sheet's section header is given instead
-(marked "group").
+(marked "group"). The Voice table's "Ruling" column links the adopted V1–V9
+requirements that its caption or rendered state demonstrates.
 
 ### Login (lines 12, 14)
 
@@ -78,20 +80,20 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/users-create.png` | Create user | 14 |
 | `m0-lobby/users-deactivate.png` | Deactivate — confirm | 14b |
 
-### Settings · Voice (picture blessed 10.09.2026, behavior not yet ruled)
+### Settings · Voice (picture blessed 10.09.2026, V1–V9 adopted)
 
-| PNG | Caption | Lines |
+| PNG | Caption | Ruling |
 |---|---|---|
-| `m0-lobby/voice.png` | Voice · resting | TBD |
-| `m0-lobby/voice-narrow.png` | Split screen, 390 px | TBD |
-| `m0-lobby/voice-downloading.png` | Downloading | TBD |
-| `m0-lobby/voice-loading.png` | Loading | TBD |
-| `m0-lobby/voice-failed-active.png` | Load failed — previous voice stays active | TBD |
-| `m0-lobby/voice-failed-no-active.png` | Load failed — no active voice | TBD |
-| `m0-lobby/voice-service-unknown.png` | Service status unknown | TBD |
-| `m0-lobby/voice-sample-loading.png` | Sample: loading | TBD |
-| `m0-lobby/voice-sample-playing.png` | Sample: playing | TBD |
-| `m0-lobby/voice-sample-error.png` | Sample: playback failed | TBD |
+| `m0-lobby/voice.png` | Voice · resting | [V1–V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-narrow.png` | Split screen, 390 px | [V1–V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-downloading.png` | Downloading | [V1, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-loading.png` | Loading | [V2, V3, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-failed-active.png` | Load failed — previous voice stays active | [V4, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-failed-no-active.png` | Load failed — no active voice | [V4, V5, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-service-unknown.png` | Service status unknown | [V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-sample-loading.png` | Sample: loading | [V8, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-sample-playing.png` | Sample: playing | [V8, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-sample-error.png` | Sample: playback failed | [V8, V9](../requirements/0001-voice-models.md) |
 
 Piper and Chatterbox are installed on the live instance (921c53f2); Qwen3-TTS
 0.6B, VoxCPM2, and NVIDIA Magpie are proposed candidates only, not yet
