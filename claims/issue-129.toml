@@ -1,8 +1,0 @@
-claim_id = "0cf79e07d2f24e5aa3435d93249b5580"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "7a3b912695128eeedb7ba71626d04d469b577faa"
-branch = "codex/issue-129-voice-requirements"
-scope = ["docs/requirements/0001-voice-models.md", "docs/README.md", "docs/mockups/README.md", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby"]
-opened_commit = "564d9157e86d75e028b183aaf30ccf2b60146690"
-whole_reason = "One adopted requirement owner, its picture references and declared derived artifacts must land together to avoid contradictory metadata."
