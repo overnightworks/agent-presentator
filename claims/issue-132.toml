@@ -1,0 +1,8 @@
+claim_id = "458afd85cf444ea0a5c374d833dde2e0"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "7a3b912695128eeedb7ba71626d04d469b577faa"
+branch = "codex/issue-132-authenticated-copresenter"
+scope = ["src/presentator/contracts/copresenter.py", "src/presentator/ports/copresenter.py", "src/presentator/application/copresenter.py", "src/presentator/adapters/copresenter.py", "src/presentator/api/copresenter.py", "src/presentator/api/auth.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "copresenter/src/copresenter/config.py", "copresenter/src/copresenter/main.py", "copresenter/src/copresenter/app.py", "Dockerfile", "compose.yaml", "pyproject.toml", "uv.lock", ".github/workflows/ci.yml", "examples/copresenter-deck/components/CoPresenter.vue", "docs/PRODUCT.md", "docs/OPERATIONS.md", "copresenter/README.md", "examples/copresenter-deck/README.md", "examples/copresenter-deck/global-bottom.vue", "tests/contracts/test_copresenter.py", "tests/application/test_copresenter.py", "tests/adapters/test_copresenter.py", "tests/api/test_copresenter.py", "tests/api/test_auth.py", "tests/api/lobby.py", "tests/test_host.py", "tests/test_compose.py", "copresenter/tests/test_start.py", "copresenter/tests/test_origin.py", "copresenter/tests/test_hear.py", "copresenter/scripts/prove_loop.py"]
+opened_commit = "29a73cf1daa411bc73505563847f771f71d22753"
+whole_reason = "HTTP/WS admission, the layered private capability, runtime UID and repository browser caller form one callable security boundary; live adoption is a separate sequential task."
