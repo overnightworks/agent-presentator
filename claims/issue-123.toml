@@ -1,0 +1,8 @@
+claim_id = "e4a51667317c43a4ac42a1f31202f265"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "921c53f250e05458b8a1e20f26e2af951fcf4fc3"
+branch = "claude/issue-123-voice-picture"
+scope = ["docs/mockups/m0-lobby.html", "docs/mockups/README.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby"]
+opened_commit = "d9981c2f321b7c941babcbf69fb7e0d500298a9b"
+whole_reason = "One existing picture source and its README plus only affected derived PNGs form an indivisible picture slice."
