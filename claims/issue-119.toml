@@ -1,7 +1,0 @@
-claim_id = "1103715de1c9428e96321138727741ac"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "2c7b758c9c230a541a774af678728f27e1d9e1fa"
-branch = "claude/issue-119-disconnect-cleanup"
-scope = ["speech/src/speech/service.py", "speech/src/speech/speaking.py", "speech/src/speech/chatterbox.py"]
-opened_commit = "565276a7dca2d29530ee53d21f9ff1124f248f9b"
