@@ -28,9 +28,11 @@ yet are named in [docs/README.md](docs/README.md).
 
 ## Verifying a change
 
-These are the commands CI and the tools run. `pyproject.toml` owns the
-configuration of the Python ones, `frontend/package.json` that of the frontend
-ones.
+These are the root and frontend commands used to verify a change locally. CI
+also checks the locked `speech/` and `copresenter/` projects; see the [CI
+workflow](.github/workflows/ci.yml) for the complete definition. `pyproject.toml`
+owns the configuration of the Python ones, `frontend/package.json` that of the
+frontend ones.
 
 ```sh
 uv run --locked ruff check
