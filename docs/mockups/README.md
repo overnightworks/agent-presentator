@@ -24,7 +24,8 @@ wide). Per-artboard renders in `m0-lobby/`, device scale factor 2, cropped to
 each `.board` element, in document order. "Lines" gives the issue #8
 expectation lines the artboard's own caption cites; where the caption cites
 none, the group's line range from the sheet's section header is given instead
-(marked "group").
+(marked "group"). The Voice table's "Ruling" column links the adopted V1–V9
+requirements that its caption or rendered state demonstrates.
 
 ### Login (lines 12, 14)
 
@@ -85,8 +86,8 @@ none, the group's line range from the sheet's section header is given instead
 |---|---|---|
 | `m0-lobby/voice.png` | Voice · resting | [V1–V9](../requirements/0001-voice-models.md) |
 | `m0-lobby/voice-narrow.png` | Split screen, 390 px | [V1–V9](../requirements/0001-voice-models.md) |
-| `m0-lobby/voice-downloading.png` | Downloading | [V1, V3, V9](../requirements/0001-voice-models.md) |
-| `m0-lobby/voice-loading.png` | Loading | [V2–V4, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-downloading.png` | Downloading | [V1, V9](../requirements/0001-voice-models.md) |
+| `m0-lobby/voice-loading.png` | Loading | [V2, V3, V9](../requirements/0001-voice-models.md) |
 | `m0-lobby/voice-failed-active.png` | Load failed — previous voice stays active | [V4, V9](../requirements/0001-voice-models.md) |
 | `m0-lobby/voice-failed-no-active.png` | Load failed — no active voice | [V4, V5, V9](../requirements/0001-voice-models.md) |
 | `m0-lobby/voice-service-unknown.png` | Service status unknown | [V9](../requirements/0001-voice-models.md) |
