@@ -1031,6 +1031,12 @@
     border-color: var(--ok);
   }
 
+  /* unknown — service status not confirmed, not a failed attempt */
+  .banner--off {
+    background: var(--canvas-2);
+    border-color: var(--ink-faint);
+  }
+
   .tag {
     font-family: var(--cond);
     font-size: 11px;
@@ -1339,6 +1345,63 @@
 
   .row--user .row-act { justify-self: end; }
 
+  /* ---------- voice: model rows and sample player ---------- */
+
+  .row--voice {
+    grid-template-columns: 168px minmax(0, 1fr) auto;
+    gap: 14px;
+  }
+
+  .player {
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .player-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .player-model {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .player-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .lang-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .lang-opt {
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-soft);
+  }
+
+  .lang-opt + .lang-opt { border-left: 1px solid var(--line); }
+
+  .lang-opt--on {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
   @container (max-width: 520px) {
     .row--src {
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1357,6 +1420,15 @@
     .row--user .src-name { grid-column: 1 / -1; grid-row: 2; }
     .row--user .stand { grid-column: 1 / -1; grid-row: 3; }
     .row--user .row-act { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
+    .row--voice {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 6px;
+    }
+    .row--voice .state { grid-column: 1; grid-row: 1; }
+    .row--voice .row-name { grid-column: 1 / -1; grid-row: 2; }
+    .row--voice .row-act,
+    .row--voice .mini { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
+    .player-row { gap: 10px; }
     .log-row { grid-template-columns: minmax(0, 1fr) auto; }
     .block { grid-template-columns: minmax(0, 1fr); }
     .nav { gap: 0; }
@@ -1466,6 +1538,17 @@
     <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
       <path d="m6 9 6 6 6-6"></path>
     </symbol>
+    <symbol id="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+      <line x1="12" x2="12" y1="19" y2="22"></line>
+    </symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="6 3 20 12 6 21 6 3"></polygon>
+    </symbol>
+    <symbol id="icon-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+    </symbol>
   </svg>
 
   <header class="sheet-head">
@@ -1502,6 +1585,18 @@
       </section>
 
       <section class="panel">
+        <h2>Voice state: shape and color <span class="tag">picture blessed · 10.09.2026</span></h2>
+        <div class="key">
+          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>active</span><span>filled circle, green — the one currently in use</span></div>
+          <div class="key-row"><span class="state state--off"><span class="glyph"></span>downloaded</span><span>split circle, grey — installed and fine, just not the active one</span></div>
+          <div class="key-row"><span class="state state--busy"><span class="glyph"></span>downloading / loading</span><span>open ring, spinning, yellow — indeterminate, no percentage</span></div>
+          <div class="key-row"><span class="state state--fail"><span class="glyph"></span>error</span><span>triangle, red — a load that did not complete</span></div>
+          <div class="key-row"><span class="state state--never"><span class="glyph"></span>not downloaded</span><span>dashed square, grey</span></div>
+          <div class="key-row"><span class="state state--off"><span class="glyph"></span>unknown</span><span>split circle, grey — service status not confirmed, not a failed attempt; same shape as downloaded, different word for a whole-tab fact</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Navigation</h2>
         <div class="nav-legend">
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</span>
@@ -1512,6 +1607,7 @@
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</span>
+          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
         </div>
@@ -1529,6 +1625,7 @@
           <li><span><b>Sign up, forgot password</b> — an admin creates the account and resets the password (lines 14, 14b)</span></li>
           <li><span><b>Start in M0</b> — the two views are the way into the talk; the co-presenter run arrives with M1 (line 10)</span></li>
           <li><span><b>Build progress bar</b> — the server doesn't know percentages</span></li>
+          <li><span><b>Marketplace, arbitrary Hugging Face IDs, cloud voices, voice cloning</b> — five fixed candidates only, admin-picked (voice picture blessed 10.09.2026; behavior not yet ruled)</span></li>
         </ul>
       </section>
     </div>
@@ -1992,6 +2089,7 @@
                 <a class="tab tab--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="form">
@@ -2067,6 +2165,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="rows">
@@ -2147,6 +2246,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="empty">
@@ -2193,6 +2293,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="rows">
@@ -2273,6 +2374,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="form">
@@ -2433,6 +2535,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="form-part" style="border-top: none; padding-top: 0;">
@@ -2500,6 +2603,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="actions">
@@ -2610,6 +2714,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="actions">
@@ -2696,6 +2801,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="actions"><span class="btn btn--primary btn--s">Fetch now</span></div>
@@ -2785,6 +2891,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="actions">
@@ -2935,6 +3042,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="rows">
@@ -3014,6 +3122,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="rows">
@@ -3094,6 +3203,7 @@
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
                 <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
               <div class="form">
@@ -3159,6 +3269,697 @@
         </div>
       </figure>
 
+
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS · VOICE ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Settings · Voice</h2>
+      <span class="tag">Picture blessed · 10.09.2026</span>
+      <span class="lines">TBD — parent #108</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Voice · resting <span class="w">1024 px</span></div>
+          <p class="board-note">Five compact rows, one state-matched action each: Download starts a candidate, Load switches which installed model answers the sample below — the active row shows its own state instead of a second control, so there is no dropdown and no second Save. Piper and Chatterbox are installed on the live instance today; Qwen3-TTS 0.6B, VoxCPM2, and NVIDIA Magpie are proposed candidates only, not yet integrated — drawn here in their intended not-downloaded state, never as if they already work.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--voice">
+                  <span>State</span>
+                  <span>Model</span>
+                  <span></span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="slug">German — Thorsten voice</span>
+                  </span>
+                  <span class="mini">In use</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--off"><span class="glyph"></span>downloaded</span>
+                  <span class="row-name"><span class="row-title">Chatterbox</span></span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                  <span class="info" tabindex="0">i<span class="pop">Plays a short sample through the active model. DE/EN picks the sample text only; loading a different model changes what plays it.</span></span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Split screen <span class="w">390 px</span></div>
+          <p class="board-note">State and action stay in the first row, the model name wraps below it — the row pattern from Sources and Users, reused rather than reinvented. The player stacks under the rows; DE/EN and Play/Stop keep their own line.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--voice">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="slug">German — Thorsten voice</span>
+                  </span>
+                  <span class="mini">In use</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--off"><span class="glyph"></span>downloaded</span>
+                  <span class="row-name"><span class="row-title">Chatterbox</span></span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Downloading <span class="w">1024 px</span></div>
+          <p class="board-note">Indeterminate — the server has no percentage to report, the same honesty as the build progress elsewhere in this sheet. Only the row that was clicked changes; every other row and the sample player stay exactly as they were.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--voice">
+                  <span>State</span>
+                  <span>Model</span>
+                  <span></span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="slug">German — Thorsten voice</span>
+                  </span>
+                  <span class="mini">In use</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--off"><span class="glyph"></span>downloaded</span>
+                  <span class="row-name"><span class="row-title">Chatterbox</span></span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--busy"><span class="glyph"></span>downloading</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="mini">Downloading…</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Loading <span class="w">1024 px</span></div>
+          <p class="board-note">Loading is a separate step from downloading — an already-downloaded model still has to become the active one before it answers anything. Piper keeps the sample until this finishes; the old and the pending choice are never shown as the same fact.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="rows">
+                <div class="row row--head row--voice">
+                  <span>State</span>
+                  <span>Model</span>
+                  <span></span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="slug">German — Thorsten voice</span>
+                  </span>
+                  <span class="mini">In use</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--busy"><span class="glyph"></span>loading</span>
+                  <span class="row-name"><span class="row-title">Chatterbox</span></span>
+                  <span class="mini">Loading…</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Load failed — previous voice stays active <span class="w">1024 px</span></div>
+          <p class="board-note">A load can fail without taking anything away: Piper is still the row marked active, still the model the sample plays. Retrying is the same Load action, in the same place — no separate retry control.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="banner banner--fail">
+                <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                <div class="banner-body">
+                  <h2>Load failed</h2>
+                  <p>Chatterbox could not become the active voice. Piper, the previous choice, kept answering the sample the whole time.</p>
+                </div>
+              </div>
+
+              <div class="rows">
+                <div class="row row--head row--voice">
+                  <span>State</span>
+                  <span>Model</span>
+                  <span></span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--ok"><span class="glyph"></span>active</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="slug">German — Thorsten voice</span>
+                  </span>
+                  <span class="mini">In use</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--fail"><span class="glyph"></span>error</span>
+                  <span class="row-name">
+                    <span class="row-title">Chatterbox</span>
+                    <span class="why">Load failed — the engine did not start</span>
+                  </span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Load failed — no active voice <span class="w">1024 px</span></div>
+          <p class="board-note">The other failure shape: the previously active engine was already released and this load fails too, so nothing answers the sample — the same outcome a first load would show. The empty state says exactly that, rather than a silent or misleading player.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+            <div class="person">
+              <span class="person-btn" tabindex="0">
+                <span class="avatar">FH</span>
+                <span class="person-name">felix</span>
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+              </span>
+            </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Voice</h1>
+              </div>
+              <nav class="tabs">
+                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
+                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
+                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
+                <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
+              </nav>
+
+              <div class="banner banner--fail">
+                <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                <div class="banner-body">
+                  <h2>Load failed</h2>
+                  <p>No voice is active — the previous engine was released, and this load did not replace it.</p>
+                </div>
+              </div>
+
+              <div class="rows">
+                <div class="row row--head row--voice">
+                  <span>State</span>
+                  <span>Model</span>
+                  <span></span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--fail"><span class="glyph"></span>error</span>
+                  <span class="row-name">
+                    <span class="row-title">Piper</span>
+                    <span class="why">Load failed — the engine did not start</span>
+                  </span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--off"><span class="glyph"></span>downloaded</span>
+                  <span class="row-name"><span class="row-title">Chatterbox</span></span>
+                  <span class="btn btn--s row-act">Load</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">Qwen3-TTS 0.6B</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">VoxCPM2</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+                <div class="row row--voice">
+                  <span class="state state--never"><span class="glyph"></span>not downloaded</span>
+                  <span class="row-name"><span class="row-title">NVIDIA Magpie</span></span>
+                  <span class="btn btn--s row-act">Download</span>
+                </div>
+              </div>
+
+              <div class="empty">
+                <div class="empty-mark"></div>
+                <h2>No active voice</h2>
+                <p>Load a model above before the sample can play.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Service status unknown <span class="w">Excerpt</span> <span class="open-mark">open</span></div>
+          <p class="board-note">Reuses the same grey, split-circle token as a deactivated account — switched off or simply not confirmed, never red. A failed attempt (triangle) and an unconfirmed status are kept visibly apart. Open to rule: whether rows keep their last-known state greyed out here, or hide entirely, as drawn.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="body">
+              <div class="banner banner--off">
+                <span class="glyph" style="border-radius: 50%; background: var(--ink-faint); clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);"></span>
+                <div class="banner-body">
+                  <h2>Status unknown</h2>
+                  <p>The voice service has not answered since the last restart — not a failed attempt, just not confirmed. Rows and the sample stay hidden until it answers.</p>
+                  <div class="pair">
+                    <span class="btn btn--s">Check again</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Sample: loading <span class="w">Excerpt</span></div>
+          <p class="board-note">Between the click and the first sound: the one control disables itself rather than staying pressable twice, and the busy ring says something is happening right now.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="body">
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="state state--busy"><span class="glyph"></span>loading</span>
+                  <span class="btn btn--primary btn--off">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Sample: playing <span class="w">Excerpt</span></div>
+          <p class="board-note">The one control does both jobs — Play becomes Stop rather than sitting beside a second button. Motion marks that audio is live right now, and stops the moment playback does.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="body">
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="state state--busy"><span class="glyph"></span>playing</span>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-square"></use></svg>
+                    Stop
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Sample: playback failed <span class="w">Excerpt</span></div>
+          <p class="board-note">Playback failure sits with the player, not as a page-wide banner — it doesn't call the whole Voice tab broken. Playing again is the same Play sample control, not a second recovery action — the same pattern as Load doubling as retry above.</p>
+        </figcaption>
+        <div class="frame" style="--w: 420px">
+          <div class="route">presentator.local/settings/voice</div>
+          <div class="app">
+            <div class="body">
+              <div class="player">
+                <div class="player-head">
+                  <span class="sub">Sample</span>
+                  <span class="player-model">Piper — active</span>
+                </div>
+                <div class="player-row">
+                  <div class="lang-toggle" role="group" aria-label="Sample language">
+                    <span class="lang-opt lang-opt--on">DE</span>
+                    <span class="lang-opt">EN</span>
+                  </div>
+                  <span class="btn btn--primary">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-play"></use></svg>
+                    Play sample
+                  </span>
+                </div>
+                <div class="banner banner--fail">
+                  <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                  <div class="banner-body">
+                    <h2>Playback failed</h2>
+                    <p>The sample could not be generated. Play sample above tries again.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
 
     </div>
   </section>

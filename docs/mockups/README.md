@@ -12,6 +12,10 @@ artifact link to see the picture. Blessed by the operator on 06.09.2026
 surface starts here: extend this sheet, get the blessing on the owning item,
 re-render, then rule.
 
+The Settings · Voice picture was blessed by the operator on 10.09.2026 (issue
+#123, parent #108). Its functional expectation lines are not yet ruled — see
+the approval tag on the section and the Lines column marked TBD.
+
 ## M0 lobby sheet
 
 Source: `m0-lobby.html`. Overview: `m0-lobby-sheet.png` (full sheet, 1180 px
@@ -73,6 +77,27 @@ none, the group's line range from the sheet's section header is given instead
 | `m0-lobby/users-narrow.png` | Split screen, 390 px | group 14, 14b |
 | `m0-lobby/users-create.png` | Create user | 14 |
 | `m0-lobby/users-deactivate.png` | Deactivate — confirm | 14b |
+
+### Settings · Voice (picture blessed 10.09.2026, behavior not yet ruled)
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/voice.png` | Voice · resting | TBD |
+| `m0-lobby/voice-narrow.png` | Split screen, 390 px | TBD |
+| `m0-lobby/voice-downloading.png` | Downloading | TBD |
+| `m0-lobby/voice-loading.png` | Loading | TBD |
+| `m0-lobby/voice-failed-active.png` | Load failed — previous voice stays active | TBD |
+| `m0-lobby/voice-failed-no-active.png` | Load failed — no active voice | TBD |
+| `m0-lobby/voice-service-unknown.png` | Service status unknown | TBD |
+| `m0-lobby/voice-sample-loading.png` | Sample: loading | TBD |
+| `m0-lobby/voice-sample-playing.png` | Sample: playing | TBD |
+| `m0-lobby/voice-sample-error.png` | Sample: playback failed | TBD |
+
+Piper and Chatterbox are installed on the live instance (921c53f2); Qwen3-TTS
+0.6B, VoxCPM2, and NVIDIA Magpie are proposed candidates only, not yet
+integrated. Their not-downloaded state depicts intended future behaviour, not
+a working download. No benchmark, percentage, size, or cost is shown for any
+candidate — none is measured yet.
 
 ### Account (lines 14b, 21, 22)
 
