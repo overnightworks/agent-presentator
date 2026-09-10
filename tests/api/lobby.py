@@ -26,6 +26,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
+from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
 from presentator.application.identity import (
@@ -218,6 +219,7 @@ def a_lobby_app(
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
+    copresenter: CoPresenterSurface | None = None,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     clock = FrozenClock(instant=NOW)
@@ -303,6 +305,7 @@ def a_lobby_app(
         auth=InstalledAuth(
             config=a_web_auth(hasher=hasher, trusted_proxies=trusted_proxies),
         ),
+        copresenter=copresenter,
     )
     return lobby, clock
 

@@ -1,4 +1,4 @@
-"""Drive the overlay in a real browser.
+"""Drive the overlay in a real browser against the direct developer service.
 
 Default: the speech stand-in and a canned answerer. Prints `ran: stand-in`.
 `--real` requires the speech service at `COPRESENTER_SPEECH_URL` and the
@@ -11,7 +11,12 @@ the speech service is not ready or if `/health` names the stand-in's
 speaking or hearing identity (`stand-in`), and never names a stand-in run
 `real`.
 
-Not a product test. Holds `/tmp/probe-stack.lock` while it binds ports.
+The browser shim maps only the repository overlay's relative co-presenter calls
+to the direct TCP developer service. It does not prove Presentator login,
+session revocation, CSRF, Origin, or the private UDS path. The authenticated
+product proof runs through an isolated Presentator instance instead.
+
+Holds `/tmp/probe-stack.lock` while it binds ports.
 """
 
 from __future__ import annotations
@@ -297,7 +302,8 @@ def _drive_socket_close(page) -> dict[str, object]:
     page.wait_for_function(
         """() => {
             const snap = window.__copresenter.snapshot()
-            return snap.on === true && Boolean(snap.error)
+            return snap.on === true && snap.hearing === 'off'
+                && snap.hearOpen === false && Boolean(snap.error)
         }""",
         timeout=10000,
     )
@@ -308,10 +314,12 @@ def _drive_socket_close(page) -> dict[str, object]:
         "error": snap["error"],
         "hearOpen": snap["hearOpen"],
         "hearing": snap["hearing"],
+        "micLive": snap["micLive"],
+        "workletLive": snap["workletLive"],
     }
 
 
-def _drive_late_microphone_after_fallback(page) -> dict[str, object]:
+def _drive_late_microphone_after_lease_loss(page) -> dict[str, object]:
     page.evaluate(
         """() => {
             const devices = navigator.mediaDevices
@@ -345,7 +353,8 @@ def _drive_late_microphone_after_fallback(page) -> dict[str, object]:
         page.wait_for_function(
             """() => {
                 const snap = window.__copresenter.snapshot()
-                return snap.on === true && snap.hearing !== 'local' && Boolean(snap.error)
+                return snap.on === true && snap.hearing === 'off'
+                    && snap.hearOpen === false && Boolean(snap.error)
             }""",
             timeout=10000,
         )
@@ -394,7 +403,7 @@ def _drive_against_speech(page, talk_url: str) -> dict[str, object]:
     off_activation = _drive_off_during_activation(page)
     off_playback = _drive_off_during_playback(page)
     closed = _drive_socket_close(page)
-    late_microphone = _drive_late_microphone_after_fallback(page)
+    late_microphone = _drive_late_microphone_after_lease_loss(page)
     return {
         "loop": loop,
         "off_during_activation": off_activation,
@@ -448,7 +457,36 @@ def _open_browser(present_url: str) -> tuple[object, object, object]:
         args=list(CHROME_ARGS),
     )
     context = browser.new_context(permissions=["microphone"])
-    context.add_init_script(f"window.COPRESENTER_URL = {json.dumps(present_url)}")
+    browser_shim = """
+        (() => {
+          const directBase = new URL(__DIRECT_BASE__)
+          const directUrl = (given) => {
+            const requested = new URL(given, window.location.href)
+            if (!requested.pathname.startsWith('/copresenter/')) return null
+            const direct = new URL(directBase)
+            direct.protocol = requested.protocol === 'wss:' ? 'ws:' : requested.protocol
+            direct.pathname = requested.pathname.slice('/copresenter'.length)
+            direct.search = requested.search
+            return direct.toString()
+          }
+          const nativeFetch = window.fetch.bind(window)
+          window.fetch = (input, init) => {
+            const mapped = directUrl(typeof input === 'string' ? input : input.url)
+            if (!mapped) return nativeFetch(input, init)
+            const request = typeof input === 'string' ? mapped : new Request(mapped, input)
+            return nativeFetch(request, init)
+          }
+          const NativeWebSocket = window.WebSocket
+          window.WebSocket = class extends NativeWebSocket {
+            constructor(url, protocols) {
+              const mapped = directUrl(url) || url
+              if (protocols === undefined) super(mapped)
+              else super(mapped, protocols)
+            }
+          }
+        })()
+    """.replace("__DIRECT_BASE__", json.dumps(present_url))
+    context.add_init_script(browser_shim)
     return playwright, browser, context
 
 
@@ -480,10 +518,17 @@ def _ok_standin(result: dict[str, object]) -> bool:
     off_ok = _off_released(loop.get("off"))
     activation_ok = not (off_act.get("on") or off_act.get("hearOpen") or off_act.get("micLive"))
     playback_ok = _off_released(off_play)
-    closed_ok = bool(closed.get("error"))
+    closed_ok = (
+        closed.get("on_during_error") is True
+        and bool(closed.get("error"))
+        and closed.get("hearing") == "off"
+        and not closed.get("hearOpen")
+        and not closed.get("micLive")
+        and not closed.get("workletLive")
+    )
     late_ok = (
         late.get("on") is True
-        and late.get("hearing") == "browser"
+        and late.get("hearing") == "off"
         and not late.get("micLive")
         and not late.get("workletLive")
         and not late.get("hearOpen")

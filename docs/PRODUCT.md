@@ -337,8 +337,14 @@ names.
 ### Local speech
 
 A sibling process under [`speech/`](../speech/README.md) holds a local speaking
-model and a local hearing model and offers them over HTTP. It is not wired into
-the instance; the co-presenter that will call it is
-[#73](https://github.com/overnightworks/agent-presentator/issues/73), and
-productising it is the speech milestone. Which models, what they cost on the
-card, and how to start it are owned by that README.
+model and a local hearing model and offers them to the host co-presenter. The
+co-presenter remains a host process but is private to Presentator through a
+same-UID Unix socket. The repository overlay calls relative
+`/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Both
+roles use them through the existing active session; `/ask` requires its CSRF
+token and hearing requires the configured browser Origin. Presentator rechecks
+an answer and hearing lease every second, so session loss stops generation,
+capture, browser fallback and queued or playing audio. Only readiness, question,
+PCM, transcript and answer events cross the private boundary; browser identity
+and credentials do not. Which speech models run and what they cost on the card
+remain owned by that README.

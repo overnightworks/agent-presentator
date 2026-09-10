@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
 
-from copresenter.config import Settings
+from copresenter.app import create_app
+from copresenter.config import Settings, Transport
 
 from .conftest import ALLOWED_ORIGIN
 
@@ -129,3 +132,29 @@ def test_without_the_setting_the_service_refuses_to_start(
         Settings()
 
     assert "COPRESENTER_ALLOWED_ORIGIN" in str(refusal.value)
+
+
+def test_unix_composition_needs_no_browser_origin(
+    tmp_path,
+    example_deck,
+    fake_speech,
+    answerer,
+) -> None:
+    settings = Settings(
+        transport=Transport.UNIX,
+        socket_directory=tmp_path,
+        runtime_uid=os.geteuid(),
+        deck=example_deck.source.parent,
+        speech_url="http://speech.test",
+    )
+    app = create_app(
+        settings,
+        deck=example_deck,
+        speech=fake_speech,
+        answerer=answerer,
+    )
+    client = TestClient(app)
+
+    assert client.get("/who").status_code == 200
+    with client.websocket_connect("/hear?language=de") as hearing:
+        assert hearing.receive_json()["error"] == "hearing unavailable"

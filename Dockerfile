@@ -8,11 +8,19 @@
 # (frontend/.nvmrc); uv brings the Python that .python-version names. Every
 # image named here is held by digest, because a tag is a name its owner may
 # move.
-FROM node:24.20.0-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0 AS toolchain
+FROM node:24.20.0-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0 AS runtime-user
 
-# The toolchain runs as its own unprivileged user, in both images: a build's
-# container names no user of its own, and the server is that same user here.
-RUN useradd --create-home presentator
+ARG PRESENTATOR_RUNTIME_UID=1001
+RUN case "$PRESENTATOR_RUNTIME_UID" in \
+        ''|*[!0-9]*|0) exit 1 ;; \
+    esac \
+    && test "$PRESENTATOR_RUNTIME_UID" -gt 0 \
+    && useradd --create-home --non-unique --uid "$PRESENTATOR_RUNTIME_UID" presentator
+ENV HOME=/home/presentator
+
+FROM runtime-user AS toolchain
+
+# The toolchain runs as the named unprivileged runtime user in both images.
 RUN corepack enable pnpm
 
 # The toolchain is installed as that user, because a build writes its caches

@@ -10,6 +10,7 @@ dependencies = [
     "babel==2.18.0",
     "cryptography==50.0.1",
     "fastapi==0.141.1",
+    "httpx2[ws]==2.12.0",
     "jinja2==3.1.6",
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.3.1/overnightworks_webauth-0.3.1-py3-none-any.whl",
     "pwdlib[argon2]==0.3.1",
@@ -23,7 +24,6 @@ agent-presentator = "presentator.host.main:main"
 
 [dependency-groups]
 dev = [
-    "httpx2==2.12.0",
     "import-linter==2.13",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
@@ -102,6 +102,8 @@ convention = "google"
 # gives it a container; both programs are constants resolved on PATH, and every
 # argument is built here out of the deck's own row, never out of a request.
 "src/presentator/adapters/builds.py" = ["S404", "S603"]
+"src/presentator/contracts/copresenter.py" = ["N818"]
+"src/presentator/api/copresenter.py" = ["BLE001"]
 # Drives that toolchain and that client as the stand-in scripts it puts on PATH.
 "tests/adapters/test_builds.py" = ["S404", "S603"]
 # Builds the temporary git repositories every layer that reads one is proven on.
@@ -278,4 +280,19 @@ forbidden_modules = ["cryptography"]
 as_packages = true
 # The host composes the adapter that owns it, so the legal chain runs through
 # it; only naming the library in a layer above is the violation.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "copresenter-transport-library"
+name = "Only the co-presenter adapter imports httpx2"
+type = "forbidden"
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["httpx2"]
+as_packages = true
 allow_indirect_imports = true

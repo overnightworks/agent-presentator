@@ -112,6 +112,11 @@ def bare_environment(
     # lets a `file://` fixture keep standing in for "any git remote" without
     # every such test naming the mount for itself.
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
+    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
+    monkeypatch.setenv(
+        "PRESENTATOR_COPRESENTER_SOCKET",
+        str(tmp_path / "copresenter.sock"),
+    )
     return monkeypatch
 
 
@@ -252,6 +257,36 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
     environment.setenv("PRESENTATOR_TRUSTED_PROXIES", "not-an-address")
 
     with pytest.raises(ConfigurationError, match="trusted_proxies"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "https://user@presentator.test",
+        "https://presentator.test/",
+        "https://presentator.test/path",
+        "https://presentator.test?query=yes",
+        "https://presentator.test#fragment",
+    ],
+)
+def test_copresenter_public_origin_must_be_one_canonical_origin(
+    environment: pytest.MonkeyPatch,
+    origin: str,
+) -> None:
+    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
+
+    with pytest.raises(ConfigurationError, match="public_origin"):
+        load_settings()
+
+
+def test_copresenter_socket_must_be_an_absolute_path(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setenv("PRESENTATOR_COPRESENTER_SOCKET", "relative/copresenter.sock")
+
+    with pytest.raises(ConfigurationError, match="copresenter_socket"):
         load_settings()
 
 

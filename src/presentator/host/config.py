@@ -3,6 +3,7 @@
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Final
+from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings
@@ -58,6 +59,36 @@ def _a_proxy_list(given: str) -> str:
     return given
 
 
+def _one_public_origin(given: str) -> str:
+    """Require one canonical HTTP origin, without any address suffix."""
+    parsed = urlsplit(given)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or given != f"{parsed.scheme}://{parsed.netloc}"
+    ):
+        message = "is one canonical http(s) origin without credentials or a path"
+        raise ValueError(message)
+    try:
+        _port = parsed.port
+    except ValueError as refused:
+        message = "has an invalid port"
+        raise ValueError(message) from refused
+    return given
+
+
+def _an_absolute_path(given: Path) -> Path:
+    if not given.is_absolute():
+        message = "is an absolute path"
+        raise ValueError(message)
+    return given
+
+
 class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     """Read from `PRESENTATOR_*` in the environment, or from a local `.env`."""
 
@@ -96,6 +127,8 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     source_timeout_seconds: float = 20.0
     host: str = "127.0.0.1"
     port: int = 8000
+    public_origin: Annotated[str, AfterValidator(_one_public_origin)]
+    copresenter_socket: Annotated[Path, AfterValidator(_an_absolute_path)]
     # Empty: the login budget keys on the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""

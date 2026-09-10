@@ -32,6 +32,7 @@ from presentator.adapters.catalog import (
     duration_in_words,
     load_catalogs,
 )
+from presentator.adapters.copresenter import UdsCoPresenter
 from presentator.adapters.decks import (
     FilesystemLocalMount,
     MirroredConnectionChecker,
@@ -61,7 +62,9 @@ from presentator.adapters.preferences import (
 )
 from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
+from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.application.copresenter import CoPresenterUse
 from presentator.application.decks import Decks
 from presentator.application.identity import (
     FAILURE_WINDOW,
@@ -203,6 +206,12 @@ def build_instance(settings: Settings) -> Instance:
             decks=decks,
             pages=pages,
             auth=InstalledAuth(config=web_auth),
+            copresenter=CoPresenterSurface(
+                use=CoPresenterUse(
+                    private=UdsCoPresenter(settings.copresenter_socket),
+                ),
+                public_origin=settings.public_origin,
+            ),
         ),
         poller=SourcePoller(
             refresh=decks.refresh,

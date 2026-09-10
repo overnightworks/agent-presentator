@@ -8,8 +8,12 @@ x-build-image: &build_image agent-presentator-build
 
 services:
   presentator:
-    build: .
+    build:
+      context: .
+      args:
+        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
     image: agent-presentator
+    user: presentator
     # A build spawns a process tree of its own, and a step given up on leaves
     # its grandchildren to be reaped by whatever is process 1.
     init: true
@@ -26,6 +30,8 @@ services:
         required: false
     environment:
       PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
+      PRESENTATOR_PUBLIC_ORIGIN: ${PRESENTATOR_PUBLIC_ORIGIN:?set it to the one canonical browser origin}
+      PRESENTATOR_COPRESENTER_SOCKET: /run/presentator-copresenter/copresenter.sock
       PRESENTATOR_BUILD_IMAGE: *build_image
       # The very volume declared below, under the name Docker gives it: one per
       # project, so a second instance on this machine builds into its own and
@@ -42,6 +48,7 @@ services:
       - mirrors:/data/mirrors
       - builds:/data/builds
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${COPRESENTER_SOCKET_DIRECTORY:?set it to the host co-presenter's private socket directory}:/run/presentator-copresenter:rw
 
   # Never started: it is the image a deck's own build runs in, and it is built
   # from the toolchain layer of the instance image, so the toolchain and its
@@ -51,7 +58,10 @@ services:
     build:
       context: .
       target: toolchain
+      args:
+        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
     image: *build_image
+    user: presentator
     profiles:
       - images
 

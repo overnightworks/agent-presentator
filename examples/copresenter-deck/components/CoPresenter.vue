@@ -4,12 +4,8 @@ import { useNav } from '@slidev/client'
 
 const { currentSlideNo } = useNav()
 
-const LOCAL_COPRESENTER = 'http://127.0.0.1:3040'
 const LANGUAGE = 'de'
-
-// Only the deck names the service: a URL that could point the microphone
-// elsewhere would travel with a shared link.
-const COPRESENTER = (typeof window !== 'undefined' && window.COPRESENTER_URL) || LOCAL_COPRESENTER
+const COPRESENTER = '/copresenter'
 
 const on = ref(false)
 const heard = ref('')
@@ -98,6 +94,7 @@ async function turnOn() {
   try {
     const response = await fetch(`${COPRESENTER}/who`)
     if (!stillActive(generation)) return
+    if (!response.ok) throw new Error('co-presenter unavailable')
     report = await response.json()
     if (!stillActive(generation)) return
     whoModel.value = report.answerer?.model || ''
@@ -109,6 +106,8 @@ async function turnOn() {
     return
   }
   if (!stillActive(generation)) return
+  const lease = await openHearingLease(generation)
+  if (!lease || !stillActive(generation)) return
   if (report.speech?.hearing?.ready) {
     hearing.value = 'local'
     await startLocalHear(generation)
@@ -123,10 +122,20 @@ async function turnOn() {
 }
 
 function turnOff() {
-  activationGeneration += 1
+  stopWork()
   on.value = false
-  hearing.value = 'off'
   error.value = ''
+}
+
+function fail(message) {
+  stopWork()
+  on.value = true
+  error.value = message
+}
+
+function stopWork() {
+  activationGeneration += 1
+  hearing.value = 'off'
   if (askAbort) {
     askAbort.abort()
     askAbort = null
@@ -136,16 +145,37 @@ function turnOff() {
   invalidatePlayback()
 }
 
-async function startLocalHear(generation) {
-  const url = COPRESENTER.replace(/^http/, 'ws') + `/hear?language=${LANGUAGE}`
+async function openHearingLease(generation) {
+  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = `${scheme}//${window.location.host}${COPRESENTER}/hear?language=${LANGUAGE}`
   const socket = new WebSocket(url)
   socket.binaryType = 'arraybuffer'
   bindHearSocket(socket, generation)
+  hearSocket = socket
+  try {
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve
+      const refused = () => reject(new Error('hearing lease refused'))
+      socket.onerror = refused
+      socket.onclose = refused
+    })
+  } catch {
+    if (hearSocket === socket) hearSocket = null
+    abandon({ socket })
+    if (stillActive(generation)) {
+      fail('No hearing')
+    }
+    return null
+  }
   if (!stillActive(generation)) {
     abandon({ socket })
-    return
+    return null
   }
-  hearSocket = socket
+  bindHearSocket(socket, generation)
+  return socket
+}
+
+async function startLocalHear(generation) {
   let stream = null
   let context = null
   let node = null
@@ -154,7 +184,7 @@ async function startLocalHear(generation) {
       audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
     })
     if (!stillActive(generation)) {
-      abandon({ socket, stream })
+      abandon({ stream })
       return
     }
     mediaStream = stream
@@ -162,7 +192,7 @@ async function startLocalHear(generation) {
     audioContext = context
     await context.audioWorklet.addModule(workletUrl())
     if (!stillActive(generation)) {
-      abandon({ socket, stream, context })
+      abandon({ stream, context })
       return
     }
     const source = context.createMediaStreamSource(stream)
@@ -184,13 +214,14 @@ async function startLocalHear(generation) {
     }
     source.connect(node)
   } catch {
-    abandon({ socket, stream, context, node })
+    abandon({ stream, context, node })
     if (!stillActive(generation)) return
     fallbackHear('No hearing')
   }
 }
 
 function bindHearSocket(socket, generation) {
+  socket.onopen = null
   socket.onmessage = (event) => {
     if (!stillActive(generation) || hearSocket !== socket) return
     let payload
@@ -209,18 +240,17 @@ function bindHearSocket(socket, generation) {
   }
   socket.onerror = () => {
     if (!stillActive(generation) || hearSocket !== socket) return
-    fallbackHear('No hearing')
+    fail('No hearing')
   }
   socket.onclose = () => {
     if (hearSocket === socket) hearSocket = null
     if (!stillActive(generation)) return
-    fallbackHear('Hearing closed')
+    fail('No hearing')
   }
 }
 
 function fallbackHear(message) {
-  activationGeneration += 1
-  releaseCapture()
+  releaseMicrophone()
   if (!on.value) return
   error.value = message
   if (startBrowserHear()) {
@@ -256,6 +286,12 @@ function abandon({ socket, stream, context, node } = {}) {
 function releaseCapture() {
   abandon({
     socket: hearSocket,
+  })
+  releaseMicrophone()
+}
+
+function releaseMicrophone() {
+  abandon({
     stream: mediaStream,
     context: audioContext,
     node: workletNode,
@@ -264,6 +300,7 @@ function releaseCapture() {
 
 function startBrowserHear() {
   if (recognition) return true
+  if (!hearSocket || hearSocket.readyState !== WebSocket.OPEN) return false
   const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!Ctor) return false
   recognition = new Ctor()
@@ -280,7 +317,7 @@ function startBrowserHear() {
     }
   }
   recognition.onend = () => {
-    if (on.value && recognition) {
+    if (on.value && recognition && hearSocket?.readyState === WebSocket.OPEN) {
       try { recognition.start() } catch { /* Chrome restarts this way */ }
     }
   }
@@ -319,6 +356,7 @@ function isEcho(text, spoken) {
 }
 
 async function ask(text) {
+  if (!hearSocket || hearSocket.readyState !== WebSocket.OPEN) return
   invalidatePlayback()
   if (askAbort) askAbort.abort()
   const controller = new AbortController()
@@ -328,7 +366,10 @@ async function ask(text) {
   try {
     const response = await fetch(`${COPRESENTER}/ask`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrfToken(),
+      },
       body: JSON.stringify({ said: text, slide: currentSlideNo.value, language: LANGUAGE }),
       signal: controller.signal,
     })
@@ -341,6 +382,12 @@ async function ask(text) {
     if (err.name === 'AbortError') return
     error.value = 'No answer'
   }
+}
+
+function csrfToken() {
+  const prefix = 'csrf_token='
+  const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : ''
 }
 
 async function readSse(body, signal) {

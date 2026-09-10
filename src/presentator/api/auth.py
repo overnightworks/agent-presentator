@@ -9,11 +9,12 @@ import posixpath
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, cast
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import HTTPConnection
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.cookies import verify_session_cookie
@@ -25,10 +26,11 @@ from webauth.login import (
     judge_credentials,
     login_attempt_budget,
 )
-from webauth.middleware.csrf import CsrfOriginMiddleware
+from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.policies import CsrfPolicy, PathRules
 from webauth.proxies import client_user_agent, resolve_client_ip
 
+from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.pages import Pages, state_word
@@ -36,7 +38,7 @@ from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
-from presentator.contracts.models import Account, FirstStartClosedError
+from presentator.contracts.models import Account, FirstStartClosedError, User
 from presentator.contracts.text import LobbyText
 
 SESSION_COOKIE: Final = "presentator_session"
@@ -78,6 +80,9 @@ _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
 _CSRF_POLICY: Final = CsrfPolicy(
     exempt=PathRules(prefixes=(HOOK_CALLS,)),
 )
+_COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
+    protected=PathRules(exact=frozenset({"/copresenter/ask"})),
+)
 _LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
 
 
@@ -99,13 +104,37 @@ def _is_a_stylesheet(path: str) -> bool:
     )
 
 
-def _session_id_from_cookie(request: Request) -> str:
+def _session_id_from_cookie(request: HTTPConnection) -> str:
     """The raw session id a signed cookie names, or "" for none or a forged one."""
     cookie_value = request.cookies.get(SESSION_COOKIE, "")
     if not cookie_value:
         return ""
-    signing_key = web_auth_config(request).signing_key
+    signing_key = web_auth_config(cast("Request", request)).signing_key
     return verify_session_cookie(cookie_value, signing_key) or ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SignedInConnection:
+    """The hash-free person and authoritative session behind one connection."""
+
+    person: User
+    session_id: str
+
+
+def signed_in_connection(
+    request: HTTPConnection,
+    identity: Identity,
+) -> SignedInConnection | None:
+    """Resolve one HTTP or WebSocket connection through the existing login owner."""
+    session_id = _session_id_from_cookie(request)
+    person = identity.signed_in_user(
+        session_id,
+        ip_address=resolve_client_ip(cast("Request", request)),
+        user_agent=client_user_agent(cast("Request", request)),
+    )
+    if person is None:
+        return None
+    return SignedInConnection(person=person, session_id=session_id)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -148,21 +177,21 @@ class _Surfaces:
         ):
             request.state.signed_in_person = None
             return await call_next(request)
-        session_id = _session_id_from_cookie(request)
-        person = self.identity.signed_in_user(
-            session_id,
-            ip_address=resolve_client_ip(request),
-            user_agent=client_user_agent(request),
-        )
-        if person is None:
+        connection = signed_in_connection(request, self.identity)
+        if connection is None:
             return unauthenticated_response(request, _LOGIN_REDIRECT)
-        request.state.signed_in_person = person
-        request.state.signed_in_session_id = session_id
+        request.state.signed_in_person = connection.person
+        request.state.signed_in_session_id = connection.session_id
         answer = await call_next(request)
         # Every authenticated answer re-signs and re-sets the cookie, so an
         # active talk's idle window keeps sliding on the browser's own copy
         # too, not only in the session row the store holds.
-        issue_session_cookies(answer, request, session_id, web_auth_config(request))
+        issue_session_cookies(
+            answer,
+            request,
+            connection.session_id,
+            web_auth_config(request),
+        )
         return answer
 
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
@@ -294,6 +323,7 @@ def create_lobby(
     decks: Decks,
     pages: Pages,
     auth: InstalledAuth,
+    copresenter: CoPresenterSurface | None = None,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose.
 
@@ -308,6 +338,7 @@ def create_lobby(
     # guard's redirect and a refusal, carries `no-store`.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
     lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
+    lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
@@ -320,4 +351,10 @@ def create_lobby(
     add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
+    if copresenter is not None:
+        add_copresenter_routes(
+            lobby,
+            surface=copresenter,
+            admission=lambda connection: signed_in_connection(connection, identity),
+        )
     return lobby
