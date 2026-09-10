@@ -1,0 +1,7 @@
+claim_id = "ad457aaf8f09497885bd13a48df51c30"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "921c53f250e05458b8a1e20f26e2af951fcf4fc3"
+branch = "codex/issue-124-speech-ci"
+scope = [".github/workflows/ci.yml"]
+opened_commit = "6ee97620e4215830ab4d4c84245b0ee3e63a5b67"
