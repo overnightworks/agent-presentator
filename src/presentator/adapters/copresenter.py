@@ -20,7 +20,7 @@ from presentator.contracts.copresenter import (
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
-    CoPresenterUnavailable,
+    CoPresenterUnavailableError,
     Done,
     HearingTranscript,
     HearingUnavailable,
@@ -80,7 +80,7 @@ class _UdsHearing:
         try:
             await self._socket.send_bytes(frame)
         except HTTPXWSException as refused:
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
 
     async def receive(self) -> HearingTranscript | HearingUnavailable | None:
         try:
@@ -90,7 +90,7 @@ class _UdsHearing:
         except WebSocketDisconnect:
             return None
         except (HTTPXWSException, ValidationError, TypeError, ValueError) as refused:
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
         if payload.error is not None:
             return HearingUnavailable()
         return HearingTranscript(text=payload.text, final=payload.final)
@@ -99,7 +99,7 @@ class _UdsHearing:
         try:
             await self._socket.close()
         except HTTPXWSException as refused:
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
 
 
 class UdsCoPresenter:
@@ -127,7 +127,7 @@ class UdsCoPresenter:
                 response.raise_for_status()
                 private = _Readiness.model_validate(response.json())
         except (httpx2.HTTPError, ValidationError, TypeError, ValueError) as refused:
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
         return CoPresenterReadiness(
             answerer_model=private.answerer.model,
             hearing_sample_rate=private.speech.sample_rate,
@@ -166,7 +166,7 @@ class UdsCoPresenter:
             ValueError,
             binascii.Error,
         ) as refused:
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
 
     async def _answer_events(
         self, source: httpx2.EventSource
@@ -191,12 +191,12 @@ class UdsCoPresenter:
                 yield _UdsHearing(socket)
         except BaseExceptionGroup as refused:
             if _is_expected_private_failure(refused):
-                raise CoPresenterUnavailable from refused
+                raise CoPresenterUnavailableError from refused
             raise
         except (httpx2.HTTPError, HTTPXWSException, TypeError, ValueError) as refused:
             if opened and isinstance(refused, (TypeError, ValueError)):
                 raise
-            raise CoPresenterUnavailable from refused
+            raise CoPresenterUnavailableError from refused
 
 
 def _is_expected_private_failure(refused: BaseException) -> bool:
@@ -205,7 +205,7 @@ def _is_expected_private_failure(refused: BaseException) -> bool:
         return all(_is_expected_private_failure(error) for error in group.exceptions)
     return isinstance(
         refused,
-        (CoPresenterUnavailable, httpx2.HTTPError, HTTPXWSException),
+        (CoPresenterUnavailableError, httpx2.HTTPError, HTTPXWSException),
     )
 
 
@@ -222,4 +222,4 @@ def _answer_event(event: httpx2.ServerSentEvent) -> AnswerEvent:
         return Sentence(text=payload.text)
     if event.event == "done":
         return Done(text=payload.text)
-    raise CoPresenterUnavailable
+    raise CoPresenterUnavailableError

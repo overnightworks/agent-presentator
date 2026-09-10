@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-class CoPresenterUnavailable(RuntimeError):
+class CoPresenterUnavailableError(RuntimeError):
     """The private service refused or could not satisfy an operation."""
 
     def __str__(self) -> str:

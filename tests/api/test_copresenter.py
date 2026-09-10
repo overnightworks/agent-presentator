@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -20,7 +21,7 @@ from presentator.contracts.copresenter import (
     AnswerEvent,
     Audio,
     CoPresenterReadiness,
-    CoPresenterUnavailable,
+    CoPresenterUnavailableError,
     Done,
     HearingTranscript,
     HearingUnavailable,
@@ -51,11 +52,18 @@ class RecordingHearing:
     events: list[HearingTranscript | HearingUnavailable] = field(
         default_factory=lambda: [HearingTranscript(text="gehört", final=True)]
     )
+    _frame_ready: asyncio.Queue[None] | None = field(default=None, init=False)
 
     async def send_pcm(self, frame: bytes) -> None:
         self.frames.append(frame)
+        if self._frame_ready is None:
+            self._frame_ready = asyncio.Queue()
+        self._frame_ready.put_nowait(None)
 
     async def receive(self) -> HearingTranscript | HearingUnavailable | None:
+        if self._frame_ready is None:
+            self._frame_ready = asyncio.Queue()
+        await self._frame_ready.get()
         if self.events:
             return self.events.pop(0)
         await asyncio.Future()
@@ -78,11 +86,16 @@ class RecordingPrivateCoPresenter:
     readiness_unavailable: bool = False
     answer_unavailable: bool = False
     hearing_unavailable: bool = False
+    busy_answer_events: int | None = None
+    answer_event_hook: Callable[[int], None] | None = None
+    generated_answer_events: int = 0
+    answer_reader_closed: bool = False
+    answer_reader_closed_before_context_exit: bool = False
 
     async def readiness(self) -> CoPresenterReadiness:
         self.readiness_calls += 1
         if self.readiness_unavailable:
-            raise CoPresenterUnavailable
+            raise CoPresenterUnavailableError
         return CoPresenterReadiness(
             answerer_model="canned",
             hearing_sample_rate=16_000,
@@ -97,18 +110,32 @@ class RecordingPrivateCoPresenter:
         async def operation() -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
             self.questions.append(question)
             if self.answer_unavailable:
-                raise CoPresenterUnavailable
+                raise CoPresenterUnavailableError
 
             async def events() -> AsyncIterator[AnswerEvent]:
-                yield Text(text="Eine Antwort")
-                if self.hold_answers:
-                    await asyncio.Future()
-                yield Audio(text="Eine Antwort", wav=b"RIFF")
-                yield Done(text="Eine Antwort")
+                try:
+                    if self.busy_answer_events is not None:
+                        for index in range(self.busy_answer_events):
+                            if self.answer_event_hook is not None:
+                                self.answer_event_hook(index)
+                            self.generated_answer_events += 1
+                            yield Text(text=f"Antwort {index}")
+                            await asyncio.sleep(0)
+                        return
+                    yield Text(text="Eine Antwort")
+                    if self.hold_answers:
+                        await asyncio.Future()
+                    yield Audio(text="Eine Antwort", wav=b"RIFF")
+                    yield Done(text="Eine Antwort")
+                finally:
+                    self.answer_reader_closed = True
 
             try:
                 yield events()
             finally:
+                self.answer_reader_closed_before_context_exit = (
+                    self.answer_reader_closed
+                )
                 self.answer_exits += 1
 
         return operation()
@@ -119,7 +146,7 @@ class RecordingPrivateCoPresenter:
             assert language == "de"
             self.hearing_opens += 1
             if self.hearing_unavailable:
-                raise CoPresenterUnavailable
+                raise CoPresenterUnavailableError
             yield self.hearing
 
         return operation()
@@ -390,6 +417,35 @@ class RefusingUserStore(FakeUserStore):
         return None if self.refuse_reads else found
 
 
+@dataclass
+class ManualDeadline:
+    """A deadline released from the test without sleeping or resetting it."""
+
+    started: threading.Event = field(default_factory=threading.Event)
+    _checks: list[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]] = field(
+        default_factory=list[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]]
+    )
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    async def wait(self, _seconds: float) -> None:
+        loop = asyncio.get_running_loop()
+        check = loop.create_future()
+        with self._lock:
+            self._checks.append((loop, check))
+            self.started.set()
+        await asyncio.shield(check)
+
+    def release_first(self) -> None:
+        with self._lock:
+            loop, check = self._checks[0]
+        loop.call_soon_threadsafe(_complete, check)
+
+
+def _complete(check: asyncio.Future[None]) -> None:
+    if not check.done():
+        check.set_result(None)
+
+
 @pytest.mark.parametrize("failure", ["deactivated", "store-error"])
 def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
     account = Account(
@@ -413,16 +469,13 @@ def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
     assert private.readiness_calls == 0
 
 
-def test_session_store_loss_cancels_an_accepted_answer_on_the_one_second_check() -> (
-    None
-):
+def test_session_store_loss_cancels_an_accepted_answer_at_its_deadline() -> None:
     users = RefusingUserStore()
-    checked_intervals: list[float] = []
 
-    async def lose_store(interval: float) -> None:
-        checked_intervals.append(interval)
+    async def lose_store(_seconds: float) -> None:
+        for _turn in range(5):
+            await asyncio.sleep(0)
         users.fail_reads = True
-        await asyncio.sleep(0)
 
     client, private, _clock = a_copresenter_lobby(users=users, delay=lose_store)
     private.hold_answers = True
@@ -435,20 +488,20 @@ def test_session_store_loss_cancels_an_accepted_answer_on_the_one_second_check()
     )
 
     assert response.status_code == HTTPStatus.OK
-    assert response.content == b""
+    assert "event: text" in response.text
+    assert "event: audio" not in response.text
+    assert "event: done" not in response.text
     assert private.questions == [
         Question(said="Was ist wichtig?", slide=2, language="de")
     ]
     assert private.answer_exits == 1
-    assert checked_intervals == [1.0]
+    assert private.answer_reader_closed_before_context_exit
 
 
 def test_deactivation_closes_an_admitted_hearing_before_private_use() -> None:
     users = RefusingUserStore()
-    checked_intervals: list[float] = []
 
-    async def deactivate(interval: float) -> None:
-        checked_intervals.append(interval)
+    async def deactivate(_seconds: float) -> None:
         users.refuse_reads = True
         await asyncio.sleep(0)
 
@@ -466,4 +519,94 @@ def test_deactivation_closes_an_admitted_hearing_before_private_use() -> None:
 
     assert ended.value.code == POLICY_VIOLATION
     assert private.hearing_opens == 0
-    assert checked_intervals == [1.0]
+
+
+def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    event_count = 40
+    refuse_after = 2
+
+    def end_session(index: int) -> None:
+        if index == refuse_after:
+            users.refuse_reads = True
+            deadline.release_first()
+
+    client, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    private.busy_answer_events = event_count
+    private.answer_event_hook = end_session
+    sign_in(client)
+
+    response = client.post(
+        "/copresenter/ask",
+        json=QUESTION,
+        headers={"x-csrf-token": client.cookies["csrf_token"]},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.text.count("event: text") < event_count
+    assert private.generated_answer_events < event_count
+    assert private.answer_exits == 1
+
+
+@pytest.mark.parametrize("loss", ["deactivated", "store-error"])
+def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
+    loss: str,
+) -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    client, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    private.hearing.events = [
+        HearingTranscript(text="eins", final=True),
+        HearingTranscript(text="zwei", final=True),
+    ]
+    sign_in(client)
+
+    with client.websocket_connect(
+        "/copresenter/hear?language=de",
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        socket.send_bytes(b"before loss")
+        assert socket.receive_json()["text"] == "eins"
+        frames_before_loss = list(private.hearing.frames)
+        users.refuse_reads = loss == "deactivated"
+        users.fail_reads = loss == "store-error"
+        deadline.release_first()
+        socket.send_bytes(b"after loss")
+        socket.send_text("force an observable close if the deadline was reset")
+        with pytest.raises(WebSocketDisconnect) as ended:
+            socket.receive_json()
+
+    assert ended.value.code == POLICY_VIOLATION
+    assert private.hearing.frames == frames_before_loss
+    assert private.hearing.closed == 1
+
+
+@pytest.mark.parametrize("loss", ["deactivated", "store-error"])
+def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
+    loss: str,
+) -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    client, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    private.hearing.events = [HearingUnavailable()]
+    sign_in(client)
+
+    with client.websocket_connect(
+        "/copresenter/hear?language=de",
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        socket.send_bytes(b"local hearing fails")
+        assert socket.receive_json()["error"] == "hearing unavailable"
+        users.refuse_reads = loss == "deactivated"
+        users.fail_reads = loss == "store-error"
+        deadline.release_first()
+        socket.send_bytes(b"busy fallback lease")
+        socket.send_text("force an observable close if the deadline was reset")
+        with pytest.raises(WebSocketDisconnect) as ended:
+            socket.receive_json()
+
+    assert ended.value.code == POLICY_VIOLATION
+    assert private.hearing.frames == [b"local hearing fails"]

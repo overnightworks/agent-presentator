@@ -138,6 +138,10 @@ The stage needs `claude` on PATH with a login, and the speech service.
 - Search a knowledge graph, the web, or anything outside the deck folder.
 - Move the speech or co-presenter process into the instance container. They
   remain host processes behind the private socket.
+- Authenticate callers on the private socket itself. Its only authority is the
+  shared runtime UID: the Presentator container, every host process under the
+  operator UID, and root can use the operator's Claude login and card. Do not
+  run untrusted workloads under that authority.
 - Guarantee the real GPU speech service. If that process is not ready, run the
   stand-in and say so. `GET /who` reports which speech models answered.
 

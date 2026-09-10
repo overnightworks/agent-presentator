@@ -476,6 +476,11 @@ same positive non-root `PRESENTATOR_RUNTIME_UID`. Both run as `systemctl --user`
 started them, which needs `loginctl show-user <user> -p Linger` to say
 `Linger=yes`.
 
+The socket has no authentication layer of its own; filesystem access under the
+shared UID is its only authority. The Presentator container, every host process
+under that operator UID, and root can therefore spend the operator's Claude
+login and card. Do not run untrusted workloads under that authority.
+
 ```sh
 # speech/, then copresenter/, each as a user unit with these values
 SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090 uv run presentator-speech

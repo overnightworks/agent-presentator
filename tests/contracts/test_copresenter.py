@@ -8,7 +8,7 @@ from presentator.contracts.copresenter import (
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
-    CoPresenterUnavailable,
+    CoPresenterUnavailableError,
     Done,
     HearingTranscript,
     HearingUnavailable,
@@ -43,4 +43,4 @@ def test_copresenter_values_are_closed_and_immutable() -> None:
 
 
 def test_expected_private_refusal_has_one_neutral_exception() -> None:
-    assert str(CoPresenterUnavailable()) == "co-presenter unavailable"
+    assert str(CoPresenterUnavailableError()) == "co-presenter unavailable"

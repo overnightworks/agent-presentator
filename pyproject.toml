@@ -102,8 +102,6 @@ convention = "google"
 # gives it a container; both programs are constants resolved on PATH, and every
 # argument is built here out of the deck's own row, never out of a request.
 "src/presentator/adapters/builds.py" = ["S404", "S603"]
-"src/presentator/contracts/copresenter.py" = ["N818"]
-"src/presentator/api/copresenter.py" = ["BLE001"]
 # Drives that toolchain and that client as the stand-in scripts it puts on PATH.
 "tests/adapters/test_builds.py" = ["S404", "S603"]
 # Builds the temporary git repositories every layer that reads one is proven on.

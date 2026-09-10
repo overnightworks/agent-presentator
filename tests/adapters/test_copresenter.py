@@ -15,7 +15,7 @@ from presentator.adapters.copresenter import UdsCoPresenter
 from presentator.contracts.copresenter import (
     Audio,
     CoPresenterReadiness,
-    CoPresenterUnavailable,
+    CoPresenterUnavailableError,
     Done,
     HearingTranscript,
     Question,
@@ -118,7 +118,7 @@ def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
     tmp_path: Path,
 ) -> None:
     async def refused() -> None:
-        with pytest.raises(CoPresenterUnavailable):
+        with pytest.raises(CoPresenterUnavailableError):
             await UdsCoPresenter(tmp_path / "missing.sock").readiness()
 
     asyncio.run(refused())
@@ -153,14 +153,14 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     adapter = UdsCoPresenter(socket_path)
 
     async with _Serving(app, socket_path):
-        with pytest.raises(CoPresenterUnavailable):
+        with pytest.raises(CoPresenterUnavailableError):
             await adapter.readiness()
-        with pytest.raises(CoPresenterUnavailable):
+        with pytest.raises(CoPresenterUnavailableError):
             async with adapter.answer(
                 Question(said="Frage", slide=1, language=None)
             ) as answer:
                 await anext(answer)
-        with pytest.raises(CoPresenterUnavailable):
+        with pytest.raises(CoPresenterUnavailableError):
             async with adapter.hear("de") as hearing:
                 await hearing.receive()
 
