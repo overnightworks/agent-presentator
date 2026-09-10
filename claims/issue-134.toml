@@ -1,0 +1,7 @@
+claim_id = "24cae01ae8824f98a97dac51a06f29c5"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "b9c1d15dd5e552ce52adbea218ca729081d6d1b3"
+branch = "codex/issue-134-private-copresenter-deploy"
+scope = ["compose.yaml"]
+opened_commit = "aa36f9e39aa9fe9480c48b35e3d9c28b89543b28"
