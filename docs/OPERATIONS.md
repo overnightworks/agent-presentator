@@ -4,7 +4,9 @@ Audience: whoever administers this repository and the machines it runs on.
 
 ## Running an instance
 
-One value is required: `PRESENTATOR_SECRET_KEY`, at least 32 bytes. `webauth`
+Every run names `PRESENTATOR_SECRET_KEY` (at least 32 bytes), one canonical
+`PRESENTATOR_PUBLIC_ORIGIN`, and the absolute `PRESENTATOR_COPRESENTER_SOCKET`.
+`webauth`
 signs the session cookie with it, and, through a derivation of its own,
 encrypts what a source's row holds ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md));
 without it the process refuses to start. In development it lives in a gitignored
@@ -36,6 +38,8 @@ on a machine whose decks are all your own, is the one place that says otherwise:
 
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
+export PRESENTATOR_PUBLIC_ORIGIN=http://127.0.0.1:8000
+export PRESENTATOR_COPRESENTER_SOCKET=/run/user/"$(id -u)"/agent-presentator/copresenter.sock
 export PRESENTATOR_BUILD_RUNNER=host
 uv run agent-presentator
 ```
@@ -164,14 +168,17 @@ elsewhere here do not apply, and compose adds the two the sandbox is:
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
 | `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
 | `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
+| `PRESENTATOR_COPRESENTER_SOCKET` | `/run/presentator-copresenter/copresenter.sock`, set by `compose.yaml` |
 
 Overriding one of the three paths in `.env` moves that state out of its volume,
 which is how an instance loses what it writes; every other setting is the
 operator's as before.
 
-`PRESENTATOR_SECRET_KEY` and `PRESENTATOR_DOCKER_GROUP` are the values a fresh
-instance must be given, and compose refuses to start the service without either
-of them, naming it. The second is the numeric id of this machine's `docker`
+`PRESENTATOR_SECRET_KEY`, `PRESENTATOR_DOCKER_GROUP`,
+`PRESENTATOR_RUNTIME_UID`, `COPRESENTER_SOCKET_DIRECTORY`, and
+`PRESENTATOR_PUBLIC_ORIGIN` are the values a fresh instance must be given, and
+compose refuses to start the service without them, naming each one. The Docker
+group is the numeric id of this machine's `docker`
 group — `getent group docker | cut -d: -f3` — because the server asks the
 daemon for a container for every build and a group id is not a name.
 Everything else is optional and reaches the container through `.env` beside
@@ -191,6 +198,9 @@ a second project from this file would ask for the same subnet:
 ```sh
 printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
 printf 'PRESENTATOR_TRUSTED_PROXIES=%s\n' "172.31.255.1" >> .env
+printf 'PRESENTATOR_PUBLIC_ORIGIN=%s\n' "https://presentator.hallucinai.de" >> .env
+printf 'PRESENTATOR_RUNTIME_UID=%s\n' "$(id -u)" >> .env
+printf 'COPRESENTER_SOCKET_DIRECTORY=%s\n' "/run/user/$(id -u)/agent-presentator" >> .env
 docker compose up -d
 ```
 
@@ -455,49 +465,42 @@ sixteen-page PDF.
 
 ## The co-presenter on stage
 
-The voice that answers beside a talk is two processes on the machine that holds
-the GPU, not part of the instance: the speech service on `127.0.0.1:8090`
-(`speech/`, never exposed) and the co-presenter on `127.0.0.1:3040`
-(`copresenter/`), which proxies hearing and asks Claude through the installed
+The voice that answers beside a talk is two host processes on the machine that
+holds the GPU: the speech service on `127.0.0.1:8090` (`speech/`, never
+exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the installed
 `claude` executable with the operator's own login. Speech starts first and is
 ready when `GET /health` says both models are; the co-presenter is pointed at
-the deck folder it should know, at that speech address, and at the one origin it
-answers. Both run as `systemctl --user` units so they outlive the shell that
+the deck folder it should know, that speech address, and one private Unix
+socket directory. Both host processes and the Presentator container use the
+same positive non-root `PRESENTATOR_RUNTIME_UID`. Both run as `systemctl --user` units so they outlive the shell that
 started them, which needs `loginctl show-user <user> -p Linger` to say
 `Linger=yes`.
 
+The socket has no authentication layer of its own; filesystem access under the
+shared UID is its only authority. The Presentator container, every host process
+under that operator UID, and root can therefore spend the operator's Claude
+login and card. Do not run untrusted workloads under that authority.
+
 ```sh
 # speech/, then copresenter/, each as a user unit with these values
-SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090            uv run presentator-speech
-COPRESENTER_HOST=127.0.0.1 COPRESENTER_PORT=3040 \
+SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090 uv run presentator-speech
+COPRESENTER_TRANSPORT=unix \
+COPRESENTER_SOCKET_DIRECTORY=<absolute private directory> \
+PRESENTATOR_RUNTIME_UID=<shared uid> \
 COPRESENTER_SPEECH_URL=http://127.0.0.1:8090 \
 COPRESENTER_DECK=<the deck folder> \
-COPRESENTER_ALLOWED_ORIGIN=https://presentator.hallucinai.de \
   uv run copresenter
 ```
 
-The overlay rides in the deck: `global-bottom.vue` next to `slides.md` mounts
-`components/CoPresenter.vue` and sets `window.COPRESENTER_URL` to the address
-the browser can reach, `https://` there giving `wss://` for the hearing socket.
-The deck is the only place that names it, so a shared talk URL cannot point the
-overlay — and with it the microphone — at another host. The service refuses to
-start unless `COPRESENTER_ALLOWED_ORIGIN` is one canonical origin, and every
-route and the hearing socket refuse a call whose `Origin` is missing or
-different, `/who` included. That address is public through the same tunnel as
-the instance, one more ingress entry above the `http_status:404` catch-all, and
-one proxied DNS record:
-
-```
-  - hostname: copresenter.hallucinai.de
-    service: http://localhost:3040
-```
-
-`Origin` is a guard against other web pages, not authentication: a browser
-cannot forge it, but any native client can, so the gate keeps a second site out
-and nothing else. The co-presenter has no login of its own, so whoever reaches
-that name spends the operator's Claude session and the card. A Cloudflare Access
-policy on the hostname is what prevents that, and the ingress entry comes out
-again after the talk.
+Set `PRESENTATOR_PUBLIC_ORIGIN` to the exact canonical browser origin and
+`COPRESENTER_SOCKET_DIRECTORY` plus `PRESENTATOR_RUNTIME_UID` for Compose.
+Compose mounts that directory read-write at `/run/presentator-copresenter` and
+hands Presentator the fixed `copresenter.sock` path. Only `127.0.0.1:8000` is
+published. The overlay uses relative `/copresenter` routes; Presentator checks
+its existing active session and the exact WebSocket Origin before opening the
+socket. `/ask` also carries the session's `csrf_token` cookie in
+`x-csrf-token`. Logout, expiry, deactivation, or a session-store failure closes
+the hearing lease and an ongoing answer within one second.
 
 ## The fetch-now hook
 

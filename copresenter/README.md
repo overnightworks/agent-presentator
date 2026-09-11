@@ -5,8 +5,9 @@ Audience: the operator running this beside an instance, or an agent proving it.
 A voice that knows the deck. It is not the product. It lives beside the
 instance so a demo cannot break the lobby, the gates, or `src/presentator`.
 
-The overlay rides in the deck (`examples/copresenter-deck`). The service reads
-that deck's `slides.md`, asks Claude, and speaks through the local speech
+The overlay rides in the deck (`examples/copresenter-deck`) and calls the
+signed-in Presentator origin. Presentator reaches this service only through a
+private Unix socket. The service reads that deck's `slides.md`, asks Claude, and speaks through the local speech
 service from [#74](https://github.com/overnightworks/agent-presentator/issues/74).
 
 ## What it is
@@ -33,10 +34,9 @@ and must be named on stage.
 ## What it sends where
 
 ```
-mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech service
-                 |                          |
-                 |  POST /ask {said,slide}  |
-                 +--------------------------+
+mic --PCM--> overlay --signed-in Presentator--UDS /hear--> copresenter --WS--> speech
+                |                                      |
+                +--POST /copresenter/ask---------------+
                             |
                      Claude CLI (agent-providers)
                             |
@@ -45,11 +45,11 @@ mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech servic
 
 | From | To | What |
 | --- | --- | --- |
-| Overlay | `GET /who` | Which model answers, which speech models, sample rate |
-| Overlay | `WS /hear?language=de` | Raw 16-bit PCM frames from the microphone |
+| Overlay | Presentator `GET /copresenter/who` | Answer model, hearing readiness and sample rate |
+| Overlay | Presentator `WS /copresenter/hear?language=de` | Raw 16-bit PCM frames from the microphone |
 | Copresenter | Speech `WS /hear?language=de` | Those frames, forwarded |
 | Speech | Overlay (via copresenter) | `{"text","final"}` partials and finals |
-| Overlay | `POST /ask` | `{said, slide, language}` |
+| Overlay | Presentator `POST /copresenter/ask` | `{said, slide, language}` plus its session CSRF token |
 | Copresenter | Claude CLI | Current slide + the deck around it + what was said |
 | Copresenter | Speech `POST /speak` | One finished sentence, `{text, language}` |
 | Copresenter | Overlay | SSE: `text`, `sentence`, `audio` (WAV as `wav_b64`), `done` |
@@ -57,8 +57,10 @@ mic  --PCM-->  overlay  --WS /hear-->  copresenter  --WS /hear-->  speech servic
 The overlay is off until the Presenter switch is turned on. Off, it neither
 listens nor speaks and the microphone is released. Off during activation
 releases anything that activation later obtains. Off during playback stops the
-audio at once. A closed hearing socket falls back to the browser's own
-recognition and releases a microphone that arrives after that.
+audio at once. A private hearing failure falls back to the browser's own
+recognition while the authenticated hearing lease stays open. Losing that
+lease turns the overlay off, releases either microphone path, aborts an answer,
+and discards queued or playing audio within the one-second session check.
 
 ## How to run it with the speech service
 
@@ -69,7 +71,9 @@ environment and never logged.
 
 ```sh
 # claude on PATH, already logged in (`claude` / `claude login`)
-export COPRESENTER_ALLOWED_ORIGIN="http://localhost:3030"   # where the talk is served
+export COPRESENTER_TRANSPORT=unix
+export COPRESENTER_SOCKET_DIRECTORY=/run/agent-presentator
+export PRESENTATOR_RUNTIME_UID="$(id -u)"
 export COPRESENTER_DECK="../examples/copresenter-deck"
 export COPRESENTER_CLAUDE_MODEL="claude-sonnet-4-6"   # optional
 # default speech is the #74 service:
@@ -101,22 +105,19 @@ The deck, from `frontend/` after `pnpm install --frozen-lockfile`:
 pnpm exec slidev ../examples/copresenter-deck/slides.md
 ```
 
-Open the talk and turn **Presenter** on. The overlay talks to
-`http://127.0.0.1:3040` unless the deck's `global-bottom.vue` sets
-`window.COPRESENTER_URL`; the deck is the only place that names the address, so
-a shared talk URL cannot point the microphone somewhere else. An `https://`
-address carries the hearing socket over `wss://`.
-
-Copy `global-bottom.vue` and `components/CoPresenter.vue` into any other deck
-folder to take the overlay with you. A deck served from another machine sets
-`window.COPRESENTER_URL` to this service's public address, and that page's
-origin is what `COPRESENTER_ALLOWED_ORIGIN` must name.
+Open the talk through Presentator and turn **Presenter** on. Copy
+`global-bottom.vue` and `components/CoPresenter.vue` into another deck folder
+to take the overlay with it; the component keeps using that Presentator
+origin's relative authenticated routes.
 
 ### Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `COPRESENTER_ALLOWED_ORIGIN` | none, required | The one origin whose pages may call this service, for example `https://presentator.hallucinai.de`. `scheme://host[:port]`, http or https, nothing else: a wildcard, a path, credentials or a missing value each refuse the start and name the reason. Every route and the hearing socket refuse a call whose `Origin` is missing or different, `/who` included. |
+| `COPRESENTER_TRANSPORT` | `tcp` | `unix` is the private production transport; `tcp` is the developer mode. |
+| `COPRESENTER_SOCKET_DIRECTORY` | none | Required absolute host directory in Unix mode. It must belong to the runtime uid with mode `0700`; the service creates `copresenter.sock` with mode `0600`. |
+| `PRESENTATOR_RUNTIME_UID` | none | Required positive uid in Unix mode and must equal the process euid. Presentator's container uses the same uid. |
+| `COPRESENTER_ALLOWED_ORIGIN` | none | Required only in TCP developer mode. The one canonical origin every route and hearing socket accepts. Unix mode omits CORS and this gate. |
 | `COPRESENTER_HOST` | `127.0.0.1` | Bind address |
 | `COPRESENTER_PORT` | `3040` | Bind port |
 | `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
@@ -135,19 +136,25 @@ The stage needs `claude` on PATH with a login, and the speech service.
   separators and per-slide frontmatter are read.
 - Split abbreviations such as `z.B.` correctly.
 - Search a knowledge graph, the web, or anything outside the deck folder.
-- Authenticate callers. The origin gate stops other web pages, not a native
-  client that writes the header itself; whoever reaches the address asks Claude
-  with the operator's login. A public deployment needs a real gate in front.
-- Live inside the instance. Productising it is a later milestone.
+- Move the speech or co-presenter process into the instance container. They
+  remain host processes behind the private socket.
+- Authenticate callers on the private socket itself. Its only authority is the
+  shared runtime UID: the Presentator container, every host process under the
+  operator UID, and root can use the operator's Claude login and card. Do not
+  run untrusted workloads under that authority.
 - Guarantee the real GPU speech service. If that process is not ready, run the
   stand-in and say so. `GET /who` reports which speech models answered.
 
 The stand-in is not a voice. It returns a short tone and one canned German
 transcript so the loop can be proven against the contract.
 
-## How to prove the loop
+## How to prove the direct developer loop
 
-Two modes. The default never claims the GPU service or Claude.
+These two modes map the overlay's relative calls to the direct TCP developer
+service in the browser harness. They prove co-presenter behavior, not
+Presentator login, session revocation, CSRF, Origin, or the private socket. The
+authenticated product proof runs through an isolated Presentator instance.
+The default never claims the GPU service or Claude.
 
 From this directory, after `uv sync --group dev`. Playwright is a declared
 dev dependency; the script drives Google Chrome on PATH (`google-chrome`).

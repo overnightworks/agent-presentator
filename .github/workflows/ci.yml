@@ -239,6 +239,12 @@ jobs:
       - name: Build the image
         run: docker build --tag agent-presentator:${{ github.sha }} .
 
+      - name: Prove a configured UID that already belongs to the base image
+        run: |
+          docker build --build-arg PRESENTATOR_RUNTIME_UID=1000 --tag agent-presentator:uid-1000 .
+          test "$(docker inspect --format '{{.Config.User}}' agent-presentator:uid-1000)" = presentator
+          docker run --rm agent-presentator:uid-1000 sh -c 'test "$(id -u)" = 1000 && test "$HOME" = /home/presentator'
+
       # An image without CA certificates builds cleanly and only fails once a
       # real HTTPS source is added, so the proof has to be an actual TLS
       # fetch, not a package-list check.

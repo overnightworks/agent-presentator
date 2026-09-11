@@ -19,7 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from websockets.exceptions import WebSocketException
 
 from copresenter.answer import Answerer, stream_spoken
-from copresenter.config import Settings
+from copresenter.config import Settings, Transport
 from copresenter.deck import Deck, load_deck
 from copresenter.speech import LocalSpeech, Speech, SpeechHealth
 
@@ -70,13 +70,17 @@ def create_app(
 ) -> FastAPI:
     """Compose the service. Tests inject a canned answerer and a fake speech port."""
     app = FastAPI(title="copresenter")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.allowed_origin],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    app.add_middleware(OriginGate, allowed_origin=settings.allowed_origin)
+    if settings.transport is Transport.TCP:
+        if settings.allowed_origin is None:
+            message = "tcp transport requires one allowed origin"
+            raise RuntimeError(message)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[settings.allowed_origin],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        app.add_middleware(OriginGate, allowed_origin=settings.allowed_origin)
 
     @app.get("/who")
     async def who() -> dict[str, object]:
