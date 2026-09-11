@@ -11,10 +11,12 @@ import pytest
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
+from httpcore2._backends.auto import AutoBackend
 
 from presentator.adapters.copresenter import UdsCoPresenter
 from presentator.application.copresenter import CoPresenterUse
 from presentator.contracts.copresenter import (
+    AnswerText,
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
@@ -24,7 +26,6 @@ from presentator.contracts.copresenter import (
     HearingUnavailable,
     Question,
     Sentence,
-    Text,
 )
 
 if TYPE_CHECKING:
@@ -84,7 +85,7 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
         local_hearing_ready=True,
     )
     assert events == [
-        Text(text="Antwort"),
+        AnswerText(text="Antwort"),
         Sentence(text="Antwort."),
         Audio(text="Antwort", wav=b"RIFF"),
         Done(text="Antwort"),
@@ -154,8 +155,7 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
         async with adapter.hear("closed") as hearing:
             closed = await hearing.receive()
         with pytest.raises(CoPresenterUnavailableError):
-            async with adapter.hear("crashed") as hearing:
-                await hearing.send_pcm(b"pcm")
+            await _send_pcm_to_crashed_peer(adapter)
         with pytest.raises(ExceptionGroup) as propagated:
             await _raise_caller_fault(adapter)
 
@@ -166,16 +166,21 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
 
 def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def refused() -> None:
-        adapter = UdsCoPresenter(tmp_path / "missing.sock")
-        with pytest.raises(CoPresenterUnavailableError):
-            await adapter.readiness()
-        with pytest.raises(CoPresenterUnavailableError):
-            async with adapter.hear("de"):
-                pytest.fail("missing private socket yielded a hearing")
+    attempted_tcp: list[dict[str, object]] = []
 
-    asyncio.run(refused())
+    async def refuse_tcp(
+        _backend: AutoBackend,
+        **connection: object,
+    ) -> None:
+        attempted_tcp.append(connection)
+        raise AssertionError
+
+    monkeypatch.setattr(AutoBackend, "connect_tcp", refuse_tcp)
+    asyncio.run(_refuse_missing_socket(tmp_path))
+
+    assert attempted_tcp == []
 
 
 class _CallerFaultError(Exception):
@@ -186,6 +191,24 @@ async def _raise_caller_fault(adapter: UdsCoPresenter) -> None:
     async with adapter.hear("caller-fault") as hearing:
         assert await hearing.receive() == HearingTranscript(text="opened", final=True)
         raise _CallerFaultError
+
+
+async def _send_pcm_to_crashed_peer(adapter: UdsCoPresenter) -> None:
+    async with adapter.hear("crashed") as hearing:
+        await hearing.send_pcm(b"pcm")
+
+
+async def _refuse_missing_socket(tmp_path: Path) -> None:
+    adapter = UdsCoPresenter(tmp_path / "missing.sock")
+    with pytest.raises(CoPresenterUnavailableError):
+        await adapter.readiness()
+    with pytest.raises(CoPresenterUnavailableError):
+        await _open_missing_hearing(adapter)
+
+
+async def _open_missing_hearing(adapter: UdsCoPresenter) -> None:
+    async with adapter.hear("de"):
+        pytest.fail("missing private socket yielded a hearing")
 
 
 def test_private_status_and_malformed_protocol_map_to_typed_unavailability(
@@ -231,8 +254,7 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
         with pytest.raises(CoPresenterUnavailableError):
             await _read_unknown_private_event(adapter)
         with pytest.raises(CoPresenterUnavailableError):
-            async with adapter.hear("de") as hearing:
-                await hearing.receive()
+            await _receive_malformed_hearing(adapter)
 
 
 async def _read_error_then_malformed_audio(adapter: UdsCoPresenter) -> None:
@@ -246,6 +268,11 @@ async def _read_unknown_private_event(adapter: UdsCoPresenter) -> None:
         Question(said="Unbekannt", slide=1, language=None)
     ) as answer:
         await anext(answer)
+
+
+async def _receive_malformed_hearing(adapter: UdsCoPresenter) -> None:
+    async with adapter.hear("de") as hearing:
+        await hearing.receive()
 
 
 def test_cancelled_native_answer_closes_the_private_stream(tmp_path: Path) -> None:
@@ -273,7 +300,7 @@ async def _cancel_native_answer(tmp_path: Path) -> None:
         async with UdsCoPresenter(socket_path).answer(
             Question(said="Frage", slide=1, language=None)
         ) as answer:
-            assert await anext(answer) == Text(text="Antwort")
+            assert await anext(answer) == AnswerText(text="Antwort")
         await asyncio.wait_for(stream_closed.wait(), timeout=1)
 
 

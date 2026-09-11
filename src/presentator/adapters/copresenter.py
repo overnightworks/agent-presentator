@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import binascii
 from base64 import b64decode
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Final, cast
@@ -17,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from presentator.contracts.copresenter import (
     AnswerEvent,
+    AnswerText,
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
@@ -26,7 +26,6 @@ from presentator.contracts.copresenter import (
     HearingUnavailable,
     Question,
     Sentence,
-    Text,
 )
 
 if TYPE_CHECKING:
@@ -35,7 +34,7 @@ if TYPE_CHECKING:
 
     from presentator.ports.copresenter import PrivateHearing
 
-_PRIVATE_ORIGIN: Final = "http://copresenter.internal"
+_PRIVATE_ORIGIN: Final = "http://copresenter.localhost"
 
 
 class _Answerer(BaseModel):
@@ -156,7 +155,6 @@ class UdsCoPresenter:
             ValidationError,
             TypeError,
             ValueError,
-            binascii.Error,
         ) as refused:
             raise CoPresenterUnavailableError from refused
 
@@ -173,10 +171,7 @@ class UdsCoPresenter:
         try:
             async with (
                 client,
-                client.websocket(
-                    "ws://copresenter.internal/hear",
-                    params={"language": language},
-                ) as socket,
+                client.websocket("/hear", params={"language": language}) as socket,
             ):
                 yield _UdsHearing(socket)
         except BaseExceptionGroup as refused:
@@ -205,7 +200,7 @@ def _answer_event(event: httpx2.ServerSentEvent) -> AnswerEvent:
         return Audio(text=payload.text, wav=b64decode(payload.wav_b64, validate=True))
     payload = _TextPayload.model_validate_json(event.data)
     if event.event == "text":
-        return Text(text=payload.text)
+        return AnswerText(text=payload.text)
     if event.event == "sentence":
         return Sentence(text=payload.text)
     if event.event == "done":

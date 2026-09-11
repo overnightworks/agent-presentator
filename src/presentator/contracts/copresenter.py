@@ -30,7 +30,7 @@ class CoPresenterReadiness:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Text:
+class AnswerText:
     """One incremental answer fragment."""
 
     text: str
@@ -63,7 +63,7 @@ class AnswerUnavailable:
     """A terminal expected answer failure."""
 
 
-type AnswerEvent = Text | Sentence | Audio | Done | AnswerUnavailable
+type AnswerEvent = AnswerText | Sentence | Audio | Done | AnswerUnavailable
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

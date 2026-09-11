@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 from presentator.application.copresenter import CoPresenterUse
 from presentator.contracts.copresenter import (
     AnswerEvent,
+    AnswerText,
     CoPresenterReadiness,
     HearingTranscript,
     HearingUnavailable,
     Question,
-    Text,
 )
 from presentator.ports.copresenter import PrivateHearing
 
@@ -56,7 +56,7 @@ class FakePrivateCoPresenter:
         @asynccontextmanager
         async def operation() -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
             async def events() -> AsyncIterator[AnswerEvent]:
-                yield Text(text=question.said)
+                yield AnswerText(text=question.said)
                 await asyncio.Future()
 
             try:
@@ -88,7 +88,7 @@ async def _cancel_answer() -> None:
     use = CoPresenterUse(private=private)
 
     async with use.answer(Question(said="Frage", slide=1, language=None)) as events:
-        assert await anext(events) == Text(text="Frage")
+        assert await anext(events) == AnswerText(text="Frage")
 
     assert private.answer_exits == 1
 

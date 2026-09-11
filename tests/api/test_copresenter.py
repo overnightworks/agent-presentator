@@ -21,6 +21,7 @@ from presentator.application.copresenter import CoPresenterUse
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.copresenter import (
     AnswerEvent,
+    AnswerText,
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
@@ -30,7 +31,6 @@ from presentator.contracts.copresenter import (
     HearingUnavailable,
     Question,
     Sentence,
-    Text,
 )
 from presentator.contracts.models import Account, Role, User
 from tests.api.lobby import A_BROWSERS_HEADERS, TYPED_WORDS, USERNAME, a_lobby_app
@@ -136,10 +136,10 @@ class RecordingPrivateCoPresenter:
                             if self.answer_event_hook is not None:
                                 self.answer_event_hook(index)
                             self.generated_answer_events += 1
-                            yield Text(text=f"Antwort {index}")
+                            yield AnswerText(text=f"Antwort {index}")
                             await asyncio.sleep(0)
                         return
-                    yield Text(text="Eine Antwort")
+                    yield AnswerText(text="Eine Antwort")
                     if self.hold_answers:
                         await asyncio.Future()
                     yield Audio(text="Eine Antwort", wav=b"RIFF")
@@ -313,7 +313,7 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
 def test_private_answer_events_preserve_the_public_stream_contract() -> None:
     client, private, _clock = a_copresenter_lobby()
     private.answer_events = [
-        Text(text="Der Anfang"),
+        AnswerText(text="Der Anfang"),
         Sentence(text="Der Satz."),
         Done(text="Die Antwort."),
     ]
@@ -424,6 +424,7 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
     private.hearing.events = [
         HearingTranscript(text="erste Antwort", final=False),
         HearingTranscript(text="zweite Antwort", final=True),
+        HearingTranscript(text="leere Antwort", final=False),
     ]
     sign_in(client)
 
@@ -435,8 +436,10 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
         assert socket.receive_json() == {"text": "erste Antwort", "final": False}
         socket.send_bytes(b"zweites pcm")
         assert socket.receive_json() == {"text": "zweite Antwort", "final": True}
+        socket.send_bytes(b"")
+        assert socket.receive_json() == {"text": "leere Antwort", "final": False}
 
-    assert private.hearing.frames == [b"erstes pcm", b"zweites pcm"]
+    assert private.hearing.frames == [b"erstes pcm", b"zweites pcm", b""]
     assert private.hearing.closed == 1
 
 

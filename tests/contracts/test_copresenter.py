@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from presentator.contracts.copresenter import (
+    AnswerText,
     AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
@@ -14,7 +15,6 @@ from presentator.contracts.copresenter import (
     HearingUnavailable,
     Question,
     Sentence,
-    Text,
 )
 
 
@@ -26,7 +26,7 @@ def test_copresenter_values_are_closed_and_immutable() -> None:
         local_hearing_ready=True,
     )
     events = (
-        Text(text="Ein"),
+        AnswerText(text="Ein"),
         Sentence(text="Ein Satz."),
         Audio(text="Ein Satz.", wav=b"RIFF"),
         Done(text="Ein Satz."),

@@ -18,6 +18,7 @@ from starlette.requests import HTTPConnection
 
 from presentator.contracts.copresenter import (
     AnswerEvent,
+    AnswerText,
     AnswerUnavailable,
     Audio,
     CoPresenterUnavailableError,
@@ -25,11 +26,11 @@ from presentator.contracts.copresenter import (
     HearingUnavailable,
     Question,
     Sentence,
-    Text,
 )
 
 if TYPE_CHECKING:
     from starlette.responses import Response
+    from starlette.types import Message
 
     from presentator.application.copresenter import CoPresenterHearing, CoPresenterUse
 
@@ -39,6 +40,7 @@ _UNSUPPORTED_DATA: Final = 1003
 _INTERNAL_ERROR: Final = 1011
 _GENERIC_ANSWER_FAILURE: Final = "the answer could not be spoken"
 _GENERIC_HEARING_FAILURE: Final = "hearing unavailable"
+_BROWSER_DISCONNECT: Final = "websocket.disconnect"
 
 
 class SignedIn(Protocol):
@@ -116,7 +118,7 @@ def add_copresenter_routes(
             },
         )
 
-    async def _ask(request: Request, question: AskRequest) -> Response:
+    def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
         if connection is None:
             return JSONResponse(
@@ -257,23 +259,25 @@ async def _next_pcm_or_end(
 ) -> bytes | None:
     receive = asyncio.create_task(socket.receive())
     try:
-        while True:
-            done, _pending = await asyncio.wait(
-                {receive, session_watch}, return_when=asyncio.FIRST_COMPLETED
-            )
-            if session_watch in done:
-                _observe_session_end(session_watch)
-                await socket.close(code=_POLICY_VIOLATION)
-                return None
-            message = receive.result()
-            if message["type"] == "websocket.disconnect":
-                return None
-            if message.get("text") is not None:
-                await socket.close(code=_UNSUPPORTED_DATA)
-                return None
-            return message["bytes"]
+        done, _pending = await asyncio.wait(
+            {receive, session_watch}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if session_watch in done:
+            _observe_session_end(session_watch)
+            await socket.close(code=_POLICY_VIOLATION)
+            return None
+        return await _pcm_or_end(socket, receive.result())
     finally:
         await _finish_tasks((receive,))
+
+
+async def _pcm_or_end(socket: WebSocket, message: Message) -> bytes | None:
+    if message["type"] == _BROWSER_DISCONNECT:
+        return None
+    if message.get("text") is not None:
+        await socket.close(code=_UNSUPPORTED_DATA)
+        return None
+    return message["bytes"]
 
 
 async def _pipe_hearing(
@@ -295,13 +299,10 @@ async def _pipe_hearing(
                 await socket.close(code=_POLICY_VIOLATION)
                 return False
             if receive in done:
-                message = receive.result()
-                if message["type"] == "websocket.disconnect":
+                frame = await _pcm_or_end(socket, receive.result())
+                if frame is None:
                     return False
-                if message.get("text") is not None:
-                    await socket.close(code=_UNSUPPORTED_DATA)
-                    return False
-                await hearing.send_pcm(message["bytes"])
+                await hearing.send_pcm(frame)
                 receive = asyncio.create_task(socket.receive())
             if transcript in done:
                 event = transcript.result()
@@ -331,7 +332,7 @@ async def _hold_authenticated_lease(
                 await socket.close(code=_POLICY_VIOLATION)
                 return
             message = receive.result()
-            if message["type"] == "websocket.disconnect":
+            if message["type"] == _BROWSER_DISCONNECT:
                 return
             if message.get("text") is not None:
                 await socket.close(code=_UNSUPPORTED_DATA)
@@ -373,7 +374,7 @@ async def _finish_tasks(tasks: Iterable[asyncio.Task[object]]) -> None:
 
 
 def _sse(event: AnswerEvent) -> bytes:
-    if isinstance(event, Text):
+    if isinstance(event, AnswerText):
         return _encoded_sse("text", {"text": event.text})
     if isinstance(event, Sentence):
         return _encoded_sse("sentence", {"text": event.text})
