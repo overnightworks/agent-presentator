@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import signal
 import socket
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import pytest
@@ -134,6 +134,8 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
         await socket.accept()
         if language == "unavailable":
             await socket.send_json({"text": "", "final": True, "error": "unavailable"})
+        else:
+            await socket.close()
 
     app.add_api_websocket_route("/hear", _hear)
     socket_path = tmp_path / "copresenter.sock"
@@ -172,8 +174,10 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
         return JSONResponse({"private": "detail"}, status_code=503)
 
     async def _ask(request: Request) -> StreamingResponse:
+        question = await request.json()
+
         async def events() -> AsyncIterator[bytes]:
-            if (await request.json())["said"] == "Unbekannt":
+            if question["said"] == "Unbekannt":
                 yield b'event: private-metadata\ndata: {"private":"detail"}\n\n'
                 return
             yield b'event: error\ndata: {"private":"detail"}\n\n'
@@ -184,6 +188,7 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     async def _hear(socket: WebSocket) -> None:
         await socket.accept()
         await socket.send_json({"text": ["not", "text"], "final": True})
+        await socket.close()
 
     app.add_api_route("/who", _who, methods=["GET"])
     app.add_api_route("/ask", _ask, methods=["POST"])
@@ -194,20 +199,26 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     async with _Serving(app, socket_path):
         with pytest.raises(CoPresenterUnavailableError):
             await adapter.readiness()
-        async with adapter.answer(
-            Question(said="Frage", slide=1, language=None)
-        ) as answer:
-            assert await anext(answer) == AnswerUnavailable()
-            with pytest.raises(CoPresenterUnavailableError):
-                await anext(answer)
-        async with adapter.answer(
-            Question(said="Unbekannt", slide=1, language=None)
-        ) as answer:
-            with pytest.raises(CoPresenterUnavailableError):
-                await anext(answer)
+        with pytest.raises(CoPresenterUnavailableError):
+            await _read_error_then_malformed_audio(adapter)
+        with pytest.raises(CoPresenterUnavailableError):
+            await _read_unknown_private_event(adapter)
         with pytest.raises(CoPresenterUnavailableError):
             async with adapter.hear("de") as hearing:
                 await hearing.receive()
+
+
+async def _read_error_then_malformed_audio(adapter: UdsCoPresenter) -> None:
+    async with adapter.answer(Question(said="Frage", slide=1, language=None)) as answer:
+        assert await anext(answer) == AnswerUnavailable()
+        await anext(answer)
+
+
+async def _read_unknown_private_event(adapter: UdsCoPresenter) -> None:
+    async with adapter.answer(
+        Question(said="Unbekannt", slide=1, language=None)
+    ) as answer:
+        await anext(answer)
 
 
 def test_cancelled_native_answer_closes_the_private_stream(tmp_path: Path) -> None:
@@ -263,6 +274,7 @@ class _Serving:
         assert self._server is not None
         assert self._task is not None
         assert self._listener is not None
-        self._server.handle_exit(signal.SIGTERM, None)
-        await self._task
-        self._listener.close()
+        await self._server.shutdown(sockets=[self._listener])
+        self._task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._task
