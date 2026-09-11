@@ -75,10 +75,7 @@ class _UdsHearing:
         self._socket = socket
 
     async def send_pcm(self, frame: bytes) -> None:
-        try:
-            await self._socket.send_bytes(frame)
-        except HTTPXWSException as refused:
-            raise CoPresenterUnavailableError from refused
+        await self._socket.send_bytes(frame)
 
     async def receive(self) -> HearingTranscript | HearingUnavailable | None:
         try:
@@ -94,10 +91,7 @@ class _UdsHearing:
         return HearingTranscript(text=payload.text, final=payload.final)
 
     async def aclose(self) -> None:
-        try:
-            await self._socket.close()
-        except HTTPXWSException as refused:
-            raise CoPresenterUnavailableError from refused
+        await self._socket.close()
 
 
 class UdsCoPresenter:
@@ -176,7 +170,6 @@ class UdsCoPresenter:
     async def hear(self, language: str) -> AsyncGenerator[PrivateHearing]:
         """Open one native private WebSocket hearing operation."""
         client = self._client()
-        opened = False
         try:
             async with (
                 client,
@@ -185,15 +178,12 @@ class UdsCoPresenter:
                     params={"language": language},
                 ) as socket,
             ):
-                opened = True
                 yield _UdsHearing(socket)
         except BaseExceptionGroup as refused:
             if _is_expected_private_failure(refused):
                 raise CoPresenterUnavailableError from refused
             raise
         except (httpx2.HTTPError, HTTPXWSException, TypeError, ValueError) as refused:
-            if opened and isinstance(refused, (TypeError, ValueError)):
-                raise
             raise CoPresenterUnavailableError from refused
 
 

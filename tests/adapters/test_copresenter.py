@@ -135,6 +135,10 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
         if language == "crashed":
             message = "private peer crashed"
             raise RuntimeError(message)
+        if language == "caller-fault":
+            await socket.send_json({"text": "opened", "final": True})
+            await socket.close()
+            return
         if language == "unavailable":
             await socket.send_json({"text": "", "final": True, "error": "unavailable"})
         else:
@@ -152,19 +156,36 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
         with pytest.raises(CoPresenterUnavailableError):
             async with adapter.hear("crashed") as hearing:
                 await hearing.send_pcm(b"pcm")
+        with pytest.raises(ExceptionGroup) as propagated:
+            await _raise_caller_fault(adapter)
 
     assert unavailable == HearingUnavailable()
     assert closed is None
+    assert propagated.value.subgroup(_CallerFaultError) is not None
 
 
 def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
     tmp_path: Path,
 ) -> None:
     async def refused() -> None:
+        adapter = UdsCoPresenter(tmp_path / "missing.sock")
         with pytest.raises(CoPresenterUnavailableError):
-            await UdsCoPresenter(tmp_path / "missing.sock").readiness()
+            await adapter.readiness()
+        with pytest.raises(CoPresenterUnavailableError):
+            async with adapter.hear("de"):
+                pytest.fail("missing private socket yielded a hearing")
 
     asyncio.run(refused())
+
+
+class _CallerFaultError(Exception):
+    pass
+
+
+async def _raise_caller_fault(adapter: UdsCoPresenter) -> None:
+    async with adapter.hear("caller-fault") as hearing:
+        assert await hearing.receive() == HearingTranscript(text="opened", final=True)
+        raise _CallerFaultError
 
 
 def test_private_status_and_malformed_protocol_map_to_typed_unavailability(

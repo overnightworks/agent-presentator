@@ -271,10 +271,7 @@ async def _next_pcm_or_end(
             if message.get("text") is not None:
                 await socket.close(code=_UNSUPPORTED_DATA)
                 return None
-            frame = message.get("bytes")
-            if frame is not None:
-                return frame
-            receive = asyncio.create_task(socket.receive())
+            return message["bytes"]
     finally:
         await _finish_tasks((receive,))
 
@@ -304,9 +301,7 @@ async def _pipe_hearing(
                 if message.get("text") is not None:
                     await socket.close(code=_UNSUPPORTED_DATA)
                     return False
-                frame = message.get("bytes")
-                if frame is not None:
-                    await hearing.send_pcm(frame)
+                await hearing.send_pcm(message["bytes"])
                 receive = asyncio.create_task(socket.receive())
             if transcript in done:
                 event = transcript.result()
@@ -357,8 +352,7 @@ async def _watch_session(
 
 
 def _observe_session_end(session_watch: asyncio.Task[None]) -> None:
-    if not session_watch.cancelled():
-        session_watch.exception()
+    session_watch.exception()
 
 
 async def _next_answer_event(events: AsyncIterator[AnswerEvent]) -> AnswerEvent:

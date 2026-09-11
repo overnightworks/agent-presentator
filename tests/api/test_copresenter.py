@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
     from starlette.requests import HTTPConnection
+    from starlette.types import Message, Scope
 
     from presentator.ports.copresenter import PrivateHearing
 
@@ -433,18 +434,59 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
     assert private.hearing.closed == 1
 
 
-def test_browser_disconnect_after_private_hearing_closes_the_private_child() -> None:
+def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
     client, private, _clock = a_copresenter_lobby()
     sign_in(client)
 
-    with client.websocket_connect(
-        "/copresenter/hear?language=de",
-        headers={"origin": PUBLIC_ORIGIN},
-    ) as socket:
-        socket.send_bytes(b"pcm")
+    asyncio.run(_send_transcript_to_a_disconnected_browser(client))
 
     assert private.hearing.frames == [b"pcm"]
     assert private.hearing.closed == 1
+
+
+async def _send_transcript_to_a_disconnected_browser(client: TestClient) -> None:
+    messages: list[Message] = [
+        {"type": "websocket.connect"},
+        {"type": "websocket.receive", "bytes": b"pcm"},
+    ]
+    transcript_delivery_attempted = False
+
+    async def receive() -> Message:
+        if messages:
+            return messages.pop(0)
+        return await asyncio.Future()
+
+    async def send(message: Message) -> None:
+        nonlocal transcript_delivery_attempted
+        if message["type"] == "websocket.send":
+            transcript_delivery_attempted = True
+            raise OSError
+
+    scope: Scope = {
+        "type": "websocket",
+        "asgi": {"version": "3.0", "spec_version": "2.5"},
+        "http_version": "1.1",
+        "scheme": "ws",
+        "path": "/copresenter/hear",
+        "raw_path": b"/copresenter/hear",
+        "query_string": b"language=de",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"origin", PUBLIC_ORIGIN.encode()),
+            (
+                b"cookie",
+                f"presentator_session={client.cookies['presentator_session']}".encode(),
+            ),
+        ],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "subprotocols": [],
+        "state": {},
+    }
+
+    await client.app(scope, receive, send)
+
+    assert transcript_delivery_attempted
 
 
 def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
