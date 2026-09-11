@@ -132,6 +132,9 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
 
     async def _hear(socket: WebSocket, language: str) -> None:
         await socket.accept()
+        if language == "crashed":
+            message = "private peer crashed"
+            raise RuntimeError(message)
         if language == "unavailable":
             await socket.send_json({"text": "", "final": True, "error": "unavailable"})
         else:
@@ -146,6 +149,9 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
             unavailable = await hearing.receive()
         async with adapter.hear("closed") as hearing:
             closed = await hearing.receive()
+        with pytest.raises(CoPresenterUnavailableError):
+            async with adapter.hear("crashed") as hearing:
+                await hearing.send_pcm(b"pcm")
 
     assert unavailable == HearingUnavailable()
     assert closed is None
@@ -178,7 +184,7 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
 
         async def events() -> AsyncIterator[bytes]:
             if question["said"] == "Unbekannt":
-                yield b'event: private-metadata\ndata: {"private":"detail"}\n\n'
+                yield b'event: private-metadata\ndata: {"text":"not public"}\n\n'
                 return
             yield b'event: error\ndata: {"private":"detail"}\n\n'
             yield b'event: audio\ndata: {"text":"Antwort","wav_b64":"not base64"}\n\n'

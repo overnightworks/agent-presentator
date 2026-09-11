@@ -414,6 +414,27 @@ def test_an_active_session_keeps_hearing_after_an_authoritative_recheck() -> Non
 
 def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> None:
     client, private, _clock = a_copresenter_lobby()
+    private.hearing.events = [
+        HearingTranscript(text="erste Antwort", final=False),
+        HearingTranscript(text="zweite Antwort", final=True),
+    ]
+    sign_in(client)
+
+    with client.websocket_connect(
+        "/copresenter/hear?language=de",
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        socket.send_bytes(b"erstes pcm")
+        assert socket.receive_json() == {"text": "erste Antwort", "final": False}
+        socket.send_bytes(b"zweites pcm")
+        assert socket.receive_json() == {"text": "zweite Antwort", "final": True}
+
+    assert private.hearing.frames == [b"erstes pcm", b"zweites pcm"]
+    assert private.hearing.closed == 1
+
+
+def test_browser_disconnect_after_private_hearing_closes_the_private_child() -> None:
+    client, private, _clock = a_copresenter_lobby()
     sign_in(client)
 
     with client.websocket_connect(
@@ -421,7 +442,6 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
-        assert socket.receive_json() == {"text": "gehört", "final": True}
 
     assert private.hearing.frames == [b"pcm"]
     assert private.hearing.closed == 1
