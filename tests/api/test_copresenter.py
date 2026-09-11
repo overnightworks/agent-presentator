@@ -445,18 +445,29 @@ def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
     private.grouped_hearing_context = True
     sign_in(client)
 
-    asyncio.run(_send_transcript_to_a_disconnected_browser(client))
+    asyncio.run(_send_hearing_event_to_a_disconnected_browser(client))
 
     assert private.hearing.frames == [b"pcm"]
     assert private.hearing.closed == 1
 
 
-async def _send_transcript_to_a_disconnected_browser(client: TestClient) -> None:
+def test_private_failure_notice_disconnect_closes_the_private_child() -> None:
+    client, private, _clock = a_copresenter_lobby()
+    private.hearing.events = [HearingUnavailable()]
+    sign_in(client)
+
+    asyncio.run(_send_hearing_event_to_a_disconnected_browser(client))
+
+    assert private.hearing.frames == [b"pcm"]
+    assert private.hearing.closed == 1
+
+
+async def _send_hearing_event_to_a_disconnected_browser(client: TestClient) -> None:
     messages: list[Message] = [
         {"type": "websocket.connect"},
         {"type": "websocket.receive", "bytes": b"pcm"},
     ]
-    transcript_delivery_attempted = False
+    browser_send_attempted = False
 
     async def receive() -> Message:
         if messages:
@@ -464,9 +475,9 @@ async def _send_transcript_to_a_disconnected_browser(client: TestClient) -> None
         return await asyncio.Future()
 
     async def send(message: Message) -> None:
-        nonlocal transcript_delivery_attempted
+        nonlocal browser_send_attempted
         if message["type"] == "websocket.send":
-            transcript_delivery_attempted = True
+            browser_send_attempted = True
             raise OSError
 
     scope: Scope = {
@@ -493,7 +504,7 @@ async def _send_transcript_to_a_disconnected_browser(client: TestClient) -> None
 
     await client.app(scope, receive, send)
 
-    assert transcript_delivery_attempted
+    assert browser_send_attempted
 
 
 def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
