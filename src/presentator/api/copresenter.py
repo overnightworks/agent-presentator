@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from starlette.requests import HTTPConnection
 
 from presentator.contracts.copresenter import (
@@ -76,10 +76,8 @@ class _SessionGuard:
         await self.delay(_CHECK_INTERVAL_SECONDS)
 
 
-class AskRequest(BaseModel):
+class AskRequest(BaseModel, extra="forbid"):
     """The only browser fields a private answer may receive."""
-
-    model_config = ConfigDict(extra="forbid")
 
     said: str = Field(min_length=1)
     slide: int = Field(ge=1)

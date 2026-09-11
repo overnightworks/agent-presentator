@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
 from typing import TYPE_CHECKING
 
@@ -12,13 +13,17 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from presentator.adapters.copresenter import UdsCoPresenter
+from presentator.application.copresenter import CoPresenterUse
 from presentator.contracts.copresenter import (
+    AnswerUnavailable,
     Audio,
     CoPresenterReadiness,
     CoPresenterUnavailableError,
     Done,
     HearingTranscript,
+    HearingUnavailable,
     Question,
+    Sentence,
     Text,
 )
 
@@ -55,6 +60,7 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
 
         async def events() -> AsyncIterator[bytes]:
             yield b'event: text\ndata: {"text":\ndata: "Antwort"}\n\n'
+            yield b'event: sentence\ndata: {"text":"Antwort."}\n\n'
             yield b'event: audio\ndata: {"text":"Antwort","wav_b64":"UklGRg=="}\n\n'
             yield b'event: done\ndata: {"text":"Antwort"}\n\n'
 
@@ -79,6 +85,7 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
     )
     assert events == [
         Text(text="Antwort"),
+        Sentence(text="Antwort."),
         Audio(text="Antwort", wav=b"RIFF"),
         Done(text="Antwort"),
     ]
@@ -106,12 +113,40 @@ async def _use_hearing(tmp_path: Path) -> None:
     socket_path = tmp_path / "copresenter.sock"
     async with _Serving(app, socket_path):
         adapter = UdsCoPresenter(socket_path)
-        async with adapter.hear("de") as hearing:
+        async with CoPresenterUse(private=adapter).hear("de") as hearing:
             await hearing.send_pcm(b"pcm")
             transcript = await hearing.receive()
 
     assert received == [b"pcm"]
     assert transcript == HearingTranscript(text="gehört", final=True)
+
+
+def test_uds_adapter_maps_private_hearing_endings_to_the_port_contract(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_read_private_hearing_endings(tmp_path))
+
+
+async def _read_private_hearing_endings(tmp_path: Path) -> None:
+    app = FastAPI()
+
+    async def _hear(socket: WebSocket, language: str) -> None:
+        await socket.accept()
+        if language == "unavailable":
+            await socket.send_json({"text": "", "final": True, "error": "unavailable"})
+
+    app.add_api_websocket_route("/hear", _hear)
+    socket_path = tmp_path / "copresenter.sock"
+
+    async with _Serving(app, socket_path):
+        adapter = UdsCoPresenter(socket_path)
+        async with adapter.hear("unavailable") as hearing:
+            unavailable = await hearing.receive()
+        async with adapter.hear("closed") as hearing:
+            closed = await hearing.receive()
+
+    assert unavailable == HearingUnavailable()
+    assert closed is None
 
 
 def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
@@ -136,8 +171,12 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     async def _who() -> JSONResponse:
         return JSONResponse({"private": "detail"}, status_code=503)
 
-    async def _ask() -> StreamingResponse:
+    async def _ask(request: Request) -> StreamingResponse:
         async def events() -> AsyncIterator[bytes]:
+            if (await request.json())["said"] == "Unbekannt":
+                yield b'event: private-metadata\ndata: {"private":"detail"}\n\n'
+                return
+            yield b'event: error\ndata: {"private":"detail"}\n\n'
             yield b'event: audio\ndata: {"text":"Antwort","wav_b64":"not base64"}\n\n'
 
         return StreamingResponse(events(), media_type="text/event-stream")
@@ -155,10 +194,16 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     async with _Serving(app, socket_path):
         with pytest.raises(CoPresenterUnavailableError):
             await adapter.readiness()
-        with pytest.raises(CoPresenterUnavailableError):
-            async with adapter.answer(
-                Question(said="Frage", slide=1, language=None)
-            ) as answer:
+        async with adapter.answer(
+            Question(said="Frage", slide=1, language=None)
+        ) as answer:
+            assert await anext(answer) == AnswerUnavailable()
+            with pytest.raises(CoPresenterUnavailableError):
+                await anext(answer)
+        async with adapter.answer(
+            Question(said="Unbekannt", slide=1, language=None)
+        ) as answer:
+            with pytest.raises(CoPresenterUnavailableError):
                 await anext(answer)
         with pytest.raises(CoPresenterUnavailableError):
             async with adapter.hear("de") as hearing:
@@ -218,6 +263,6 @@ class _Serving:
         assert self._server is not None
         assert self._task is not None
         assert self._listener is not None
-        self._server.should_exit = True
+        self._server.handle_exit(signal.SIGTERM, None)
         await self._task
         self._listener.close()

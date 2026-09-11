@@ -77,6 +77,3 @@ class HearingTranscript:
 @dataclass(frozen=True, slots=True)
 class HearingUnavailable:
     """The private hearing child ended with an expected refusal."""
-
-
-type HearingEvent = HearingTranscript | HearingUnavailable

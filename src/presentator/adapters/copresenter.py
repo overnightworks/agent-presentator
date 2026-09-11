@@ -13,7 +13,7 @@ from httpx2.websockets import (
     HTTPXWSException,
     WebSocketDisconnect,
 )
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -51,9 +51,7 @@ class _SpeechReadiness(BaseModel):
     hearing: _HearingReadiness
 
 
-class _Readiness(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class _Readiness(BaseModel, extra="ignore"):
     answerer: _Answerer
     speech: _SpeechReadiness
 

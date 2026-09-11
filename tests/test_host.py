@@ -269,6 +269,7 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
         "https://presentator.test/path",
         "https://presentator.test?query=yes",
         "https://presentator.test#fragment",
+        "https://presentator.test:not-a-port",
     ],
 )
 def test_copresenter_public_origin_must_be_one_canonical_origin(
