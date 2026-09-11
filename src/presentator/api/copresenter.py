@@ -309,6 +309,8 @@ async def _pipe_hearing(
                     return True
                 await socket.send_json({"text": event.text, "final": event.final})
                 transcript = asyncio.create_task(hearing.receive())
+    except WebSocketDisconnect:
+        return False
     finally:
         await _finish_tasks((receive, transcript))
 

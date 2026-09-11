@@ -10,6 +10,7 @@ from datetime import timedelta
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
+import anyio
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -96,6 +97,7 @@ class RecordingPrivateCoPresenter:
     readiness_unavailable: bool = False
     answer_unavailable: bool = False
     hearing_unavailable: bool = False
+    grouped_hearing_context: bool = False
     busy_answer_events: int | None = None
     answer_events: list[AnswerEvent] | None = None
     answer_event_hook: Callable[[int], None] | None = None
@@ -162,6 +164,10 @@ class RecordingPrivateCoPresenter:
             self.hearing_opens += 1
             if self.hearing_unavailable:
                 raise CoPresenterUnavailableError
+            if self.grouped_hearing_context:
+                async with anyio.create_task_group():
+                    yield self.hearing
+                return
             yield self.hearing
 
         return operation()
@@ -436,6 +442,7 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
 
 def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
     client, private, _clock = a_copresenter_lobby()
+    private.grouped_hearing_context = True
     sign_in(client)
 
     asyncio.run(_send_transcript_to_a_disconnected_browser(client))
