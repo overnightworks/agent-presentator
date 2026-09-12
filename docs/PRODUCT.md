@@ -359,6 +359,7 @@ a baseline whose previous Load failed, have one Load action; the private speech
 service synchronously makes that choice active and durable while current
 captured speech can finish. A missing or malformed private response hides all
 rows and offers Check again; a non-admin receives 403 before the private
-service is called. Download, samples, and the unimplemented candidates have no
-control. This describes source capability, not an inventory of any running
-instance.
+service is called. One verified active row also names a local player: its DE or
+EN fixed sample waits while current speech owns synthesis, then plays through
+that exact active voice. This describes source capability, not an inventory of
+any running instance.

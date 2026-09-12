@@ -89,6 +89,17 @@ class LobbyText:
     voice_recovery_failed: str
     voice_recovery_invalid_selection: str
     voice_recovery_durability: str
+    voice_sample: str
+    voice_sample_active: str
+    voice_sample_language: str
+    voice_sample_german: str
+    voice_sample_english: str
+    voice_sample_play: str
+    voice_sample_stop: str
+    voice_sample_loading: str
+    voice_sample_waiting: str
+    voice_sample_failed_title: str
+    voice_sample_failed_explanation: str
     account_title: str
     account_preferences: str
     account_language: str

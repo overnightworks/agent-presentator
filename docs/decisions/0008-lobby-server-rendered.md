@@ -34,9 +34,12 @@ with no build step. What it looks like is not decided here:
 [ADR 0012](0012-themes-and-language.md) owns the design tokens that drive it,
 and the same record puts every string in a catalog.
 
-There is no JavaScript build for the lobby, no client-side router, and no state
-in the browser beyond the session cookie `webauth`
-([ADR 0003](0003-libraries-for-models-and-auth.md)) sets.
+There is no JavaScript build or client-side router for the lobby. The browser
+keeps only its session cookie `webauth`
+([ADR 0003](0003-libraries-for-models-and-auth.md)) and bounded page-local
+media state where a rendered control needs it: Voice's language choice,
+request state, and current playback handle. That state disappears on navigation;
+the server remains the source of model and synthesis decisions.
 
 ## Consequences
 

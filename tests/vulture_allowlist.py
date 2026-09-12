@@ -155,6 +155,17 @@ LobbyText.voice_load
 LobbyText.voice_recovery_failed
 LobbyText.voice_recovery_invalid_selection
 LobbyText.voice_recovery_durability
+LobbyText.voice_sample
+LobbyText.voice_sample_active
+LobbyText.voice_sample_language
+LobbyText.voice_sample_german
+LobbyText.voice_sample_english
+LobbyText.voice_sample_play
+LobbyText.voice_sample_stop
+LobbyText.voice_sample_loading
+LobbyText.voice_sample_waiting
+LobbyText.voice_sample_failed_title
+LobbyText.voice_sample_failed_explanation
 
 # Pydantic constructs these private-wire values; `voice.html` renders states by value.
 VoiceState.LOADING

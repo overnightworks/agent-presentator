@@ -14,6 +14,13 @@ class VoiceId(StrEnum):
     MAGPIE = "nvidia-magpie"
 
 
+class SampleLanguage(StrEnum):
+    """The closed browser-to-speech language token for a fixed voice sample."""
+
+    GERMAN = "de"
+    ENGLISH = "en"
+
+
 class VoiceState(StrEnum):
     """A state whose source is the private speech process."""
 
@@ -27,6 +34,10 @@ class VoiceState(StrEnum):
 
 class VoiceUnavailableError(RuntimeError):
     """The complete status snapshot could not be verified."""
+
+
+class VoiceSampleBusyError(VoiceUnavailableError):
+    """A current public or private synthesis owns the one active voice."""
 
 
 class VoiceLoadOutcome(StrEnum):

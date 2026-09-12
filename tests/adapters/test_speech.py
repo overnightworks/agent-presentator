@@ -10,12 +10,18 @@ from typing import Self
 import httpx2
 import pytest
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from httpcore2._backends.auto import AutoBackend
 
 from presentator.adapters import speech
 from presentator.adapters.speech import UdsSpeech
-from presentator.contracts.voice import VoiceId, VoiceLoadOutcome, VoiceUnavailableError
+from presentator.contracts.voice import (
+    SampleLanguage,
+    VoiceId,
+    VoiceLoadOutcome,
+    VoiceSampleBusyError,
+    VoiceUnavailableError,
+)
 
 
 def test_missing_private_socket_never_falls_back_to_tcp(
@@ -96,6 +102,152 @@ async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
         outcome = await UdsSpeech(socket_path).load(VoiceId.CHATTERBOX)
 
     assert outcome is expected
+
+
+def test_uds_adapter_returns_only_nonempty_wav_from_the_closed_sample_path(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_sample_voice(tmp_path))
+
+
+async def _sample_voice(tmp_path: Path) -> None:
+    app = FastAPI()
+
+    async def sample(request: Request) -> Response:
+        assert request.method == "POST"
+        assert request.url.path == "/voices/piper/sample/en"
+        return Response(content=b"wav", media_type="audio/wav")
+
+    app.add_api_route("/voices/piper/sample/en", sample, methods=["POST"])
+    socket_path = tmp_path / "speech.sock"
+    async with _Serving(app, socket_path):
+        audio = await UdsSpeech(socket_path).sample(
+            VoiceId.PIPER, SampleLanguage.ENGLISH
+        )
+
+    assert audio == b"wav"
+
+
+def test_uds_adapter_maps_private_sample_contention_to_the_typed_busy_result(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_sample_busy(tmp_path))
+
+
+async def _sample_busy(tmp_path: Path) -> None:
+    app = FastAPI()
+    app.add_api_route(
+        "/voices/piper/sample/de",
+        lambda: Response(status_code=409),
+        methods=["POST"],
+    )
+    socket_path = tmp_path / "speech.sock"
+    async with _Serving(app, socket_path):
+        with pytest.raises(VoiceSampleBusyError):
+            await UdsSpeech(socket_path).sample(VoiceId.PIPER, SampleLanguage.GERMAN)
+
+
+def test_missing_private_socket_refuses_a_sample_without_tcp_fallback(
+    tmp_path: Path,
+) -> None:
+    async def sample() -> None:
+        with pytest.raises(VoiceUnavailableError):
+            await UdsSpeech(tmp_path / "missing.sock").sample(
+                VoiceId.PIPER, SampleLanguage.GERMAN
+            )
+
+    asyncio.run(sample())
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "content"),
+    [
+        (200, {"content-type": "text/plain"}, b"wav"),
+        (200, {"content-type": "audio/wav"}, b""),
+        (503, {}, b""),
+    ],
+)
+def test_uds_sample_maps_invalid_media_and_nonbusy_failures_to_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    headers: dict[str, str],
+    content: bytes,
+) -> None:
+    class Client:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_error: object) -> None:
+            return None
+
+        async def post(self, path: str) -> httpx2.Response:
+            return httpx2.Response(
+                status,
+                headers=headers,
+                content=content,
+                request=httpx2.Request("POST", f"http://speech.localhost{path}"),
+            )
+
+    def transport(**_arguments: object) -> object:
+        return object()
+
+    def client(**_arguments: object) -> Client:
+        return Client()
+
+    monkeypatch.setattr(speech.httpx2, "AsyncHTTPTransport", transport)
+    monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
+
+    async def sample() -> None:
+        with pytest.raises(VoiceUnavailableError):
+            await UdsSpeech(tmp_path / "missing.sock").sample(
+                VoiceId.PIPER, SampleLanguage.GERMAN
+            )
+
+    asyncio.run(sample())
+
+
+def test_uds_sample_cancellation_closes_its_private_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered = asyncio.Event()
+    closed = False
+
+    class Client:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_error: object) -> None:
+            nonlocal closed
+            closed = True
+
+        async def post(self, _path: str) -> httpx2.Response:
+            entered.set()
+            await asyncio.Event().wait()
+            raise AssertionError
+
+    def transport(**_arguments: object) -> object:
+        return object()
+
+    def client(**_arguments: object) -> Client:
+        return Client()
+
+    monkeypatch.setattr(speech.httpx2, "AsyncHTTPTransport", transport)
+    monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
+
+    async def cancel() -> None:
+        task = asyncio.create_task(
+            UdsSpeech(tmp_path / "speech.sock").sample(
+                VoiceId.PIPER, SampleLanguage.GERMAN
+            )
+        )
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel())
+    assert closed
 
 
 async def _read_status(reader: UdsSpeech) -> object:

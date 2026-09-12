@@ -564,6 +564,104 @@ main code {
   display: block;
 }
 
+[data-sample-player] {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  margin-top: calc(var(--pico-spacing) * 1.5);
+  padding: var(--pico-spacing);
+}
+
+[data-sample-player] > header,
+[data-sample-controls] {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-start;
+}
+
+[data-sample-player] > header {
+  align-items: baseline;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+[data-sample-player] > header strong {
+  color: var(--ink);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+[data-sample-controls] [role="group"] {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  width: auto;
+}
+
+[data-sample-controls] button {
+  margin: 0;
+  width: auto;
+}
+
+[data-sample-controls] [role="group"] > [data-sample-language] {
+  background: var(--screen);
+  border-color: var(--line);
+  color: var(--ink-soft);
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.35rem 0.7rem;
+}
+
+[data-sample-language][aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+[data-sample-status] {
+  align-items: center;
+  color: var(--ink-soft);
+  display: inline-flex;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+
+[data-sample-status]::before {
+  animation: sample-working 0.9s linear infinite;
+  border: 2px solid var(--ink-faint);
+  border-right-color: var(--accent);
+  border-radius: 50%;
+  content: "";
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+@keyframes sample-working {
+  to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sample-status]::before { animation: none; }
+}
+
+[data-sample-failure] {
+  background: var(--fail-soft);
+  border: 1px solid var(--fail);
+  border-left-width: 3px;
+  border-radius: 2px;
+  color: var(--ink);
+  margin: 0;
+  padding: 0.75rem;
+}
+
+[data-sample-failure] strong { color: var(--fail); }
+
 /* Fetch now is a row action, not the page's primary button, so it keeps the
  * outline the picture draws beside the age rather than Pico's full-width fill.
  */

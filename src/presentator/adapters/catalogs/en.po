@@ -244,6 +244,39 @@ msgstr "Saved voice selection is invalid"
 msgid "voice_recovery_durability"
 msgstr "Voice is active; restart persistence is unconfirmed"
 
+msgid "voice_sample"
+msgstr "Sample"
+
+msgid "voice_sample_active"
+msgstr "{name} — active"
+
+msgid "voice_sample_language"
+msgstr "Sample language"
+
+msgid "voice_sample_german"
+msgstr "DE"
+
+msgid "voice_sample_english"
+msgstr "EN"
+
+msgid "voice_sample_play"
+msgstr "Play sample"
+
+msgid "voice_sample_stop"
+msgstr "Stop"
+
+msgid "voice_sample_loading"
+msgstr "Loading"
+
+msgid "voice_sample_waiting"
+msgstr "Waiting"
+
+msgid "voice_sample_failed_title"
+msgstr "Playback failed"
+
+msgid "voice_sample_failed_explanation"
+msgstr "The sample could not be generated. Play sample tries again."
+
 msgid "account_title"
 msgstr "Account"
 

@@ -7,6 +7,7 @@ import pytest
 
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.voice import (
+    SampleLanguage,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSnapshot,
@@ -29,6 +30,11 @@ class FakeSpeech:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         del voice
         return self.load_outcome
+
+    async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
+        """Return fixed fake audio for the port's structural contract."""
+        del voice, language
+        return b"wav"
 
 
 @pytest.mark.parametrize(
