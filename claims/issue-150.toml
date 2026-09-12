@@ -1,0 +1,8 @@
+claim_id = "41a24283662b488d83743ca9e113305d"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "34546edf3535f6141e2157cc2e038917324d84ee"
+branch = "codex/issue-150-chatterbox-worker"
+scope = [".github/workflows/ci.yml", "speech/pyproject.toml", "speech/uv.lock", "speech/src/speech/chatterbox.py", "speech/src/speech/config.py", "speech/src/speech/speaking.py", "speech/src/speech/voices.py", "speech/src/speech/service.py", "speech/src/speech/__main__.py", "speech/providers/chatterbox-contract/pyproject.toml", "speech/providers/chatterbox-contract/src/presentator_chatterbox_contract/__init__.py", "speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/uv.lock", "speech/providers/chatterbox/src/presentator_chatterbox/__init__.py", "speech/providers/chatterbox/src/presentator_chatterbox/__main__.py", "speech/providers/chatterbox/src/presentator_chatterbox/model.py", "speech/providers/chatterbox/src/presentator_chatterbox/worker.py", "speech/tests/test_chatterbox.py", "speech/tests/test_chatterbox_process.py", "speech/tests/conftest.py", "speech/tests/test_config.py", "speech/tests/test_health.py", "speech/tests/test_voice_status.py", "speech/tests/test_speak.py", "speech/tests/test_sample.py", "speech/tests/test_main.py", "speech/providers/chatterbox/tests/conftest.py", "speech/providers/chatterbox/tests/test_model.py", "speech/providers/chatterbox/tests/test_worker.py", "speech/README.md", "docs/OPERATIONS.md", "docs/PRODUCT.md"]
+opened_commit = "d88de3543e954e54e61144601272b129355f88c9"
+whole_reason = "The independently locked child, shared provider-specific codec, current Chatterbox caller and complete lifecycle must land together; independent review found no safe smaller vertical landing."
