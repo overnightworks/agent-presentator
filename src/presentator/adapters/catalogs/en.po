@@ -178,6 +178,9 @@ msgstr "General"
 msgid "settings_sources"
 msgstr "Sources"
 
+msgid "settings_voice"
+msgstr "Voice"
+
 msgid "settings_instance_name"
 msgstr "Instance name"
 
@@ -192,6 +195,39 @@ msgstr "Default theme"
 
 msgid "settings_save"
 msgstr "Save"
+
+msgid "voice_model"
+msgstr "Model"
+
+msgid "voice_language"
+msgstr "Language"
+
+msgid "voice_state"
+msgstr "State"
+
+msgid "voice_state_active"
+msgstr "Active"
+
+msgid "voice_state_loading"
+msgstr "Loading"
+
+msgid "voice_state_downloaded"
+msgstr "Downloaded"
+
+msgid "voice_state_not_downloaded"
+msgstr "Not downloaded"
+
+msgid "voice_state_unavailable"
+msgstr "Not yet available"
+
+msgid "voice_unknown_title"
+msgstr "Voice status unknown"
+
+msgid "voice_unknown_explanation"
+msgstr "The local speech service has not confirmed its voice status."
+
+msgid "voice_check_again"
+msgstr "Check again"
 
 msgid "account_title"
 msgstr "Account"

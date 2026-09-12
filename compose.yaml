@@ -32,6 +32,7 @@ services:
       PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
       PRESENTATOR_PUBLIC_ORIGIN: ${PRESENTATOR_PUBLIC_ORIGIN:?set it to the one canonical browser origin}
       PRESENTATOR_COPRESENTER_SOCKET: /run/presentator-copresenter/copresenter.sock
+      PRESENTATOR_SPEECH_SOCKET: /run/presentator-speech/speech.sock
       PRESENTATOR_BUILD_IMAGE: *build_image
       # The very volume declared below, under the name Docker gives it: one per
       # project, so a second instance on this machine builds into its own and
@@ -49,6 +50,7 @@ services:
       - builds:/data/builds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${COPRESENTER_SOCKET_DIRECTORY:?set it to the host co-presenter's private socket directory}:/run/presentator-copresenter:rw
+      - ${SPEECH_SOCKET_DIRECTORY:?set it to the host speech private socket directory}:/run/presentator-speech:rw
 
   # Never started: it is the image a deck's own build runs in, and it is built
   # from the toolchain layer of the instance image, so the toolchain and its

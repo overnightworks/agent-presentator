@@ -1,16 +1,18 @@
 """Settings, Account, and the person menu, driven the way a browser drives them."""
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from http import HTTPStatus
 
 import pytest
 from httpx2 import Response
 
 from presentator.api.preferences import ACCOUNT, SETTINGS, THEME
+from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import Role
 from presentator.contracts.preferences import ThemeChoice
 from presentator.contracts.text import Catalogs
+from presentator.contracts.voice import VoiceId, VoiceState, VoiceStatus
 from tests.api.lobby import (
     CATALOGS,
     ENGLISH,
@@ -21,6 +23,62 @@ from tests.api.lobby import (
     a_user_store,
     an_account,
 )
+
+
+@dataclass
+class RecordingSpeech:
+    """A private reader whose calls prove the route's authorization boundary."""
+
+    calls: int = 0
+
+    async def voices(self) -> tuple[VoiceStatus, ...]:
+        self.calls += 1
+        return tuple(
+            VoiceStatus(
+                id=voice_id,
+                name=voice_id.value,
+                language="declared",
+                state=VoiceState.UNAVAILABLE,
+            )
+            for voice_id in VoiceId
+        )
+
+
+def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(
+        users=a_user_store(an_account(NEIGHBOUR)),
+        voice=VoiceStatusUse(private=reader),
+    )
+
+    lobby.log_in(username=NEIGHBOUR)
+    refused = lobby.client.get("/settings/voice")
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.calls == 0
+
+    admin = a_lobby(voice=VoiceStatusUse(private=reader))
+    admin.set_up_admin()
+    answered = admin.client.get("/settings/voice")
+
+    assert answered.status_code == HTTPStatus.OK
+    assert reader.calls == 1
+    assert answered.text.count("<tbody>") == 1
+
+
+def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
+    lobby = a_lobby()
+    lobby.set_up_admin()
+
+    answered = lobby.client.get("/settings/voice")
+
+    assert answered.status_code == HTTPStatus.OK
+    assert "data-voice-unknown" in answered.text
+    assert ENGLISH.voice_unknown_title in answered.text
+    assert ENGLISH.voice_unknown_explanation in answered.text
+    assert 'href="/settings/voice"' in answered.text
+    assert "data-voice-catalogue" not in answered.text
+
 
 _GERMAN = replace(
     ENGLISH,
