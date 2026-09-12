@@ -25,7 +25,7 @@ let origin = ''
 let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
-const hearingSockets = new Set<import('node:net').Socket>()
+const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
   trackStopped: boolean
