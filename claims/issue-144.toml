@@ -1,8 +1,0 @@
-claim_id = "9f016fd59d2749278fd02f72ff069a7f"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "db878491c9a3047f0884e27ea7c9d56360354510"
-branch = "codex/issue-144-active-voice-sample"
-scope = ["speech/src/speech/service.py", "speech/src/speech/chatterbox.py", "src/presentator/contracts/voice.py", "src/presentator/ports/speech.py", "src/presentator/application/voice.py", "src/presentator/adapters/speech.py", "src/presentator/api/preferences.py", "src/presentator/api/templates/voice.html", "src/presentator/api/static/lobby.css", "src/presentator/contracts/text.py", "src/presentator/adapters/catalogs/en.po", "speech/tests/test_speak.py", "speech/tests/test_sample.py", "tests/application/test_voice.py", "tests/adapters/test_speech.py", "tests/api/test_preferences.py", "tests/api/lobby.py", "tests/vulture_allowlist.py", "speech/README.md", "docs/PRODUCT.md", "docs/decisions/0008-lobby-server-rendered.md"]
-opened_commit = "bf6a816dca033635a71d1507825667b627a105d0"
-whole_reason = "One audible sample joins the existing synthesis owner, typed private transport, authorization and blessed player states; splitting would leave an inert control or uncalled arbitration."
