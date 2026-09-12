@@ -54,7 +54,7 @@ class _Surfaces:
 
     pages: Pages
     preferences: Preferences
-    voice: VoiceStatusUse | None
+    voice: VoiceStatusUse
 
     def settings_page(self, request: Request) -> Response:
         """Show the instance defaults to an admin."""
@@ -103,8 +103,6 @@ class _Surfaces:
         """Show only an admin the verified read-only voice catalogue."""
         if not _signed_in(request).is_admin:
             return _refused()
-        if self.voice is None:
-            return self.pages.page(request, "voice.html", voices=None)
         try:
             voices = await self.voice.voices()
         except VoiceUnavailableError:
@@ -159,9 +157,7 @@ class _Surfaces:
         )
 
 
-def preference_routes(
-    *, pages: Pages, voice: VoiceStatusUse | None = None
-) -> APIRouter:
+def preference_routes(*, pages: Pages, voice: VoiceStatusUse) -> APIRouter:
     """The Settings and Account addresses, for the lobby factory to include."""
     surfaces = _Surfaces(pages=pages, preferences=pages.preferences, voice=voice)
     router = APIRouter()

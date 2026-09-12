@@ -149,11 +149,8 @@ class InstalledAuth:
 class LobbyPrivate:
     """Private capabilities the authenticated lobby may expose to an admin."""
 
+    voice: VoiceStatusUse
     copresenter: CoPresenterSurface | None = None
-    voice: VoiceStatusUse | None = None
-
-
-_NO_PRIVATE = LobbyPrivate()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -335,7 +332,7 @@ def create_lobby(
     decks: Decks,
     pages: Pages,
     auth: InstalledAuth,
-    private: LobbyPrivate = _NO_PRIVATE,
+    private: LobbyPrivate,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose.
 

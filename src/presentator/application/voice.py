@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from presentator.contracts.voice import VoiceId, VoiceStatus, VoiceUnavailableError
 from presentator.ports.speech import PrivateSpeech
 
-_CATALOGUE = tuple(VoiceId)
+_CATALOGUE: tuple[VoiceId, ...] = (
+    VoiceId.PIPER,
+    VoiceId.CHATTERBOX,
+    VoiceId.QWEN,
+    VoiceId.VOXCPM,
+    VoiceId.MAGPIE,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

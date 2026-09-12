@@ -16,6 +16,7 @@ from presentator.api.sources import (
     SourceView,
 )
 from presentator.contracts.text import LobbyText
+from presentator.contracts.voice import VoiceState
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
@@ -135,3 +136,22 @@ LobbyText.source_remove_hint
 LobbyText.source_remove_button
 LobbyText.source_remove_cancel
 LobbyText.source_remove_confirm
+
+# `presentator/api/templates/voice.html` renders these Voice-tab words.
+LobbyText.settings_voice
+LobbyText.voice_model
+LobbyText.voice_language
+LobbyText.voice_state
+LobbyText.voice_state_active
+LobbyText.voice_state_loading
+LobbyText.voice_state_downloaded
+LobbyText.voice_state_not_downloaded
+LobbyText.voice_state_unavailable
+LobbyText.voice_unknown_title
+LobbyText.voice_unknown_explanation
+LobbyText.voice_check_again
+
+# Pydantic constructs these wire states, and `voice.html` renders them by value.
+VoiceState.LOADING
+VoiceState.DOWNLOADED
+VoiceState.NOT_DOWNLOADED

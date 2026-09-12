@@ -51,6 +51,7 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
+from presentator.contracts.voice import VoiceStatus, VoiceUnavailableError
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
     DEFAULT_THEME_SET,
@@ -94,6 +95,14 @@ TYPED_WORDS: Final = "the words only this test types"
 # explicitly (issue #105).
 A_BROWSERS_HEADERS: Final = {"accept": "text/html", "sec-fetch-site": "same-origin"}
 _NO_TRUSTED_PROXIES: Final = TrustedProxies()
+
+
+class UnavailableSpeech:
+    """The omitted test arrangement's private speech port."""
+
+    async def voices(self) -> tuple[VoiceStatus, ...]:
+        """Make the real use case surface the recoverable service failure."""
+        raise VoiceUnavailableError
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,7 +321,14 @@ def a_lobby_app(
         auth=InstalledAuth(
             config=a_web_auth(hasher=hasher, trusted_proxies=trusted_proxies),
         ),
-        private=LobbyPrivate(copresenter=copresenter, voice=given.voice),
+        private=LobbyPrivate(
+            copresenter=copresenter,
+            voice=(
+                given.voice
+                if given.voice is not None
+                else VoiceStatusUse(private=UnavailableSpeech())
+            ),
+        ),
     )
     return lobby, clock
 

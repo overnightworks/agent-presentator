@@ -66,6 +66,20 @@ def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
     assert answered.text.count("<tbody>") == 1
 
 
+def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
+    lobby = a_lobby()
+    lobby.set_up_admin()
+
+    answered = lobby.client.get("/settings/voice")
+
+    assert answered.status_code == HTTPStatus.OK
+    assert "data-voice-unknown" in answered.text
+    assert ENGLISH.voice_unknown_title in answered.text
+    assert ENGLISH.voice_unknown_explanation in answered.text
+    assert 'href="/settings/voice"' in answered.text
+    assert "data-voice-catalogue" not in answered.text
+
+
 _GERMAN = replace(
     ENGLISH,
     language_tag="de",
