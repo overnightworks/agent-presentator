@@ -526,9 +526,11 @@ function toPcm16(float32, fromRate, toRate) {
 }
 
 onMounted(() => {
+  window.addEventListener('pagehide', turnOff)
   window.__copresenter = { setOn, say, sendPcm, snapshot, closeHear }
 })
 onUnmounted(() => {
+  window.removeEventListener('pagehide', turnOff)
   turnOff()
   delete window.__copresenter
 })
@@ -548,37 +550,60 @@ onUnmounted(() => {
       type="button"
       role="switch"
       :aria-checked="on"
-      aria-label="Presenter"
+      aria-label="AI"
+      title="AI"
       @click="setOn(!on)"
     >
-      <span class="track" :data-on="on">
+      <span
+        class="track"
+        :data-on="on"
+      >
         <span class="thumb" />
       </span>
-      <span class="label">Presenter</span>
+      <span class="label">AI</span>
     </button>
-    <p v-if="on" class="status">
-      <span class="glyph" :data-state="state" aria-hidden="true" />
-      <span class="path">{{ hearing }}</span>
-    </p>
-    <p v-if="on && heard" class="line heard">{{ heard }}</p>
-    <p v-if="on && answer" class="line answer">{{ answer }}</p>
-    <p v-if="on && error" class="line fail">{{ error }}</p>
+    <section
+      v-if="on"
+      class="panel"
+    >
+      <p class="status">
+        <span
+          class="glyph"
+          :data-state="state"
+          aria-hidden="true"
+        />
+        <span class="path">{{ hearing }}</span>
+      </p>
+      <p
+        v-if="heard"
+        class="line heard"
+      >
+        {{ heard }}
+      </p>
+      <p
+        v-if="answer"
+        class="line answer"
+      >
+        {{ answer }}
+      </p>
+      <p
+        v-if="error"
+        class="line fail"
+      >
+        {{ error }}
+      </p>
+    </section>
   </aside>
 </template>
 
 <style scoped>
 .copresenter {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 100;
-  min-width: 140px;
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: color-mix(in srgb, canvas 82%, CanvasText 18%);
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: min(420px, calc(100vw - 16px));
   color: CanvasText;
-  box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 25%, transparent);
   font: 14px/1.3 system-ui, sans-serif;
   pointer-events: auto;
 }
@@ -586,12 +611,28 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, canvas 82%, CanvasText 18%);
   color: inherit;
   cursor: pointer;
   font: inherit;
+}
+.panel {
+  order: -1;
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 16px));
+  max-height: min(42vh, 360px);
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, canvas 82%, CanvasText 18%);
+  box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 25%, transparent);
 }
 .track {
   width: 36px;
@@ -618,7 +659,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 8px 0 0;
+  margin: 0;
 }
 .glyph {
   width: 10px;
