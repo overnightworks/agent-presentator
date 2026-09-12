@@ -1,0 +1,7 @@
+claim_id = "009c55fcfc604e65b059feb3c04a92b5"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "e04e837af8fa90481828780e884e756a749ddf99"
+branch = "codex/issue-148-silence-gate"
+scope = ["speech/src/speech/hearing.py", "speech/tests/test_session.py"]
+opened_commit = "21cb3ea320c5326c2c2087301a0d89450b648caf"
