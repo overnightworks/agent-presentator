@@ -1,0 +1,8 @@
+claim_id = "bc177a1598bd4cfb82cee4013e57c768"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "db878491c9a3047f0884e27ea7c9d56360354510"
+branch = "codex/issue-145-hub-cache-root"
+scope = ["speech/src/speech/config.py", "speech/tests/test_config.py", "speech/tests/test_chatterbox.py", "speech/README.md"]
+opened_commit = "1fd9950c8467a53edf7eaa0ce9553b481c3cdef2"
+whole_reason = "One default correction and its two observable cache consumers require configuration tests, local-only artifact regression and the existing settings documentation row."
