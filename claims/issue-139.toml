@@ -1,8 +1,0 @@
-claim_id = "6081a5db64aa4cffb89ae02b603c68e7"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "e76f96dfc2ee2ad5d10491310d2ea175b9b981cc"
-branch = "codex/issue-139-presenter-return"
-scope = ["docs/mockups/m0-lobby.html", "docs/mockups/README.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby/presenter-return.png", "docs/mockups/m0-lobby/presenter-return-narrow.png", "docs/mockups/m0-lobby/projector-return-absent.png", "docs/mockups/m0-lobby/presenter-home-active.png", "docs/mockups/m0-lobby/presenter-home-active-narrow.png", "examples/copresenter-deck/custom-nav-controls.vue", "examples/copresenter-deck/components/CoPresenter.vue", "examples/copresenter-deck/global-bottom.vue", "examples/copresenter-deck/style.css", "frontend/tests/presenter-controls.browser.test.ts", "examples/copresenter-deck/README.md", "docs/PRODUCT.md", ".github/workflows/ci.yml"]
-opened_commit = "ca14881946f1dfb8deb6b259f6dc0cc2d9e6ffa6"
-whole_reason = "The frozen picture, one public Home and AI toolbar composition, predecessor removal, cleanup and target sizing need one real-browser regression and its existing CI owner to form a usable verified slice."
