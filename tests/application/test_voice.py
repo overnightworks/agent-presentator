@@ -58,6 +58,10 @@ class FakeSpeech:
 def test_voice_status_rejects_an_incomplete_duplicated_or_reordered_private_snapshot(
     snapshot: tuple[VoiceStatus, ...],
 ) -> None:
+    reader = VoiceStatusUse(private=FakeSpeech(snapshot))
 
-    with pytest.raises(VoiceUnavailableError):
-        asyncio.run(VoiceStatusUse(private=FakeSpeech(snapshot)).voices())
+    async def read() -> None:
+        with pytest.raises(VoiceUnavailableError):
+            await reader.voices()
+
+    asyncio.run(read())

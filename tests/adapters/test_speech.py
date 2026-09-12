@@ -27,10 +27,11 @@ def test_missing_private_socket_never_falls_back_to_tcp(
         raise AssertionError
 
     monkeypatch.setattr(AutoBackend, "connect_tcp", refuse_tcp)
+    reader = UdsSpeech(tmp_path / "missing.sock")
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await UdsSpeech(tmp_path / "missing.sock").voices()
+            await reader.voices()
 
     asyncio.run(read())
 
@@ -110,10 +111,11 @@ def test_uds_adapter_maps_malformed_unknown_or_timed_out_status_to_unavailable(
 
     monkeypatch.setattr(speech.httpx2, "AsyncHTTPTransport", transport)
     monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
+    reader = UdsSpeech(tmp_path / "speech.sock")
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await UdsSpeech(tmp_path / "speech.sock").voices()
+            await reader.voices()
 
     asyncio.run(read())
 
