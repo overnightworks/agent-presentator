@@ -4,7 +4,7 @@
 <main>
   <header><h1>{{ text.settings_voice }}</h1></header>
   {% include "settings_tabs.html" %}
-  {% if voices is none %}
+  {% if snapshot is none %}
   <section data-voice-unknown>
     <h2>{{ text.voice_unknown_title }}</h2>
     <p>{{ text.voice_unknown_explanation }}</p>
@@ -12,15 +12,17 @@
   </section>
   {% else %}
   <table data-voice-catalogue>
-    <thead><tr><th>{{ text.voice_model }}</th><th>{{ text.voice_language }}</th><th>{{ text.voice_state }}</th></tr></thead>
-    <tbody>{% for voice in voices %}
+    <thead><tr><th>{{ text.voice_state }}</th><th>{{ text.voice_model }}</th><th>{{ text.voice_language }}</th><th></th></tr></thead>
+    <tbody>{% for voice in snapshot.voices %}
       <tr>
-        <th scope="row">{{ voice.name }}</th>
-        <td>{{ voice.language }}</td>
-        <td data-state="{{ voice.state }}">{% if voice.state == "active" %}{{ text.voice_state_active }}{% elif voice.state == "loading" %}{{ text.voice_state_loading }}{% elif voice.state == "downloaded" %}{{ text.voice_state_downloaded }}{% elif voice.state == "not_downloaded" %}{{ text.voice_state_not_downloaded }}{% else %}{{ text.voice_state_unavailable }}{% endif %}</td>
+        <td data-state="{{ voice.state }}">{% if voice.state == "active" %}{{ text.voice_state_active }}{% elif voice.state == "loading" %}{{ text.voice_state_loading }}{% elif voice.state == "failed" %}{{ text.voice_state_failed }}{% elif voice.state == "downloaded" %}{{ text.voice_state_downloaded }}{% elif voice.state == "not_downloaded" %}{{ text.voice_state_not_downloaded }}{% else %}{{ text.voice_state_unavailable }}{% endif %}</td>
+        <th scope="row" data-voice-model>{{ voice.name }}</th>
+        <td data-voice-language>{{ voice.language }}</td>
+        <td data-voice-action>{% if voice.state == "downloaded" or voice.state == "failed" %}<form method="post" action="/settings/voice/{{ voice.id }}/load" hx-post="/settings/voice/{{ voice.id }}/load"><button type="submit" data-action>{{ text.voice_load }}</button><span class="htmx-indicator" data-voice-loading>{{ text.voice_state_loading }}</span></form>{% endif %}</td>
       </tr>
     {% endfor %}</tbody>
   </table>
+  {% if snapshot.recovery %}<p data-voice-recovery>{% if snapshot.recovery.kind == "durability_unconfirmed" %}{{ text.voice_recovery_durability }}{% elif snapshot.recovery.kind == "invalid_selection" %}{{ text.voice_recovery_invalid_selection }}{% else %}{{ text.voice_recovery_failed }}{% endif %}</p>{% endif %}
   {% endif %}
 </main>
 {% endblock %}

@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from presentator.contracts.voice import VoiceId, VoiceStatus, VoiceUnavailableError
+from presentator.contracts.voice import (
+    VoiceId,
+    VoiceLoadOutcome,
+    VoiceSnapshot,
+    VoiceUnavailableError,
+)
 from presentator.ports.speech import PrivateSpeech
 
 _CATALOGUE: tuple[VoiceId, ...] = (
@@ -20,9 +25,13 @@ class VoiceStatusUse:
 
     private: PrivateSpeech
 
-    async def voices(self) -> tuple[VoiceStatus, ...]:
-        """Return only a complete, ordered, non-duplicated catalogue."""
-        snapshot = await self.private.voices()
-        if tuple(row.id for row in snapshot) != _CATALOGUE:
+    async def snapshot(self) -> VoiceSnapshot:
+        """Return one complete verified status snapshot."""
+        snapshot = await self.private.snapshot()
+        if tuple(row.id for row in snapshot.voices) != _CATALOGUE:
             raise VoiceUnavailableError from None
         return snapshot
+
+    async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
+        """Pass the closed target through the private adapter."""
+        return await self.private.load(voice)

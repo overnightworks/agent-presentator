@@ -501,19 +501,67 @@ main code {
   font-weight: 600;
 }
 
-@media (max-width: 30rem) {
-  [data-voice-catalogue] {
-    table-layout: fixed;
-    width: 100%;
+@media (max-width: 520px) {
+  [data-voice-catalogue] thead {
+    display: none;
   }
 
+  [data-voice-catalogue] tbody,
+  [data-voice-catalogue] tr,
   [data-voice-catalogue] :is(th, td) {
-    overflow-wrap: anywhere;
+    display: block;
+  }
+
+  [data-voice-catalogue] tr {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.5rem 1rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 0.75rem 0;
   }
 
   [data-voice-catalogue] td[data-state] {
-    white-space: normal;
+    grid-column: 1;
+    grid-row: 1;
+    white-space: nowrap;
   }
+
+  [data-voice-model] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-wrap: normal;
+  }
+
+  [data-voice-language] {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    overflow-wrap: normal;
+  }
+
+  [data-voice-action] {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  [data-voice-action] form {
+    align-items: end;
+    display: flex;
+    flex-direction: column;
+  }
+
+  [data-voice-action] [data-action] {
+    white-space: nowrap;
+  }
+}
+
+[data-voice-loading] {
+  display: none;
+}
+
+.htmx-request [data-voice-loading],
+[data-voice-loading].htmx-request {
+  display: block;
 }
 
 /* Fetch now is a row action, not the page's primary button, so it keeps the

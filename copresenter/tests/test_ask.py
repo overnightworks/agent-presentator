@@ -47,6 +47,12 @@ def test_ask_reports_an_empty_speech_response_instead_of_an_empty_audio_event(ex
     asyncio.run(_ask_with_empty_speech_response(example_deck))
 
 
+def test_ask_keeps_the_partial_answer_when_speech_is_refused_during_a_switch(
+    example_deck,
+) -> None:
+    asyncio.run(_ask_with_refused_speech(example_deck))
+
+
 async def _ask_with_empty_speech_response(example_deck) -> None:
     speech_transport = httpx.MockTransport(lambda _request: httpx.Response(200, content=b""))
     async with httpx.AsyncClient(
@@ -76,5 +82,37 @@ async def _ask_with_empty_speech_response(example_deck) -> None:
             )
 
     assert response.status_code == 200
+    assert "event: error" in response.text
+    assert "event: audio" not in response.text
+
+
+async def _ask_with_refused_speech(example_deck) -> None:
+    speech_transport = httpx.MockTransport(lambda _request: httpx.Response(503))
+    async with httpx.AsyncClient(
+        transport=speech_transport,
+        base_url="http://speech",
+    ) as speech_client:
+        app = create_app(
+            Settings(
+                allowed_origin=ALLOWED_ORIGIN,
+                deck=example_deck.source.parent,
+                speech_url="http://speech",
+            ),
+            deck=example_deck,
+            speech=LocalSpeech("http://speech", client=speech_client),
+            answerer=CannedAnswerer(),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://copresenter",
+            headers={"Origin": ALLOWED_ORIGIN},
+        ) as client:
+            response = await client.post(
+                "/ask",
+                json={"said": "Was steht auf dieser Folie?", "slide": 1, "language": "de"},
+            )
+
+    assert response.status_code == 200
+    assert "event: sentence" in response.text
     assert "event: error" in response.text
     assert "event: audio" not in response.text

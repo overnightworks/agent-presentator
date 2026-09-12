@@ -2,6 +2,7 @@
 
 import asyncio
 import socket
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Self
@@ -14,7 +15,7 @@ from httpcore2._backends.auto import AutoBackend
 
 from presentator.adapters import speech
 from presentator.adapters.speech import UdsSpeech
-from presentator.contracts.voice import VoiceUnavailableError
+from presentator.contracts.voice import VoiceId, VoiceLoadOutcome, VoiceUnavailableError
 
 
 def test_missing_private_socket_never_falls_back_to_tcp(
@@ -31,7 +32,7 @@ def test_missing_private_socket_never_falls_back_to_tcp(
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await reader.voices()
+            await reader.snapshot()
 
     asyncio.run(read())
 
@@ -63,29 +64,83 @@ async def _read_voice_status(tmp_path: Path) -> None:
     app.add_api_route("/voices", voices, methods=["GET"])
     socket_path = tmp_path / "speech.sock"
     async with _Serving(app, socket_path):
-        rows = await UdsSpeech(socket_path).voices()
+        snapshot = await UdsSpeech(socket_path).snapshot()
 
-    assert rows[0].name == "Piper"
+    assert snapshot.voices[0].name == "Piper"
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        VoiceLoadOutcome.ACTIVATED,
+        VoiceLoadOutcome.ACTIVATED_DURABILITY_UNCONFIRMED,
+        VoiceLoadOutcome.NOT_ACTIVATED,
+    ],
+)
+def test_uds_adapter_posts_the_closed_voice_id_and_returns_the_typed_outcome(
+    tmp_path: Path, outcome: VoiceLoadOutcome
+) -> None:
+    asyncio.run(_load_voice(tmp_path, outcome))
+
+
+async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
+    app = FastAPI()
+
+    async def load(request: Request) -> dict[str, str]:
+        assert request.url.path == "/voices/chatterbox/load"
+        return {"outcome": expected.value}
+
+    app.add_api_route("/voices/chatterbox/load", load, methods=["POST"])
+    socket_path = tmp_path / "speech.sock"
+    async with _Serving(app, socket_path):
+        outcome = await UdsSpeech(socket_path).load(VoiceId.CHATTERBOX)
+
+    assert outcome is expected
+
+
+async def _read_status(reader: UdsSpeech) -> object:
+    return await reader.snapshot()
+
+
+async def _request_voice_load(reader: UdsSpeech) -> object:
+    return await reader.load(VoiceId.PIPER)
+
+
+def _failure_body(*, operation: str, scenario: str) -> object:
+    if scenario != "unknown":
+        return {"voices": [dict[str, object]()]}
+    if operation == "status":
+        return {
+            "voices": [
+                {
+                    "id": "unknown",
+                    "name": "Unknown",
+                    "language": "Unknown",
+                    "state": "active",
+                }
+            ]
+        }
+    return {"outcome": "unknown"}
+
+
+@pytest.mark.parametrize(
+    ("operation", "reader_action"),
+    [("status", _read_status), ("load", _request_voice_load)],
+)
 @pytest.mark.parametrize("scenario", ["malformed", "unknown", "timed_out"])
-def test_uds_adapter_maps_malformed_unknown_or_timed_out_status_to_unavailable(
+def test_uds_adapter_maps_private_response_failures_to_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    reader_action: Callable[[UdsSpeech], Awaitable[object]],
     scenario: str,
 ) -> None:
-    body: object = {"voices": [dict[str, object]()]}
-    failure: httpx2.HTTPError | None = None
-    if scenario == "unknown":
-        unknown_row: dict[str, str] = {
-            "id": "unknown",
-            "name": "Unknown",
-            "language": "Unknown",
-            "state": "active",
-        }
-        body = {"voices": [unknown_row]}
-    if scenario == "timed_out":
-        failure = httpx2.ReadTimeout("private speech timed out")
+    body = _failure_body(operation=operation, scenario=scenario)
+    failure = (
+        httpx2.ReadTimeout("private speech timed out")
+        if scenario == "timed_out"
+        else None
+    )
 
     class Client:
         async def __aenter__(self) -> Self:
@@ -94,14 +149,20 @@ def test_uds_adapter_maps_malformed_unknown_or_timed_out_status_to_unavailable(
         async def __aexit__(self, *_error: object) -> None:
             return None
 
-        async def get(self, _path: str) -> httpx2.Response:
+        async def _response(self, method: str, path: str) -> httpx2.Response:
             if failure is not None:
                 raise failure
             return httpx2.Response(
                 200,
                 json=body,
-                request=httpx2.Request("GET", "http://speech.localhost/voices"),
+                request=httpx2.Request(method, f"http://speech.localhost{path}"),
             )
+
+        async def get(self, path: str) -> httpx2.Response:
+            return await self._response("GET", path)
+
+        async def post(self, _path: str) -> httpx2.Response:
+            return await self._response("POST", "/voices/piper/load")
 
     def transport(**_arguments: object) -> object:
         return object()
@@ -113,11 +174,11 @@ def test_uds_adapter_maps_malformed_unknown_or_timed_out_status_to_unavailable(
     monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
     reader = UdsSpeech(tmp_path / "speech.sock")
 
-    async def read() -> None:
+    async def verify() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await reader.voices()
+            await reader_action(reader)
 
-    asyncio.run(read())
+    asyncio.run(verify())
 
 
 class _Serving:
