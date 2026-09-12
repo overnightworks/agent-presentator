@@ -16,7 +16,7 @@ from presentator.api.sources import (
     SourceView,
 )
 from presentator.contracts.text import LobbyText
-from presentator.contracts.voice import VoiceState
+from presentator.contracts.voice import VoiceLoadOutcome, VoiceState
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
@@ -144,14 +144,20 @@ LobbyText.voice_language
 LobbyText.voice_state
 LobbyText.voice_state_active
 LobbyText.voice_state_loading
+LobbyText.voice_state_failed
 LobbyText.voice_state_downloaded
 LobbyText.voice_state_not_downloaded
 LobbyText.voice_state_unavailable
 LobbyText.voice_unknown_title
 LobbyText.voice_unknown_explanation
 LobbyText.voice_check_again
+LobbyText.voice_load
+LobbyText.voice_recovery_failed
+LobbyText.voice_recovery_invalid_selection
+LobbyText.voice_recovery_durability
 
-# Pydantic constructs these wire states, and `voice.html` renders them by value.
+# Pydantic constructs these private-wire values; `voice.html` renders states by value.
 VoiceState.LOADING
 VoiceState.DOWNLOADED
 VoiceState.NOT_DOWNLOADED
+VoiceLoadOutcome.NOT_ACTIVATED

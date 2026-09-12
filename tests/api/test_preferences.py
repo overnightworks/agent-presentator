@@ -107,6 +107,21 @@ def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
     assert reader.loaded is VoiceId.CHATTERBOX
 
 
+def test_an_admin_htmx_voice_load_refreshes_the_final_voice_page() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    loaded = lobby.client.post(
+        "/settings/voice/piper/load",
+        headers={"HX-Request": "true"},
+    )
+
+    assert loaded.status_code == HTTPStatus.OK
+    assert loaded.headers["hx-refresh"] == "true"
+    assert reader.loaded is VoiceId.PIPER
+
+
 def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
     lobby = a_lobby()
     lobby.set_up_admin()
