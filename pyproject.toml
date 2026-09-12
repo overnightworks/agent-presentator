@@ -281,8 +281,8 @@ as_packages = true
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-id = "copresenter-transport-library"
-name = "Only the co-presenter adapter imports httpx2"
+id = "private-transport-library"
+name = "Only private-service adapters import httpx2"
 type = "forbidden"
 source_modules = [
     "presentator.host",

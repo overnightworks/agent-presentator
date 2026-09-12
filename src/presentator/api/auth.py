@@ -38,6 +38,7 @@ from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
+from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import Account, FirstStartClosedError, User
 from presentator.contracts.text import LobbyText
 
@@ -142,6 +143,14 @@ class InstalledAuth:
     """The library configuration this host runs the lobby with."""
 
     config: WebAuthConfig
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LobbyPrivate:
+    """Private capabilities the authenticated lobby may expose to an admin."""
+
+    voice: VoiceStatusUse
+    copresenter: CoPresenterSurface | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -323,7 +332,7 @@ def create_lobby(
     decks: Decks,
     pages: Pages,
     auth: InstalledAuth,
-    copresenter: CoPresenterSurface | None = None,
+    private: LobbyPrivate,
 ) -> FastAPI:
     """Build the lobby around the use cases and the adapters the host chose.
 
@@ -346,15 +355,15 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, surfaces.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, surfaces.set_up_admin, methods=["POST"])
-    lobby.include_router(preference_routes(pages=pages))
+    lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))
     add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
-    if copresenter is not None:
+    if private.copresenter is not None:
         add_copresenter_routes(
             lobby,
-            surface=copresenter,
+            surface=private.copresenter,
             admission=lambda connection: signed_in_connection(connection, identity),
         )
     return lobby
