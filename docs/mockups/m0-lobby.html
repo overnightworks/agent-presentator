@@ -1471,6 +1471,51 @@
     align-items: center;
     gap: 6px;
   }
+
+  /* ---------- Slidev presenter: proposed Home navigation ---------- */
+
+  .presenter-stage { position: relative; height: 604px; min-height: 0; overflow: hidden; background: #9ca3af33; color: #18181b; font-family: ui-sans-serif, system-ui, sans-serif; }
+  .presenter-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) 360px; grid-template-rows: minmax(0, 1fr) 280px min-content; grid-template-areas: "main main next" "main main note" "bottom bottom bottom"; height: 100%; gap: 1px; }
+  .presenter-panel { min-width: 0; min-height: 0; background: #fff; }
+  .presenter-main { grid-area: main; display: flex; flex-direction: column; }
+  .presenter-toolbar { display: flex; align-items: center; gap: 16px; min-height: 36px; padding: 0 12px; border-bottom: 1px solid #d4d4d8; color: #71717a; font-size: 13px; }
+  .presenter-toolbar__spacer { flex: 1; }
+  .presenter-select { border: 0; background: transparent; color: #3f3f46; font: inherit; }
+  .presenter-main-body { display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; padding: 12px 20px; }
+  .presenter-slide { display: flex; aspect-ratio: 16 / 9; width: min(72%, 400px); align-items: center; justify-content: center; background: #173B63; color: #fff; font-size: clamp(23px, 3vw, 38px); font-weight: 700; letter-spacing: -.03em; text-align: center; }
+  .presenter-next { grid-area: next; display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+  .presenter-kicker { color: #71717a; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .presenter-preview { display: flex; flex: 1; align-items: center; justify-content: center; background: #F2E2C2; color: #5D4521; font-size: 17px; font-weight: 700; }
+  .presenter-note { grid-area: note; padding: 16px; color: #3f3f46; font-size: 13px; line-height: 1.5; }
+  .presenter-note p { margin: 7px 0 0; }
+  .presenter-bottom { grid-area: bottom; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 4px 8px; color: #52525b; font-size: 12px; }
+  .presenter-controls { display: flex; flex-wrap: wrap-reverse; gap: 2px; align-items: center; }
+  .presenter-control { display: inline-flex; min-width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #3f3f46; }
+  .presenter-control--home { gap: 7px; padding: 0 13px; border-color: #0C6C77; background: #DCEDEE; color: #0C6C77; font-size: 15px; font-weight: 600; text-decoration: none; }
+  .presenter-control--focused { outline: 3px solid #0C6C77; outline-offset: 2px; }
+  .presenter-count { display: inline-flex; align-items: center; padding: 0 8px; color: #52525b; }
+  .presenter-control--ai { gap: 5px; border-color: #6366f1; color: #4338ca; font: 600 12px/1 ui-sans-serif, system-ui, sans-serif; }
+  .presenter-control--ai-active { border-color: #0C6C77; background: #DCEDEE; color: #0C6C77; }
+  .copresenter-toolbar { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .copresenter-panel { box-sizing: border-box; display: grid; width: min(330px, calc(100vw - 16px)); max-height: 142px; gap: 8px; overflow: auto; padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; box-shadow: 0 6px 18px #0f172a1a; color: #334155; font-size: 12px; line-height: 1.35; }
+  .copresenter-panel__state { display: flex; align-items: center; gap: 7px; color: #0C6C77; font-weight: 700; }
+  .copresenter-panel__dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #0C6C77; }
+  .copresenter-panel__heard { padding-left: 10px; border-left: 2px solid #bae6fd; color: #475569; }
+  .copresenter-panel__answer { padding: 8px 10px; border-radius: 7px; background: #eff6ff; color: #1e3a5f; }
+  .projector-slide { display: flex; height: 604px; align-items: center; justify-content: center; background: #173B63; color: #fff; font-family: ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 4vw, 52px); font-weight: 700; letter-spacing: -.04em; text-align: center; }
+
+  @container (max-width: 520px) {
+    .presenter-stage { height: 694px; }
+    .presenter-grid { grid-template: "main" 2fr "note" 1fr "next" 1fr "bottom" min-content / 1fr; }
+    .presenter-toolbar { padding: 0 12px; }
+    .presenter-main-body { padding: 12px 20px; }
+    .presenter-slide { width: 90%; font-size: 25px; }
+    .presenter-next, .presenter-note { padding: 12px 14px; }
+    .presenter-preview { min-height: 58px; }
+    .presenter-bottom { align-items: flex-start; }
+    .presenter-controls { max-width: 100%; }
+    .copresenter-panel { width: min(374px, calc(100vw - 16px)); max-height: 132px; }
+  }
 </style>
 
 <main class="sheet">
@@ -4267,6 +4312,99 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
         </div>
       </figure>
 
+    </div>
+  </section>
+
+  <!-- ================= PRESENTER HOME · PROPOSAL #139 ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Presenter Home</h2>
+      <span class="lines">proposal · issue #139</span>
+    </div>
+
+    <div class="boards">
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Presenter · AI off <span class="w">1024 px</span> <span class="open-mark">proposal</span></div>
+          <p class="board-note">Home and the AI toggle are persistent 44 px controls in the one Slidev navigation row. Current and Slides / Screen Mirror retain their own toolbar.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/agenten-fabrik/presenter/</div>
+          <div class="presenter-stage">
+            <div class="presenter-grid">
+              <section class="presenter-panel presenter-main"><div class="presenter-toolbar"><span>Current</span><span class="presenter-toolbar__spacer"></span><select class="presenter-select" aria-label="Presenter view"><option>Slides</option><option>Screen Mirror</option></select></div><div class="presenter-main-body"><div class="presenter-slide">From feedback to flow</div></div></section>
+              <section class="presenter-panel presenter-next"><span class="presenter-kicker">Next</span><div class="presenter-preview">Make the handoff visible</div></section>
+              <section class="presenter-panel presenter-note"><span class="presenter-kicker">Notes</span><p>Ask for one example before moving to the next step.</p></section>
+              <div class="presenter-panel presenter-bottom"><span class="presenter-controls"><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span><span class="presenter-control" aria-hidden="true">&larr;</span><span class="presenter-control" aria-hidden="true">&rarr;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-layout-grid"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-monitor"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-play"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9998;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-settings"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9676;</span><a class="presenter-control presenter-control--home" href="/" aria-label="Home" title="Home"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg><span>Home</span></a><span class="copresenter-toolbar"><button class="presenter-control presenter-control--ai" type="button" aria-pressed="false" title="CoPresenter"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-6 8a6 6 0 0 0 12 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg><span>AI</span></button></span><span class="presenter-count">4 / 18</span></span></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Presenter · Home focused <span class="w">390 px</span> <span class="open-mark">proposal</span></div>
+          <p class="board-note">The native row wraps in reverse order at 390 px. Home remains keyboard-focused beside the same in-flow AI toggle; nothing covers either action.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/deck/customer-feedback-across-every-market/presenter/</div>
+          <div class="presenter-stage">
+            <div class="presenter-grid">
+              <section class="presenter-panel presenter-main"><div class="presenter-toolbar"><span>Current</span><span class="presenter-toolbar__spacer"></span><select class="presenter-select" aria-label="Presenter view"><option>Slides</option><option>Screen Mirror</option></select></div><div class="presenter-main-body"><div class="presenter-slide">Listen for the pattern</div></div></section>
+              <section class="presenter-panel presenter-next"><span class="presenter-kicker">Next</span><div class="presenter-preview">Name the choice</div></section>
+              <section class="presenter-panel presenter-note"><span class="presenter-kicker">Notes</span><p>Pause after the question.</p></section>
+              <div class="presenter-panel presenter-bottom"><span class="presenter-controls"><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span><span class="presenter-control" aria-hidden="true">&larr;</span><span class="presenter-control" aria-hidden="true">&rarr;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-layout-grid"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-monitor"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-play"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9998;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-settings"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9676;</span><a class="presenter-control presenter-control--home presenter-control--focused" href="/" aria-label="Home" title="Home"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg><span>Home</span></a><span class="copresenter-toolbar"><button class="presenter-control presenter-control--ai" type="button" aria-pressed="false" title="CoPresenter"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-6 8a6 6 0 0 0 12 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg><span>AI</span></button></span><span class="presenter-count">4 / 18</span></span></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Presenter · AI active <span class="w">1024 px</span> <span class="open-mark">proposal</span></div>
+          <p class="board-note">The active co-presenter body grows above its own bottom toggle inside the same toolbar item. Home stays present in the row.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/agenten-fabrik/presenter/</div>
+          <div class="presenter-stage">
+            <div class="presenter-grid">
+              <section class="presenter-panel presenter-main"><div class="presenter-toolbar"><span>Current</span><span class="presenter-toolbar__spacer"></span><select class="presenter-select" aria-label="Presenter view"><option>Slides</option><option>Screen Mirror</option></select></div><div class="presenter-main-body"><div class="presenter-slide">From feedback to flow</div></div></section>
+              <section class="presenter-panel presenter-next"><span class="presenter-kicker">Next</span><div class="presenter-preview">Make the handoff visible</div></section>
+              <section class="presenter-panel presenter-note"><span class="presenter-kicker">Notes</span><p>Ask for one example before moving to the next step.</p></section>
+              <div class="presenter-panel presenter-bottom"><span class="presenter-controls"><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span><span class="presenter-control" aria-hidden="true">&larr;</span><span class="presenter-control" aria-hidden="true">&rarr;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-layout-grid"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-monitor"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-play"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9998;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-settings"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9676;</span><a class="presenter-control presenter-control--home" href="/" aria-label="Home" title="Home"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg><span>Home</span></a><span class="copresenter-toolbar"><span class="copresenter-panel"><span class="copresenter-panel__state"><span class="copresenter-panel__dot"></span>Listening</span><span class="copresenter-panel__heard">Where does the handoff slow down?</span><span class="copresenter-panel__answer">I am ready to help with the next question.</span></span><button class="presenter-control presenter-control--ai presenter-control--ai-active" type="button" aria-pressed="true" title="CoPresenter"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-6 8a6 6 0 0 0 12 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg><span>AI</span></button></span><span class="presenter-count">4 / 18</span></span></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Presenter · AI active <span class="w">390 px</span> <span class="open-mark">proposal</span></div>
+          <p class="board-note">At 390 px the conversation stays bounded and scrollable in its toolbar item above the AI toggle. The Home pill remains reachable in the same measured row.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/deck/customer-feedback-across-every-market/presenter/</div>
+          <div class="presenter-stage">
+            <div class="presenter-grid">
+              <section class="presenter-panel presenter-main"><div class="presenter-toolbar"><span>Current</span><span class="presenter-toolbar__spacer"></span><select class="presenter-select" aria-label="Presenter view"><option>Slides</option><option>Screen Mirror</option></select></div><div class="presenter-main-body"><div class="presenter-slide">Listen for the pattern</div></div></section>
+              <section class="presenter-panel presenter-next"><span class="presenter-kicker">Next</span><div class="presenter-preview">Name the choice</div></section>
+              <section class="presenter-panel presenter-note"><span class="presenter-kicker">Notes</span><p>Pause after the question.</p></section>
+              <div class="presenter-panel presenter-bottom"><span class="presenter-controls"><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span><span class="presenter-control" aria-hidden="true">&larr;</span><span class="presenter-control" aria-hidden="true">&rarr;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-layout-grid"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-monitor"></use></svg></span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-play"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9998;</span><span class="presenter-control"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-settings"></use></svg></span><span class="presenter-control" aria-hidden="true">&#9676;</span><a class="presenter-control presenter-control--home presenter-control--focused" href="/" aria-label="Home" title="Home"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg><span>Home</span></a><span class="copresenter-toolbar"><span class="copresenter-panel"><span class="copresenter-panel__state"><span class="copresenter-panel__dot"></span>Listening</span><span class="copresenter-panel__heard">Where does the handoff slow down?</span><span class="copresenter-panel__answer">I am ready to help with the next question.</span></span><button class="presenter-control presenter-control--ai presenter-control--ai-active" type="button" aria-pressed="true" title="CoPresenter"><svg class="icon" width="18" height="18" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-6 8a6 6 0 0 0 12 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg><span>AI</span></button></span><span class="presenter-count">4 / 18</span></span></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Projector · Home absent <span class="w">1024 px</span> <span class="open-mark">proposal</span></div>
+          <p class="board-note">The projector remains only the audience slide: no Home action and no co-presenter control appear here.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/deck/agenten-fabrik/</div>
+          <div class="projector-slide">From feedback to flow</div>
+        </div>
+      </figure>
     </div>
   </section>
 
