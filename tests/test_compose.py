@@ -37,7 +37,9 @@ def test_copresenter_uses_one_private_socket_and_runtime_uid() -> None:
         "PRESENTATOR_COPRESENTER_SOCKET: /run/presentator-copresenter/copresenter.sock"
         in written
     )
+    assert "PRESENTATOR_SPEECH_SOCKET: /run/presentator-speech/speech.sock" in written
     assert ":/run/presentator-copresenter" in written
+    assert ":/run/presentator-speech" in written
     assert "extra_hosts:" not in written
     assert "3040:3040" not in written
     assert "8090:8090" not in written

@@ -4,7 +4,7 @@ Every route test arranges the same instance, so the wiring the host does
 stands here once, with the doubles and the accounts a test hands in.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
@@ -25,7 +25,12 @@ from presentator.adapters.catalog import (
     duration_in_words,
     load_catalogs,
 )
-from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
+from presentator.api.auth import (
+    SESSION_COOKIE,
+    InstalledAuth,
+    LobbyPrivate,
+    create_lobby,
+)
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
@@ -36,6 +41,7 @@ from presentator.application.identity import (
     Identity,
 )
 from presentator.application.preferences import Preferences
+from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
     ConnectionCheckResult,
     DeckFolder,
@@ -208,6 +214,7 @@ class GivenDecks:
     # names `themes` and gets the fake above instead.
     toolchain_project: Path | None = None
     key_drafts: FakeDeployKeyDrafts = field(default_factory=FakeDeployKeyDrafts)
+    voice: VoiceStatusUse | None = None
 
 
 NO_DECKS: Final = GivenDecks()
@@ -305,7 +312,7 @@ def a_lobby_app(
         auth=InstalledAuth(
             config=a_web_auth(hasher=hasher, trusted_proxies=trusted_proxies),
         ),
-        copresenter=copresenter,
+        private=LobbyPrivate(copresenter=copresenter, voice=given.voice),
     )
     return lobby, clock
 
@@ -315,9 +322,14 @@ def a_lobby(
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
+    voice: VoiceStatusUse | None = None,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
-    lobby, clock = a_lobby_app(users=users, catalogs=catalogs, given=given)
+    lobby, clock = a_lobby_app(
+        users=users,
+        catalogs=catalogs,
+        given=replace(given, voice=voice),
+    )
     client = TestClient(lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS)
     return Lobby(client=client, clock=clock)
 

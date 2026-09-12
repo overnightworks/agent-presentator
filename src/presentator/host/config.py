@@ -129,6 +129,9 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     port: int = 8000
     public_origin: Annotated[str, AfterValidator(_one_public_origin)]
     copresenter_socket: Annotated[Path, AfterValidator(_an_absolute_path)]
+    speech_socket: Annotated[Path, AfterValidator(_an_absolute_path)] = Path(
+        "/run/presentator-speech/speech.sock"
+    )
     # Empty: the login budget keys on the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""

@@ -5,7 +5,8 @@ Audience: whoever administers this repository and the machines it runs on.
 ## Running an instance
 
 Every run names `PRESENTATOR_SECRET_KEY` (at least 32 bytes), one canonical
-`PRESENTATOR_PUBLIC_ORIGIN`, and the absolute `PRESENTATOR_COPRESENTER_SOCKET`.
+`PRESENTATOR_PUBLIC_ORIGIN`, and the absolute private co-presenter and speech
+socket paths.
 `webauth`
 signs the session cookie with it, and, through a derivation of its own,
 encrypts what a source's row holds ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md));
@@ -169,13 +170,15 @@ elsewhere here do not apply, and compose adds the two the sandbox is:
 | `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
 | `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
 | `PRESENTATOR_COPRESENTER_SOCKET` | `/run/presentator-copresenter/copresenter.sock`, set by `compose.yaml` |
+| `PRESENTATOR_SPEECH_SOCKET` | `/run/presentator-speech/speech.sock`, set by `compose.yaml` |
 
 Overriding one of the three paths in `.env` moves that state out of its volume,
 which is how an instance loses what it writes; every other setting is the
 operator's as before.
 
 `PRESENTATOR_SECRET_KEY`, `PRESENTATOR_DOCKER_GROUP`,
-`PRESENTATOR_RUNTIME_UID`, `COPRESENTER_SOCKET_DIRECTORY`, and
+`PRESENTATOR_RUNTIME_UID`, `COPRESENTER_SOCKET_DIRECTORY`,
+`SPEECH_SOCKET_DIRECTORY`, and
 `PRESENTATOR_PUBLIC_ORIGIN` are the values a fresh instance must be given, and
 compose refuses to start the service without them, naming each one. The Docker
 group is the numeric id of this machine's `docker`
@@ -201,6 +204,7 @@ printf 'PRESENTATOR_TRUSTED_PROXIES=%s\n' "172.31.255.1" >> .env
 printf 'PRESENTATOR_PUBLIC_ORIGIN=%s\n' "https://presentator.hallucinai.de" >> .env
 printf 'PRESENTATOR_RUNTIME_UID=%s\n' "$(id -u)" >> .env
 printf 'COPRESENTER_SOCKET_DIRECTORY=%s\n' "/run/user/$(id -u)/agent-presentator" >> .env
+printf 'SPEECH_SOCKET_DIRECTORY=%s\n' "/run/user/$(id -u)/agent-presentator-speech" >> .env
 docker compose up -d
 ```
 

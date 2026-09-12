@@ -61,7 +61,13 @@ from presentator.adapters.preferences import (
     create_preference_tables,
 )
 from presentator.adapters.secrets import connection_fingerprint_key, secret_box
-from presentator.api.auth import SESSION_COOKIE, InstalledAuth, create_lobby
+from presentator.adapters.speech import UdsSpeech
+from presentator.api.auth import (
+    SESSION_COOKIE,
+    InstalledAuth,
+    LobbyPrivate,
+    create_lobby,
+)
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.copresenter import CoPresenterUse
@@ -73,6 +79,7 @@ from presentator.application.identity import (
     Identity,
 )
 from presentator.application.preferences import Preferences
+from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
     NO_BOUND_AT_ALL,
     Settings,
@@ -206,11 +213,14 @@ def build_instance(settings: Settings) -> Instance:
             decks=decks,
             pages=pages,
             auth=InstalledAuth(config=web_auth),
-            copresenter=CoPresenterSurface(
-                use=CoPresenterUse(
-                    private=UdsCoPresenter(settings.copresenter_socket),
+            private=LobbyPrivate(
+                copresenter=CoPresenterSurface(
+                    use=CoPresenterUse(
+                        private=UdsCoPresenter(settings.copresenter_socket),
+                    ),
+                    public_origin=settings.public_origin,
                 ),
-                public_origin=settings.public_origin,
+                voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
             ),
         ),
         poller=SourcePoller(

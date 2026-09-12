@@ -10,8 +10,7 @@ An instance signs a person in, lists the decks a configured Git source
 carries while keeping that list current by itself, gives each deck a page,
 builds the deck a push changed, shows what state that build is in, delivers
 that talk and its PDF from the page, and lets an admin and every person say how
-the lobby looks and which language it speaks. Nothing is deployed, so no phase
-of [VISION.md](VISION.md) is reached. M0 is tracked on
+the lobby looks and which language it speaks. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
 and login landed as
 [#22](https://github.com/overnightworks/agent-presentator/issues/22), the deck
@@ -348,3 +347,11 @@ capture, browser fallback and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
 and credentials do not. Which speech models run and what they cost on the card
 remain owned by that README.
+
+An authenticated admin can open Settings · Voice. The source surface reads one
+private, local status snapshot and shows Piper, Chatterbox, Qwen3-TTS 0.6B,
+VoxCPM2, and NVIDIA Magpie in that order. It has no control that downloads,
+loads, selects, or samples a model. A missing or malformed private response
+hides all rows and offers Check again; a non-admin receives 403 before the
+private service is called. This describes source capability, not an inventory
+of any running instance.

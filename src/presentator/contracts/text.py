@@ -67,11 +67,23 @@ class LobbyText:
     deck_unknown_explanation: str
     settings_title: str
     settings_sources: str
+    settings_voice: str
     settings_instance_name: str
     settings_default_language: str
     settings_language_hint: str
     settings_default_theme: str
     settings_save: str
+    voice_model: str
+    voice_language: str
+    voice_state: str
+    voice_state_active: str
+    voice_state_loading: str
+    voice_state_downloaded: str
+    voice_state_not_downloaded: str
+    voice_state_unavailable: str
+    voice_unknown_title: str
+    voice_unknown_explanation: str
+    voice_check_again: str
     account_title: str
     account_preferences: str
     account_language: str

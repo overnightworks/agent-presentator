@@ -14,14 +14,17 @@ from starlette.responses import RedirectResponse
 
 from presentator.api.pages import Pages, options, theme_choices
 from presentator.application.preferences import Preferences
+from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import User
 from presentator.contracts.preferences import (
     InstanceSettings,
     PersonPreferences,
     ThemeChoice,
 )
+from presentator.contracts.voice import VoiceUnavailableError
 
 SETTINGS: Final = "/settings"
+VOICE: Final = "/settings/voice"
 ACCOUNT: Final = "/account"
 THEME: Final = "/theme"
 
@@ -51,6 +54,7 @@ class _Surfaces:
 
     pages: Pages
     preferences: Preferences
+    voice: VoiceStatusUse | None
 
     def settings_page(self, request: Request) -> Response:
         """Show the instance defaults to an admin."""
@@ -94,6 +98,18 @@ class _Surfaces:
                 chosen=chosen.theme or _NO_OVERRIDE,
             ),
         )
+
+    async def voice_page(self, request: Request) -> Response:
+        """Show only an admin the verified read-only voice catalogue."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        if self.voice is None:
+            return self.pages.page(request, "voice.html", voices=None)
+        try:
+            voices = await self.voice.voices()
+        except VoiceUnavailableError:
+            voices = None
+        return self.pages.page(request, "voice.html", voices=voices)
 
     def save_account(
         self,
@@ -143,12 +159,15 @@ class _Surfaces:
         )
 
 
-def preference_routes(*, pages: Pages) -> APIRouter:
+def preference_routes(
+    *, pages: Pages, voice: VoiceStatusUse | None = None
+) -> APIRouter:
     """The Settings and Account addresses, for the lobby factory to include."""
-    surfaces = _Surfaces(pages=pages, preferences=pages.preferences)
+    surfaces = _Surfaces(pages=pages, preferences=pages.preferences, voice=voice)
     router = APIRouter()
     router.add_api_route(SETTINGS, surfaces.settings_page, methods=["GET"])
     router.add_api_route(SETTINGS, surfaces.save_settings, methods=["POST"])
+    router.add_api_route(VOICE, surfaces.voice_page, methods=["GET"])
     router.add_api_route(ACCOUNT, surfaces.account_page, methods=["GET"])
     router.add_api_route(ACCOUNT, surfaces.save_account, methods=["POST"])
     router.add_api_route(THEME, surfaces.choose_theme, methods=["POST"])

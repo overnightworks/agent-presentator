@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ text.settings_voice }}{% endblock %}
+{% block body %}
+<main>
+  <header><h1>{{ text.settings_voice }}</h1></header>
+  {% include "settings_tabs.html" %}
+  {% if voices is none %}
+  <section data-voice-unknown>
+    <h2>{{ text.voice_unknown_title }}</h2>
+    <p>{{ text.voice_unknown_explanation }}</p>
+    <a href="/settings/voice" role="button">{{ text.voice_check_again }}</a>
+  </section>
+  {% else %}
+  <table data-voice-catalogue>
+    <thead><tr><th>{{ text.voice_model }}</th><th>{{ text.voice_language }}</th><th>{{ text.voice_state }}</th></tr></thead>
+    <tbody>{% for voice in voices %}
+      <tr>
+        <th scope="row">{{ voice.name }}</th>
+        <td>{{ voice.language }}</td>
+        <td data-state="{{ voice.state }}">{% if voice.state == "active" %}{{ text.voice_state_active }}{% elif voice.state == "loading" %}{{ text.voice_state_loading }}{% elif voice.state == "downloaded" %}{{ text.voice_state_downloaded }}{% elif voice.state == "not_downloaded" %}{{ text.voice_state_not_downloaded }}{% else %}{{ text.voice_state_unavailable }}{% endif %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+</main>
+{% endblock %}
