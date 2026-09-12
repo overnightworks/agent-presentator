@@ -119,3 +119,22 @@ M0 has no Start: the deck page offers presenter view, projector view, and the
 PDF. Start belongs to the co-presenter run in M1. Instance language and theme
 live under Settings (admin); a personal override lives on Account, and theme
 in the bar lives in the person menu (lines 21, 22, 23).
+
+### Presenter Home (proposal · issue #139)
+
+The proposed pictures extend Slidev’s public navigation-controls hook, whose
+proposed source owner is `examples/copresenter-deck/custom-nav-controls.vue`.
+They do not change the existing Voice picture or claim implementation. A
+home-outline Home pill returns to the homepage with all talks; Home is its
+accessible name and tooltip. Home and the one CoPresenter instance share the
+presenter toolbar layout: its 44 px AI toggle is in flow while inactive, and
+its bounded active conversation body grows above that toggle. Home is absent
+from projector view.
+
+| PNG | Caption |
+|---|---|
+| `m0-lobby/presenter-return.png` | Presenter, AI off, Home visible — 1024 px |
+| `m0-lobby/presenter-return-narrow.png` | Presenter, focused Home — 390 px |
+| `m0-lobby/presenter-home-active.png` | Presenter, AI active — 1024 px |
+| `m0-lobby/presenter-home-active-narrow.png` | Presenter, AI active — 390 px |
+| `m0-lobby/projector-return-absent.png` | Projector — Home absent, 1024 px |

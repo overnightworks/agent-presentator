@@ -254,6 +254,10 @@ through a symlink out of it — is refused. Every signed-in person may hold ever
 deck; a deck still belongs to the account that owns its source, and
 per-person visibility is not ruled for this phase.
 
+The presenter toolbar has Home for the deck overview and an AI switch; Home
+turns the co-presenter off before it leaves, and neither control appears on the
+projector.
+
 `/deck/<folder>/pdf` hands the file that row names over as `application/pdf`,
 to be saved under the deck's folder name, and the page offers that download
 only while the column is set. An address with nothing behind it — no file put

@@ -195,6 +195,20 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Check presenter controls
+        working-directory: .
+        run: |
+          frontend/node_modules/.bin/eslint --config frontend/eslint.config.js \
+            --global window --global document --global navigator --global fetch \
+            --global WebSocket --global AudioContext --global AudioWorkletNode \
+            --global AbortController --global TextDecoder --global atob --global URL \
+            --global Blob --global Audio examples/copresenter-deck/custom-nav-controls.vue \
+            examples/copresenter-deck/components/CoPresenter.vue \
+            frontend/tests/presenter-controls.browser.test.ts
+
       - name: Check source
         run: pnpm lint
 
