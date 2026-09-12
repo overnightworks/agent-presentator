@@ -13,13 +13,16 @@ from presentator.contracts.models import Role
 from presentator.contracts.preferences import ThemeChoice
 from presentator.contracts.text import Catalogs
 from presentator.contracts.voice import (
+    SampleLanguage,
     VoiceId,
     VoiceLoadOutcome,
     VoiceRecovery,
     VoiceRecoveryKind,
+    VoiceSampleBusyError,
     VoiceSnapshot,
     VoiceState,
     VoiceStatus,
+    VoiceUnavailableError,
 )
 from tests.api.lobby import (
     CATALOGS,
@@ -39,6 +42,9 @@ class RecordingSpeech:
 
     calls: int = 0
     loaded: VoiceId | None = None
+    sampled: tuple[VoiceId, SampleLanguage] | None = None
+    sample_calls: int = 0
+    sample_error: VoiceUnavailableError | None = None
     status: VoiceSnapshot | None = None
 
     async def snapshot(self) -> VoiceSnapshot:
@@ -61,6 +67,13 @@ class RecordingSpeech:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         self.loaded = voice
         return VoiceLoadOutcome.ACTIVATED
+
+    async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
+        self.sample_calls += 1
+        self.sampled = (voice, language)
+        if self.sample_error is not None:
+            raise self.sample_error
+        return b"fake-wav"
 
 
 def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
@@ -105,6 +118,128 @@ def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
     assert loaded.status_code == HTTPStatus.SEE_OTHER
     assert loaded.headers["location"] == "/settings/voice"
     assert reader.loaded is VoiceId.CHATTERBOX
+
+
+def test_only_an_admin_can_sample_the_active_voice_before_private_io() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(
+        users=a_user_store(an_account(NEIGHBOUR)),
+        voice=VoiceStatusUse(private=reader),
+    )
+
+    lobby.log_in(username=NEIGHBOUR)
+    refused = lobby.client.post("/settings/voice/piper/sample/de")
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.sampled is None
+    assert reader.sample_calls == 0
+
+    admin = a_lobby(voice=VoiceStatusUse(private=reader))
+    admin.set_up_admin()
+    sample = admin.client.post("/settings/voice/piper/sample/en")
+
+    assert sample.status_code == HTTPStatus.OK
+    assert sample.headers["content-type"] == "audio/wav"
+    assert sample.content == b"fake-wav"
+    assert reader.sampled == (VoiceId.PIPER, SampleLanguage.ENGLISH)
+
+
+def test_a_foreign_sample_request_reaches_no_private_work() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    refused = lobby.client.post(
+        "/settings/voice/piper/sample/de",
+        headers={"origin": "https://another.example", "sec-fetch-site": "cross-site"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.sampled is None
+    assert reader.sample_calls == 0
+
+
+def test_a_signed_out_sample_request_reaches_no_private_work() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+
+    refused = lobby.client.post("/settings/voice/piper/sample/de")
+
+    assert refused.status_code == HTTPStatus.FOUND
+    assert reader.sample_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (VoiceSampleBusyError(), HTTPStatus.CONFLICT),
+        (VoiceUnavailableError(), HTTPStatus.SERVICE_UNAVAILABLE),
+    ],
+)
+def test_sample_route_preserves_busy_and_sanitizes_private_refusals(
+    failure: VoiceUnavailableError, expected: HTTPStatus
+) -> None:
+    reader = RecordingSpeech(sample_error=failure)
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    refused = lobby.client.post("/settings/voice/piper/sample/de")
+
+    assert refused.status_code == expected
+    assert refused.content == b""
+    assert reader.sample_calls == 1
+
+
+def test_invalid_sample_path_is_a_generic_non_audio_failure_before_private_work() -> (
+    None
+):
+    reader = RecordingSpeech()
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    refused = lobby.client.post("/settings/voice/not-a-voice/sample/not-a-language")
+
+    assert refused.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert refused.content == b""
+    assert reader.sampled is None
+    assert reader.sample_calls == 0
+
+
+@pytest.mark.parametrize("active_rows", [0, 1, 2])
+def test_voice_page_renders_the_player_for_exactly_one_active_row(
+    active_rows: int,
+) -> None:
+    reader = RecordingSpeech(
+        status=VoiceSnapshot(
+            voices=tuple(
+                VoiceStatus(
+                    id=voice_id,
+                    name=voice_id.value,
+                    language="declared",
+                    state=(
+                        VoiceState.ACTIVE
+                        if index < active_rows
+                        else VoiceState.UNAVAILABLE
+                    ),
+                )
+                for index, voice_id in enumerate(VoiceId)
+            ),
+            recovery=None,
+        )
+    )
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    page = lobby.client.get("/settings/voice").text
+
+    if active_rows == 1:
+        assert 'data-sample-player data-voice="piper"' in page
+        assert 'data-sample-language="de" aria-pressed="true"' in page
+        assert 'data-sample-language="en" aria-pressed="false"' in page
+        assert "Play sample" in page
+        assert "data-sample-action" in page
+    else:
+        assert "data-sample-player" not in page
 
 
 def test_an_admin_htmx_voice_load_refreshes_the_final_voice_page() -> None:

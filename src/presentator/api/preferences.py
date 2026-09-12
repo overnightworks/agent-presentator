@@ -22,7 +22,12 @@ from presentator.contracts.preferences import (
     PersonPreferences,
     ThemeChoice,
 )
-from presentator.contracts.voice import VoiceId, VoiceUnavailableError
+from presentator.contracts.voice import (
+    SampleLanguage,
+    VoiceId,
+    VoiceSampleBusyError,
+    VoiceUnavailableError,
+)
 
 SETTINGS: Final = "/settings"
 VOICE: Final = "/settings/voice"
@@ -120,6 +125,25 @@ class _Surfaces:
             return Response(headers={"HX-Refresh": "true"})
         return RedirectResponse(VOICE, status_code=HTTPStatus.SEE_OTHER)
 
+    async def sample_voice(
+        self, request: Request, voice: str, language: str
+    ) -> Response:
+        """Return a fixed active-voice sample only after the admin check."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        try:
+            typed_voice = VoiceId(voice)
+            typed_language = SampleLanguage(language)
+        except ValueError:
+            return Response(status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+        try:
+            audio = await self.voice.sample(typed_voice, typed_language)
+        except VoiceSampleBusyError:
+            return Response(status_code=HTTPStatus.CONFLICT)
+        except VoiceUnavailableError:
+            return Response(status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+        return Response(content=audio, media_type="audio/wav")
+
     def save_account(
         self,
         request: Request,
@@ -177,6 +201,11 @@ def preference_routes(*, pages: Pages, voice: VoiceStatusUse) -> APIRouter:
     router.add_api_route(VOICE, surfaces.voice_page, methods=["GET"])
     router.add_api_route(
         f"{VOICE}/{{voice}}/load", surfaces.load_voice, methods=["POST"]
+    )
+    router.add_api_route(
+        f"{VOICE}/{{voice}}/sample/{{language}}",
+        surfaces.sample_voice,
+        methods=["POST"],
     )
     router.add_api_route(ACCOUNT, surfaces.account_page, methods=["GET"])
     router.add_api_route(ACCOUNT, surfaces.save_account, methods=["POST"])

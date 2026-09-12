@@ -23,6 +23,103 @@
     {% endfor %}</tbody>
   </table>
   {% if snapshot.recovery %}<p data-voice-recovery>{% if snapshot.recovery.kind == "durability_unconfirmed" %}{{ text.voice_recovery_durability }}{% elif snapshot.recovery.kind == "invalid_selection" %}{{ text.voice_recovery_invalid_selection }}{% else %}{{ text.voice_recovery_failed }}{% endif %}</p>{% endif %}
+  {% set active_voices = snapshot.voices | selectattr("state", "equalto", "active") | list %}
+  {% if active_voices | length == 1 %}{% set active_voice = active_voices[0] %}
+  <section data-sample-player data-voice="{{ active_voice.id }}" data-play="{{ text.voice_sample_play }}" data-stop="{{ text.voice_sample_stop }}" data-loading="{{ text.voice_sample_loading }}" data-waiting="{{ text.voice_sample_waiting }}">
+    <header>
+      <span>{{ text.voice_sample }}</span>
+      <strong>{{ text.voice_sample_active.format(name=active_voice.name) }}</strong>
+    </header>
+    <div data-sample-controls>
+      <div role="group" aria-label="{{ text.voice_sample_language }}">
+        <button type="button" data-sample-language="de" aria-pressed="true">{{ text.voice_sample_german }}</button>
+        <button type="button" data-sample-language="en" aria-pressed="false">{{ text.voice_sample_english }}</button>
+      </div>
+      <span data-sample-status aria-live="polite" hidden></span>
+      <button type="button" data-sample-action>{{ text.voice_sample_play }}</button>
+    </div>
+    <p data-sample-failure role="alert" hidden><strong>{{ text.voice_sample_failed_title }}</strong> {{ text.voice_sample_failed_explanation }}</p>
+  </section>
+  <script>
+    (() => {
+      const retryMilliseconds = 1000;
+      const player = document.querySelector("[data-sample-player]");
+      const action = player.querySelector("[data-sample-action]");
+      const status = player.querySelector("[data-sample-status]");
+      const failure = player.querySelector("[data-sample-failure]");
+      const languages = [...player.querySelectorAll("[data-sample-language]")];
+      let language = "de";
+      let retry;
+      let request;
+      let audio;
+      let objectUrl;
+
+      const stopAudio = () => {
+        if (audio) {
+          audio.pause();
+          audio = undefined;
+        }
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+          objectUrl = undefined;
+        }
+      };
+      const show = (state) => {
+        failure.hidden = state !== "failed";
+        status.hidden = state !== "loading" && state !== "waiting";
+        status.textContent = state === "waiting" ? player.dataset.waiting : player.dataset.loading;
+        action.disabled = state === "loading" || state === "waiting";
+        action.textContent = state === "playing" ? player.dataset.stop : player.dataset.play;
+      };
+      const play = async () => {
+        window.clearTimeout(retry);
+        show("loading");
+        request = new AbortController();
+        try {
+          const response = await fetch(
+            `/settings/voice/${player.dataset.voice}/sample/${language}`,
+            { method: "POST", signal: request.signal },
+          );
+          if (response.status === 409) {
+            show("waiting");
+            retry = window.setTimeout(play, retryMilliseconds);
+            return;
+          }
+          if (!response.ok) throw new Error("sample unavailable");
+          objectUrl = URL.createObjectURL(await response.blob());
+          audio = new Audio(objectUrl);
+          audio.addEventListener("ended", () => {
+            stopAudio();
+            show("idle");
+          });
+          await audio.play();
+          show("playing");
+        } catch (error) {
+          if (request.signal.aborted) return;
+          stopAudio();
+          show("failed");
+        }
+      };
+
+      languages.forEach((choice) => choice.addEventListener("click", () => {
+        language = choice.dataset.sampleLanguage;
+        languages.forEach((other) => other.setAttribute("aria-pressed", String(other === choice)));
+      }));
+      action.addEventListener("click", () => {
+        if (audio) {
+          stopAudio();
+          show("idle");
+          return;
+        }
+        void play();
+      });
+      window.addEventListener("pagehide", () => {
+        window.clearTimeout(retry);
+        request?.abort();
+      });
+    })();
+  </script>
+  {% endif %}
   {% endif %}
 </main>
 {% endblock %}

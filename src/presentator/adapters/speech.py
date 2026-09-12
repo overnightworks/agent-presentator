@@ -8,10 +8,12 @@ import httpx2
 from pydantic import BaseModel, ValidationError
 
 from presentator.contracts.voice import (
+    SampleLanguage,
     VoiceId,
     VoiceLoadOutcome,
     VoiceRecovery,
     VoiceRecoveryKind,
+    VoiceSampleBusyError,
     VoiceSnapshot,
     VoiceState,
     VoiceStatus,
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
 
 _PRIVATE_ORIGIN: Final = "http://speech.localhost"
 _STATUS_TIMEOUT: Final = 5.0
+_BUSY_STATUS: Final = 409
 
 
 class _VoicePayload(BaseModel):
@@ -104,3 +107,36 @@ class UdsSpeech:
         except (httpx2.HTTPError, ValidationError, TypeError, ValueError) as refused:
             raise VoiceUnavailableError from refused
         return payload.outcome
+
+    async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
+        """Buffer one bounded private WAV and reject malformed media at the boundary."""
+        transport = httpx2.AsyncHTTPTransport(uds=str(self._socket_path))
+        try:
+            async with httpx2.AsyncClient(
+                base_url=_PRIVATE_ORIGIN,
+                transport=transport,
+                timeout=httpx2.Timeout(connect=5.0, write=5.0, pool=5.0, read=None),
+                trust_env=False,
+            ) as client:
+                response = await client.post(
+                    f"/voices/{voice.value}/sample/{language.value}"
+                )
+                if response.status_code == _BUSY_STATUS:
+                    _raise_sample_busy()
+                response.raise_for_status()
+                audio = response.content
+                if response.headers.get("content-type") != "audio/wav" or not audio:
+                    _raise_invalid_audio()
+        except VoiceSampleBusyError:
+            raise
+        except (httpx2.HTTPError, TypeError, ValueError) as refused:
+            raise VoiceUnavailableError from refused
+        return audio
+
+
+def _raise_sample_busy() -> None:
+    raise VoiceSampleBusyError
+
+
+def _raise_invalid_audio() -> None:
+    raise ValueError

@@ -2,7 +2,12 @@
 
 from typing import Protocol
 
-from presentator.contracts.voice import VoiceId, VoiceLoadOutcome, VoiceSnapshot
+from presentator.contracts.voice import (
+    SampleLanguage,
+    VoiceId,
+    VoiceLoadOutcome,
+    VoiceSnapshot,
+)
 
 
 class PrivateSpeech(Protocol):
@@ -14,4 +19,8 @@ class PrivateSpeech(Protocol):
 
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         """Ask the private service to synchronously load a downloaded voice."""
+        ...
+
+    async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
+        """Return one fixed-phrase WAV through the verified active voice."""
         ...
