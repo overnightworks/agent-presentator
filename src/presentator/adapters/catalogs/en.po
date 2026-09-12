@@ -211,6 +211,9 @@ msgstr "Active"
 msgid "voice_state_loading"
 msgstr "Loading"
 
+msgid "voice_state_failed"
+msgstr "Failed"
+
 msgid "voice_state_downloaded"
 msgstr "Downloaded"
 
@@ -228,6 +231,18 @@ msgstr "The local speech service has not confirmed its voice status."
 
 msgid "voice_check_again"
 msgstr "Check again"
+
+msgid "voice_load"
+msgstr "Load"
+
+msgid "voice_recovery_failed"
+msgstr "Voice load failed"
+
+msgid "voice_recovery_invalid_selection"
+msgstr "Saved voice selection is invalid"
+
+msgid "voice_recovery_durability"
+msgstr "Voice is active; restart persistence is unconfirmed"
 
 msgid "account_title"
 msgstr "Account"

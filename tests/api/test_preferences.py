@@ -12,7 +12,15 @@ from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import Role
 from presentator.contracts.preferences import ThemeChoice
 from presentator.contracts.text import Catalogs
-from presentator.contracts.voice import VoiceId, VoiceState, VoiceStatus
+from presentator.contracts.voice import (
+    VoiceId,
+    VoiceLoadOutcome,
+    VoiceRecovery,
+    VoiceRecoveryKind,
+    VoiceSnapshot,
+    VoiceState,
+    VoiceStatus,
+)
 from tests.api.lobby import (
     CATALOGS,
     ENGLISH,
@@ -30,18 +38,29 @@ class RecordingSpeech:
     """A private reader whose calls prove the route's authorization boundary."""
 
     calls: int = 0
+    loaded: VoiceId | None = None
+    status: VoiceSnapshot | None = None
 
-    async def voices(self) -> tuple[VoiceStatus, ...]:
+    async def snapshot(self) -> VoiceSnapshot:
         self.calls += 1
-        return tuple(
-            VoiceStatus(
-                id=voice_id,
-                name=voice_id.value,
-                language="declared",
-                state=VoiceState.UNAVAILABLE,
-            )
-            for voice_id in VoiceId
+        if self.status is not None:
+            return self.status
+        return VoiceSnapshot(
+            voices=tuple(
+                VoiceStatus(
+                    id=voice_id,
+                    name=voice_id.value,
+                    language="declared",
+                    state=VoiceState.UNAVAILABLE,
+                )
+                for voice_id in VoiceId
+            ),
+            recovery=None,
         )
+
+    async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
+        self.loaded = voice
+        return VoiceLoadOutcome.ACTIVATED
 
 
 def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
@@ -66,6 +85,28 @@ def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
     assert answered.text.count("<tbody>") == 1
 
 
+def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(
+        users=a_user_store(an_account(NEIGHBOUR)),
+        voice=VoiceStatusUse(private=reader),
+    )
+
+    lobby.log_in(username=NEIGHBOUR)
+    refused = lobby.client.post("/settings/voice/piper/load")
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.loaded is None
+
+    admin = a_lobby(voice=VoiceStatusUse(private=reader))
+    admin.set_up_admin()
+    loaded = admin.client.post("/settings/voice/chatterbox/load")
+
+    assert loaded.status_code == HTTPStatus.SEE_OTHER
+    assert loaded.headers["location"] == "/settings/voice"
+    assert reader.loaded is VoiceId.CHATTERBOX
+
+
 def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
     lobby = a_lobby()
     lobby.set_up_admin()
@@ -78,6 +119,63 @@ def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
     assert ENGLISH.voice_unknown_explanation in answered.text
     assert 'href="/settings/voice"' in answered.text
     assert "data-voice-catalogue" not in answered.text
+
+
+@pytest.mark.parametrize(
+    ("recovery", "message"),
+    [
+        (
+            VoiceRecovery(kind=VoiceRecoveryKind.INVALID_SELECTION),
+            "Saved voice selection is invalid",
+        ),
+        (
+            VoiceRecovery(
+                kind=VoiceRecoveryKind.DURABILITY_UNCONFIRMED,
+                voice=VoiceId.PIPER,
+            ),
+            "Voice is active; restart persistence is unconfirmed",
+        ),
+        (
+            VoiceRecovery(kind=VoiceRecoveryKind.LOAD_FAILED, voice=VoiceId.CHATTERBOX),
+            "Voice load failed",
+        ),
+    ],
+)
+def test_voice_page_renders_retry_loading_and_typed_recovery(
+    recovery: VoiceRecovery, message: str
+) -> None:
+    reader = RecordingSpeech(
+        status=VoiceSnapshot(
+            voices=tuple(
+                VoiceStatus(
+                    id=voice_id,
+                    name=voice_id.value,
+                    language="declared",
+                    state=(
+                        VoiceState.DOWNLOADED
+                        if voice_id is VoiceId.PIPER
+                        else (
+                            VoiceState.FAILED
+                            if voice_id is VoiceId.CHATTERBOX
+                            else VoiceState.UNAVAILABLE
+                        )
+                    ),
+                )
+                for voice_id in VoiceId
+            ),
+            recovery=recovery,
+        )
+    )
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    page = lobby.client.get("/settings/voice").text
+
+    assert 'action="/settings/voice/piper/load"' in page
+    assert 'action="/settings/voice/chatterbox/load"' in page
+    assert page.count("data-voice-loading") == len((VoiceId.PIPER, VoiceId.CHATTERBOX))
+    assert "hx-indicator=" not in page
+    assert message in page
 
 
 _GERMAN = replace(

@@ -8,6 +8,8 @@ import pytest
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.voice import (
     VoiceId,
+    VoiceLoadOutcome,
+    VoiceSnapshot,
     VoiceState,
     VoiceStatus,
     VoiceUnavailableError,
@@ -18,10 +20,15 @@ from presentator.contracts.voice import (
 class FakeSpeech:
     """A private reader with the exact snapshot the test needs."""
 
-    snapshot: tuple[VoiceStatus, ...]
+    voices: tuple[VoiceStatus, ...]
+    load_outcome: VoiceLoadOutcome = VoiceLoadOutcome.ACTIVATED
 
-    async def voices(self) -> tuple[VoiceStatus, ...]:
-        return self.snapshot
+    async def snapshot(self) -> VoiceSnapshot:
+        return VoiceSnapshot(voices=self.voices, recovery=None)
+
+    async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
+        del voice
+        return self.load_outcome
 
 
 @pytest.mark.parametrize(
@@ -62,6 +69,20 @@ def test_voice_status_rejects_an_incomplete_duplicated_or_reordered_private_snap
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await reader.voices()
+            await reader.snapshot()
 
     asyncio.run(read())
+
+
+def test_voice_load_preserves_the_durability_uncertain_outcome() -> None:
+    reader = VoiceStatusUse(
+        private=FakeSpeech(
+            (),
+            load_outcome=VoiceLoadOutcome.ACTIVATED_DURABILITY_UNCONFIRMED,
+        )
+    )
+
+    assert (
+        asyncio.run(reader.load(VoiceId.PIPER))
+        is VoiceLoadOutcome.ACTIVATED_DURABILITY_UNCONFIRMED
+    )

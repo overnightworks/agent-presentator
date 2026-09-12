@@ -19,6 +19,7 @@ class VoiceState(StrEnum):
 
     ACTIVE = "active"
     LOADING = "loading"
+    FAILED = "failed"
     DOWNLOADED = "downloaded"
     NOT_DOWNLOADED = "not_downloaded"
     UNAVAILABLE = "unavailable"
@@ -26,6 +27,22 @@ class VoiceState(StrEnum):
 
 class VoiceUnavailableError(RuntimeError):
     """The complete status snapshot could not be verified."""
+
+
+class VoiceLoadOutcome(StrEnum):
+    """The private Load result an authenticated caller may act on."""
+
+    ACTIVATED = "activated"
+    ACTIVATED_DURABILITY_UNCONFIRMED = "activated_durability_unconfirmed"
+    NOT_ACTIVATED = "not_activated"
+
+
+class VoiceRecoveryKind(StrEnum):
+    """The private explanation for a recoverable unavailable voice."""
+
+    INVALID_SELECTION = "invalid_selection"
+    LOAD_FAILED = "load_failed"
+    DURABILITY_UNCONFIRMED = "durability_unconfirmed"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,3 +53,19 @@ class VoiceStatus:
     name: str
     language: str
     state: VoiceState
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VoiceRecovery:
+    """A non-sensitive recovery fact attached to the complete snapshot."""
+
+    kind: VoiceRecoveryKind
+    voice: VoiceId | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VoiceSnapshot:
+    """The complete closed catalogue and one recoverable selection fact."""
+
+    voices: tuple[VoiceStatus, ...]
+    recovery: VoiceRecovery | None

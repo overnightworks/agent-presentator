@@ -78,12 +78,17 @@ class LobbyText:
     voice_state: str
     voice_state_active: str
     voice_state_loading: str
+    voice_state_failed: str
     voice_state_downloaded: str
     voice_state_not_downloaded: str
     voice_state_unavailable: str
     voice_unknown_title: str
     voice_unknown_explanation: str
     voice_check_again: str
+    voice_load: str
+    voice_recovery_failed: str
+    voice_recovery_invalid_selection: str
+    voice_recovery_durability: str
     account_title: str
     account_preferences: str
     account_language: str

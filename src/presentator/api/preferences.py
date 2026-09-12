@@ -4,6 +4,7 @@ Settings is admin only, and a person's own choices live on Account; the person
 menu's theme rows write the same Account preference (issue #8, lines 21 to 23).
 """
 
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from http import HTTPStatus
 from typing import Annotated, Final
@@ -21,7 +22,7 @@ from presentator.contracts.preferences import (
     PersonPreferences,
     ThemeChoice,
 )
-from presentator.contracts.voice import VoiceUnavailableError
+from presentator.contracts.voice import VoiceId, VoiceUnavailableError
 
 SETTINGS: Final = "/settings"
 VOICE: Final = "/settings/voice"
@@ -100,14 +101,24 @@ class _Surfaces:
         )
 
     async def voice_page(self, request: Request) -> Response:
-        """Show only an admin the verified read-only voice catalogue."""
+        """Show only an admin the verified private voice catalogue."""
         if not _signed_in(request).is_admin:
             return _refused()
         try:
-            voices = await self.voice.voices()
+            snapshot = await self.voice.snapshot()
         except VoiceUnavailableError:
-            voices = None
-        return self.pages.page(request, "voice.html", voices=voices)
+            snapshot = None
+        return self.pages.page(request, "voice.html", snapshot=snapshot)
+
+    async def load_voice(self, request: Request, voice: VoiceId) -> Response:
+        """Ask the verified private listener to make one downloaded voice active."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        with suppress(VoiceUnavailableError):
+            await self.voice.load(voice)
+        if request.headers.get("HX-Request") == "true":
+            return Response(headers={"HX-Refresh": "true"})
+        return RedirectResponse(VOICE, status_code=HTTPStatus.SEE_OTHER)
 
     def save_account(
         self,
@@ -164,6 +175,9 @@ def preference_routes(*, pages: Pages, voice: VoiceStatusUse) -> APIRouter:
     router.add_api_route(SETTINGS, surfaces.settings_page, methods=["GET"])
     router.add_api_route(SETTINGS, surfaces.save_settings, methods=["POST"])
     router.add_api_route(VOICE, surfaces.voice_page, methods=["GET"])
+    router.add_api_route(
+        f"{VOICE}/{{voice}}/load", surfaces.load_voice, methods=["POST"]
+    )
     router.add_api_route(ACCOUNT, surfaces.account_page, methods=["GET"])
     router.add_api_route(ACCOUNT, surfaces.save_account, methods=["POST"])
     router.add_api_route(THEME, surfaces.choose_theme, methods=["POST"])

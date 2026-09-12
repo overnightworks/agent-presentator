@@ -14,7 +14,7 @@ from httpcore2._backends.auto import AutoBackend
 
 from presentator.adapters import speech
 from presentator.adapters.speech import UdsSpeech
-from presentator.contracts.voice import VoiceUnavailableError
+from presentator.contracts.voice import VoiceId, VoiceLoadOutcome, VoiceUnavailableError
 
 
 def test_missing_private_socket_never_falls_back_to_tcp(
@@ -31,7 +31,7 @@ def test_missing_private_socket_never_falls_back_to_tcp(
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await reader.voices()
+            await reader.snapshot()
 
     asyncio.run(read())
 
@@ -63,9 +63,37 @@ async def _read_voice_status(tmp_path: Path) -> None:
     app.add_api_route("/voices", voices, methods=["GET"])
     socket_path = tmp_path / "speech.sock"
     async with _Serving(app, socket_path):
-        rows = await UdsSpeech(socket_path).voices()
+        snapshot = await UdsSpeech(socket_path).snapshot()
 
-    assert rows[0].name == "Piper"
+    assert snapshot.voices[0].name == "Piper"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        VoiceLoadOutcome.ACTIVATED,
+        VoiceLoadOutcome.ACTIVATED_DURABILITY_UNCONFIRMED,
+    ],
+)
+def test_uds_adapter_posts_the_closed_voice_id_and_returns_the_typed_outcome(
+    tmp_path: Path, outcome: VoiceLoadOutcome
+) -> None:
+    asyncio.run(_load_voice(tmp_path, outcome))
+
+
+async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
+    app = FastAPI()
+
+    async def load(request: Request) -> dict[str, str]:
+        assert request.url.path == "/voices/chatterbox/load"
+        return {"outcome": expected.value}
+
+    app.add_api_route("/voices/chatterbox/load", load, methods=["POST"])
+    socket_path = tmp_path / "speech.sock"
+    async with _Serving(app, socket_path):
+        outcome = await UdsSpeech(socket_path).load(VoiceId.CHATTERBOX)
+
+    assert outcome is expected
 
 
 @pytest.mark.parametrize("scenario", ["malformed", "unknown", "timed_out"])
@@ -115,7 +143,7 @@ def test_uds_adapter_maps_malformed_unknown_or_timed_out_status_to_unavailable(
 
     async def read() -> None:
         with pytest.raises(VoiceUnavailableError):
-            await reader.voices()
+            await reader.snapshot()
 
     asyncio.run(read())
 

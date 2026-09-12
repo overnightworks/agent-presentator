@@ -51,7 +51,12 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
-from presentator.contracts.voice import VoiceStatus, VoiceUnavailableError
+from presentator.contracts.voice import (
+    VoiceId,
+    VoiceLoadOutcome,
+    VoiceSnapshot,
+    VoiceUnavailableError,
+)
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
     DEFAULT_THEME_SET,
@@ -100,8 +105,13 @@ _NO_TRUSTED_PROXIES: Final = TrustedProxies()
 class UnavailableSpeech:
     """The omitted test arrangement's private speech port."""
 
-    async def voices(self) -> tuple[VoiceStatus, ...]:
+    async def snapshot(self) -> VoiceSnapshot:
         """Make the real use case surface the recoverable service failure."""
+        raise VoiceUnavailableError
+
+    async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
+        """Make the private mutation unavailable in the default test arrangement."""
+        del voice
         raise VoiceUnavailableError
 
 
