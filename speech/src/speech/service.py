@@ -368,7 +368,7 @@ class Runtime:
                 registered = self._register_pending_engine(engine)
                 if not registered:
                     return VoiceLoadOutcome.NOT_ACTIVATED
-                if not engine.ready:
+                if newly_constructed or not engine.ready:
                     engine.load()
                 with self._state_lock:
                     if self._stopping:
