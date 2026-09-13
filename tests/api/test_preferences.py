@@ -129,7 +129,16 @@ def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
     assert reader.loaded is VoiceId.CHATTERBOX
 
 
-def test_only_an_admin_can_start_qwen_download_before_private_io() -> None:
+@pytest.mark.parametrize(
+    ("headers", "expected_status"),
+    [
+        ({}, HTTPStatus.SEE_OTHER),
+        ({"HX-Request": "true"}, HTTPStatus.OK),
+    ],
+)
+def test_only_an_admin_can_start_qwen_download_before_private_io(
+    headers: dict[str, str], expected_status: HTTPStatus
+) -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(
         users=a_user_store(an_account(NEIGHBOUR)),
@@ -145,10 +154,12 @@ def test_only_an_admin_can_start_qwen_download_before_private_io() -> None:
     admin = a_lobby(voice=VoiceStatusUse(private=reader))
     admin.set_up_admin()
     started = admin.client.post(
-        "/settings/voice/qwen3-tts-0.6b/download", headers={"HX-Request": "true"}
+        "/settings/voice/qwen3-tts-0.6b/download", headers=headers
     )
 
-    assert started.status_code == HTTPStatus.OK
+    assert started.status_code == expected_status
+    if expected_status is HTTPStatus.SEE_OTHER:
+        assert started.headers["location"] == "/settings/voice"
     assert reader.downloads == 1
 
 

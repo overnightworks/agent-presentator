@@ -105,23 +105,29 @@ async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
     assert outcome is expected
 
 
-def test_uds_adapter_starts_the_fixed_qwen_download(tmp_path: Path) -> None:
-    asyncio.run(_download_qwen(tmp_path))
+@pytest.mark.parametrize(
+    "outcome",
+    [VoiceDownloadOutcome.STARTED, VoiceDownloadOutcome.ALREADY_COMPLETE],
+)
+def test_uds_adapter_returns_the_typed_fixed_qwen_download_outcome(
+    tmp_path: Path, outcome: VoiceDownloadOutcome
+) -> None:
+    asyncio.run(_download_qwen(tmp_path, outcome))
 
 
-async def _download_qwen(tmp_path: Path) -> None:
+async def _download_qwen(tmp_path: Path, expected: VoiceDownloadOutcome) -> None:
     app = FastAPI()
 
     async def download(request: Request) -> dict[str, str]:
         assert request.url.path == "/voices/qwen3-tts-0.6b/download"
-        return {"outcome": VoiceDownloadOutcome.STARTED.value}
+        return {"outcome": expected.value}
 
     app.add_api_route("/voices/qwen3-tts-0.6b/download", download, methods=["POST"])
     socket_path = tmp_path / "speech.sock"
     async with _Serving(app, socket_path):
         outcome = await UdsSpeech(socket_path).download_qwen()
 
-    assert outcome is VoiceDownloadOutcome.STARTED
+    assert outcome is expected
 
 
 def test_uds_download_bounds_every_private_io_phase_to_five_seconds(
@@ -320,6 +326,10 @@ async def _request_voice_load(reader: UdsSpeech) -> object:
     return await reader.load(VoiceId.PIPER)
 
 
+async def _request_qwen_download(reader: UdsSpeech) -> object:
+    return await reader.download_qwen()
+
+
 def _failure_body(*, operation: str, scenario: str) -> object:
     if scenario != "unknown":
         return {"voices": [dict[str, object]()]}
@@ -339,7 +349,11 @@ def _failure_body(*, operation: str, scenario: str) -> object:
 
 @pytest.mark.parametrize(
     ("operation", "reader_action"),
-    [("status", _read_status), ("load", _request_voice_load)],
+    [
+        ("status", _read_status),
+        ("load", _request_voice_load),
+        ("download", _request_qwen_download),
+    ],
 )
 @pytest.mark.parametrize("scenario", ["malformed", "unknown", "timed_out"])
 def test_uds_adapter_maps_private_response_failures_to_unavailable(
@@ -375,8 +389,8 @@ def test_uds_adapter_maps_private_response_failures_to_unavailable(
         async def get(self, path: str) -> httpx2.Response:
             return await self._response("GET", path)
 
-        async def post(self, _path: str) -> httpx2.Response:
-            return await self._response("POST", "/voices/piper/load")
+        async def post(self, path: str) -> httpx2.Response:
+            return await self._response("POST", path)
 
     def transport(**_arguments: object) -> object:
         return object()

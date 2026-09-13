@@ -16,7 +16,11 @@ from presentator.api.sources import (
     SourceView,
 )
 from presentator.contracts.text import LobbyText
-from presentator.contracts.voice import VoiceLoadOutcome, VoiceState
+from presentator.contracts.voice import (
+    VoiceDownloadOutcome,
+    VoiceLoadOutcome,
+    VoiceState,
+)
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
@@ -147,11 +151,14 @@ LobbyText.voice_state_loading
 LobbyText.voice_state_failed
 LobbyText.voice_state_downloaded
 LobbyText.voice_state_not_downloaded
+LobbyText.voice_state_downloading
+LobbyText.voice_state_download_failed
 LobbyText.voice_state_unavailable
 LobbyText.voice_unknown_title
 LobbyText.voice_unknown_explanation
 LobbyText.voice_check_again
 LobbyText.voice_load
+LobbyText.voice_download
 LobbyText.voice_recovery_failed
 LobbyText.voice_recovery_invalid_selection
 LobbyText.voice_recovery_durability
@@ -171,4 +178,8 @@ LobbyText.voice_sample_failed_explanation
 VoiceState.LOADING
 VoiceState.DOWNLOADED
 VoiceState.NOT_DOWNLOADED
+VoiceState.DOWNLOAD_FAILED
 VoiceLoadOutcome.NOT_ACTIVATED
+
+# `UdsSpeech` decodes this private-wire outcome through `_DownloadPayload`.
+VoiceDownloadOutcome.ALREADY_COMPLETE
