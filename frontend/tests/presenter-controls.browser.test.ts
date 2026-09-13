@@ -25,6 +25,7 @@ let origin = ''
 let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
+let answerMode: 'audio' | 'speech-refused' = 'audio'
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
@@ -98,6 +99,13 @@ async function startServer() {
     }
     if (url.pathname === '/copresenter/ask') {
       response.writeHead(200, { 'content-type': 'text/event-stream' })
+      if (answerMode === 'speech-refused') {
+        const sentence = 'The handoff keeps this sentence.'
+        response.write(`event: text\ndata: ${JSON.stringify({ text: sentence })}\n\n`)
+        response.write(`event: sentence\ndata: ${JSON.stringify({ text: sentence })}\n\n`)
+        response.end('event: error\ndata: {}\n\n')
+        return
+      }
       response.write(`event: audio\ndata: {"wav_b64":"${wav}"}\n\n`)
       request.on('close', () => { pendingAnswerClosed += 1 })
       return
@@ -216,6 +224,28 @@ afterAll(async () => {
 })
 
 describe('presenter controls', () => {
+  it.each([1024, 390])('keeps the admitted sentence visible when speech is refused during a switch at %ipx', async (width) => {
+    answerMode = 'speech-refused'
+    const { browser, page } = await openPresenter(width)
+    try {
+      const ai = page.getByRole('switch', { name: 'AI' })
+      await ai.waitFor({ state: 'visible', timeout: 2_000 })
+      await ai.click({ timeout: 2_000 })
+      const sentence = page.getByText('The handoff keeps this sentence.')
+      const refusal = page.getByText('No answer')
+      await sentence.waitFor({ state: 'visible', timeout: 5_000 })
+      await refusal.waitFor({ state: 'visible', timeout: 5_000 })
+      expect(await sentence.isVisible()).toBe(true)
+      expect(await refusal.isVisible()).toBe(true)
+      await saveEvidence(page, `presenter-speech-refused-${width}.png`)
+      await ai.click({ timeout: 2_000 })
+      await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
+    } finally {
+      answerMode = 'audio'
+      await browser.close()
+    }
+  })
+
   it.each([1024, 390])('keeps Home and AI separate and reachable at %ipx', async (width) => {
     const { browser, page } = await openPresenter(width)
     try {
