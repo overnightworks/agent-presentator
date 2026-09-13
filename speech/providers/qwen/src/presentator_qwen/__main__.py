@@ -1,13 +1,16 @@
-"""Bootstrap the provider after reserving stdout for its binary protocol."""
+"""Bootstrap Qwen after reserving stdout for its binary protocol."""
 
 import argparse
 import ctypes
 import os
 import signal
+from functools import partial
+
+from presentator_speech_provider_contract import QwenSpeaker
 
 
 def main() -> int:
-    """Redirect ordinary stdout, then import and run the provider worker."""
+    """Redirect ordinary stdout, then enter the shared provider loop."""
     arguments = _arguments()
     protocol_stdout = os.dup(1)
     null = os.open(os.devnull, os.O_WRONLY)
@@ -19,22 +22,17 @@ def main() -> int:
         return 1
     from presentator_speech_provider_contract import ProviderFunctions, serve_provider
 
-    from presentator_chatterbox.model import load_model, pcm_chunks
+    from presentator_qwen.model import load_model, pcm_chunks
 
     return serve_provider(
         device=arguments.device,
         cache=arguments.cache,
         protocol_stdout=protocol_stdout,
-        functions=ProviderFunctions(load_model, pcm_chunks, _prepare),
+        functions=ProviderFunctions(
+            load_model,
+            partial(pcm_chunks, speaker=arguments.speaker),
+        ),
     )
-
-
-def _prepare(model: object) -> None:
-    """Preserve Chatterbox's established pre-READY preparation."""
-    from presentator_chatterbox.model import pcm_chunks
-
-    for _pcm in pcm_chunks(model, "Hallo.", "de"):
-        pass
 
 
 def _arguments() -> argparse.Namespace:
@@ -42,6 +40,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--expected-parent-pid", type=int, required=True)
     parser.add_argument("--device", required=True)
     parser.add_argument("--cache", required=True)
+    parser.add_argument("--speaker", type=QwenSpeaker, required=True)
     return parser.parse_args()
 
 

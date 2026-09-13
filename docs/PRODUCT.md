@@ -354,8 +354,9 @@ remain owned by that README.
 
 An authenticated admin can open Settings · Voice. The source surface reads one
 private, local status snapshot and shows Piper, Chatterbox, Qwen3-TTS 0.6B,
-VoxCPM2, and NVIDIA Magpie in that order. Downloaded Piper or Chatterbox, and
-a baseline whose previous Load failed, have one Load action; the private speech
+VoxCPM2, and NVIDIA Magpie in that order. Downloaded Piper or Chatterbox, Qwen
+with its exact local snapshot and executable, and a voice whose previous Load
+failed have one Load action; the private speech
 service synchronously makes that choice active and durable while current
 captured speech can finish. A missing or malformed private response hides all
 rows and offers Check again; a non-admin receives 403 before the private
@@ -363,6 +364,10 @@ service is called. One verified active row also names a local player: its DE or
 EN fixed sample waits while current speech owns synthesis, then plays through
 that exact active voice. This describes source capability, not an inventory of
 any running instance.
-Speech runs a selected Chatterbox voice in an isolated provider process. An
-admitted response keeps its captured voice until it closes; switching then reaps
-a deselected Chatterbox before Load succeeds, while Piper stays resident.
+Speech runs selected Chatterbox and Qwen voices through one isolated-provider
+process owner and one binary worker loop; each provider has its own locked SDK
+environment. Qwen speaks German or English through its configured built-in
+preset and returns a completed 24 kHz waveform in bounded PCM frames. An
+admitted response keeps its captured voice until it closes; switching then
+reaps a deselected provider process before Load succeeds, while Piper stays
+resident.
