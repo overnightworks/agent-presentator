@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSnapshot,
@@ -36,6 +37,10 @@ class VoiceStatusUse:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         """Pass the closed target through the private adapter."""
         return await self.private.load(voice)
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        """Start the fixed Qwen download through the private adapter."""
+        return await self.private.download_qwen()
 
     async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
         """Pass the verified active row and closed language to private speech."""

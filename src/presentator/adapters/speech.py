@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceRecovery,
@@ -47,6 +48,10 @@ class _StatusPayload(BaseModel):
 
 class _LoadPayload(BaseModel):
     outcome: VoiceLoadOutcome
+
+
+class _DownloadPayload(BaseModel):
+    outcome: VoiceDownloadOutcome
 
 
 class UdsSpeech:
@@ -104,6 +109,23 @@ class UdsSpeech:
                 response = await client.post(f"/voices/{voice.value}/load")
                 response.raise_for_status()
                 payload = _LoadPayload.model_validate(response.json())
+        except (httpx2.HTTPError, ValidationError, TypeError, ValueError) as refused:
+            raise VoiceUnavailableError from refused
+        return payload.outcome
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        """Start Qwen through one bounded private request."""
+        transport = httpx2.AsyncHTTPTransport(uds=str(self._socket_path))
+        try:
+            async with httpx2.AsyncClient(
+                base_url=_PRIVATE_ORIGIN,
+                transport=transport,
+                timeout=httpx2.Timeout(_STATUS_TIMEOUT),
+                trust_env=False,
+            ) as client:
+                response = await client.post("/voices/qwen3-tts-0.6b/download")
+                response.raise_for_status()
+                payload = _DownloadPayload.model_validate(response.json())
         except (httpx2.HTTPError, ValidationError, TypeError, ValueError) as refused:
             raise VoiceUnavailableError from refused
         return payload.outcome

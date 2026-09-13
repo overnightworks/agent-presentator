@@ -356,7 +356,9 @@ An authenticated admin can open Settings · Voice. The source surface reads one
 private, local status snapshot and shows Piper, Chatterbox, Qwen3-TTS 0.6B,
 VoxCPM2, and NVIDIA Magpie in that order. Downloaded Piper or Chatterbox, Qwen
 with its exact local snapshot and executable, and a voice whose previous Load
-failed have one Load action; the private speech
+failed have one Load action. A usable Qwen worker with an incomplete pinned
+snapshot has explicit Download; it preserves selection and partials while the
+catalogue polls local state. The private speech
 service synchronously makes that choice active and durable while current
 captured speech can finish. A missing or malformed private response hides all
 rows and offers Check again; a non-admin receives 403 before the private
