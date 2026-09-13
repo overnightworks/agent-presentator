@@ -1,0 +1,8 @@
+claim_id = "c03757742fca453d88aa8868e248d854"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "ef29b21e2a177859e5c80ac65bc3e3ebb8764c4e"
+branch = "codex/issue-152-voice-admission-release"
+scope = ["speech/src/speech/service.py", "speech/tests/test_voice_status.py", "speech/tests/test_speak.py", "speech/tests/test_sample.py", "speech/tests/test_chatterbox_process.py", "frontend/tests/presenter-controls.browser.test.ts", "speech/README.md", "docs/PRODUCT.md"]
+opened_commit = "2b088e74f5b3b3c6820db5202ff5440b32791508"
+whole_reason = "Admission, shutdown handoff, process reap, co-presenter error evidence, and their truthful views form one rollback-safe V2-V5/V7-V9 outcome."
