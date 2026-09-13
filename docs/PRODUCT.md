@@ -363,5 +363,6 @@ service is called. One verified active row also names a local player: its DE or
 EN fixed sample waits while current speech owns synthesis, then plays through
 that exact active voice. This describes source capability, not an inventory of
 any running instance.
-Speech retains a loaded Chatterbox voice in an isolated provider process. The
-parent service retains the adapter while the provider owns its model process.
+Speech runs a selected Chatterbox voice in an isolated provider process. An
+admitted response keeps its captured voice until it closes; switching then reaps
+a deselected Chatterbox before Load succeeds, while Piper stays resident.
