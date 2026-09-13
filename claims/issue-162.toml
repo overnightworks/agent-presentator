@@ -1,8 +1,0 @@
-claim_id = "22301158b41142799677c70a3db0a551"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "024f7e4635cf352ef9358172e5197c5858023420"
-branch = "codex/issue-162-magpie-provider"
-scope = ["speech/providers/provider-contract/src/presentator_speech_provider_contract/__init__.py", "speech/src/speech/config.py", "speech/src/speech/provider_process.py", "speech/src/speech/speaking.py", "speech/src/speech/voices.py", "speech/providers/magpie/pyproject.toml", "speech/providers/magpie/src/presentator_magpie/__init__.py", "speech/providers/magpie/src/presentator_magpie/__main__.py", "speech/providers/magpie/src/presentator_magpie/model.py", "speech/providers/magpie/uv.lock", "speech/providers/magpie/tests/test_entrypoint.py", "speech/providers/magpie/tests/test_model.py", "speech/tests/test_config.py", "speech/tests/test_provider_process.py", "speech/tests/test_voice_status.py", ".github/workflows/ci.yml", "speech/README.md", "docs/PRODUCT.md"]
-opened_commit = "50387f2e8e73f578307d96b45c1c32f9113dc4c1"
-whole_reason = "The immutable model contract, host config/catalogue/factory/process identity and separately executable provider form one minimal cached-source capability; splitting leaves an uncalled worker or an unusable advertised model."
