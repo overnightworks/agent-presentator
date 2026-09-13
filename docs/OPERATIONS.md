@@ -631,3 +631,7 @@ gate would buy nothing here — its coverage condition (90% of new code) is
 strictly weaker than this repository's own floor, and its other conditions
 are identical to the built-in gate's. The coverage floor and what meets it
 are owned by [TESTING.md](TESTING.md).
+The Chatterbox provider is a separate closed virtual environment under
+`SPEECH_PROVIDER_ROOT/chatterbox`. The speech service executes its
+`.venv/bin/presentator-chatterbox-worker` directly and never resolves it through
+PATH.
