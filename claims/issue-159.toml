@@ -1,8 +1,0 @@
-claim_id = "237e73def64947bba8f393c09bc66c13"
-agent = "Claude head (coordinator)"
-role = "coordinator"
-base = "960c3053bda853aa3bccad937cbbf38913be3c56"
-branch = "codex/issue-159-voxcpm-provider"
-scope = [".github/workflows/ci.yml", "speech/providers/provider-contract/src/presentator_speech_provider_contract/__init__.py", "speech/providers/chatterbox/src/presentator_chatterbox/__main__.py", "speech/providers/qwen/src/presentator_qwen/__main__.py", "speech/providers/voxcpm/pyproject.toml", "speech/providers/voxcpm/uv.lock", "speech/providers/voxcpm/src/presentator_voxcpm/__init__.py", "speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "speech/providers/voxcpm/src/presentator_voxcpm/model.py", "speech/src/speech/provider_process.py", "speech/src/speech/speaking.py", "speech/src/speech/voices.py", "speech/README.md", "docs/PRODUCT.md", "speech/providers/chatterbox/tests/test_worker.py", "speech/providers/qwen/tests/test_entrypoint.py", "speech/providers/voxcpm/tests/test_entrypoint.py", "speech/providers/voxcpm/tests/test_model.py", "speech/tests/test_provider_process.py", "speech/tests/test_voice_status.py"]
-opened_commit = "60243e49029b14b93f8c52369447995448f00d4e"
-whole_reason = "The cached adapter, its real catalogue/factory callers, shared iterator cleanup and native 48 kHz worker agreement form one reviewed vertical outcome."
