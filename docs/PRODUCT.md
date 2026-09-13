@@ -354,8 +354,8 @@ remain owned by that README.
 
 An authenticated admin can open Settings · Voice. The source surface reads one
 private, local status snapshot and shows Piper, Chatterbox, Qwen3-TTS 0.6B,
-VoxCPM2, and NVIDIA Magpie in that order. Downloaded Piper or Chatterbox, Qwen
-with its exact local snapshot and executable, and a voice whose previous Load
+VoxCPM2, and NVIDIA Magpie in that order. Downloaded Piper or Chatterbox, and
+Qwen or VoxCPM2 with their exact local snapshots and executables, and a voice whose previous Load
 failed have one Load action. A usable Qwen worker with an incomplete pinned
 snapshot has explicit Download; it preserves selection and partials while the
 catalogue polls local state. The private speech
@@ -366,10 +366,12 @@ service is called. One verified active row also names a local player: its DE or
 EN fixed sample waits while current speech owns synthesis, then plays through
 that exact active voice. This describes source capability, not an inventory of
 any running instance.
-Speech runs selected Chatterbox and Qwen voices through one isolated-provider
+Speech runs selected Chatterbox, Qwen, and VoxCPM2 voices through one isolated-provider
 process owner and one binary worker loop; each provider has its own locked SDK
 environment. Qwen speaks German or English through its configured built-in
 preset and returns a completed 24 kHz waveform in bounded PCM frames. An
 admitted response keeps its captured voice until it closes; switching then
 reaps a deselected provider process before Load succeeds, while Piper stays
-resident.
+resident. VoxCPM2 streams text-only German or English at 48 kHz from its exact
+cached snapshot. Its quality, latency, GPU residency, and deployment remain
+unmeasured.
