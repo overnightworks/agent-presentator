@@ -17,6 +17,7 @@ from presentator.adapters import speech
 from presentator.adapters.speech import UdsSpeech
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSampleBusyError,
@@ -102,6 +103,67 @@ async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
         outcome = await UdsSpeech(socket_path).load(VoiceId.CHATTERBOX)
 
     assert outcome is expected
+
+
+def test_uds_adapter_starts_the_fixed_qwen_download(tmp_path: Path) -> None:
+    asyncio.run(_download_qwen(tmp_path))
+
+
+async def _download_qwen(tmp_path: Path) -> None:
+    app = FastAPI()
+
+    async def download(request: Request) -> dict[str, str]:
+        assert request.url.path == "/voices/qwen3-tts-0.6b/download"
+        return {"outcome": VoiceDownloadOutcome.STARTED.value}
+
+    app.add_api_route("/voices/qwen3-tts-0.6b/download", download, methods=["POST"])
+    socket_path = tmp_path / "speech.sock"
+    async with _Serving(app, socket_path):
+        outcome = await UdsSpeech(socket_path).download_qwen()
+
+    assert outcome is VoiceDownloadOutcome.STARTED
+
+
+def test_uds_download_bounds_every_private_io_phase_to_five_seconds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Client:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_error: object) -> None:
+            return None
+
+        async def post(self, path: str) -> httpx2.Response:
+            return httpx2.Response(
+                200,
+                json={"outcome": VoiceDownloadOutcome.STARTED},
+                request=httpx2.Request("POST", f"http://speech.localhost{path}"),
+            )
+
+    def transport(**_arguments: object) -> object:
+        return object()
+
+    def client(**arguments: object) -> Client:
+        captured.update(arguments)
+        return Client()
+
+    monkeypatch.setattr(speech.httpx2, "AsyncHTTPTransport", transport)
+    monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
+
+    outcome = asyncio.run(UdsSpeech(tmp_path / "speech.sock").download_qwen())
+    timeout = captured["timeout"]
+
+    assert outcome is VoiceDownloadOutcome.STARTED
+    assert isinstance(timeout, httpx2.Timeout)
+    assert (timeout.connect, timeout.read, timeout.write, timeout.pool) == (
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+    )
 
 
 def test_uds_adapter_returns_only_nonempty_wav_from_the_closed_sample_path(

@@ -220,6 +220,12 @@ msgstr "Downloaded"
 msgid "voice_state_not_downloaded"
 msgstr "Not downloaded"
 
+msgid "voice_state_downloading"
+msgstr "Downloading"
+
+msgid "voice_state_download_failed"
+msgstr "Download failed"
+
 msgid "voice_state_unavailable"
 msgstr "Not yet available"
 
@@ -234,6 +240,9 @@ msgstr "Check again"
 
 msgid "voice_load"
 msgstr "Load"
+
+msgid "voice_download"
+msgstr "Download"
 
 msgid "voice_recovery_failed"
 msgstr "Voice load failed"

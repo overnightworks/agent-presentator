@@ -4,6 +4,7 @@ from typing import Protocol
 
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSnapshot,
@@ -19,6 +20,10 @@ class PrivateSpeech(Protocol):
 
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         """Ask the private service to synchronously load a downloaded voice."""
+        ...
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        """Start the fixed Qwen download without selecting it."""
         ...
 
     async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:

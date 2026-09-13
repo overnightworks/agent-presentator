@@ -8,6 +8,7 @@ import pytest
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSnapshot,
@@ -30,6 +31,9 @@ class FakeSpeech:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         del voice
         return self.load_outcome
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        return VoiceDownloadOutcome.STARTED
 
     async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
         """Return fixed fake audio for the port's structural contract."""
@@ -92,3 +96,9 @@ def test_voice_load_preserves_the_durability_uncertain_outcome() -> None:
         asyncio.run(reader.load(VoiceId.PIPER))
         is VoiceLoadOutcome.ACTIVATED_DURABILITY_UNCONFIRMED
     )
+
+
+def test_qwen_download_keeps_the_private_outcome_typed() -> None:
+    reader = VoiceStatusUse(private=FakeSpeech(()))
+
+    assert asyncio.run(reader.download_qwen()) is VoiceDownloadOutcome.STARTED

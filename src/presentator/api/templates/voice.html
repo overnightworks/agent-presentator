@@ -11,14 +11,15 @@
     <a href="/settings/voice" data-action>{{ text.voice_check_again }}</a>
   </section>
   {% else %}
-  <table data-voice-catalogue>
+  {% set downloading = snapshot.voices | selectattr("state", "equalto", "downloading") | list %}
+  <table data-voice-catalogue{% if downloading %} hx-get="/settings/voice" hx-trigger="every 1s" hx-select="[data-voice-catalogue]" hx-swap="outerHTML"{% endif %}>
     <thead><tr><th>{{ text.voice_state }}</th><th>{{ text.voice_model }}</th><th>{{ text.voice_language }}</th><th></th></tr></thead>
     <tbody>{% for voice in snapshot.voices %}
       <tr>
-        <td data-state="{{ voice.state }}">{% if voice.state == "active" %}{{ text.voice_state_active }}{% elif voice.state == "loading" %}{{ text.voice_state_loading }}{% elif voice.state == "failed" %}{{ text.voice_state_failed }}{% elif voice.state == "downloaded" %}{{ text.voice_state_downloaded }}{% elif voice.state == "not_downloaded" %}{{ text.voice_state_not_downloaded }}{% else %}{{ text.voice_state_unavailable }}{% endif %}</td>
+        <td data-state="{{ voice.state }}">{% if voice.state == "active" %}{{ text.voice_state_active }}{% elif voice.state == "loading" %}{{ text.voice_state_loading }}{% elif voice.state == "failed" %}{{ text.voice_state_failed }}{% elif voice.state == "downloaded" %}{{ text.voice_state_downloaded }}{% elif voice.state == "not_downloaded" %}{{ text.voice_state_not_downloaded }}{% elif voice.state == "downloading" %}{{ text.voice_state_downloading }}{% elif voice.state == "download_failed" %}{{ text.voice_state_download_failed }}{% else %}{{ text.voice_state_unavailable }}{% endif %}</td>
         <th scope="row" data-voice-model>{{ voice.name }}</th>
         <td data-voice-language>{{ voice.language }}</td>
-        <td data-voice-action>{% if voice.state == "downloaded" or voice.state == "failed" %}<form method="post" action="/settings/voice/{{ voice.id }}/load" hx-post="/settings/voice/{{ voice.id }}/load"><button type="submit" data-action>{{ text.voice_load }}</button><span class="htmx-indicator" data-voice-loading>{{ text.voice_state_loading }}</span></form>{% endif %}</td>
+        <td data-voice-action>{% if voice.id == "qwen3-tts-0.6b" and (voice.state == "not_downloaded" or voice.state == "download_failed") %}<form method="post" action="/settings/voice/qwen3-tts-0.6b/download" hx-post="/settings/voice/qwen3-tts-0.6b/download" hx-target="[data-voice-catalogue]" hx-select="[data-voice-catalogue]" hx-swap="outerHTML"><button type="submit" data-action>{{ text.voice_download }}</button></form>{% elif voice.state == "downloaded" or voice.state == "failed" %}<form method="post" action="/settings/voice/{{ voice.id }}/load" hx-post="/settings/voice/{{ voice.id }}/load"><button type="submit" data-action>{{ text.voice_load }}</button><span class="htmx-indicator" data-voice-loading>{{ text.voice_state_loading }}</span></form>{% endif %}</td>
       </tr>
     {% endfor %}</tbody>
   </table>

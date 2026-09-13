@@ -29,6 +29,8 @@ class VoiceState(StrEnum):
     FAILED = "failed"
     DOWNLOADED = "downloaded"
     NOT_DOWNLOADED = "not_downloaded"
+    DOWNLOADING = "downloading"
+    DOWNLOAD_FAILED = "download_failed"
     UNAVAILABLE = "unavailable"
 
 
@@ -46,6 +48,13 @@ class VoiceLoadOutcome(StrEnum):
     ACTIVATED = "activated"
     ACTIVATED_DURABILITY_UNCONFIRMED = "activated_durability_unconfirmed"
     NOT_ACTIVATED = "not_activated"
+
+
+class VoiceDownloadOutcome(StrEnum):
+    """The bounded result of starting the fixed Qwen download."""
+
+    STARTED = "started"
+    ALREADY_COMPLETE = "already_complete"
 
 
 class VoiceRecoveryKind(StrEnum):

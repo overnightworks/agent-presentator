@@ -53,6 +53,7 @@ from presentator.contracts.models import Account, Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceSnapshot,
@@ -113,6 +114,10 @@ class UnavailableSpeech:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         """Make the private mutation unavailable in the default test arrangement."""
         del voice
+        raise VoiceUnavailableError
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        """Make the omitted test arrangement's download capability unavailable."""
         raise VoiceUnavailableError
 
     async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:

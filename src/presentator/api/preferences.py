@@ -125,6 +125,16 @@ class _Surfaces:
             return Response(headers={"HX-Refresh": "true"})
         return RedirectResponse(VOICE, status_code=HTTPStatus.SEE_OTHER)
 
+    async def download_qwen(self, request: Request) -> Response:
+        """Start a fixed Qwen download only after the admin boundary."""
+        if not _signed_in(request).is_admin:
+            return _refused()
+        with suppress(VoiceUnavailableError):
+            await self.voice.download_qwen()
+        if request.headers.get("HX-Request") == "true":
+            return await self.voice_page(request)
+        return RedirectResponse(VOICE, status_code=HTTPStatus.SEE_OTHER)
+
     async def sample_voice(
         self, request: Request, voice: str, language: str
     ) -> Response:
@@ -201,6 +211,9 @@ def preference_routes(*, pages: Pages, voice: VoiceStatusUse) -> APIRouter:
     router.add_api_route(VOICE, surfaces.voice_page, methods=["GET"])
     router.add_api_route(
         f"{VOICE}/{{voice}}/load", surfaces.load_voice, methods=["POST"]
+    )
+    router.add_api_route(
+        f"{VOICE}/qwen3-tts-0.6b/download", surfaces.download_qwen, methods=["POST"]
     )
     router.add_api_route(
         f"{VOICE}/{{voice}}/sample/{{language}}",

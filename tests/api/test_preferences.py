@@ -14,6 +14,7 @@ from presentator.contracts.preferences import ThemeChoice
 from presentator.contracts.text import Catalogs
 from presentator.contracts.voice import (
     SampleLanguage,
+    VoiceDownloadOutcome,
     VoiceId,
     VoiceLoadOutcome,
     VoiceRecovery,
@@ -42,6 +43,8 @@ class RecordingSpeech:
 
     calls: int = 0
     loaded: VoiceId | None = None
+    downloads: int = 0
+    download_error: VoiceUnavailableError | None = None
     sampled: tuple[VoiceId, SampleLanguage] | None = None
     sample_calls: int = 0
     sample_error: VoiceUnavailableError | None = None
@@ -67,6 +70,12 @@ class RecordingSpeech:
     async def load(self, voice: VoiceId) -> VoiceLoadOutcome:
         self.loaded = voice
         return VoiceLoadOutcome.ACTIVATED
+
+    async def download_qwen(self) -> VoiceDownloadOutcome:
+        self.downloads += 1
+        if self.download_error is not None:
+            raise self.download_error
+        return VoiceDownloadOutcome.STARTED
 
     async def sample(self, voice: VoiceId, language: SampleLanguage) -> bytes:
         self.sample_calls += 1
@@ -118,6 +127,89 @@ def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
     assert loaded.status_code == HTTPStatus.SEE_OTHER
     assert loaded.headers["location"] == "/settings/voice"
     assert reader.loaded is VoiceId.CHATTERBOX
+
+
+def test_only_an_admin_can_start_qwen_download_before_private_io() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(
+        users=a_user_store(an_account(NEIGHBOUR)),
+        voice=VoiceStatusUse(private=reader),
+    )
+
+    lobby.log_in(username=NEIGHBOUR)
+    refused = lobby.client.post("/settings/voice/qwen3-tts-0.6b/download")
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.downloads == 0
+
+    admin = a_lobby(voice=VoiceStatusUse(private=reader))
+    admin.set_up_admin()
+    started = admin.client.post(
+        "/settings/voice/qwen3-tts-0.6b/download", headers={"HX-Request": "true"}
+    )
+
+    assert started.status_code == HTTPStatus.OK
+    assert reader.downloads == 1
+
+
+def test_a_foreign_qwen_download_request_reaches_no_private_work() -> None:
+    reader = RecordingSpeech()
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    refused = lobby.client.post(
+        "/settings/voice/qwen3-tts-0.6b/download",
+        headers={"origin": "https://another.example", "sec-fetch-site": "cross-site"},
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert reader.downloads == 0
+
+
+def test_qwen_download_failure_exposes_only_the_catalogue_state() -> None:
+    sentinel = "secret-upstream-url-and-token"
+    reader = RecordingSpeech(download_error=VoiceUnavailableError(sentinel))
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    answered = lobby.client.post(
+        "/settings/voice/qwen3-tts-0.6b/download",
+        headers={"HX-Request": "true"},
+    )
+
+    assert answered.status_code == HTTPStatus.OK
+    assert sentinel not in answered.text
+    assert reader.downloads == 1
+
+
+def test_qwen_downloading_catalogue_polls_without_swapping_the_player() -> None:
+    reader = RecordingSpeech(
+        status=VoiceSnapshot(
+            voices=tuple(
+                VoiceStatus(
+                    id=voice_id,
+                    name=voice_id.value,
+                    language="declared",
+                    state=(
+                        VoiceState.DOWNLOADING
+                        if voice_id is VoiceId.QWEN
+                        else VoiceState.UNAVAILABLE
+                    ),
+                )
+                for voice_id in VoiceId
+            ),
+            recovery=None,
+        )
+    )
+    lobby = a_lobby(voice=VoiceStatusUse(private=reader))
+    lobby.set_up_admin()
+
+    page = lobby.client.get("/settings/voice").text
+
+    assert 'data-voice-catalogue hx-get="/settings/voice"' in page
+    assert 'hx-trigger="every 1s"' in page
+    assert 'hx-select="[data-voice-catalogue]"' in page
+    assert "data-sample-player" not in page
 
 
 def test_only_an_admin_can_sample_the_active_voice_before_private_io() -> None:
