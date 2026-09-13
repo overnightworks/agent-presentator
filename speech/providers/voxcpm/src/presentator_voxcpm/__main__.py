@@ -1,4 +1,4 @@
-"""Bootstrap the provider after reserving stdout for its binary protocol."""
+"""Bootstrap VoxCPM after reserving stdout for its binary protocol."""
 
 import argparse
 import ctypes
@@ -7,7 +7,7 @@ import signal
 
 
 def main() -> int:
-    """Redirect ordinary stdout, then import and run the provider worker."""
+    """Redirect ordinary stdout, then enter the shared provider loop."""
     arguments = _arguments()
     protocol_stdout = os.dup(1)
     null = os.open(os.devnull, os.O_WRONLY)
@@ -18,28 +18,20 @@ def main() -> int:
     except RuntimeError:
         return 1
     from presentator_speech_provider_contract import (
-        CHATTERBOX_SAMPLE_RATE,
+        VOXCPM_SAMPLE_RATE,
         ProviderFunctions,
         serve_provider,
     )
 
-    from presentator_chatterbox.model import load_model, pcm_chunks
+    from presentator_voxcpm.model import load_model, pcm_chunks
 
     return serve_provider(
         device=arguments.device,
         cache=arguments.cache,
         protocol_stdout=protocol_stdout,
-        sample_rate=CHATTERBOX_SAMPLE_RATE,
-        functions=ProviderFunctions(load_model, pcm_chunks, _prepare),
+        sample_rate=VOXCPM_SAMPLE_RATE,
+        functions=ProviderFunctions(load_model, pcm_chunks),
     )
-
-
-def _prepare(model: object) -> None:
-    """Preserve Chatterbox's established pre-READY preparation."""
-    from presentator_chatterbox.model import pcm_chunks
-
-    for _pcm in pcm_chunks(model, "Hallo.", "de"):
-        pass
 
 
 def _arguments() -> argparse.Namespace:
@@ -51,7 +43,7 @@ def _arguments() -> argparse.Namespace:
 
 
 def install_parent_death_signal(expected_parent_pid: int) -> None:
-    """Kill this worker when its exact creator thread ends."""
+    """Kill this worker when its exact creator process ends."""
     if (
         ctypes.CDLL(None).prctl(1, signal.SIGKILL) != 0
         or os.getppid() != expected_parent_pid
