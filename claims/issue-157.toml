@@ -1,0 +1,8 @@
+claim_id = "32692b9f864a4f7298b152e03d83608f"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "fff456a21475a9a10744719f20c9576b4ca416a5"
+branch = "codex/issue-157-qwen-download"
+scope = ["docs/PRODUCT.md", "speech/README.md", "speech/pyproject.toml", "speech/src/speech/__main__.py", "speech/src/speech/control.py", "speech/src/speech/qwen_download.py", "speech/src/speech/service.py", "speech/src/speech/voices.py", "speech/tests/test_main.py", "speech/tests/test_qwen_download.py", "speech/tests/test_sample.py", "speech/tests/test_voice_status.py", "speech/uv.lock", "src/presentator/adapters/catalogs/en.po", "src/presentator/adapters/speech.py", "src/presentator/api/preferences.py", "src/presentator/api/templates/voice.html", "src/presentator/application/voice.py", "src/presentator/contracts/text.py", "src/presentator/contracts/voice.py", "src/presentator/ports/speech.py", "tests/adapters/test_speech.py", "tests/api/lobby.py", "tests/api/test_preferences.py", "tests/application/test_voice.py", "tests/vulture_allowlist.py"]
+opened_commit = "263b2d9076f22f450d2bd8b47566c2a669e7982e"
+whole_reason = "One already-ruled Qwen Download crosses the existing browser, application, UDS, control, Runtime and cache owners as one truthful vertical action; splitting would create an uncalled helper or a nonfunctional control."
