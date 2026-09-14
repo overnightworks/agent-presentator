@@ -1,0 +1,7 @@
+claim_id = "0bcd500191154276a71c555a2bb32b7a"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "29e4913f09dd315114f16dd93dd50ce3198cca6d"
+branch = "codex/issue-164-provider-executable-search"
+scope = ["speech/src/speech/provider_process.py", "speech/tests/test_provider_process.py", "speech/README.md"]
+opened_commit = "e71a3353f927bfebe6723e1665dbcf6dd58417cf"
