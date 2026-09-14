@@ -1,0 +1,7 @@
+claim_id = "ecb5205ad52743f59d0250a6245804b4"
+agent = "Claude head (coordinator)"
+role = "coordinator"
+base = "122421d998de29e5b0988f0b8b7a250d0867a5ee"
+branch = "claude/issue-166-voice-narrow-rows"
+scope = ["src/presentator/api/static/lobby.css"]
+opened_commit = "374a68ceaf97deecf4e867566328e30a9b450813"
