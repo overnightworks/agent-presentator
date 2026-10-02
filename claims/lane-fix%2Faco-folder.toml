@@ -1,8 +1,0 @@
-claim_id = "bd3960007137495b800919b91736ab68"
-agent = "Claude head (coordinator)"
-role = "builder"
-base = "122421d998de29e5b0988f0b8b7a250d0867a5ee"
-branch = "fix/aco-folder"
-scope = [".aco/board.toml", ".agent-claim/board.toml", ".github/workflows/pr-check.yml", "scripts/check_root_layout.py"]
-opened_commit = "abb7a6169020da470910e045dee4e0c7bf30e218"
-whole_reason = "protocol rename, #441"
