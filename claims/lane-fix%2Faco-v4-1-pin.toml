@@ -1,0 +1,8 @@
+claim_id = "932e106e4e6e41e8844377ea77982c1d"
+agent = "Claude head (coordinator)"
+role = "builder"
+base = "dbb5b8dcf9ac7fcb619f51343e6e1d45722d32c8"
+branch = "fix/aco-v4-1-pin"
+scope = [".github/workflows/pr-check.yml"]
+opened_commit = "17caaa79b761ecd71d683e3265ff903aa1911e4e"
+whole_reason = "aco CI pin v4.1.0 (agent-coordination #613)"
