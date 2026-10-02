@@ -27,7 +27,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out the event commit
-        # A checkout is required: aco reads .agent-claim/board.toml
+        # A checkout is required: aco reads .aco/board.toml
         # from the working tree and fetches refs/aco/state with the
         # checkout's own credentials. A shallow checkout is enough.
         if: ${{ github.event_name == 'pull_request' }}
@@ -46,8 +46,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Pinned to the agent-claim v1.0.0 release tag.
-        run: uvx --from git+https://github.com/overnightworks/agent-claim.git@v1.0.0 aco check ${{ github.event.pull_request.number }}
+        # Pinned to the aco v4.0.0 release tag.
+        run: uvx --from git+https://github.com/overnightworks/agent-coordination.git@v4.0.0 aco check ${{ github.event.pull_request.number }}
 
       - name: Hold the required check name for the merge queue
         if: ${{ github.event_name == 'merge_group' }}

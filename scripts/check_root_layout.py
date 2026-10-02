@@ -31,7 +31,7 @@ ALLOWED_ROOT_FILES: frozenset[str] = frozenset(
 )
 ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
     {
-        ".agent-claim",
+        ".aco",
         ".github",
         "copresenter",
         "docs",
