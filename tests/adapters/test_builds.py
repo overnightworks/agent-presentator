@@ -907,29 +907,40 @@ def test_a_commit_the_mirror_cannot_read_the_deck_at_builds_nothing(
     assert "never-pushed" in caplog.text
 
 
+_A_REAL_TALK_UNDER_THE_ROOT = Path("builds/a-run/real-out/talk")
+
+
 @pytest.mark.parametrize(
-    "reached",
-    [Path("outside"), Path("builds/through-a-link"), Path("builds/a-run/out/talk")],
+    ("talk", "pdf"),
+    [
+        (Path("outside"), Path("outside/deck.pdf")),
+        (Path("builds/through-a-link"), Path("builds/through-a-link/deck.pdf")),
+        (Path("builds/a-run/out/talk"), Path("builds/a-run/out/talk/deck.pdf")),
+        (Path("builds/../outside"), Path("builds/../outside/deck.pdf")),
+        (_A_REAL_TALK_UNDER_THE_ROOT, Path("builds")),
+    ],
     ids=[
         "a place outside the root",
         "a link out of the root",
         "a run whose out is a link inside the root",
+        "a way up out of the root",
+        "the root itself as the PDF",
     ],
 )
 def test_artefacts_that_do_not_stand_under_the_root_are_not_held(
     tmp_path: Path,
-    reached: Path,
+    talk: Path,
+    pdf: Path,
 ) -> None:
     builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
     builds.builds.mkdir(parents=True)
     outside = a_written_talk(tmp_path / "outside")
     (builds.builds / "through-a-link").symlink_to(outside)
     run = builds.builds / "a-run"
-    a_written_talk(run / "real-out" / _TALK)
+    a_written_talk(tmp_path / _A_REAL_TALK_UNDER_THE_ROOT)
     (run / _OUT).symlink_to("real-out")
-    written = tmp_path / reached
 
-    assert not builds.holds(Artefacts(directory=written, pdf=written / _PDF_FILE))
+    assert not builds.holds(Artefacts(directory=tmp_path / talk, pdf=tmp_path / pdf))
 
 
 def a_written_talk(directory: Path) -> Path:
