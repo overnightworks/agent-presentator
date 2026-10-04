@@ -3,6 +3,6 @@ agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
 role = "builder"
 base = "224b4c9105d9adc39c28c072794f786ddf5ddf45"
 branch = "claude/issue-183-p5b-security-headers"
-scope = ["docs", "examples/copresenter-deck", "frontend", "src/presentator/adapters/builds.py", "src/presentator/api", "src/presentator/host/main.py", "tests"]
+scope = [".github/workflows/ci.yml", "docs", "examples/copresenter-deck", "frontend", "src/presentator/adapters/builds.py", "src/presentator/api", "src/presentator/host/main.py", "tests"]
 opened_commit = "e0de3ef909e5019ffed1b77796867cb176d6f9d6"
 whole_reason = "Middleware-Einbau im Host mit CSP-Anpassungen für Lobby/Decks, Tests und Browser-Beweis."
