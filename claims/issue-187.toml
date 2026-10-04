@@ -1,0 +1,8 @@
+claim_id = "fda7d18d7e8e4c1382183701cf611915"
+agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
+role = "builder"
+base = "10e3b0569206e95cfd4126b73d68d5d1813404b3"
+branch = "claude/issue-187-p2-set-password"
+scope = ["docs/OPERATIONS.md", "src/presentator/adapters/identity.py", "src/presentator/application/identity.py", "src/presentator/host/main.py", "src/presentator/ports/identity.py", "tests"]
+opened_commit = "ff8be3d70ff4668220fb6e54f2b79e9559df75f4"
+whole_reason = "Eine Fähigkeit quer durch die vier ADR-0001-Schichten samt Tests und Betriebsdoku."
