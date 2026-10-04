@@ -1,8 +1,0 @@
-claim_id = "f78460b15bf0481e991cf9f1eb9f72a0"
-agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
-role = "builder"
-base = "134627ce627efdff994f2d3e191064e1c281fce5"
-branch = "claude/issue-179-p3-webauth-v011"
-scope = ["docs", "pyproject.toml", "src/presentator/api/auth.py", "src/presentator/host/main.py", "tests", "uv.lock"]
-opened_commit = "bc18a9d04732cf81e00d7bf7e8601a27c8b62dbb"
-whole_reason = "Versionssprung mit Cookie-Umstellung über host und api samt allen Test-Pins und Doku – laut Plan nicht teilbar."
