@@ -1,8 +1,0 @@
-claim_id = "211d496d8b6049d9954dd0a7731c8cf1"
-agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
-role = "builder"
-base = "e851d2881fa1d557d64d1f5d9aa31b997f8fa798"
-branch = "claude/issue-170-pdf-no-symlinks"
-scope = ["src/presentator/adapters/builds.py", "src/presentator/api/decks.py", "src/presentator/contracts/decks.py", "tests"]
-opened_commit = "5fbe06eabeca270c250a75a342fe3ed8cfa87983"
-whole_reason = "Ein Sicherheitsfix an Build-Übernahme und Auslieferung samt Tests; tests als Verzeichnis, weil die betroffenen Testmodule erst der Builder eingrenzt."
