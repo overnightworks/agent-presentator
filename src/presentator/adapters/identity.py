@@ -202,7 +202,19 @@ class SqliteSessionRecordStore:
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        self._put(session)
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "INSERT INTO sessions"
+                " (id, user_id, last_seen, ip_address, user_agent)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    session.id,
+                    session.user_id,
+                    session.last_seen.isoformat(),
+                    session.ip_address,
+                    session.user_agent,
+                ),
+            )
         return session
 
     def load(self, session_id: str) -> Session | None:
@@ -231,17 +243,15 @@ class SqliteSessionRecordStore:
         ip_address: str,
         user_agent: str,
         now: datetime,
-    ) -> None:
-        """Write last_seen and origin in place."""
-        self._put(
-            Session(
-                id=record.id,
-                user_id=record.user_id,
-                last_seen=now,
-                ip_address=ip_address,
-                user_agent=user_agent,
-            ),
-        )
+    ) -> bool:
+        """Renew the row only while it still stands; a deleted session stays gone."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "UPDATE sessions SET last_seen = ?, ip_address = ?, user_agent = ?"
+                " WHERE id = ?",
+                (now.isoformat(), ip_address, user_agent, record.id),
+            )
+            return cursor.rowcount == 1
 
     def delete(self, session_id: str) -> None:
         """Delete the row, so logging out cannot be undone with the old cookie."""
@@ -266,25 +276,6 @@ class SqliteSessionRecordStore:
             for session_id in dropped:
                 cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         return dropped
-
-    def _put(self, session: Session) -> None:
-        with rows(self.database) as cursor:
-            cursor.execute(
-                "INSERT INTO sessions"
-                " (id, user_id, last_seen, ip_address, user_agent)"
-                " VALUES (?, ?, ?, ?, ?)"
-                " ON CONFLICT(id) DO UPDATE SET"
-                " last_seen = excluded.last_seen,"
-                " ip_address = excluded.ip_address,"
-                " user_agent = excluded.user_agent",
-                (
-                    session.id,
-                    session.user_id,
-                    session.last_seen.isoformat(),
-                    session.ip_address,
-                    session.user_agent,
-                ),
-            )
 
 
 @dataclass(frozen=True, slots=True)

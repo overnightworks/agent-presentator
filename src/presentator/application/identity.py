@@ -107,12 +107,14 @@ class Identity:
         session = self._live_session(session_id)
         if session is None:
             return None
-        self.sessions.touch(
+        renewed = self.sessions.touch(
             session,
             ip_address=ip_address,
             user_agent=user_agent,
             now=self.clock.now(),
         )
+        if not renewed:
+            return None
         return self.users.get(session.user_id)
 
     def log_out(self, session_id: str) -> None:
