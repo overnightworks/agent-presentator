@@ -29,7 +29,6 @@ from presentator.adapters.builds import (
     HostToolchain,
     PackageJsonThemes,
     SlidevBuilds,
-    point_favicon_same_origin,
     the_daemon_of_this_machine,
 )
 from presentator.adapters.decks import FilesystemLocalMount, SourceMirrors
@@ -93,9 +92,6 @@ _WHAT_THE_SERVER_HOLDS = "the words only this test set in the environment"
 _RECORDED_COMMAND = "command"
 _RECORDED_ENVIRONMENT = "environment"
 _A_BUILT_PAGE = "index.html"
-_A_SECOND_BUILT_PAGE = "404.html"
-_FAVICON_FILE = "favicon.svg"
-_CDN_FAVICON = "https://cdn.jsdelivr.net/gh/slidevjs/slidev/assets/favicon.png"
 _TOOLCHAIN_PROGRAM = "pnpm"
 _CONTAINER_PROGRAM = "docker"
 _WHAT_A_TALK_SAYS = "a talk"
@@ -121,44 +117,6 @@ done
 case "$out" in
     *.pdf) printf '%%PDF-1.7' > "$out";;
     *) mkdir -p "$out"; printf 'a talk' > "$out/index.html";;
-esac
-"""
-# What Slidev's own build really writes into every page: its own default
-# favicon, a remote URL, in a `<link rel="icon">`, and a byte-for-byte copy of
-# `index.html` at `404.html` for static-hosting fallbacks.
-_A_TOOLCHAIN_THAT_BUILDS_WITH_A_REMOTE_FAVICON = f"""#!/bin/sh
-set -eu
-out=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --out|--output) out="$2"; shift 2;;
-        *) shift;;
-    esac
-done
-case "$out" in
-    *.pdf) printf '%%PDF-1.7' > "$out";;
-    *)
-        mkdir -p "$out"
-        printf '<html><head><link rel="icon" href="{_CDN_FAVICON}"></head>
-<body>a talk</body></html>' > "$out/index.html"
-        cp "$out/index.html" "$out/404.html"
-        ;;
-esac
-"""
-# A page this host cannot read as text at all: the favicon step has to answer
-# for this the way any other fault of this host is, not raise past the build.
-_A_TOOLCHAIN_THAT_WRITES_A_PAGE_THAT_IS_NOT_UTF8 = """#!/bin/sh
-set -eu
-out=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --out|--output) out="$2"; shift 2;;
-        *) shift;;
-    esac
-done
-case "$out" in
-    *.pdf) printf '%%PDF-1.7' > "$out";;
-    *) mkdir -p "$out"; printf '\\377\\376not utf-8' > "$out/index.html";;
 esac
 """
 # Builds as above, then its export step turns one name of what was written
@@ -707,90 +665,6 @@ def test_a_dependency_section_that_is_not_a_mapping_names_no_themes(
     assert PackageJsonThemes(project=project).names() is None
 
 
-_A_TALKS_BASE = talk_address("a-test-deck")
-
-
-def test_a_pages_remote_favicon_link_is_pointed_at_this_builds_own_file(
-    tmp_path: Path,
-) -> None:
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    page = talk / "index.html"
-    page.write_text(
-        f'<html><head><link rel="icon" href="{_CDN_FAVICON}"></head></html>',
-        encoding="utf-8",
-    )
-
-    point_favicon_same_origin(talk, base=_A_TALKS_BASE)
-
-    patched = page.read_text(encoding="utf-8")
-    assert f'href="{_A_TALKS_BASE}{_FAVICON_FILE}"' in patched
-    assert _CDN_FAVICON not in patched
-    assert (talk / _FAVICON_FILE).read_text(encoding="utf-8")
-
-
-def test_every_page_the_toolchain_wrote_is_pointed_at_the_same_file(
-    tmp_path: Path,
-) -> None:
-    """A Slidev build copies its `index.html` into `404.html` unchanged.
-
-    Both carry the same remote favicon link Slidev wrote, so both have to
-    carry this build's own same-origin one, or the static-hosting fallback
-    page would still fail under `img-src 'self'`.
-    """
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    link = f'<link rel="icon" href="{_CDN_FAVICON}">'
-    for name in (_A_BUILT_PAGE, _A_SECOND_BUILT_PAGE):
-        (talk / name).write_text(f"<html><head>{link}</head></html>", encoding="utf-8")
-
-    point_favicon_same_origin(talk, base=_A_TALKS_BASE)
-
-    for name in (_A_BUILT_PAGE, _A_SECOND_BUILT_PAGE):
-        assert _CDN_FAVICON not in (talk / name).read_text(encoding="utf-8")
-
-
-def test_a_page_naming_no_icon_link_is_left_untouched(tmp_path: Path) -> None:
-    """A page without any icon link is never assumed to carry one.
-
-    Slidev always writes one of its own (its default favicon names a CDN
-    URL), but this step never assumes that of a page it did not write itself.
-    """
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    page = talk / _A_BUILT_PAGE
-    written = "<html><head><title>No icon here</title></head></html>"
-    page.write_text(written, encoding="utf-8")
-
-    point_favicon_same_origin(talk, base=_A_TALKS_BASE)
-
-    assert page.read_text(encoding="utf-8") == written
-
-
-def test_the_favicon_href_is_anchored_to_the_talks_own_base_not_relative(
-    tmp_path: Path,
-) -> None:
-    """A plain relative href breaks once Slidev's own router leaves the root.
-
-    History-mode routing (Slidev's default) rewrites the browser's address to
-    `<base>presenter/1` and the like without a new document load, so an href
-    resolved against the *current* address — a bare `./favicon.svg` — would
-    name a path beside `presenter/`, not beside the talk's own root.
-    """
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    (talk / _A_BUILT_PAGE).write_text(
-        f'<link rel="icon" href="{_CDN_FAVICON}">',
-        encoding="utf-8",
-    )
-
-    point_favicon_same_origin(talk, base=_A_TALKS_BASE)
-
-    assert f'href="{_A_TALKS_BASE}{_FAVICON_FILE}"' in (talk / _A_BUILT_PAGE).read_text(
-        encoding="utf-8"
-    )
-
-
 def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     remote: GitRemote,
     source: Source,
@@ -808,68 +682,6 @@ def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     ) == _WHAT_A_TALK_SAYS
     assert artefacts.pdf.read_bytes().startswith(b"%PDF")
     assert artefacts.directory.is_relative_to(tmp_path / "builds")
-
-
-def test_the_built_talk_carries_this_builds_own_same_origin_favicon(
-    remote: GitRemote,
-    source: Source,
-    machine: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The toolchain's own favicon beats the one Slidev itself wrote.
-
-    Every built talk answers under the one Content-Security-Policy the lobby
-    does, whose `img-src` admits only this origin: Slidev's own default
-    favicon is a remote URL, which would silently fail to load rather than
-    widen that policy per deck (ADR 0003). Every page the toolchain wrote —
-    `index.html` and its `404.html` fallback copy both — carries the same
-    remote link, so both have to be pointed home.
-    """
-    with_the_toolchain(
-        machine,
-        tmp_path,
-        _A_TOOLCHAIN_THAT_BUILDS_WITH_A_REMOTE_FAVICON,
-    )
-    builds = builds_ready_for(tmp_path, source)
-
-    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
-
-    base = talk_address(EXAMPLE_SLUG)
-    for page in (_A_BUILT_PAGE, _A_SECOND_BUILT_PAGE):
-        written = (artefacts.directory / page).read_text(encoding="utf-8")
-        assert f'href="{base}{_FAVICON_FILE}"' in written
-        assert _CDN_FAVICON not in written
-    assert (artefacts.directory / _FAVICON_FILE).read_text(encoding="utf-8")
-
-
-def test_a_talk_whose_pages_cannot_be_read_for_the_favicon_fails_the_build(
-    remote: GitRemote,
-    source: Source,
-    machine: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """A page the favicon step cannot read is this host's fault, not raised.
-
-    What stops the rewrite is treated exactly as any other fault of this host
-    is: the run's own directory is cleaned up rather than left behind, and a
-    later deck still builds, because nothing about one deck's broken artefact
-    outlives its own run.
-    """
-    with_the_toolchain(
-        machine,
-        tmp_path,
-        _A_TOOLCHAIN_THAT_WRITES_A_PAGE_THAT_IS_NOT_UTF8,
-    )
-    builds = builds_ready_for(tmp_path, source)
-
-    built = builds.build(a_deck(remote), source=source)
-
-    assert built == BuildFailure(text=None)
-    assert list(builds.builds.iterdir()) == []
-
-    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
-    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
-    assert builds.holds(artefacts)
 
 
 def test_removing_a_build_takes_its_whole_run_directory_off_disk(

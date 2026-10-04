@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { createServer, type ServerResponse } from 'node:http'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, join, normalize, resolve } from 'node:path'
+import { dirname, extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -13,11 +13,22 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 const run = promisify(execFile)
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const frontendRoot = join(repositoryRoot, 'frontend')
-const exampleDeck = join(repositoryRoot, 'examples/copresenter-deck/slides.md')
+const overlayDeckSourceDirectory = join(repositoryRoot, 'examples/copresenter-deck')
+const exampleDeck = join(overlayDeckSourceDirectory, 'slides.md')
 const providedBuild = process.env.PRESENTER_RETURN_BUILD_DIR
 const evidenceDirectory = process.env.PRESENTER_RETURN_EVIDENCE_DIR
 const wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
-const builtFaviconPath = '/favicon.svg'
+// Exactly what `examples/copresenter-deck/README.md` tells an operator to
+// copy next to their own `slides.md` — proven by assembling a fresh deck from
+// only these files, never the repository's own example directory, where
+// every other file already happens to sit beside them regardless of whether
+// the README's own list is complete.
+const COPIED_OVERLAY_FILES = [
+  'custom-nav-controls.vue',
+  'style.css',
+  'components/CoPresenter.vue',
+  'public/pcm-capture-processor.js',
+]
 
 let buildDirectory = providedBuild ?? ''
 let ownsBuildDirectory = false
@@ -65,28 +76,11 @@ from presentator.api.auth import _SECURITY_HEADERS
 print(json.dumps({"content-security-policy": _SECURITY_HEADERS.content_security_policy}))
 `
 
-// Slidev's own build always writes a cross-origin CDN favicon link; the
-// production build adapter (`presentator.adapters.builds.
-// point_favicon_same_origin`) is what every deployed talk is pointed home by,
-// so this is that exact function, not a second copy of its regex kept here.
-const PYTHON_FAVICON_SCRIPT = `
-import sys
-from pathlib import Path
-from presentator.adapters.builds import point_favicon_same_origin
-point_favicon_same_origin(Path(sys.argv[1]), base="/")
-`
-
 async function loadProductionSecurityHeaders(): Promise<Record<string, string>> {
   const { stdout } = await run('uv', ['run', 'python', '-c', PYTHON_SECURITY_HEADERS_SCRIPT], {
     cwd: repositoryRoot,
   })
   return JSON.parse(stdout) as Record<string, string>
-}
-
-async function pointBuiltFaviconSameOrigin(directory: string) {
-  await run('uv', ['run', 'python', '-c', PYTHON_FAVICON_SCRIPT, directory], {
-    cwd: repositoryRoot,
-  })
 }
 
 function boxesIntersect(first: { x: number, y: number, width: number, height: number }, second: { x: number, y: number, width: number, height: number }) {
@@ -108,12 +102,35 @@ async function buildExample() {
   await run('pnpm', ['exec', 'slidev', 'build', exampleDeck, '--out', buildDirectory], {
     cwd: frontendRoot,
   })
-  await pointBuiltFaviconSameOrigin(buildDirectory)
 }
 
-async function serveFile(pathname: string, response: ServerResponse) {
-  const requested = normalize(resolve(buildDirectory, `.${pathname}`))
-  const candidate = requested.startsWith(`${buildDirectory}/`) ? requested : ''
+// Builds a second, independent deck containing only the files
+// `examples/copresenter-deck/README.md` names, plus the minimal `slides.md`
+// every deck needs (the one file that is the operator's own, never copied).
+async function buildCopiedOverlayDeck(): Promise<string> {
+  const deckDirectory = await mkdtemp(join(tmpdir(), 'presenter-copied-overlay-deck-'))
+  for (const relativePath of COPIED_OVERLAY_FILES) {
+    const destination = join(deckDirectory, relativePath)
+    await mkdir(dirname(destination), { recursive: true })
+    await copyFile(join(overlayDeckSourceDirectory, relativePath), destination)
+  }
+  await writeFile(
+    join(deckDirectory, 'slides.md'),
+    '---\ntitle: Copied overlay\n---\n\n# Copied overlay\n',
+  )
+  const outDirectory = await mkdtemp(join(tmpdir(), 'presenter-copied-overlay-build-'))
+  await run(
+    'pnpm',
+    ['exec', 'slidev', 'build', join(deckDirectory, 'slides.md'), '--out', outDirectory],
+    { cwd: frontendRoot },
+  )
+  await rm(deckDirectory, { recursive: true, force: true })
+  return outDirectory
+}
+
+async function serveFile(directory: string, pathname: string, response: ServerResponse) {
+  const requested = normalize(resolve(directory, `.${pathname}`))
+  const candidate = requested.startsWith(`${directory}/`) ? requested : ''
   try {
     const info = candidate ? await stat(candidate) : null
     if (info?.isFile()) {
@@ -125,7 +142,57 @@ async function serveFile(pathname: string, response: ServerResponse) {
     // The SPA fallback below owns client-side routes.
   }
   response.writeHead(200, { 'content-type': 'text/html', ...productionSecurityHeaders })
-  response.end(await readFile(join(buildDirectory, 'index.html')))
+  response.end(await readFile(join(directory, 'index.html')))
+}
+
+function websocketAcceptKey(key: string) {
+  return createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
+}
+
+// The minimal server the copied-overlay proof needs: the static build plus
+// the two routes `startLocalHear`'s own path calls before it ever reaches the
+// AudioWorklet (`/who`, then the hearing lease). No `/ask` route and no
+// observation beacons: this proof stops at the worklet loading, so it never
+// drives a spoken turn.
+async function createOverlayDeckServer(directory: string) {
+  // `closeAllConnections` does not reach an upgraded (WebSocket) connection
+  // (Node's own documented behaviour) — the same reason `startServer` below
+  // tracks `hearingSockets` and destroys them itself before closing, which
+  // this server has to do too or its own `close()` never calls back.
+  const sockets = new Set<import('node:stream').Duplex>()
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://presenter.test')
+    if (url.pathname === '/copresenter/who') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          answerer: { model: 'fake' },
+          speech: { sample_rate: 16000, hearing: { ready: true } },
+        }),
+      )
+      return
+    }
+    await serveFile(directory, url.pathname, response)
+  })
+  server.on('upgrade', (request, socket) => {
+    const key = request.headers['sec-websocket-key']
+    if (!request.url?.startsWith('/copresenter/hear') || typeof key !== 'string') {
+      socket.destroy()
+      return
+    }
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
+    )
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') {
+    throw new Error('overlay deck server did not bind a TCP port')
+  }
+  return { server, origin: `http://127.0.0.1:${address.port}`, sockets }
 }
 
 async function startServer() {
@@ -157,7 +224,7 @@ async function startServer() {
       response.end()
       return
     }
-    await serveFile(url.pathname, response)
+    await serveFile(buildDirectory, url.pathname, response)
   })
   server.on('upgrade', (request, socket) => {
     if (!request.url?.startsWith('/copresenter/hear')) {
@@ -170,8 +237,10 @@ async function startServer() {
       return
     }
     hearingOpened += 1
-    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
-    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
+    )
     socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
     hearingSockets.add(socket)
     let closed = false
@@ -250,9 +319,10 @@ async function installMediaFakes(page: Page) {
   })
 }
 
-// Fails the test rather than tolerating a violation, so a page the built
-// talk serves — the favicon among it — never silently drifts from what
-// `script-src 'self'` and the rest of the production policy actually admit.
+// Records every violation for the shared `afterEach` to judge: it tolerates
+// only the one accepted favicon block (issue #183), so a page this built talk
+// serves never silently drifts from what `script-src 'self'` and the rest of
+// the production policy actually admit.
 async function installCspGuard(page: Page) {
   await page.exposeFunction('__reportCspViolation', (detail: string) => {
     cspViolations.push(detail)
@@ -267,14 +337,18 @@ async function installCspGuard(page: Page) {
   })
 }
 
-async function openPresenter(width: number) {
+async function openPresenterAt(base: string, path: string, width: number) {
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width, height: 900 } })
   page.setDefaultTimeout(5_000)
   await installCspGuard(page)
   await installMediaFakes(page)
-  await page.goto(`${origin}/presenter/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
+  await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
   return { browser, page }
+}
+
+async function openPresenter(width: number) {
+  return openPresenterAt(origin, '/presenter/1', width)
 }
 
 beforeAll(async () => {
@@ -294,8 +368,18 @@ beforeEach(() => {
   cspViolations = []
 })
 
+// The contract (issue #183) accepts exactly one violation: Slidev's own
+// built-in favicon link is a cross-origin `cdn.jsdelivr.net` URL this
+// deployment's CSP never widens `img-src` for. A test that navigates the
+// document more than once (a plain `<a href>`, not client-side routing)
+// reports that same tolerated kind again each time; any other violation —
+// a different directive or a different origin — still fails the test.
+function isTheAcceptedFaviconViolation(violation: string) {
+  return violation.startsWith('img-src') && violation.includes('cdn.jsdelivr.net')
+}
+
 afterEach(() => {
-  expect(cspViolations).toEqual([])
+  expect(cspViolations.every(isTheAcceptedFaviconViolation)).toBe(true)
 })
 
 describe('presenter controls', () => {
@@ -400,19 +484,37 @@ describe('presenter controls', () => {
     }
   })
 
-  it('loads the built talk\'s favicon from its own origin', async () => {
-    const browser = await chromium.launch({ headless: true })
-    const page = await browser.newPage({ viewport: { width: 1024, height: 900 } })
-    page.setDefaultTimeout(5_000)
-    await installCspGuard(page)
+  it('loads the AudioWorklet from exactly the README\'s copied overlay, never the browser-speech fallback', async () => {
+    const overlayBuildDirectory = await buildCopiedOverlayDeck()
+    const { server: overlayServer, origin: overlayOrigin, sockets: overlaySockets }
+      = await createOverlayDeckServer(overlayBuildDirectory)
     try {
-      await page.goto(`${origin}/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
-      const href = await page.locator('link[rel="icon"]').getAttribute('href')
-      expect(href).toBe(builtFaviconPath)
-      const favicon = await page.request.get(`${origin}${builtFaviconPath}`)
-      expect(favicon.ok()).toBe(true)
+      const { browser, page } = await openPresenterAt(overlayOrigin, '/presenter/1', 1024)
+      try {
+        const ai = page.getByRole('switch', { name: 'AI' })
+        await ai.waitFor({ state: 'visible', timeout: 2_000 })
+        await ai.click({ timeout: 2_000 })
+        // `hearing` only reaches 'local' once `AudioContext.audioWorklet.addModule`
+        // - real, not faked (installMediaFakes) - has resolved against the
+        // copied overlay's own `public/pcm-capture-processor.js` under the
+        // production CSP; a blocked or missing module throws there and the
+        // component falls back to 'browser' or 'off' instead (CoPresenter.vue).
+        await page.waitForFunction(
+          () => document.querySelector('.copresenter')?.getAttribute('data-hearing') === 'local',
+          undefined,
+          { timeout: 5_000 },
+        )
+        expect(await page.getByText('No hearing').count()).toBe(0)
+      } finally {
+        await browser.close()
+      }
     } finally {
-      await browser.close()
+      for (const socket of overlaySockets) socket.destroy()
+      overlayServer.closeAllConnections()
+      await new Promise<void>((resolve, reject) => {
+        overlayServer.close((error) => (error ? reject(error) : resolve()))
+      })
+      await rm(overlayBuildDirectory, { recursive: true, force: true })
     }
-  })
+  }, 60_000)
 })

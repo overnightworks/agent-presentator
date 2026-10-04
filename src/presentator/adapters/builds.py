@@ -20,7 +20,6 @@ holds.
 import json
 import logging
 import os
-import re
 import select
 import shutil
 import signal
@@ -72,18 +71,6 @@ _OUT: Final = "out"
 _TALK: Final = "talk"
 _PDF_FILE: Final = "deck.pdf"
 _UP: Final = ".."
-_FAVICON_FILE: Final = "favicon.svg"
-_FAVICON_SVG: Final = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
-    '<rect width="16" height="16" rx="3" fill="#1f2933"/></svg>\n'
-)
-_BUILT_HTML_GLOB: Final = "*.html"
-# Slidev always writes one `<link rel="icon" …>` into every page it renders —
-# its own default favicon is a remote URL (`@slidev/parser`'s own headmatter
-# default) — so this is the one tag every built page carries, whatever a
-# deck's own headmatter named or left unset.
-_ICON_LINK: Final = re.compile(r'<link\b[^>]*\brel="icon"[^>]*>', re.IGNORECASE)
-_HREF_ATTRIBUTE: Final = re.compile(r'href="[^"]*"')
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
@@ -160,9 +147,6 @@ _ADDING_UP_WITHIN: Final = timedelta(seconds=10)
 # this machine is stopped while it runs rather than found out afterwards.
 _ACCOUNTED_EVERY: Final = timedelta(seconds=2)
 _UNREADABLE_DECK: Final = "deck %s cannot be read at %s: %s"
-_FAVICON_NOT_POINTED: Final = (
-    "the favicon of deck %s's built talk could not be pointed home: %s"
-)
 _TOOLCHAIN_FAILED: Final = "%s of deck %s failed: %s"
 _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
 _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
@@ -694,25 +678,7 @@ class SlidevBuilds:
             )
             if broke is not None:
                 return broke
-        broke = self._favicon_pointed_home(written / _TALK, deck=deck)
-        if broke is not None:
-            return broke
         return self._more_than_it_may_leave(deck, place)
-
-    def _favicon_pointed_home(self, talk: Path, *, deck: Deck) -> BuildFailure | None:
-        """Point the talk this toolchain just wrote at this build's own favicon.
-
-        Rewriting is this host's own step over files its own toolchain just
-        wrote, never a deck author's concern, so whatever stops it is answered
-        the way any other fault of this host is (line 9) rather than left to
-        raise past the build that was trying it.
-        """
-        try:
-            point_favicon_same_origin(talk, base=talk_address(deck.slug))
-        except (OSError, UnicodeError) as unreadable:
-            _log.warning(_FAVICON_NOT_POINTED, deck.slug, unreadable)
-            return BuildFailure(text=None)
-        return None
 
     def _more_than_it_may_leave(
         self,
@@ -774,37 +740,6 @@ class SlidevBuilds:
             _log.warning(_UNREADABLE_DECK, deck.slug, deck.commit, unreadable)
             return False
         return True
-
-
-def point_favicon_same_origin(talk: Path, *, base: str) -> None:
-    """Rewrite every page Slidev wrote so its favicon is this build's own file.
-
-    Not underscore-prefixed: `SlidevBuilds._favicon_pointed_home` is the only
-    caller in the build pipeline, but the browser test that proves a built
-    talk loads under the deployment's own Content-Security-Policy runs this
-    exact step against a real `slidev build`, so what a browser loads and
-    what this build ships are the same code, never a second copy of it
-    (ADR 0003).
-
-    Slidev's own default favicon is a cross-origin CDN URL, which this
-    deployment's `img-src 'self'` refuses to load; post-processing the HTML
-    this toolchain already wrote — rather than the deck's own `slides.md`
-    before it runs — touches no file an operator's deck owns, and needs no
-    YAML of its own to get right. The href is anchored to `base` rather than
-    left relative: history-mode routing can serve this very document at an
-    address deeper than its own root, and a relative href would then name a
-    file beside that deeper address instead of beside this talk's own file.
-    """
-    (talk / _FAVICON_FILE).write_text(_FAVICON_SVG, encoding="utf-8")
-    href = f"{base}{_FAVICON_FILE}"
-    for page in sorted(talk.glob(_BUILT_HTML_GLOB)):
-        written = page.read_text(encoding="utf-8")
-        patched = _ICON_LINK.sub(
-            lambda tag: _HREF_ATTRIBUTE.sub(f'href="{href}"', tag.group(), count=1),
-            written,
-        )
-        if patched != written:
-            page.write_text(patched, encoding="utf-8")
 
 
 def the_daemon_of_this_machine(*, image: str, disk: str | None) -> Daemon:
