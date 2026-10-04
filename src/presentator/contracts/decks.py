@@ -244,6 +244,11 @@ class SourceRun:
     reason: SourceRunFailure | None
 
 
+# The page a built talk opens on, in the talk's own root: the build checks the
+# file the lobby serves, so both name it through this one value.
+TALK_PAGE: Final = "index.html"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Artefacts:
     """What one run of the build left on disk: a talk to serve, and its PDF."""
