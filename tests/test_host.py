@@ -19,6 +19,9 @@ from webauth.cookies import (
     PLAIN_CSRF_COOKIE_NAME,
     PLAIN_SESSION_COOKIE_NAME,
 )
+from webauth.passwords import (  # noqa: TID251 - pins the error a stale hash raises
+    UnknownHashFormatError,
+)
 
 from presentator.adapters.decks import (
     SqliteDeckStore,
@@ -34,6 +37,7 @@ from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import FAILURES_BEFORE_THROTTLE
 from presentator.contracts.decks import SourceWrite
+from presentator.contracts.models import Account, Role
 from presentator.host import main
 from presentator.host.config import (
     NO_BOUND_AT_ALL,
@@ -52,6 +56,12 @@ from tests.conftest import (
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
 _TYPED_WORDS = "the words only this test types"
+# _TYPED_WORDS hashed with Argon2id at 64 MiB, t=3, p=4: a stored hash under a
+# cost profile other than the library's one, as existing accounts carry.
+_64_MIB_HASH_OF_THE_TYPED_WORDS = (
+    "$argon2id$v=19$m=65536,t=3,p=4"
+    "$pFeGwOgbAz/UEaKqo238lg$Q/qsY/43dnDojwFTTMh1+iV/+v48zgkL1uStvltGh4g"
+)
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _DELETED_AT = datetime(2026, 1, 16, 9, tzinfo=UTC)
 _PUSHED_AGAIN_AT = datetime(2026, 2, 1, 9, tzinfo=UTC)
@@ -490,6 +500,27 @@ def test_the_real_stack_refuses_a_login_nobody_has_an_account_for() -> None:
     )
 
     assert refused.status_code == HTTPStatus.OK
+    assert DEFAULT_SESSION_COOKIE_NAME not in real_lobby.cookies
+
+
+@pytest.mark.usefixtures("environment")
+def test_a_password_stored_at_64_mib_fails_the_login_loudly() -> None:
+    real_lobby = a_real_lobby()
+    SqliteUserStore(load_settings().database).add_first_account(
+        Account(
+            id=TokenIdentifierFactory().new_id(),
+            username=_PERSON,
+            role=Role.ADMIN,
+            password_hash=_64_MIB_HASH_OF_THE_TYPED_WORDS,
+        ),
+    )
+
+    with pytest.raises(UnknownHashFormatError):
+        real_lobby.post(
+            "/login",
+            data={"username": _PERSON, "password": _TYPED_WORDS},
+        )
+
     assert DEFAULT_SESSION_COOKIE_NAME not in real_lobby.cookies
 
 

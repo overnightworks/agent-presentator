@@ -59,9 +59,11 @@ answer with one sentence — never a per-outcome status or message. Logging out
 is a POST that deletes the session row. No answer may be replayed from the
 browser cache.
 
-The SQLite stores, the Argon2id hasher, and first start stay this repository's
+The SQLite stores and first start stay this repository's
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),
-[ADR 0011](decisions/0011-instance-users.md)). User management, including
+[ADR 0011](decisions/0011-instance-users.md)); passwords are hashed by
+webauth's `Argon2idPasswordHasher`
+([ADR 0003 amendment](decisions/0003-libraries-for-models-and-auth.md#amendment-2026-10-04--webauths-argon2id-hashes-passwords)). User management, including
 deactivation, belongs to [#61](https://github.com/overnightworks/agent-presentator/issues/61).
 How an instance is started is [OPERATIONS.md](OPERATIONS.md).
 

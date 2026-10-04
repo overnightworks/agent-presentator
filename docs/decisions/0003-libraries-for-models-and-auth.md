@@ -116,6 +116,20 @@ carrying the session cookie twice as signed out. Browsers still send the
 cookie the host used to name itself, which no longer authenticates, so every
 person signs in once more after the upgrade.
 
+### Amendment 2026-10-04 — webauth's Argon2id hashes passwords
+
+Authority: [#181](https://github.com/overnightworks/agent-presentator/issues/181)
+(slice P4 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)).
+
+Hashing is no longer this repository's: the host constructs the library's
+`Argon2idPasswordHasher()` with its default OWASP profile (m=19 MiB, t=2,
+p=1), and this repository's own hasher and its hashing dependency are gone.
+`webauth.passwords` stays a banned API everywhere but the host's composition,
+which carries the one rule-specific exception. A hash the previous
+hasher stored (Argon2id at 64 MiB, t=3, p=4) is not that profile, so a login
+against it fails loudly with `UnknownHashFormatError` instead of reading as a
+wrong password, and the password has to be set again.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as

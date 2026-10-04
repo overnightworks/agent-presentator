@@ -1,4 +1,4 @@
-"""The identity bridge against a temporary SQLite file and real Argon2id."""
+"""The identity bridge against a temporary SQLite file."""
 
 import sqlite3
 from collections.abc import Callable
@@ -9,7 +9,6 @@ import pytest
 from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.identity import (
-    Argon2PasswordHasher,
     IdleWindow,
     SqliteLoginAttemptStore,
     SqliteSessionRecordStore,
@@ -28,7 +27,6 @@ from presentator.contracts.models import (
 from tests.application.fakes import FrozenClock
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
-_TYPED_WORDS = "the words only this test types"
 _STORED_HASH = "a hash of something else"
 _ADDRESS = "203.0.113.7"
 _AGENT = "TestBrowser/1.0"
@@ -69,31 +67,13 @@ def test_an_account_is_read_back_by_name_with_the_hash_it_was_stored_with(
     database: Path,
 ) -> None:
     users = SqliteUserStore(database)
-    hasher = Argon2PasswordHasher()
-    users.add_first_account(
-        an_account(password_hash=hasher.hash(_TYPED_WORDS)),
-    )
+    users.add_first_account(an_account())
 
     account = users.get_by_username("felix")
 
     assert account is not None
     assert account.as_user() == an_admin()
-    assert hasher.verify(_TYPED_WORDS, account.password_hash) is True
-    assert hasher.verify("guessed", account.password_hash) is False
-
-
-def test_a_stored_password_is_not_the_password(database: Path) -> None:
-    users = SqliteUserStore(database)
-    hasher = Argon2PasswordHasher()
-    users.add_first_account(
-        an_account(password_hash=hasher.hash(_TYPED_WORDS)),
-    )
-
-    account = users.get_by_username("felix")
-
-    assert account is not None
-    assert _TYPED_WORDS not in account.password_hash
-    assert account.password_hash.startswith("$argon2id$")
+    assert account.password_hash == _STORED_HASH
 
 
 def test_an_account_is_read_back_by_id_and_counted(database: Path) -> None:
@@ -320,10 +300,6 @@ def test_a_second_first_account_is_refused_even_after_an_empty_count(
 
     assert users.count() == 1
     assert users.get_by_username("stranger") is None
-
-
-def test_a_password_checked_against_no_account_is_refused() -> None:
-    assert Argon2PasswordHasher().verify(_TYPED_WORDS, None) is False
 
 
 def test_the_idle_window_admits_a_session_at_the_boundary() -> None:

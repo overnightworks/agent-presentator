@@ -13,7 +13,6 @@ dependencies = [
     "httpx2[ws]==2.12.0",
     "jinja2==3.1.6",
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.11.0/overnightworks_webauth-0.11.0-py3-none-any.whl",
-    "pwdlib[argon2]==0.3.1",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
     "uvicorn==0.52.4",
@@ -71,7 +70,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"webauth.passwords".msg = "Hashing is the adapter's; the host names the hasher."
+"webauth.passwords".msg = "Only the host names the hasher; it composes WebAuthConfig."
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -221,12 +220,12 @@ as_packages = true
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-id = "auth-and-database-libraries"
-name = "Only adapters import the auth and the database library"
+id = "database-library"
+name = "Only adapters import the database library"
 type = "forbidden"
 # ADR 0001: a third-party library lives in the adapter that owns it, and its
-# contract is written with its first import. `pwdlib` hashes passwords and
-# `sqlite3` is the store, so a layer above must ask a port instead.
+# contract is written with its first import. `sqlite3` is the store, so a layer
+# above must ask a port instead.
 source_modules = [
     "presentator.host",
     "presentator.api",
@@ -234,9 +233,9 @@ source_modules = [
     "presentator.ports",
     "presentator.contracts",
 ]
-forbidden_modules = ["pwdlib", "sqlite3"]
+forbidden_modules = ["sqlite3"]
 as_packages = true
-# The host composes the adapter that owns them, so the legal chain runs through
+# The host composes the adapter that owns it, so the legal chain runs through
 # it; only naming the library in a layer above is the violation.
 allow_indirect_imports = true
 
@@ -250,8 +249,9 @@ type = "forbidden"
 # and must read the installed config, sign and clear cookies, answer an
 # unauthenticated request, and read client identity those helpers need
 # (webauth.login, webauth.config, webauth.cookies, webauth.dependencies,
-# webauth.proxies, webauth.middleware). Import Linter cannot forbid a subset of
-# an external package's modules; ruff's banned-api holds hashing.
+# webauth.proxies, webauth.middleware). The host alone names the library's
+# Argon2id hasher (webauth.passwords): ruff's banned-api keeps it out of every
+# production module but host/main.py, which carries a rule-specific marker.
 source_modules = [
     "presentator.application",
     "presentator.ports",

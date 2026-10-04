@@ -15,6 +15,9 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig
 from webauth.liveness import IdleWindowLiveness
+from webauth.passwords import (  # noqa: TID251 - the host alone composes the hasher
+    Argon2idPasswordHasher,
+)
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
@@ -47,7 +50,6 @@ from presentator.adapters.decks import (
     create_deck_tables,
 )
 from presentator.adapters.identity import (
-    Argon2PasswordHasher,
     IdleWindow,
     SqliteLoginAttemptStore,
     SqliteSessionRecordStore,
@@ -125,7 +127,7 @@ def build_instance(settings: Settings) -> Instance:
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
-    hasher = Argon2PasswordHasher()
+    hasher = Argon2idPasswordHasher()
     liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
     web_auth = _web_auth_config(
         settings.secret_key,
@@ -267,7 +269,7 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
 def _web_auth_config(
     secret: SecretStr,
     *,
-    hasher: Argon2PasswordHasher,
+    hasher: Argon2idPasswordHasher,
     liveness: IdleWindowLiveness,
     trusted_proxies: str,
     public_origin: str,
