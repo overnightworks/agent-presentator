@@ -5,7 +5,10 @@ adapter satisfies which port.
 """
 
 import asyncio
+import getpass
 import logging
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -17,6 +20,7 @@ from webauth.config import WebAuthConfig
 from webauth.liveness import IdleWindowLiveness
 from webauth.passwords import (  # noqa: TID251 - the host alone composes the hasher
     Argon2idPasswordHasher,
+    check_password_strength,
 )
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
@@ -79,6 +83,7 @@ from presentator.application.identity import (
     FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
     Identity,
+    UnknownUserError,
 )
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
@@ -107,6 +112,11 @@ _UNBOUNDED_BY_CHOICE = (
     f"build_disk is {NO_BOUND_AT_ALL}, so nothing but the time a step may take"
     " bounds what one build writes into its own container"
 )
+_RESET_COMMAND = "set-password"
+# Fixed on purpose: a parser that echoed what it saw would print a password
+# typed into the wrong slot right back to the terminal or a log.
+_USAGE = f"usage: agent-presentator [{_RESET_COMMAND} USERNAME]"
+_ENTRIES_DID_NOT_MATCH = "the two passwords you typed do not match"
 
 _log = logging.getLogger(__name__)
 
@@ -119,35 +129,43 @@ class Instance:
     poller: SourcePoller
 
 
+def _identity(settings: Settings) -> Identity:
+    """Wire every identity port to its SQLite table and Argon2id.
+
+    The composition root below wraps its own `Argon2idPasswordHasher` and
+    `IdleWindowLiveness` into `WebAuthConfig`, the same cost profile and idle
+    window by construction, not by sharing the instance; the `set-password`
+    subcommand needs nothing beyond what this one call returns.
+    """
+    create_identity_tables(settings.database)
+    clock = SystemClock()
+    return Identity(
+        users=SqliteUserStore(settings.database),
+        sessions=SqliteSessionRecordStore(settings.database, clock=clock),
+        attempts=SqliteLoginAttemptStore(settings.database, clock=clock),
+        hasher=Argon2idPasswordHasher(),
+        clock=clock,
+        identifiers=TokenIdentifierFactory(),
+        liveness=IdleWindow(IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))),
+    )
+
+
 def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
-    create_identity_tables(settings.database)
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
-    accounts = SqliteUserStore(settings.database)
-    identifiers = TokenIdentifierFactory()
-    clock = SystemClock()
-    hasher = Argon2idPasswordHasher()
-    liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
+    identity = _identity(settings)
+    identifiers = identity.identifiers
     web_auth = _web_auth_config(
         settings.secret_key,
-        hasher=hasher,
-        liveness=liveness,
+        hasher=Argon2idPasswordHasher(),
+        liveness=IdleWindowLiveness(int(IDLE_WINDOW.total_seconds())),
         trusted_proxies=settings.trusted_proxies,
         public_origin=settings.public_origin,
     )
     # One box for both directions: what the store writes down is what the
     # resolver opens at the pull, and neither picks its own key.
     box = secret_box(settings.secret_key.get_secret_value())
-    identity = Identity(
-        users=accounts,
-        sessions=SqliteSessionRecordStore(settings.database, clock=clock),
-        attempts=SqliteLoginAttemptStore(settings.database, clock=clock),
-        hasher=hasher,
-        clock=clock,
-        identifiers=identifiers,
-        liveness=IdleWindow(liveness),
-    )
     sources = SqliteSourceStore(
         database=settings.database,
         identifiers=identifiers,
@@ -301,10 +319,52 @@ def _web_auth_config(
     )
 
 
-def main() -> None:
-    """Serve the lobby with the configuration the environment carries."""
+def main(argv: Sequence[str] | None = None) -> None:
+    """Serve the lobby, or run the one operator subcommand this host offers.
+
+    `argv` is `None` for the installed script, which reads the process's own
+    arguments; a test names them instead.
+    """
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments:
+        _run_subcommand(arguments)
+        return
     settings = load_settings()
     asyncio.run(_serve(build_instance(settings), settings))
+
+
+def _run_subcommand(arguments: Sequence[str]) -> None:
+    """Run the one subcommand this host knows; anything else is refused.
+
+    The refusal never names what was typed: `set-password` takes no password
+    argument, but a usage error that quoted an unrecognized token back could
+    still echo one pasted into the wrong slot by mistake.
+    """
+    match list(arguments):
+        case [command, username] if command == _RESET_COMMAND:
+            _set_password(username)
+        case _:
+            raise SystemExit(_USAGE)
+
+
+def _set_password(username: str) -> None:
+    """Prompt twice, enforce strength, then replace the hash and end sessions.
+
+    Settings load and the strength check both happen before anything is
+    written, so a refusal at either point leaves the stored account untouched.
+    """
+    settings = load_settings()
+    password = getpass.getpass("New password: ")
+    if password != getpass.getpass("Repeat new password: "):
+        raise SystemExit(_ENTRIES_DID_NOT_MATCH)
+    try:
+        check_password_strength(password)
+    except ValueError as refused:
+        raise SystemExit(str(refused)) from None
+    try:
+        _identity(settings).set_password(username, password)
+    except UnknownUserError as unknown:
+        raise SystemExit(str(unknown)) from None
 
 
 async def _serve(instance: Instance, settings: Settings) -> None:

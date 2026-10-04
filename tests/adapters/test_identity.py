@@ -28,6 +28,8 @@ from tests.application.fakes import FrozenClock
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _STORED_HASH = "a hash of something else"
+_THE_OLD_HASH = "the hash a reset replaces"
+_THE_NEW_HASH = "the hash a reset writes"
 _ADDRESS = "203.0.113.7"
 _AGENT = "TestBrowser/1.0"
 
@@ -337,6 +339,63 @@ def test_deleting_sessions_for_nobody_drops_nothing(database: Path) -> None:
     sessions = SqliteSessionRecordStore(database, clock=FrozenClock(instant=_NOW))
 
     assert sessions.delete_for_user("nobody") == 0
+
+
+def test_replacing_the_password_ends_every_session_and_counts_them(
+    database: Path,
+) -> None:
+    users = SqliteUserStore(database)
+    users.add_first_account(an_account(password_hash=_THE_OLD_HASH))
+    sessions = SqliteSessionRecordStore(database, clock=FrozenClock(instant=_NOW))
+    opened = (
+        sessions.create(
+            "user-1",
+            _NOW + IDLE_WINDOW,
+            ip_address=_ADDRESS,
+            user_agent=_AGENT,
+        ),
+        sessions.create(
+            "user-1",
+            _NOW + IDLE_WINDOW,
+            ip_address=_ADDRESS,
+            user_agent=_AGENT,
+        ),
+    )
+
+    ended = users.replace_password_and_end_sessions("user-1", _THE_NEW_HASH)
+
+    assert ended == len(opened)
+    account = users.get_by_username("felix")
+    assert account is not None
+    assert account.password_hash == _THE_NEW_HASH
+    assert all(sessions.load(session.id) is None for session in opened)
+
+
+def test_a_session_delete_a_trigger_refuses_leaves_the_old_hash_standing(
+    database: Path,
+) -> None:
+    users = SqliteUserStore(database)
+    users.add_first_account(an_account(password_hash=_THE_OLD_HASH))
+    sessions = SqliteSessionRecordStore(database, clock=FrozenClock(instant=_NOW))
+    kept = sessions.create(
+        "user-1",
+        _NOW + IDLE_WINDOW,
+        ip_address=_ADDRESS,
+        user_agent=_AGENT,
+    )
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            "CREATE TRIGGER refuse_session_delete BEFORE DELETE ON sessions"
+            " BEGIN SELECT RAISE(ABORT, 'a session may not be dropped here'); END;",
+        )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        users.replace_password_and_end_sessions("user-1", _THE_NEW_HASH)
+
+    account = users.get_by_username("felix")
+    assert account is not None
+    assert account.password_hash == _THE_OLD_HASH
+    assert sessions.load(kept.id) is not None
 
 
 def test_an_older_file_gains_the_origin_columns(tmp_path: Path) -> None:

@@ -158,6 +158,25 @@ class SqliteUserStore:
             ).fetchone()
         return None if row is None else _user(row)
 
+    def replace_password_and_end_sessions(
+        self, user_id: str, password_hash: str
+    ) -> int:
+        """Hold the write lock across both statements, so one failing undoes both.
+
+        Nothing here catches an error to roll back by hand: `BEGIN IMMEDIATE`
+        opens the one transaction both statements share, and `rows` never
+        commits a block it did not finish, so closing the connection on the
+        way out discards whatever that block had written.
+        """
+        with rows(self.database) as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (password_hash, user_id),
+            )
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            return int(cursor.rowcount)
+
 
 @dataclass(frozen=True, slots=True)
 class SystemClock:

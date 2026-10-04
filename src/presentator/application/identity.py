@@ -26,6 +26,10 @@ FAILURE_WINDOW: Final = timedelta(minutes=5)
 FAILURES_BEFORE_THROTTLE: Final = 5
 
 
+class UnknownUserError(RuntimeError):
+    """`set_password` refuses a name no account is stored under."""
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Identity:
     """Every use case the lobby has around who is signed in.
@@ -75,6 +79,22 @@ class Identity:
     def account_named(self, username: str) -> Account | None:
         """The stored account for the name someone typed, if one exists."""
         return self.users.get_by_username(username)
+
+    def set_password(self, username: str, password: str) -> None:
+        """Hash a new password in, ending every session the old one opened.
+
+        The write and the session end are the store's one transaction
+        (`UserStore.replace_password_and_end_sessions`); this use case only
+        decides the hash and the name, and refuses one nobody holds.
+        """
+        account = self.users.get_by_username(username)
+        if account is None:
+            message = f"no account is named {username!r}"
+            raise UnknownUserError(message)
+        self.users.replace_password_and_end_sessions(
+            account.id,
+            self.hasher.hash(password),
+        )
 
     def note_failed_login(self, *, ip_address: str, username: str) -> None:
         """Spend one of the failure budget for this name and address."""

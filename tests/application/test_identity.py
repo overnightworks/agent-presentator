@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import IDLE_WINDOW, Identity, UnknownUserError
 from presentator.contracts.models import FirstStartClosedError, Role, Session
 from tests.application.fakes import (
     CountingIdentifierFactory,
@@ -40,7 +40,7 @@ def identity(clock: FrozenClock) -> Identity:
 
 def identity_over(sessions: FakeSessionRecordStore, clock: FrozenClock) -> Identity:
     return Identity(
-        users=FakeUserStore(),
+        users=FakeUserStore(sessions=sessions),
         sessions=sessions,
         attempts=FakeLoginAttemptStore(clock=clock),
         hasher=ReversibleHasher(),
@@ -180,3 +180,24 @@ def test_logging_out_an_unknown_session_leaves_the_live_one_alone(
     identity.log_out(session_id)
 
     assert identity.signed_in_user(signed_in_session) is not None
+
+
+def test_setting_a_password_hashes_it_in_and_ends_every_open_session(
+    identity: Identity,
+) -> None:
+    session_id = sign_up_the_admin(identity)
+    freshly_typed = "a freshly typed replacement"
+
+    identity.set_password("felix", freshly_typed)
+
+    assert identity.signed_in_user(session_id) is None
+    account = identity.account_named("felix")
+    assert account is not None
+    assert account.password_hash == ReversibleHasher().hash(freshly_typed)
+
+
+def test_setting_a_password_for_an_unknown_name_is_refused(identity: Identity) -> None:
+    sign_up_the_admin(identity)
+
+    with pytest.raises(UnknownUserError):
+        identity.set_password("nobody", "a freshly typed password")

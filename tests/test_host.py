@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import shutil
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -19,7 +20,8 @@ from webauth.cookies import (
     PLAIN_CSRF_COOKIE_NAME,
     PLAIN_SESSION_COOKIE_NAME,
 )
-from webauth.passwords import (  # noqa: TID251 - pins the error a stale hash raises
+from webauth.passwords import (  # noqa: TID251 - pins what the composed hasher verifies
+    Argon2idPasswordHasher,
     UnknownHashFormatError,
 )
 
@@ -62,6 +64,9 @@ _64_MIB_HASH_OF_THE_TYPED_WORDS = (
     "$argon2id$v=19$m=65536,t=3,p=4"
     "$pFeGwOgbAz/UEaKqo238lg$Q/qsY/43dnDojwFTTMh1+iV/+v48zgkL1uStvltGh4g"
 )
+_NEW_TYPED_WORDS = "the new words only this test types"
+_OTHER_NEW_TYPED_WORDS = "the other new words this test types"
+_A_COMMON_CHOICE = "password1"
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _DELETED_AT = datetime(2026, 1, 16, 9, tzinfo=UTC)
 _PUSHED_AGAIN_AT = datetime(2026, 2, 1, 9, tzinfo=UTC)
@@ -194,7 +199,7 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
     environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsWhatItGot)
 
-    main.main()
+    main.main(argv=[])
 
     assert len(served) == 1
     assert TestClient(served[0]).get("/login").is_success
@@ -441,6 +446,116 @@ def test_the_real_stack_signs_a_person_in_and_out_and_keeps_the_password_quiet(
         assert real_lobby.get("/").is_success
 
     assert _TYPED_WORDS not in caplog.text
+
+
+def typed_at_the_prompt(*entries: str) -> Callable[[str], str]:
+    """A `getpass.getpass` stand-in answering each call in order, never echoing."""
+    queue = list(entries)
+
+    def _getpass(prompt: str) -> str:
+        del prompt
+        return queue.pop(0)
+
+    return _getpass
+
+
+def an_admin_account(database: Path) -> Account:
+    account = SqliteUserStore(database).get_by_username(_PERSON)
+    assert account is not None
+    return account
+
+
+def test_set_password_sets_a_hash_the_composed_hasher_verifies(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    signed_in(a_real_instance())
+    environment.setattr(
+        main.getpass,
+        "getpass",
+        typed_at_the_prompt(_NEW_TYPED_WORDS, _NEW_TYPED_WORDS),
+    )
+
+    main.main(argv=["set-password", _PERSON])
+
+    account = an_admin_account(load_settings().database)
+    assert Argon2idPasswordHasher().verify(_NEW_TYPED_WORDS, account.password_hash)
+
+
+def test_set_password_with_mismatched_entries_writes_nothing(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    signed_in(a_real_instance())
+    environment.setattr(
+        main.getpass,
+        "getpass",
+        typed_at_the_prompt(_NEW_TYPED_WORDS, _OTHER_NEW_TYPED_WORDS),
+    )
+
+    with pytest.raises(SystemExit, match="do not match"):
+        main.main(argv=["set-password", _PERSON])
+
+    account = an_admin_account(load_settings().database)
+    assert Argon2idPasswordHasher().verify(_TYPED_WORDS, account.password_hash)
+
+
+def test_set_password_refuses_a_common_password_and_writes_nothing(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    signed_in(a_real_instance())
+    environment.setattr(
+        main.getpass,
+        "getpass",
+        typed_at_the_prompt(_A_COMMON_CHOICE, _A_COMMON_CHOICE),
+    )
+
+    with pytest.raises(SystemExit, match="too common") as refused:
+        main.main(argv=["set-password", _PERSON])
+
+    assert _A_COMMON_CHOICE not in str(refused.value)
+    account = an_admin_account(load_settings().database)
+    assert Argon2idPasswordHasher().verify(_TYPED_WORDS, account.password_hash)
+
+
+def test_set_password_ends_a_session_an_old_cookie_cannot_replay_afterwards(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    lobby = signed_in(a_real_instance())
+    old_cookie = lobby.cookies[DEFAULT_SESSION_COOKIE_NAME]
+    environment.setattr(
+        main.getpass,
+        "getpass",
+        typed_at_the_prompt(_NEW_TYPED_WORDS, _NEW_TYPED_WORDS),
+    )
+
+    main.main(argv=["set-password", _PERSON])
+
+    lobby.cookies.set(DEFAULT_SESSION_COOKIE_NAME, old_cookie)
+    assert lobby.get("/").status_code == HTTPStatus.FOUND
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        pytest.param(["Set-Password", _PERSON], id="a-case-variant-command-name"),
+        pytest.param(
+            ["--admin", "set-password", _PERSON], id="a-token-before-the-command"
+        ),
+        pytest.param(
+            ["set-password", _PERSON, _NEW_TYPED_WORDS],
+            id="a-password-typed-as-an-extra-token",
+        ),
+    ],
+)
+def test_an_unrecognized_invocation_is_refused_without_echoing_what_it_carried(
+    arguments: list[str],
+) -> None:
+    with pytest.raises(SystemExit) as refused:
+        main.main(argv=arguments)
+
+    message = str(refused.value)
+    assert "Set-Password" not in message
+    assert "--admin" not in message
+    assert _NEW_TYPED_WORDS not in message
 
 
 @pytest.mark.parametrize(

@@ -67,6 +67,12 @@ mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 (`127.0.0.1`), `PRESENTATOR_PORT` (`8000`), and `PRESENTATOR_TRUSTED_PROXIES`
 (empty: a comma-separated list of addresses or networks). An empty instance
 offers `/setup` once, to create the admin; from then on that page is closed.
+`agent-presentator set-password USERNAME`, run beside the instance and against
+the same `PRESENTATOR_*` environment, is the way to set an existing account's
+password once `/setup` is closed: it prompts twice (the two entries must
+match), refuses a weak or common one with `webauth`'s own rule sentence before
+writing anything, and otherwise replaces the stored hash and ends every open
+session of that account in the one transaction that does both.
 
 The address budget keys on the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
 is correct for a direct run. Behind the tunnel of

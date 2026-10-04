@@ -57,9 +57,15 @@ A_REACHABLE_CHECK: Final = ConnectionCheckResult(
 
 @dataclass
 class FakeUserStore:
-    """Accounts in a dictionary, keyed the way the real table is."""
+    """Accounts in a dictionary, keyed the way the real table is.
+
+    `sessions`, when given, is the same `FakeSessionRecordStore` `Identity`
+    holds: the one table the real adapter's single transaction also ends,
+    standing in for the one SQLite file both ports share in production.
+    """
 
     accounts: dict[str, Account] = field(default_factory=dict[str, Account])
+    sessions: FakeSessionRecordStore | None = None
     minted: int = 0
 
     def get(self, user_id: str) -> User | None:
@@ -100,6 +106,15 @@ class FakeUserStore:
             if account.role is Role.ADMIN
         ]
         return admins[0] if admins else None
+
+    def replace_password_and_end_sessions(
+        self, user_id: str, password_hash: str
+    ) -> int:
+        for username, account in self.accounts.items():
+            if account.id == user_id:
+                self.accounts[username] = replace(account, password_hash=password_hash)
+                break
+        return 0 if self.sessions is None else self.sessions.delete_for_user(user_id)
 
 
 @dataclass
