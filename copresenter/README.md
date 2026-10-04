@@ -108,7 +108,9 @@ pnpm exec slidev ../examples/copresenter-deck/slides.md
 Open the talk through Presentator and turn **Presenter** on. Copy
 `global-bottom.vue` and `components/CoPresenter.vue` into another deck folder
 to take the overlay with it; the component keeps using that Presentator
-origin's relative authenticated routes.
+origin's relative authenticated routes. A copied component must keep its
+CSRF reader, which sends the `__Host-csrf_token` cookie first and falls back to
+`csrf_token`.
 
 ### Configuration
 
