@@ -549,15 +549,24 @@ class SlidevBuilds:
         The talk and the PDF are written under a directory of this build's own
         that nothing points at yet, and the directory the deck delivered from
         before is left where it stands. What the toolchain said about a failure
-        travels back with it, because the deck's page shows it (line 9).
+        travels back with it, because the deck's page shows it (line 9). A run
+        that ends any other way than handing back a talk — a failure this
+        method returns, or a fault one of its own steps could not turn into
+        one — still leaves its directory cleaned up, because a run neither
+        delivered nor removed is one this instance can never try again.
         """
         place = self._a_place_of_its_own()
-        broke = self._what_broke(deck, source=source, place=place)
-        if broke is None:
+        delivered = False
+        try:
+            broke = self._what_broke(deck, source=source, place=place)
+            if broke is not None:
+                return broke
             written = place.here / _OUT
+            delivered = True
             return Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
-        self._taken_away(place)
-        return broke
+        finally:
+            if not delivered:
+                self._taken_away(place)
 
     def _taken_away(self, place: BuildPlace) -> bool:
         """Take away everything one run's directory holds, however it got there.

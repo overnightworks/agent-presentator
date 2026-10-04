@@ -1,22 +1,34 @@
 import { createHash } from 'node:crypto'
 import { createServer, type ServerResponse } from 'node:http'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, join, normalize, resolve } from 'node:path'
+import { dirname, extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import { chromium, type Page } from 'playwright-chromium'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 const run = promisify(execFile)
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const frontendRoot = join(repositoryRoot, 'frontend')
-const exampleDeck = join(repositoryRoot, 'examples/copresenter-deck/slides.md')
+const overlayDeckSourceDirectory = join(repositoryRoot, 'examples/copresenter-deck')
+const exampleDeck = join(overlayDeckSourceDirectory, 'slides.md')
 const providedBuild = process.env.PRESENTER_RETURN_BUILD_DIR
 const evidenceDirectory = process.env.PRESENTER_RETURN_EVIDENCE_DIR
 const wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+// Exactly what `examples/copresenter-deck/README.md` tells an operator to
+// copy next to their own `slides.md` — proven by assembling a fresh deck from
+// only these files, never the repository's own example directory, where
+// every other file already happens to sit beside them regardless of whether
+// the README's own list is complete.
+const COPIED_OVERLAY_FILES = [
+  'custom-nav-controls.vue',
+  'style.css',
+  'components/CoPresenter.vue',
+  'public/pcm-capture-processor.js',
+]
 
 let buildDirectory = providedBuild ?? ''
 let ownsBuildDirectory = false
@@ -26,6 +38,9 @@ let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
 let answerMode: 'audio' | 'speech-refused' = 'audio'
+let productionSecurityHeaders: Record<string, string> = {}
+type CspViolation = { directive: string; blockedUri: string }
+let cspViolations: CspViolation[] = []
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
@@ -51,6 +66,24 @@ function mimeType(pathname: string) {
   }[extname(pathname)] ?? 'application/octet-stream'
 }
 
+// What `SecurityHeadersPolicy` really sends in production: read from
+// `presentator.api.auth._SECURITY_HEADERS` itself through this one bridge
+// call, never hand-copied here, so a changed policy fails this test's own
+// build rather than silently drifting from what a browser reaching the real
+// deployment gets.
+const PYTHON_SECURITY_HEADERS_SCRIPT = `
+import json
+from presentator.api.auth import _SECURITY_HEADERS
+print(json.dumps({"content-security-policy": _SECURITY_HEADERS.content_security_policy}))
+`
+
+async function loadProductionSecurityHeaders(): Promise<Record<string, string>> {
+  const { stdout } = await run('uv', ['run', 'python', '-c', PYTHON_SECURITY_HEADERS_SCRIPT], {
+    cwd: repositoryRoot,
+  })
+  return JSON.parse(stdout) as Record<string, string>
+}
+
 function boxesIntersect(first: { x: number, y: number, width: number, height: number }, second: { x: number, y: number, width: number, height: number }) {
   return first.x < second.x + second.width
     && second.x < first.x + first.width
@@ -72,21 +105,95 @@ async function buildExample() {
   })
 }
 
-async function serveFile(pathname: string, response: ServerResponse) {
-  const requested = normalize(resolve(buildDirectory, `.${pathname}`))
-  const candidate = requested.startsWith(`${buildDirectory}/`) ? requested : ''
+// Builds a second, independent deck containing only the files
+// `examples/copresenter-deck/README.md` names, plus the minimal `slides.md`
+// every deck needs (the one file that is the operator's own, never copied).
+async function buildCopiedOverlayDeck(): Promise<string> {
+  const deckDirectory = await mkdtemp(join(tmpdir(), 'presenter-copied-overlay-deck-'))
+  for (const relativePath of COPIED_OVERLAY_FILES) {
+    const destination = join(deckDirectory, relativePath)
+    await mkdir(dirname(destination), { recursive: true })
+    await copyFile(join(overlayDeckSourceDirectory, relativePath), destination)
+  }
+  await writeFile(
+    join(deckDirectory, 'slides.md'),
+    '---\ntitle: Copied overlay\n---\n\n# Copied overlay\n',
+  )
+  const outDirectory = await mkdtemp(join(tmpdir(), 'presenter-copied-overlay-build-'))
+  await run(
+    'pnpm',
+    ['exec', 'slidev', 'build', join(deckDirectory, 'slides.md'), '--out', outDirectory],
+    { cwd: frontendRoot },
+  )
+  await rm(deckDirectory, { recursive: true, force: true })
+  return outDirectory
+}
+
+async function serveFile(directory: string, pathname: string, response: ServerResponse) {
+  const requested = normalize(resolve(directory, `.${pathname}`))
+  const candidate = requested.startsWith(`${directory}/`) ? requested : ''
   try {
     const info = candidate ? await stat(candidate) : null
     if (info?.isFile()) {
-      response.writeHead(200, { 'content-type': mimeType(candidate) })
+      response.writeHead(200, { 'content-type': mimeType(candidate), ...productionSecurityHeaders })
       response.end(await readFile(candidate))
       return
     }
   } catch {
     // The SPA fallback below owns client-side routes.
   }
-  response.writeHead(200, { 'content-type': 'text/html' })
-  response.end(await readFile(join(buildDirectory, 'index.html')))
+  response.writeHead(200, { 'content-type': 'text/html', ...productionSecurityHeaders })
+  response.end(await readFile(join(directory, 'index.html')))
+}
+
+function websocketAcceptKey(key: string) {
+  return createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
+}
+
+// The minimal server the copied-overlay proof needs: the static build plus
+// the two routes `startLocalHear`'s own path calls before it ever reaches the
+// AudioWorklet (`/who`, then the hearing lease). No `/ask` route and no
+// observation beacons: this proof stops at the worklet loading, so it never
+// drives a spoken turn.
+async function createOverlayDeckServer(directory: string) {
+  // `closeAllConnections` does not reach an upgraded (WebSocket) connection
+  // (Node's own documented behaviour) — the same reason `startServer` below
+  // tracks `hearingSockets` and destroys them itself before closing, which
+  // this server has to do too or its own `close()` never calls back.
+  const sockets = new Set<import('node:stream').Duplex>()
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://presenter.test')
+    if (url.pathname === '/copresenter/who') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          answerer: { model: 'fake' },
+          speech: { sample_rate: 16000, hearing: { ready: true } },
+        }),
+      )
+      return
+    }
+    await serveFile(directory, url.pathname, response)
+  })
+  server.on('upgrade', (request, socket) => {
+    const key = request.headers['sec-websocket-key']
+    if (!request.url?.startsWith('/copresenter/hear') || typeof key !== 'string') {
+      socket.destroy()
+      return
+    }
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
+    )
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') {
+    throw new Error('overlay deck server did not bind a TCP port')
+  }
+  return { server, origin: `http://127.0.0.1:${address.port}`, sockets }
 }
 
 async function startServer() {
@@ -118,7 +225,7 @@ async function startServer() {
       response.end()
       return
     }
-    await serveFile(url.pathname, response)
+    await serveFile(buildDirectory, url.pathname, response)
   })
   server.on('upgrade', (request, socket) => {
     if (!request.url?.startsWith('/copresenter/hear')) {
@@ -131,8 +238,10 @@ async function startServer() {
       return
     }
     hearingOpened += 1
-    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
-    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
+    )
     socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
     hearingSockets.add(socket)
     let closed = false
@@ -180,9 +289,18 @@ async function installMediaFakes(page: Page) {
       value: { getUserMedia: async () => ({ getTracks: () => [track] }) },
       configurable: true,
     })
+    const RealAudioContext = window.AudioContext
     class FakeContext {
       sampleRate = 16000
-      audioWorklet = { addModule: async () => undefined }
+      audioWorklet = {
+        // Real, not faked: this is the one call the page's own CSP governs
+        // (`script-src 'self'`), so delegating to a real, unconnected
+        // `AudioContext`'s real `audioWorklet` proves the same-origin URL the
+        // component names actually loads under that policy. Everything past
+        // this point stays fake, because the component's own media graph
+        // never has to be real for these tests to drive it.
+        addModule: (moduleUrl: string) => new RealAudioContext().audioWorklet.addModule(moduleUrl),
+      }
       createMediaStreamSource() { return { connect: () => undefined } }
       close() { return Promise.resolve() }
     }
@@ -202,17 +320,44 @@ async function installMediaFakes(page: Page) {
   })
 }
 
-async function openPresenter(width: number) {
+// Records every violation for the shared `afterEach` to judge: it tolerates
+// only the one accepted favicon block (issue #183), so a page this built talk
+// serves never silently drifts from what `script-src 'self'` and the rest of
+// the production policy actually admit.
+async function installCspGuard(page: Page) {
+  await page.exposeFunction('__reportCspViolation', (directive: string, blockedUri: string) => {
+    cspViolations.push({ directive, blockedUri })
+  })
+  await page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (event) => {
+      const reportViolation = (window as unknown as {
+        __reportCspViolation: (directive: string, blockedUri: string) => void
+      }).__reportCspViolation
+      // `effectiveDirective` is the spec-recommended field (CSP3): unlike the
+      // legacy `violatedDirective`, it never carries the matched source list,
+      // so it compares equal to a bare directive name like 'img-src'.
+      reportViolation(event.effectiveDirective, event.blockedURI)
+    })
+  })
+}
+
+async function openPresenterAt(base: string, path: string, width: number) {
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width, height: 900 } })
   page.setDefaultTimeout(5_000)
+  await installCspGuard(page)
   await installMediaFakes(page)
-  await page.goto(`${origin}/presenter/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
+  await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
   return { browser, page }
+}
+
+async function openPresenter(width: number) {
+  return openPresenterAt(origin, '/presenter/1', width)
 }
 
 beforeAll(async () => {
   await buildExample()
+  productionSecurityHeaders = await loadProductionSecurityHeaders()
   await startServer()
 }, 60_000)
 
@@ -221,6 +366,37 @@ afterAll(async () => {
   server.closeAllConnections()
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   if (ownsBuildDirectory) await rm(buildDirectory, { recursive: true, force: true })
+})
+
+beforeEach(() => {
+  cspViolations = []
+})
+
+// The contract (issue #183) accepts exactly one violation: Slidev's own
+// built-in favicon link is this exact cross-origin URL (from Slidev's own
+// `@slidev/parser` source) that this deployment's CSP never widens `img-src`
+// for. A test that navigates the document more than once (a plain `<a
+// href>`, not client-side routing) reports that same tolerated kind again
+// each time; any other violation — a different directive, a different host,
+// or a different path — still fails the test. Matching the exact hostname
+// and path (not a substring) also rejects a lookalike like
+// `cdn.jsdelivr.net.evil.example` or `evil.example/cdn.jsdelivr.net/...`.
+const ACCEPTED_FAVICON_URL = 'https://cdn.jsdelivr.net/gh/slidevjs/slidev/assets/favicon.png'
+
+function isTheAcceptedFaviconViolation(violation: CspViolation) {
+  if (violation.directive !== 'img-src') return false
+  let blocked: URL
+  try {
+    blocked = new URL(violation.blockedUri)
+  } catch {
+    return false
+  }
+  const accepted = new URL(ACCEPTED_FAVICON_URL)
+  return blocked.hostname === accepted.hostname && blocked.pathname === accepted.pathname
+}
+
+afterEach(() => {
+  expect(cspViolations.every(isTheAcceptedFaviconViolation)).toBe(true)
 })
 
 describe('presenter controls', () => {
@@ -314,6 +490,7 @@ describe('presenter controls', () => {
     const browser = await chromium.launch({ headless: true })
     const page = await browser.newPage({ viewport: { width: 1024, height: 900 } })
     page.setDefaultTimeout(5_000)
+    await installCspGuard(page)
     try {
       await page.goto(`${origin}/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
       expect(await page.getByRole('link', { name: 'Home' }).count()).toBe(0)
@@ -323,4 +500,51 @@ describe('presenter controls', () => {
       await browser.close()
     }
   })
+
+  it('loads the AudioWorklet from exactly the README\'s copied overlay, never the browser-speech fallback', async () => {
+    const overlayBuildDirectory = await buildCopiedOverlayDeck()
+    const { server: overlayServer, origin: overlayOrigin, sockets: overlaySockets }
+      = await createOverlayDeckServer(overlayBuildDirectory)
+    try {
+      const { browser, page } = await openPresenterAt(overlayOrigin, '/presenter/1', 1024)
+      try {
+        const ai = page.getByRole('switch', { name: 'AI' })
+        await ai.waitFor({ state: 'visible', timeout: 2_000 })
+        await ai.click({ timeout: 2_000 })
+        // `hearing` reaches 'local' optimistically, before
+        // `AudioContext.audioWorklet.addModule` - real, not faked
+        // (installMediaFakes) - is even awaited (CoPresenter.vue), so a test
+        // that only waits for that attribute can pass while the worklet is
+        // still loading or a CSP block is still in flight. `workletLive`
+        // (snapshot()) is true only once the worklet node actually exists,
+        // which happens after `addModule` resolved against the copied
+        // overlay's own `public/pcm-capture-processor.js` under the
+        // production CSP; a blocked or missing module throws there instead
+        // and the component falls back to 'browser' or 'off'.
+        await page.waitForFunction(
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { workletLive: boolean } }
+          }).__copresenter.snapshot().workletLive,
+          undefined,
+          { timeout: 5_000 },
+        )
+        const snapshot = await page.evaluate(
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { hearing: string } }
+          }).__copresenter.snapshot(),
+        )
+        expect(snapshot.hearing).toBe('local')
+        expect(await page.getByText('No hearing').count()).toBe(0)
+      } finally {
+        await browser.close()
+      }
+    } finally {
+      for (const socket of overlaySockets) socket.destroy()
+      overlayServer.closeAllConnections()
+      await new Promise<void>((resolve, reject) => {
+        overlayServer.close((error) => (error ? reject(error) : resolve()))
+      })
+      await rm(overlayBuildDirectory, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

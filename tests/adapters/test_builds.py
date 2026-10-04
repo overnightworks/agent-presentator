@@ -140,6 +140,18 @@ for given in "$@"; do
 done
 printf '\\036' >> "{recorded}/command"
 env | sort >> "{recorded}/environment"
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out|--output) out="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+case "$out" in
+    "") ;;
+    *.pdf) printf '%%PDF-1.7' > "$out";;
+    *) mkdir -p "$out"; printf 'a talk' > "$out/index.html";;
+esac
 """
 _A_TOOLCHAIN_THAT_FAILS = """#!/bin/sh
 echo "the deck does not build" >&2
@@ -271,7 +283,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$out" in
-    *.pdf) printf '%%PDF-1.7' > "$out"; rm -rf "$(dirname "$out")";;
+    *.pdf) printf '%%PDF-1.7' > "$out"; rm -rf "$(dirname "$out")"; sleep 60;;
     *) mkdir -p "$out"; printf 'a talk' > "$out/index.html";;
 esac
 """
@@ -1641,6 +1653,10 @@ def test_a_talk_that_is_gone_by_the_time_it_is_added_up_is_refused(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # The step keeps running after taking its own output away, so only a
+    # watch taken while it is still going catches it gone: a machine is
+    # filled, or here emptied, while a build runs, not once it has ended.
+    machine.setattr(builds_module, "_ACCOUNTED_EVERY", _WATCHED_OFTEN)
     with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_TAKES_ITS_OWN_TALK_AWAY)
     builds = builds_ready_for(tmp_path, source)
 

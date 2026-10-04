@@ -6,6 +6,12 @@ const { currentSlideNo } = useNav()
 
 const LANGUAGE = 'de'
 const COPRESENTER = '/copresenter'
+// Built on Vite's own `BASE_URL` (Slidev uses the same for its PDF link),
+// never on the current address: Slidev's router is history-mode, so once a
+// slide or the presenter view has been opened the browser's own address has
+// moved past the talk's root, and a plain relative URL would resolve beside
+// it instead of beside the file this deck's `public/` directory puts there.
+const WORKLET_URL = `${import.meta.env.BASE_URL}pcm-capture-processor.js`
 
 const on = ref(false)
 const heard = ref('')
@@ -190,7 +196,7 @@ async function startLocalHear(generation) {
     mediaStream = stream
     context = new AudioContext()
     audioContext = context
-    await context.audioWorklet.addModule(workletUrl())
+    await context.audioWorklet.addModule(WORKLET_URL)
     if (!stillActive(generation)) {
       abandon({ stream, context })
       return
@@ -495,20 +501,6 @@ function invalidatePlayback() {
     finish()
   }
   playQueue = Promise.resolve()
-}
-
-function workletUrl() {
-  const source = `
-    class PcmCapture extends AudioWorkletProcessor {
-      process(inputs) {
-        const channel = inputs[0] && inputs[0][0]
-        if (channel) this.port.postMessage(new Float32Array(channel))
-        return true
-      }
-    }
-    registerProcessor('pcm-capture', PcmCapture)
-  `
-  return URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
 }
 
 function concat(left, right) {

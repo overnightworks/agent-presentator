@@ -175,10 +175,15 @@ From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
-is implemented here at all — see below. `BodySizePolicy`,
-`SecurityHeadersPolicy`, and `AuditSink` are taken with their defaults and
-stubbed until something here needs them. `CsrfPolicy` exempts the sessionless
-webhook prefix; its default protects every mutating path (13c).
+is implemented here at all — see below. `BodySizePolicy` and `AuditSink` are
+taken with their defaults and stubbed until something here needs them.
+`SecurityHeadersPolicy` is mounted: the lobby's `SecurityHeadersMiddleware`
+sends HSTS, a strict `Content-Security-Policy`, and a `Permissions-Policy` that
+grants only `microphone=(self)` — never the camera, which nothing in this
+product asks for — because the co-presenter deck's own component
+(`CoPresenter.vue`) is the one surface that calls `getUserMedia`, and only for
+audio. `CsrfPolicy` exempts the sessionless webhook prefix; its default
+protects every mutating path (13c).
 
 **No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is
