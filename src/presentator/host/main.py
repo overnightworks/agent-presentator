@@ -15,7 +15,9 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig
 from webauth.liveness import IdleWindowLiveness
-from webauth.passwords import Argon2idPasswordHasher
+from webauth.passwords import (  # noqa: TID251 - the host alone composes the hasher
+    Argon2idPasswordHasher,
+)
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 

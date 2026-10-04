@@ -69,6 +69,9 @@ ignore = [
     "CPY001",
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"webauth.passwords".msg = "Only the host names the hasher; it composes WebAuthConfig."
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
@@ -246,8 +249,9 @@ type = "forbidden"
 # and must read the installed config, sign and clear cookies, answer an
 # unauthenticated request, and read client identity those helpers need
 # (webauth.login, webauth.config, webauth.cookies, webauth.dependencies,
-# webauth.proxies, webauth.middleware). The host also names the library's
-# Argon2id hasher (webauth.passwords).
+# webauth.proxies, webauth.middleware). The host alone names the library's
+# Argon2id hasher (webauth.passwords): ruff's banned-api keeps it out of every
+# production module but host/main.py, which carries a rule-specific marker.
 source_modules = [
     "presentator.application",
     "presentator.ports",

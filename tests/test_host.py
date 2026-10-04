@@ -19,7 +19,9 @@ from webauth.cookies import (
     PLAIN_CSRF_COOKIE_NAME,
     PLAIN_SESSION_COOKIE_NAME,
 )
-from webauth.passwords import UnknownHashFormatError
+from webauth.passwords import (  # noqa: TID251 - pins the error a stale hash raises
+    UnknownHashFormatError,
+)
 
 from presentator.adapters.decks import (
     SqliteDeckStore,

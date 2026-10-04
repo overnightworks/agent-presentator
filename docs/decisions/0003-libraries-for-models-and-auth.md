@@ -124,7 +124,8 @@ Authority: [#181](https://github.com/overnightworks/agent-presentator/issues/181
 Hashing is no longer this repository's: the host constructs the library's
 `Argon2idPasswordHasher()` with its default OWASP profile (m=19 MiB, t=2,
 p=1), and this repository's own hasher and its hashing dependency are gone.
-`webauth.passwords` is therefore no longer a banned API. A hash the previous
+`webauth.passwords` stays a banned API everywhere but the host's composition,
+which carries the one rule-specific exception. A hash the previous
 hasher stored (Argon2id at 64 MiB, t=3, p=4) is not that profile, so a login
 against it fails loudly with `UnknownHashFormatError` instead of reading as a
 wrong password, and the password has to be set again.
