@@ -30,7 +30,14 @@ from webauth.login import (
     login_attempt_budget,
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
-from webauth.policies import CsrfPolicy, PathRules
+from webauth.middleware.security_headers import SecurityHeadersMiddleware
+from webauth.policies import (
+    CacheControlRule,
+    CsrfPolicy,
+    PathRules,
+    SecurityHeadersPolicy,
+    default_content_security_policy,
+)
 from webauth.proxies import client_user_agent, resolve_client_ip
 
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
@@ -86,12 +93,15 @@ _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
 )
 _LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
-
-
-async def _no_store(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
-    return response
+# Nothing in the lobby or a built talk needs an inline script or style, an
+# external script host, or a frame: every asset ships under `/static` or a
+# deck's own build directory, both served from this origin. The microphone
+# grant is the co-presenter's own: never the camera, never a page's location.
+_SECURITY_HEADERS: Final = SecurityHeadersPolicy(
+    content_security_policy=default_content_security_policy([]),
+    permissions_policy="camera=(), microphone=(self), geolocation=()",
+    cache_control_rules=(CacheControlRule(PathRules(prefixes=("/",)), "no-store"),),
+)
 
 
 def _is_a_stylesheet(path: str) -> bool:
@@ -345,11 +355,11 @@ def create_lobby(
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the
-    # guard's redirect and a refusal, carries `no-store`.
+    # guard's redirect and a refusal, carries the security headers.
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
     lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=_no_store)
+    lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.log_in, methods=["POST"])

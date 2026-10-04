@@ -4,11 +4,13 @@ import logging
 import re
 from datetime import timedelta
 from http import HTTPStatus
+from pathlib import Path
 
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
+from webauth.middleware.security_headers import STRICT_TRANSPORT_SECURITY
 
 from presentator.api.hooks import hook_address
 from presentator.application.identity import (
@@ -16,22 +18,41 @@ from presentator.application.identity import (
     FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
 )
+from presentator.contracts.decks import Build, Deck, talk_address
 from presentator.contracts.models import Account, Role
 from tests.api.lobby import (
+    ADMIN,
     ENGLISH,
+    NOW,
+    SOURCE_ID,
     TYPED_WORDS,
     USERNAME,
+    GivenDecks,
     Lobby,
+    a_configured_source,
     a_lobby,
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
+    a_signed_in_lobby,
     a_user_store,
 )
-from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
+from tests.application.fakes import (
+    FakeDeckStore,
+    ReversibleHasher,
+    UserStoreThatLostTheRace,
+)
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _WINNERS_HASH = "the hash the winning first start stored"
 _WRONG_WORDS = "guessed"
+_DECK_SLUG = "hello-deck"
+_DECK_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+# What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
+_BUILT_TALK = Path(__file__).parent / "built_talk"
+_EXPORTED_PDF = Path(__file__).parent / "exported_deck.pdf"
+# The lobby's own policy (`presentator.api.auth`): never the camera, never a
+# page's own location, only the co-presenter's microphone.
+_MIC_ONLY_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=()"
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -45,6 +66,35 @@ def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
         ),
     )
     return store
+
+
+def a_signed_in_lobby_with_a_built_deck() -> TestClient:
+    """A signed-in lobby whose one deck already has a built talk to serve."""
+    store = FakeDeckStore()
+    store.put(
+        Deck(
+            slug=_DECK_SLUG,
+            title="Hello Co-Presenter",
+            changed_at=NOW,
+            owner_id=ADMIN,
+            source_id=SOURCE_ID,
+            commit=_DECK_COMMIT,
+            build=None,
+            attempt=None,
+        ),
+    )
+    store.put_build(
+        _DECK_SLUG,
+        Build(
+            directory=_BUILT_TALK,
+            pdf=_EXPORTED_PDF,
+            commit=_DECK_COMMIT,
+            built_at=NOW,
+        ),
+    )
+    return a_signed_in_lobby(
+        GivenDecks(store=store, source=a_configured_source("git@heimserver:decks.git")),
+    )
 
 
 def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
@@ -249,8 +299,47 @@ def test_the_throttle_lets_go_once_the_failures_age_out(
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(
     signed_in_lobby: Lobby,
 ) -> None:
+    refusal = signed_in_lobby.log_in(password=_WRONG_WORDS)
+
     assert signed_in_lobby.client.get("/").headers["cache-control"] == "no-store"
     assert signed_in_lobby.client.get("/login").headers["cache-control"] == "no-store"
+    assert refusal.headers["cache-control"] == "no-store"
+
+
+def test_a_lobby_reached_over_https_sends_strict_transport_security(
+    signed_in_lobby: Lobby,
+) -> None:
+    answer = signed_in_lobby.client.get("/")
+
+    assert answer.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
+
+
+def test_a_lobby_reached_over_plain_http_sends_no_hsts() -> None:
+    lobby = a_lobby(cookie_secure=False)
+    lobby.set_up_admin()
+
+    answer = lobby.client.get("/")
+
+    assert "strict-transport-security" not in answer.headers
+
+
+def test_the_permissions_policy_admits_only_the_copresenters_own_microphone(
+    signed_in_lobby: Lobby,
+) -> None:
+    answer = signed_in_lobby.client.get("/")
+
+    assert answer.headers["permissions-policy"] == _MIC_ONLY_PERMISSIONS_POLICY
+
+
+def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
+    lobby = a_signed_in_lobby_with_a_built_deck()
+
+    talk = lobby.get(talk_address(_DECK_SLUG))
+
+    assert talk.status_code == HTTPStatus.OK
+    assert talk.headers["cache-control"] == "no-store"
+    assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
+    assert talk.headers["permissions-policy"] == _MIC_ONLY_PERMISSIONS_POLICY
 
 
 def test_logging_out_ends_the_session_and_the_old_cookie_cannot_come_back(

@@ -106,6 +106,10 @@ A_BROWSERS_ADDRESS: Final = "https://testserver"
 # Starlette's test client opens a socket at its own `ws://` address unless it
 # is given a whole one, so a socket test names this one.
 A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
+# What a test naming `cookie_secure=False` drives instead: the plain-http
+# origin production's own `cookie_secure` derivation picks for an http
+# `public_origin` (`host/main.py`).
+AN_INSECURE_ORIGIN: Final = "http://testserver"
 
 
 class UnavailableSpeech:
@@ -191,8 +195,14 @@ def a_user_store(*people: Account) -> FakeUserStore:
 def a_web_auth(
     *,
     hasher: ReversibleHasher,
+    cookie_secure: bool = True,
 ) -> WebAuthConfig:
-    """The library configuration a route test runs, over the fake hasher."""
+    """The library configuration a route test runs, over the fake hasher.
+
+    `cookie_secure` stands in for the production derivation from
+    `public_origin`'s scheme (`host/main.py`): a route test names the origin
+    it wants driven, rather than driving a real https-or-not split.
+    """
     idle_seconds = int(IDLE_WINDOW.total_seconds())
     failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
@@ -209,6 +219,7 @@ def a_web_auth(
         login_lockout_window_seconds=failure_seconds,
         login_rate_window_seconds=failure_seconds,
         cookie_samesite="lax",
+        cookie_secure=cookie_secure,
         session_cache=None,
     )
 
@@ -258,6 +269,7 @@ def a_lobby_app(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     copresenter: CoPresenterSurface | None = None,
+    cookie_secure: bool = True,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     clock = FrozenClock(instant=NOW)
@@ -341,7 +353,7 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(hasher=hasher),
+            config=a_web_auth(hasher=hasher, cookie_secure=cookie_secure),
         ),
         private=LobbyPrivate(
             copresenter=copresenter,
@@ -361,16 +373,18 @@ def a_lobby(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     voice: VoiceStatusUse | None = None,
+    cookie_secure: bool = True,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
     lobby, clock = a_lobby_app(
         users=users,
         catalogs=catalogs,
         given=replace(given, voice=voice),
+        cookie_secure=cookie_secure,
     )
     client = TestClient(
         lobby,
-        base_url=A_BROWSERS_ADDRESS,
+        base_url=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
         follow_redirects=False,
         headers=A_BROWSERS_HEADERS,
     )

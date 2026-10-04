@@ -39,6 +39,14 @@ a `Secure` cookie back over plain http. A `same-site` or `none`
 `Sec-Fetch-Site` POST, and a form POST carrying neither `Sec-Fetch-Site` nor
 `Origin`, are refused.
 
+Every answer, including a login redirect and a refusal, carries `webauth`'s
+`SecurityHeadersMiddleware` headers: `Cache-Control: no-store`, a
+`Content-Security-Policy` that admits only this origin's own scripts, styles,
+and connections, and a `Permissions-Policy` that grants `microphone=(self)` for
+the co-presenter deck and nothing else. `Strict-Transport-Security` follows the
+same `PRESENTATOR_PUBLIC_ORIGIN` scheme as `Secure`: an `https://` origin sends
+it, an `http://` origin does not.
+
 A deck is code, so an instance builds every deck in a container of its own and
 refuses to start where it cannot ("Building the decks"). A run from a checkout,
 on a machine whose decks are all your own, is the one place that says otherwise:
