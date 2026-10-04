@@ -44,6 +44,17 @@ class UserStore(Protocol):
     def first_admin(self) -> User | None:
         """Whoever set this instance up, and therefore owns what it configures."""
 
+    @abstractmethod
+    def replace_password_and_end_sessions(
+        self, user_id: str, password_hash: str
+    ) -> int:
+        """Set a new hash and end every session of that account, or neither.
+
+        Both happen inside the one transaction the adapter holds, so a session
+        a trigger refuses to drop leaves the old hash standing too. Returns
+        how many sessions ended.
+        """
+
 
 class SessionRecordStore(Protocol):
     """Server-side session rows; logout deletes the row, not only the cookie."""
