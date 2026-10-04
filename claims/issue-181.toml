@@ -3,6 +3,6 @@ agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
 role = "builder"
 base = "14d642b1831df96af93ceff358a9d735bafd723d"
 branch = "claude/issue-181-p4-webauth-hasher"
-scope = ["docs/decisions", "pyproject.toml", "src/presentator/adapters/identity.py", "src/presentator/host/main.py", "tests", "uv.lock"]
+scope = ["docs/PRODUCT.md", "docs/decisions", "pyproject.toml", "src/presentator/adapters/identity.py", "src/presentator/host/main.py", "tests", "uv.lock"]
 opened_commit = "177da0171d27edb2ead3759b211900b716d790a7"
 whole_reason = "Ein Hasher-Wechsel über Adapter und Host samt Abhängigkeit, ADR und Tests."
