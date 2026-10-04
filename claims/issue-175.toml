@@ -1,8 +1,0 @@
-claim_id = "39585538a59f438db6dab8967be33437"
-agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
-role = "builder"
-base = "bcd7e9e54ea006f670be25e3647e3ced27fa27dc"
-branch = "claude/issue-175-p5a-lobby-static-scripts"
-scope = ["frontend/package.json", "frontend/pnpm-lock.yaml", "frontend/vitest.config.ts", "src/presentator/api/static", "src/presentator/api/templates", "tests"]
-opened_commit = "b86cab959a428dfc1adbd65cae903daac01494e4"
-whole_reason = "Vier Templates, drei neue statische Dateien und ein API-Test – verhaltenserhaltend, eine Scheibe."
