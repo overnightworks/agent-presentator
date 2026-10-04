@@ -17,8 +17,11 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import HTTPConnection
 from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
-from webauth.cookies import verify_session_cookie
-from webauth.dependencies import LoginRedirect, unauthenticated_response
+from webauth.dependencies import (
+    LoginRedirect,
+    session_id_from_request,
+    unauthenticated_response,
+)
 from webauth.login import (
     LoginOutcome,
     clear_session_cookies,
@@ -41,8 +44,6 @@ from presentator.application.identity import Identity
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import Account, FirstStartClosedError, User
 from presentator.contracts.text import LobbyText
-
-SESSION_COOKIE: Final = "presentator_session"
 
 
 @dataclass
@@ -105,13 +106,14 @@ def _is_a_stylesheet(path: str) -> bool:
     )
 
 
-def _session_id_from_cookie(request: HTTPConnection) -> str:
-    """The raw session id a signed cookie names, or "" for none or a forged one."""
-    cookie_value = request.cookies.get(SESSION_COOKIE, "")
-    if not cookie_value:
-        return ""
-    signing_key = web_auth_config(cast("Request", request)).signing_key
-    return verify_session_cookie(cookie_value, signing_key) or ""
+def _session_id_from_cookie(connection: HTTPConnection) -> str:
+    """The raw session id the one signed cookie names, or "" for none.
+
+    A forged, oversized, or doubled cookie names none either: the library
+    refuses to pick between two same-named cookies.
+    """
+    request = cast("Request", connection)
+    return session_id_from_request(request, web_auth_config(request)) or ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -197,7 +199,6 @@ class _Surfaces:
         # too, not only in the session row the store holds.
         issue_session_cookies(
             answer,
-            request,
             connection.session_id,
             web_auth_config(request),
         )
@@ -322,7 +323,7 @@ class _Surfaces:
 
     def _signed_in(self, request: Request, session_id: str) -> Response:
         answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
-        issue_session_cookies(answer, request, session_id, web_auth_config(request))
+        issue_session_cookies(answer, session_id, web_auth_config(request))
         return answer
 
 

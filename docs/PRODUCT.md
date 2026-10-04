@@ -48,7 +48,7 @@ The first start of an empty instance creates the admin at `/setup`, and that
 page is gone as soon as an account exists; there is no other way to an account
 yet. `/login` opens a session that SQLite holds, carried by a signed cookie
 that expires after twelve idle hours and slides forward on every request.
-`webauth` v0.3.1 judges credentials, counts the throttle, owns the cookie and
+`webauth` v0.11.0 judges credentials, counts the throttle, owns the cookie and
 CSRF-origin mechanism, and formats the refusal for a missing session. The
 host's `Identity` still decides which SQLite session names a signed-in person.
 A signed-out browser navigation goes to `/login` with the requested path and

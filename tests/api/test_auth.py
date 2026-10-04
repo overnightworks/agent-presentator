@@ -8,8 +8,8 @@ from http import HTTPStatus
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
+from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 
-from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
 from presentator.application.identity import (
     FAILURE_WINDOW,
@@ -24,7 +24,6 @@ from tests.api.lobby import (
     Lobby,
     a_lobby,
     a_lobby_app,
-    a_lobby_behind_a_trusted_proxy,
     a_lobby_that_claims_no_origin_of_its_own,
     a_user_store,
 )
@@ -33,7 +32,6 @@ from tests.application.fakes import ReversibleHasher, UserStoreThatLostTheRace
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _WINNERS_HASH = "the hash the winning first start stored"
 _WRONG_WORDS = "guessed"
-_TUNNEL_PEER = "127.0.0.1"
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -108,20 +106,25 @@ def test_the_session_cookie_travels_locked_down(lobby: Lobby) -> None:
     assert "HttpOnly" in cookie
     assert "SameSite=lax" in cookie
     assert f"Max-Age={int(IDLE_WINDOW.total_seconds())}" in cookie
-    assert "Secure" not in cookie
+    assert "Secure" in cookie
 
 
-def test_a_session_behind_a_trusted_proxy_is_marked_secure() -> None:
-    """`Secure` follows the connection the library sees, not a setting.
+def test_a_doubled_session_cookie_leads_to_the_login(signed_in_lobby: Lobby) -> None:
+    """Two same-named cookies are refused rather than one of them picked.
 
-    The test peer stands in `trusted_proxies`, so `X-Forwarded-Proto: https`
-    is believed, exactly as it would be for the tunnel client (ADR 0007).
+    A sibling subdomain can plant a second cookie under the session's name;
+    choosing either would let it decide whose account the request runs in.
     """
-    lobby = a_lobby_behind_a_trusted_proxy(peer=_TUNNEL_PEER)
+    genuine = signed_in_lobby.client.cookies[DEFAULT_SESSION_COOKIE_NAME]
+    doubled = f"{DEFAULT_SESSION_COOKIE_NAME}={genuine}"
 
-    created = lobby.set_up_admin(headers={"x-forwarded-proto": "https"})
+    answer = signed_in_lobby.client.get(
+        "/",
+        headers={"cookie": f"{doubled}; {doubled}"},
+    )
 
-    assert "Secure" in created.headers["set-cookie"]
+    assert answer.status_code == HTTPStatus.FOUND
+    assert answer.headers["location"] == "/login?next=%2F"
 
 
 def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> None:
@@ -184,7 +187,7 @@ def test_a_deactivated_account_hears_the_same_sentence() -> None:
 
     assert refused.status_code == HTTPStatus.OK
     assert ENGLISH.login_refused in refused.text
-    assert SESSION_COOKIE not in lobby.client.cookies
+    assert DEFAULT_SESSION_COOKIE_NAME not in lobby.client.cookies
 
 
 @pytest.mark.parametrize(
@@ -253,14 +256,14 @@ def test_every_answer_from_the_lobby_refuses_the_browser_cache(
 def test_logging_out_ends_the_session_and_the_old_cookie_cannot_come_back(
     signed_in_lobby: Lobby,
 ) -> None:
-    cookie = signed_in_lobby.client.cookies[SESSION_COOKIE]
+    cookie = signed_in_lobby.client.cookies[DEFAULT_SESSION_COOKIE_NAME]
 
     logged_out = signed_in_lobby.client.post("/logout")
 
     assert logged_out.status_code == HTTPStatus.SEE_OTHER
     assert logged_out.headers["location"] == "/login"
-    assert SESSION_COOKIE not in signed_in_lobby.client.cookies
-    signed_in_lobby.client.cookies.set(SESSION_COOKIE, cookie)
+    assert DEFAULT_SESSION_COOKIE_NAME not in signed_in_lobby.client.cookies
+    signed_in_lobby.client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, cookie)
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
 
 
@@ -300,7 +303,7 @@ def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
 
     assert answer.status_code == HTTPStatus.FOUND
     assert answer.headers["location"] == "/login"
-    assert SESSION_COOKIE not in lobby.client.cookies
+    assert DEFAULT_SESSION_COOKIE_NAME not in lobby.client.cookies
 
 
 @pytest.mark.parametrize(

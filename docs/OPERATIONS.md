@@ -19,17 +19,23 @@ one address inside five minutes regardless of name, are throttled; the page
 says the same sentence it says for a wrong password. A session lasts twelve
 idle hours and slides forward on every request; logging out deletes the row.
 
-The session cookie itself — signed, set, cleared, `SameSite=Lax`, `Secure`
-whenever the request is https — is `webauth` v0.3.1's mechanism
-(`issue_session_cookies` / `clear_session_cookies`), as are the fail-closed
-CSRF-origin policy and the browser-or-JSON answer for a missing session. The
-host's `Identity` remains the authority that decides whether the cookie's
+The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
+`webauth` v0.11.0's mechanism (`issue_session_cookies` /
+`clear_session_cookies` / `session_id_from_request`), as are the fail-closed
+CSRF-origin policy, the browser-or-JSON answer for a missing session, and the
+refusal of a request that carries the session cookie twice: it is treated as
+signed out rather than letting either copy decide whose account it runs in.
+The host's `Identity` remains the authority that decides whether the cookie's
 session id names a person. A signed-out browser navigation is redirected to
 `/login?next=<requested-path-and-query>`; a JSON request receives 401. Every
 mutating path is protected unless it is exempted, and only the sessionless
-webhook prefix `/sources/` is exempt. `Secure` follows the connection the
-library sees, not a setting: a direct TLS run reports it itself, and behind a
-proxy it needs that proxy trusted (below) to read `X-Forwarded-Proto`. A
+webhook prefix `/sources/` is exempt. `Secure` follows
+`PRESENTATOR_PUBLIC_ORIGIN`, not the connection: an `https://` origin marks
+both cookies `Secure` and gives them the library's host-only names
+`__Host-session_id` and `__Host-csrf_token`, which only this exact host can
+set; an `http://` origin, as in a run from a checkout, drops `Secure` and
+keeps the plain names `session_id` and `csrf_token`, because a browser does
+not send a `Secure` cookie back over plain http. A
 `same-site` or `none` `Sec-Fetch-Site` POST, and a form POST carrying neither
 `Sec-Fetch-Site` nor `Origin`, are refused.
 
@@ -54,16 +60,15 @@ mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 (empty: a comma-separated list of addresses or networks). An empty instance
 offers `/setup` once, to create the admin; from then on that page is closed.
 
-The address budget keys on the ASGI peer, and so does the session cookie's
-`Secure` flag. Empty `PRESENTATOR_TRUSTED_PROXIES` is correct for a direct
+The address budget keys on the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES` is correct for a direct
 run. Behind the tunnel of
 [ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
 connects from localhost, so that peer is `127.0.0.1` and every login through
 the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 (`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`:
 each real address gets its own budget instead of sharing the tunnel's one,
-and the cookie is marked `Secure` for the https the tunnel client saw, not
-the plain http the app itself is served over. The guard against another
+and the fetch-now hook address the Sources page shows names the https the
+tunnel client saw, not the plain http the app itself is served over. The guard against another
 site's form does not depend on this list: a modern browser's own
 `Sec-Fetch-Site` decides it without reading the connection at all. A client
 old enough, or plain enough, to send neither `Sec-Fetch-Site` nor `Origin`
@@ -209,8 +214,7 @@ docker compose up -d
 ```
 
 Without that line the instance answers every request against the connection it
-has — http, one login budget for the whole tunnel, and a session cookie
-without `Secure` despite the real client's https; the form guard itself still
+has — http, and one login budget for the whole tunnel; the form guard itself still
 passes a real browser, which sends `Sec-Fetch-Site` regardless of what proxy
 the connection came through. After a change to the subnet, what the running
 container's gateway really is:
@@ -507,9 +511,10 @@ Compose mounts that directory read-write at `/run/presentator-copresenter` and
 hands Presentator the fixed `copresenter.sock` path. Only `127.0.0.1:8000` is
 published. The overlay uses relative `/copresenter` routes; Presentator checks
 its existing active session and the exact WebSocket Origin before opening the
-socket. `/ask` also carries the session's `csrf_token` cookie in
-`x-csrf-token`. Logout, expiry, deactivation, or a session-store failure closes
-the hearing lease and an ongoing answer within one second.
+socket. `/ask` also carries the session's CSRF cookie (`__Host-csrf_token`
+over https, `csrf_token` over plain http) in `x-csrf-token`. Logout, expiry,
+deactivation, or a session-store failure closes the hearing lease and an
+ongoing answer within one second.
 
 ## The fetch-now hook
 

@@ -26,7 +26,6 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.api.auth import (
-    SESSION_COOKIE,
     InstalledAuth,
     LobbyPrivate,
     create_lobby,
@@ -101,7 +100,12 @@ TYPED_WORDS: Final = "the words only this test types"
 # test proving what an absent or a foreign claim does overrides these
 # explicitly (issue #105).
 A_BROWSERS_HEADERS: Final = {"accept": "text/html", "sec-fetch-site": "same-origin"}
-_NO_TRUSTED_PROXIES: Final = TrustedProxies()
+# The lobby's cookies carry `Secure`, and a browser sends a `Secure` cookie back
+# only over https, so every browser a test drives reaches the lobby over https.
+A_BROWSERS_ADDRESS: Final = "https://testserver"
+# Starlette's test client opens a socket at its own `ws://` address unless it
+# is given a whole one, so a socket test names this one.
+A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
 
 
 class UnavailableSpeech:
@@ -187,14 +191,13 @@ def a_user_store(*people: Account) -> FakeUserStore:
 def a_web_auth(
     *,
     hasher: ReversibleHasher,
-    trusted_proxies: TrustedProxies = _NO_TRUSTED_PROXIES,
 ) -> WebAuthConfig:
     """The library configuration a route test runs, over the fake hasher."""
     idle_seconds = int(IDLE_WINDOW.total_seconds())
     failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
         session_secret=SecretStr("t" * 32),
-        trusted_proxies=trusted_proxies,
+        trusted_proxies=TrustedProxies(),
         password_hasher=hasher,
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset({"testserver"}),
@@ -205,7 +208,6 @@ def a_web_auth(
         login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
         login_lockout_window_seconds=failure_seconds,
         login_rate_window_seconds=failure_seconds,
-        session_cookie_name=SESSION_COOKIE,
         cookie_samesite="lax",
         session_cache=None,
     )
@@ -252,7 +254,6 @@ NO_DECKS: Final = GivenDecks()
 
 def a_lobby_app(
     *,
-    trusted_proxies: TrustedProxies = _NO_TRUSTED_PROXIES,
     users: FakeUserStore | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
@@ -340,7 +341,7 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(hasher=hasher, trusted_proxies=trusted_proxies),
+            config=a_web_auth(hasher=hasher),
         ),
         private=LobbyPrivate(
             copresenter=copresenter,
@@ -367,7 +368,12 @@ def a_lobby(
         catalogs=catalogs,
         given=replace(given, voice=voice),
     )
-    client = TestClient(lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS)
+    client = TestClient(
+        lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
     return Lobby(client=client, clock=clock)
 
 
@@ -382,23 +388,11 @@ def a_lobby_that_claims_no_origin_of_its_own(
     does needs a client that makes no claim of its own to be overridden.
     """
     lobby, clock = a_lobby_app(users=users)
-    client = TestClient(lobby, follow_redirects=False, headers={"accept": "text/html"})
-    return Lobby(client=client, clock=clock)
-
-
-def a_lobby_behind_a_trusted_proxy(*, peer: str) -> Lobby:
-    """A browser reaching this lobby through a proxy this config trusts.
-
-    The library reads `Secure` off the connection itself (issue #105): a
-    test proving it needs a peer the config names in `trusted_proxies` and a
-    client that really connects from that peer, not only a header claiming it.
-    """
-    lobby, clock = a_lobby_app(trusted_proxies=TrustedProxies.parse(peer))
     client = TestClient(
         lobby,
+        base_url=A_BROWSERS_ADDRESS,
         follow_redirects=False,
-        client=(peer, 50000),
-        headers=A_BROWSERS_HEADERS,
+        headers={"accept": "text/html"},
     )
     return Lobby(client=client, clock=clock)
 

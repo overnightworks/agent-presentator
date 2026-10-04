@@ -13,6 +13,12 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from webauth.cookies import (
+    DEFAULT_CSRF_COOKIE_NAME,
+    DEFAULT_SESSION_COOKIE_NAME,
+    PLAIN_CSRF_COOKIE_NAME,
+    PLAIN_SESSION_COOKIE_NAME,
+)
 
 from presentator.adapters.decks import (
     SqliteDeckStore,
@@ -24,7 +30,6 @@ from presentator.adapters.identity import (
 )
 from presentator.adapters.secrets import secret_box
 from presentator.adapters.sqlite import rows
-from presentator.api.auth import SESSION_COOKIE
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import FAILURES_BEFORE_THROTTLE
@@ -36,7 +41,7 @@ from presentator.host.config import (
     load_settings,
 )
 from presentator.host.main import Instance
-from tests.api.lobby import A_BROWSERS_HEADERS
+from tests.api.lobby import A_BROWSERS_ADDRESS, A_BROWSERS_HEADERS
 from tests.conftest import (
     EXAMPLE_SLUG,
     EXAMPLE_TITLE,
@@ -138,14 +143,20 @@ def a_real_instance() -> Instance:
 def a_real_lobby() -> TestClient:
     """A browser at that stack."""
     return TestClient(
-        a_real_instance().lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+        a_real_instance().lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
     )
 
 
 def signed_in(instance: Instance) -> TestClient:
     """A browser at that stack with the instance's admin created and signed in."""
     client = TestClient(
-        instance.lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+        instance.lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
     )
     client.post(
         "/setup",
@@ -183,6 +194,7 @@ def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
     """A browser whose ASGI peer is an address, so a proxy list can trust it."""
     return TestClient(
         instance.lobby,
+        base_url=A_BROWSERS_ADDRESS,
         follow_redirects=False,
         client=(peer, 50000),
         headers=A_BROWSERS_HEADERS,
@@ -226,7 +238,7 @@ def test_without_trusted_proxies_the_login_budget_keys_on_the_peer() -> None:
     )
 
     assert still_the_peer.status_code == HTTPStatus.OK
-    assert SESSION_COOKIE not in still_the_peer.cookies
+    assert DEFAULT_SESSION_COOKIE_NAME not in still_the_peer.cookies
 
 
 def test_a_trusted_proxy_makes_the_forwarded_client_the_one_the_budget_counts(
@@ -404,13 +416,13 @@ def test_the_real_stack_signs_a_person_in_and_out_and_keeps_the_password_quiet(
         assert created.status_code == HTTPStatus.SEE_OTHER
         assert _PERSON in real_lobby.get("/").text
 
-        signed_in_cookie = real_lobby.cookies[SESSION_COOKIE]
+        signed_in_cookie = real_lobby.cookies[DEFAULT_SESSION_COOKIE_NAME]
         assert real_lobby.post("/logout").status_code == HTTPStatus.SEE_OTHER
 
-        real_lobby.cookies.set(SESSION_COOKIE, signed_in_cookie)
+        real_lobby.cookies.set(DEFAULT_SESSION_COOKIE_NAME, signed_in_cookie)
         assert real_lobby.get("/").status_code == HTTPStatus.FOUND
 
-        real_lobby.cookies.delete(SESSION_COOKIE)
+        real_lobby.cookies.delete(DEFAULT_SESSION_COOKIE_NAME)
         signed_in_again = real_lobby.post(
             "/login",
             data={"username": _PERSON, "password": _TYPED_WORDS},
@@ -419,6 +431,53 @@ def test_the_real_stack_signs_a_person_in_and_out_and_keeps_the_password_quiet(
         assert real_lobby.get("/").is_success
 
     assert _TYPED_WORDS not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("origin", "cookie_names", "secure"),
+    [
+        pytest.param(
+            "https://presentator.test",
+            (DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME),
+            True,
+            id="https-origin",
+        ),
+        pytest.param(
+            "http://presentator.test",
+            (PLAIN_SESSION_COOKIE_NAME, PLAIN_CSRF_COOKIE_NAME),
+            False,
+            id="http-origin",
+        ),
+    ],
+)
+def test_the_cookies_are_secure_and_host_only_exactly_when_the_origin_is_https(
+    environment: pytest.MonkeyPatch,
+    *,
+    origin: str,
+    cookie_names: tuple[str, str],
+    secure: bool,
+) -> None:
+    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
+    browser = TestClient(
+        a_real_instance().lobby,
+        base_url=origin,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
+
+    created = browser.post(
+        "/setup",
+        data={
+            "username": _PERSON,
+            "password": _TYPED_WORDS,
+            "repeated_password": _TYPED_WORDS,
+        },
+    )
+
+    cookies = created.headers.get_list("set-cookie")
+    assert [cookie.split("=", 1)[0] for cookie in cookies] == list(cookie_names)
+    assert all(("; Secure" in cookie) is secure for cookie in cookies)
+    assert browser.get("/").is_success
 
 
 @pytest.mark.usefixtures("environment")
@@ -431,7 +490,7 @@ def test_the_real_stack_refuses_a_login_nobody_has_an_account_for() -> None:
     )
 
     assert refused.status_code == HTTPStatus.OK
-    assert SESSION_COOKIE not in real_lobby.cookies
+    assert DEFAULT_SESSION_COOKIE_NAME not in real_lobby.cookies
 
 
 @pytest.mark.usefixtures("bare_environment")
@@ -468,7 +527,10 @@ def a_signed_in_instance() -> TestClient:
 def logged_in(instance: Instance) -> TestClient:
     """A browser at that stack, signed in as the account it already carries."""
     client = TestClient(
-        instance.lobby, follow_redirects=False, headers=A_BROWSERS_HEADERS
+        instance.lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
     )
     client.post("/login", data={"username": _PERSON, "password": _TYPED_WORDS})
     return client

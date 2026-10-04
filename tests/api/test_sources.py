@@ -36,6 +36,7 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role
 from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
     ADMIN,
     ENGLISH,
@@ -494,8 +495,18 @@ def two_admin_sessions(
     app, _ = a_lobby_app(
         users=a_user_store(*accounts),
     )
-    creator = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
-    other = TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS)
+    creator = TestClient(
+        app,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
+    other = TestClient(
+        app,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
     creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
     other.post(
         "/login",

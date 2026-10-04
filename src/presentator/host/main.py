@@ -8,6 +8,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI
@@ -63,7 +64,6 @@ from presentator.adapters.preferences import (
 from presentator.adapters.secrets import connection_fingerprint_key, secret_box
 from presentator.adapters.speech import UdsSpeech
 from presentator.api.auth import (
-    SESSION_COOKIE,
     InstalledAuth,
     LobbyPrivate,
     create_lobby,
@@ -132,6 +132,7 @@ def build_instance(settings: Settings) -> Instance:
         hasher=hasher,
         liveness=liveness,
         trusted_proxies=settings.trusted_proxies,
+        public_origin=settings.public_origin,
     )
     # One box for both directions: what the store writes down is what the
     # resolver opens at the pull, and neither picks its own key.
@@ -269,8 +270,14 @@ def _web_auth_config(
     hasher: Argon2PasswordHasher,
     liveness: IdleWindowLiveness,
     trusted_proxies: str,
+    public_origin: str,
 ) -> WebAuthConfig:
-    """The library configuration this host runs: Argon2id, no Redis, last_seen."""
+    """The library configuration this host runs: Argon2id, no Redis, last_seen.
+
+    The cookies carry `Secure`, and the library's `__Host-` names, exactly when
+    the origin people reach the lobby under is https: a browser would not send
+    a `Secure` cookie back over plain http.
+    """
     idle_seconds = int(IDLE_WINDOW.total_seconds())
     failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
@@ -286,8 +293,8 @@ def _web_auth_config(
         login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
         login_lockout_window_seconds=failure_seconds,
         login_rate_window_seconds=failure_seconds,
-        session_cookie_name=SESSION_COOKIE,
         cookie_samesite="lax",
+        cookie_secure=urlsplit(public_origin).scheme == "https",
         session_cache=None,
     )
 

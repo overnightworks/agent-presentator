@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.application.copresenter import CoPresenterUse
@@ -33,7 +34,14 @@ from presentator.contracts.copresenter import (
     Sentence,
 )
 from presentator.contracts.models import Account, Role, User
-from tests.api.lobby import A_BROWSERS_HEADERS, TYPED_WORDS, USERNAME, a_lobby_app
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_BROWSERS_HEADERS,
+    A_BROWSERS_SOCKET_ADDRESS,
+    TYPED_WORDS,
+    USERNAME,
+    a_lobby_app,
+)
 from tests.application.fakes import FakeUserStore, FrozenClock, ReversibleHasher
 
 if TYPE_CHECKING:
@@ -46,6 +54,7 @@ if TYPE_CHECKING:
 
 PUBLIC_ORIGIN = "https://presentator.test"
 QUESTION = {"said": "Was ist wichtig?", "slide": 2, "language": "de"}
+HEARING = f"{A_BROWSERS_SOCKET_ADDRESS}/copresenter/hear?language=de"
 POLICY_VIOLATION = 1008
 UNSUPPORTED_DATA = 1003
 INTERNAL_ERROR = 1011
@@ -188,7 +197,12 @@ def a_copresenter_lobby(
         ),
     )
     return (
-        TestClient(app, follow_redirects=False, headers=A_BROWSERS_HEADERS),
+        TestClient(
+            app,
+            base_url=A_BROWSERS_ADDRESS,
+            follow_redirects=False,
+            headers=A_BROWSERS_HEADERS,
+        ),
         private,
         clock,
     )
@@ -209,7 +223,7 @@ def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> Non
     client, private, _clock = a_copresenter_lobby()
 
     signed_out = client.get("/copresenter/who", headers={"accept": "application/json"})
-    client.cookies.set("presentator_session", "forged")
+    client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, "forged")
     forged = client.get("/copresenter/who", headers={"accept": "application/json"})
 
     assert signed_out.status_code == HTTPStatus.UNAUTHORIZED
@@ -220,11 +234,11 @@ def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> Non
         if cookie is None:
             client.cookies.clear()
         else:
-            client.cookies.set("presentator_session", cookie)
+            client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, cookie)
         with (
             pytest.raises(WebSocketDisconnect) as refused,
             client.websocket_connect(
-                "/copresenter/hear?language=de",
+                HEARING,
                 headers={"origin": PUBLIC_ORIGIN},
             ),
         ):
@@ -297,7 +311,7 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
     response = client.post(
         "/copresenter/ask",
         json=QUESTION,
-        headers={"x-csrf-token": client.cookies["csrf_token"]},
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -322,7 +336,7 @@ def test_private_answer_events_preserve_the_public_stream_contract() -> None:
     response = client.post(
         "/copresenter/ask",
         json=QUESTION,
-        headers={"x-csrf-token": client.cookies["csrf_token"]},
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
     )
 
     assert response.text == (
@@ -336,7 +350,7 @@ def test_private_answer_events_preserve_the_public_stream_contract() -> None:
 def test_private_answer_refusal_and_clean_end_do_not_invent_an_answer() -> None:
     client, private, _clock = a_copresenter_lobby()
     sign_in(client)
-    csrf = {"x-csrf-token": client.cookies["csrf_token"]}
+    csrf = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
 
     private.answer_events = [AnswerUnavailable()]
     refused = client.post("/copresenter/ask", json=QUESTION, headers=csrf)
@@ -357,7 +371,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
     with (
         pytest.raises(WebSocketDisconnect) as foreign,
         client.websocket_connect(
-            "/copresenter/hear?language=de",
+            HEARING,
             headers={"origin": "https://foreign.test"},
         ),
     ):
@@ -367,7 +381,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
     with (
         pytest.raises(WebSocketDisconnect) as extra_query,
         client.websocket_connect(
-            "/copresenter/hear?language=de&credential=must-not-travel",
+            f"{HEARING}&credential=must-not-travel",
             headers={"origin": PUBLIC_ORIGIN},
         ),
     ):
@@ -376,7 +390,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
 
     with (
         client.websocket_connect(
-            "/copresenter/hear?language=de",
+            HEARING,
             headers={"origin": PUBLIC_ORIGIN},
         ) as socket,
     ):
@@ -393,7 +407,7 @@ def test_browser_disconnect_before_pcm_opens_no_private_hearing() -> None:
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ):
         pass
@@ -407,7 +421,7 @@ def test_an_active_session_keeps_hearing_after_an_authoritative_recheck() -> Non
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
@@ -429,7 +443,7 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"erstes pcm")
@@ -487,7 +501,7 @@ async def _send_hearing_event_to_a_disconnected_browser(client: TestClient) -> N
         "type": "websocket",
         "asgi": {"version": "3.0", "spec_version": "2.5"},
         "http_version": "1.1",
-        "scheme": "ws",
+        "scheme": "wss",
         "path": "/copresenter/hear",
         "raw_path": b"/copresenter/hear",
         "query_string": b"language=de",
@@ -496,11 +510,11 @@ async def _send_hearing_event_to_a_disconnected_browser(client: TestClient) -> N
             (b"origin", PUBLIC_ORIGIN.encode()),
             (
                 b"cookie",
-                f"presentator_session={client.cookies['presentator_session']}".encode(),
+                f"{DEFAULT_SESSION_COOKIE_NAME}={client.cookies[DEFAULT_SESSION_COOKIE_NAME]}".encode(),
             ),
         ],
         "client": ("testclient", 50000),
-        "server": ("testserver", 80),
+        "server": ("testserver", 443),
         "subprotocols": [],
         "state": {},
     }
@@ -515,7 +529,7 @@ def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
@@ -535,7 +549,7 @@ def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"first")
@@ -558,7 +572,7 @@ def test_browser_fallback_refuses_text_frames_without_reopening_private_hearing(
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"local hearing fails")
@@ -578,7 +592,7 @@ def test_unexpected_private_hearing_failure_closes_the_public_connection() -> No
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
@@ -601,11 +615,11 @@ def test_private_failures_expose_only_public_failure_shapes() -> None:
     answer = client.post(
         "/copresenter/ask",
         json=QUESTION,
-        headers={"x-csrf-token": client.cookies["csrf_token"]},
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
     )
     private.hearing_unavailable = True
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
@@ -622,7 +636,7 @@ def test_private_failures_expose_only_public_failure_shapes() -> None:
 def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
     client, private, _clock = a_copresenter_lobby()
     sign_in(client)
-    csrf = {"x-csrf-token": client.cookies["csrf_token"]}
+    csrf = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
 
     unknown_field = client.post(
         "/copresenter/ask",
@@ -648,9 +662,9 @@ def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> Non
 
     logged_out, logged_out_private, _clock = a_copresenter_lobby()
     sign_in(logged_out)
-    old_cookie = logged_out.cookies["presentator_session"]
+    old_cookie = logged_out.cookies[DEFAULT_SESSION_COOKIE_NAME]
     logged_out.post("/logout")
-    logged_out.cookies.set("presentator_session", old_cookie)
+    logged_out.cookies.set(DEFAULT_SESSION_COOKIE_NAME, old_cookie)
 
     assert logged_out.get("/copresenter/who").status_code == HTTPStatus.FOUND
     assert logged_out_private.readiness_calls == 0
@@ -731,7 +745,7 @@ def test_session_store_failure_refuses_websocket_admission_before_private_use() 
     with (
         pytest.raises(RuntimeError, match="session store unavailable"),
         client.websocket_connect(
-            "/copresenter/hear?language=de",
+            HEARING,
             headers={"origin": PUBLIC_ORIGIN},
         ),
     ):
@@ -755,7 +769,7 @@ def test_session_store_loss_cancels_an_accepted_answer_at_its_deadline() -> None
     response = client.post(
         "/copresenter/ask",
         json=QUESTION,
-        headers={"x-csrf-token": client.cookies["csrf_token"]},
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
     )
 
     assert response.status_code == HTTPStatus.OK
@@ -781,7 +795,7 @@ def test_deactivation_closes_an_admitted_hearing_before_private_use() -> None:
 
     with (
         client.websocket_connect(
-            "/copresenter/hear?language=de",
+            HEARING,
             headers={"origin": PUBLIC_ORIGIN},
         ) as socket,
         pytest.raises(WebSocketDisconnect) as ended,
@@ -811,7 +825,7 @@ def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
     response = client.post(
         "/copresenter/ask",
         json=QUESTION,
-        headers={"x-csrf-token": client.cookies["csrf_token"]},
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
     )
 
     assert response.status_code == HTTPStatus.OK
@@ -834,7 +848,7 @@ def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
@@ -865,7 +879,7 @@ def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
     sign_in(client)
 
     with client.websocket_connect(
-        "/copresenter/hear?language=de",
+        HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
