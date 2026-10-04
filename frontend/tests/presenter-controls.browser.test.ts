@@ -51,6 +51,19 @@ function mimeType(pathname: string) {
   }[extname(pathname)] ?? 'application/octet-stream'
 }
 
+// What `SecurityHeadersPolicy`'s own default sends in production
+// (`presentator.api.auth._SECURITY_HEADERS`, proven against the library's
+// exact values in `tests/api/test_auth.py`): served here too, so a built
+// talk's own `script-src 'self'` is what this test's AudioWorklet load runs
+// under, the way a browser reaching the real deployment would.
+const PRODUCTION_SECURITY_HEADERS = {
+  'content-security-policy': 'default-src \'none\'; script-src \'self\'; '
+    + 'style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com; '
+    + 'connect-src \'self\'; img-src \'self\' data: blob:; '
+    + 'media-src \'self\' blob:; font-src \'self\' https://fonts.gstatic.com; '
+    + 'manifest-src \'self\'; worker-src \'self\'; frame-ancestors \'none\'',
+}
+
 function boxesIntersect(first: { x: number, y: number, width: number, height: number }, second: { x: number, y: number, width: number, height: number }) {
   return first.x < second.x + second.width
     && second.x < first.x + first.width
@@ -78,14 +91,14 @@ async function serveFile(pathname: string, response: ServerResponse) {
   try {
     const info = candidate ? await stat(candidate) : null
     if (info?.isFile()) {
-      response.writeHead(200, { 'content-type': mimeType(candidate) })
+      response.writeHead(200, { 'content-type': mimeType(candidate), ...PRODUCTION_SECURITY_HEADERS })
       response.end(await readFile(candidate))
       return
     }
   } catch {
     // The SPA fallback below owns client-side routes.
   }
-  response.writeHead(200, { 'content-type': 'text/html' })
+  response.writeHead(200, { 'content-type': 'text/html', ...PRODUCTION_SECURITY_HEADERS })
   response.end(await readFile(join(buildDirectory, 'index.html')))
 }
 
@@ -180,9 +193,18 @@ async function installMediaFakes(page: Page) {
       value: { getUserMedia: async () => ({ getTracks: () => [track] }) },
       configurable: true,
     })
+    const RealAudioContext = window.AudioContext
     class FakeContext {
       sampleRate = 16000
-      audioWorklet = { addModule: async () => undefined }
+      audioWorklet = {
+        // Real, not faked: this is the one call the page's own CSP governs
+        // (`script-src 'self'`), so delegating to a real, unconnected
+        // `AudioContext`'s real `audioWorklet` proves the same-origin URL the
+        // component names actually loads under that policy. Everything past
+        // this point stays fake, because the component's own media graph
+        // never has to be real for these tests to drive it.
+        addModule: (moduleUrl: string) => new RealAudioContext().audioWorklet.addModule(moduleUrl),
+      }
       createMediaStreamSource() { return { connect: () => undefined } }
       close() { return Promise.resolve() }
     }

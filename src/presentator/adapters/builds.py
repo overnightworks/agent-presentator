@@ -20,6 +20,7 @@ holds.
 import json
 import logging
 import os
+import re
 import select
 import shutil
 import signal
@@ -71,6 +72,17 @@ _OUT: Final = "out"
 _TALK: Final = "talk"
 _PDF_FILE: Final = "deck.pdf"
 _UP: Final = ".."
+_PUBLIC: Final = "public"
+_FAVICON_FILE: Final = "favicon.svg"
+_FAVICON_SVG: Final = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<rect width="16" height="16" rx="3" fill="#1f2933"/></svg>\n'
+)
+# Slidev's headmatter is the first `---`-fenced block; a key stands at column
+# zero (`themeConfig:`'s own nested keys are indented), so only an unindented
+# `favicon:` line is the deck's own choice of one.
+_HEADMATTER: Final = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
+_FAVICON_KEY: Final = re.compile(r"(?m)^favicon:.*$")
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
@@ -730,7 +742,51 @@ class SlidevBuilds:
         except MirrorError as unreadable:
             _log.warning(_UNREADABLE_DECK, deck.slug, deck.commit, unreadable)
             return False
+        _own_the_favicon(into, base=talk_address(deck.slug))
         return True
+
+
+def _own_the_favicon(into: Path, *, base: str) -> None:
+    """Force this build's own same-origin favicon over whatever the deck named.
+
+    The lobby and every built talk share one Content-Security-Policy, whose
+    `img-src` admits only this origin: a deck's own favicon is almost
+    always a remote URL, which would silently fail to load under that policy
+    and could not be let in without widening it per deck. The build toolchain
+    owns the deployment's headers, so it owns this one asset too.
+    """
+    entry = into / SLIDES_FILE
+    entry.write_text(
+        markdown_naming_this_builds_favicon(
+            entry.read_text(encoding="utf-8"),
+            base=base,
+        ),
+        encoding="utf-8",
+    )
+    public = into / _PUBLIC
+    public.mkdir(exist_ok=True)
+    (public / _FAVICON_FILE).write_text(_FAVICON_SVG, encoding="utf-8")
+
+
+def markdown_naming_this_builds_favicon(markdown: str, *, base: str) -> str:
+    """The deck's own slides.md, its headmatter favicon replaced or added.
+
+    `base` names the deck's own address (`talk_address`), the one this build
+    is also told to serve from with `--base`: an href built on it still names
+    this build's favicon correctly however Slidev's own router has rewritten
+    the browser's current address, which a plain relative href would not.
+    """
+    matched = _HEADMATTER.match(markdown)
+    line = f"favicon: {base}{_FAVICON_FILE}"
+    if matched is None:
+        return f"---\n{line}\n---\n{markdown}"
+    head = matched.group(1)
+    head = (
+        _FAVICON_KEY.sub(line, head, count=1)
+        if _FAVICON_KEY.search(head)
+        else f"{head}{line}\n"
+    )
+    return f"---\n{head}---\n{markdown[matched.end() :]}"
 
 
 def the_daemon_of_this_machine(*, image: str, disk: str | None) -> Daemon:

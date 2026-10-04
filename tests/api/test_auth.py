@@ -10,7 +10,13 @@ import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
-from webauth.middleware.security_headers import STRICT_TRANSPORT_SECURITY
+from webauth.middleware.security_headers import (
+    CONTENT_TYPE_OPTIONS,
+    FRAME_OPTIONS,
+    REFERRER_POLICY,
+    STRICT_TRANSPORT_SECURITY,
+)
+from webauth.policies import default_content_security_policy
 
 from presentator.api.hooks import hook_address
 from presentator.application.identity import (
@@ -21,6 +27,8 @@ from presentator.application.identity import (
 from presentator.contracts.decks import Build, Deck, talk_address
 from presentator.contracts.models import Account, Role
 from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_BROWSERS_HEADERS,
     ADMIN,
     ENGLISH,
     NOW,
@@ -53,6 +61,19 @@ _EXPORTED_PDF = Path(__file__).parent / "exported_deck.pdf"
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
 # page's own location, only the co-presenter's microphone.
 _MIC_ONLY_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=()"
+# `default_content_security_policy([])` is the exact call `presentator.api.auth`
+# makes: no script hash ever widens it, the way an inline build output would.
+_EXPECTED_CSP = default_content_security_policy([])
+# Every one of these answers the same way whatever carried the request: a
+# page, a static file, a 404 nothing names, or an exception nothing caught.
+_EVERY_SECURITY_HEADER = {
+    "cache-control": "no-store",
+    "x-content-type-options": CONTENT_TYPE_OPTIONS,
+    "x-frame-options": FRAME_OPTIONS,
+    "content-security-policy": _EXPECTED_CSP,
+    "referrer-policy": REFERRER_POLICY,
+    "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
+}
 
 
 def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
@@ -337,9 +358,63 @@ def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
     talk = lobby.get(talk_address(_DECK_SLUG))
 
     assert talk.status_code == HTTPStatus.OK
-    assert talk.headers["cache-control"] == "no-store"
     assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
-    assert talk.headers["permissions-policy"] == _MIC_ONLY_PERMISSIONS_POLICY
+    for name, value in _EVERY_SECURITY_HEADER.items():
+        assert talk.headers[name] == value
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/static/lobby.css", "/an/address/nothing/names"],
+    ids=["a signed-in page", "a static file", "a handled 404"],
+)
+def test_every_real_answer_carries_the_full_set_of_security_headers(
+    signed_in_lobby: Lobby,
+    path: str,
+) -> None:
+    answer = signed_in_lobby.client.get(path)
+
+    for name, value in _EVERY_SECURITY_HEADER.items():
+        assert answer.headers[name] == value
+
+
+def test_an_uncaught_error_still_carries_the_full_set_of_security_headers() -> None:
+    """Prove the gap a direct ASGI probe once found: every header, still.
+
+    `ServerErrorMiddleware` stands outside every middleware this app added,
+    `SecurityHeadersMiddleware` among them: only `auth.py`'s own `Exception`
+    handler keeps an unhandled 500 inside that boundary. A direct ASGI probe
+    before that handler existed returned a 500 with every one of these
+    headers absent.
+    """
+    lobby, _clock = a_lobby_app()
+
+    def it_breaks() -> Response:
+        message = "an error nothing in this route catches"
+        raise RuntimeError(message)
+
+    lobby.add_api_route("/it-breaks", it_breaks, methods=["GET"])
+    client = TestClient(
+        lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+        raise_server_exceptions=False,
+    )
+    client.post(
+        "/setup",
+        data={
+            "username": USERNAME,
+            "password": TYPED_WORDS,
+            "repeated_password": TYPED_WORDS,
+        },
+    )
+
+    answer = client.get("/it-breaks")
+
+    assert answer.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    for name, value in _EVERY_SECURITY_HEADER.items():
+        assert answer.headers[name] == value
 
 
 def test_logging_out_ends_the_session_and_the_old_cookie_cannot_come_back(

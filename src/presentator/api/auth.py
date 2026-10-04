@@ -5,7 +5,9 @@ redirect while nobody is signed in, a form another site submitted is refused,
 and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+import logging
 import posixpath
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
@@ -15,7 +17,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import HTTPConnection
-from starlette.responses import RedirectResponse
+from starlette.responses import PlainTextResponse, RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.dependencies import (
     LoginRedirect,
@@ -73,6 +75,8 @@ def _credentials(account: Account) -> _Credentials:
         password_hash=account.password_hash,
     )
 
+
+_log = logging.getLogger(__name__)
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
@@ -337,6 +341,40 @@ class _Surfaces:
         return answer
 
 
+def _unhandled_error_handler(
+    lobby: FastAPI,
+) -> Callable[[Request, Exception], Awaitable[Response]]:
+    """Carry the shared policy onto what no route or dependency named.
+
+    `ServerErrorMiddleware` is Starlette's own outermost layer, standing
+    outside every middleware `create_lobby` adds, `SecurityHeadersMiddleware`
+    among them: its default answer to an exception nothing else caught would
+    otherwise leave the browser with none of this deployment's headers at
+    all. Registering this as the app's `Exception` handler keeps
+    that answer inside `ServerErrorMiddleware` rather than past it, so the
+    same policy's own dispatch still runs once against it, and the body
+    stays generic rather than echoing what broke.
+    """
+    headers = SecurityHeadersMiddleware(lobby, policy=_SECURITY_HEADERS)
+
+    async def _generic_failure(_: Request) -> Response:
+        return PlainTextResponse(
+            "Internal Server Error",
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
+
+    async def answer(request: Request, exc: Exception) -> Response:
+        _log.exception(
+            "unhandled error answering %s %s",
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
+        return await headers.dispatch(request, _generic_failure)
+
+    return answer
+
+
 def create_lobby(
     *,
     identity: Identity,
@@ -360,6 +398,7 @@ def create_lobby(
     lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
     lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
+    lobby.add_exception_handler(Exception, _unhandled_error_handler(lobby))
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.log_in, methods=["POST"])

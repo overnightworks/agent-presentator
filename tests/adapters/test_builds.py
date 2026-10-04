@@ -29,6 +29,7 @@ from presentator.adapters.builds import (
     HostToolchain,
     PackageJsonThemes,
     SlidevBuilds,
+    markdown_naming_this_builds_favicon,
     the_daemon_of_this_machine,
 )
 from presentator.adapters.decks import FilesystemLocalMount, SourceMirrors
@@ -92,6 +93,10 @@ _WHAT_THE_SERVER_HOLDS = "the words only this test set in the environment"
 _RECORDED_COMMAND = "command"
 _RECORDED_ENVIRONMENT = "environment"
 _A_BUILT_PAGE = "index.html"
+_PUBLIC = "public"
+_FAVICON_FILE = "favicon.svg"
+_A_TALKS_BASE = talk_address("a-test-deck")
+_FAVICON_HEADMATTER_LINE = f"favicon: {_A_TALKS_BASE}{_FAVICON_FILE}"
 _TOOLCHAIN_PROGRAM = "pnpm"
 _CONTAINER_PROGRAM = "docker"
 _WHAT_A_TALK_SAYS = "a talk"
@@ -653,6 +658,55 @@ def test_a_dependency_section_that_is_not_a_mapping_names_no_themes(
     assert PackageJsonThemes(project=project).names() is None
 
 
+def test_a_deck_naming_no_favicon_of_its_own_gets_this_builds_one() -> None:
+    markdown = "---\ntitle: Hello\n---\n\n# Slide\n"
+
+    assert markdown_naming_this_builds_favicon(markdown, base=_A_TALKS_BASE) == (
+        f"---\ntitle: Hello\n{_FAVICON_HEADMATTER_LINE}\n---\n\n# Slide\n"
+    )
+
+
+def test_a_deck_naming_its_own_remote_favicon_is_overridden_all_the_same() -> None:
+    markdown = "---\ntitle: Hello\nfavicon: https://cdn.example/old.png\n---\n\nbody\n"
+
+    patched = markdown_naming_this_builds_favicon(markdown, base=_A_TALKS_BASE)
+
+    assert _FAVICON_HEADMATTER_LINE in patched
+    assert "cdn.example" not in patched
+
+
+def test_a_deck_without_any_headmatter_gets_one_naming_only_the_favicon() -> None:
+    markdown = "# No headmatter at all\n"
+
+    assert markdown_naming_this_builds_favicon(markdown, base=_A_TALKS_BASE) == (
+        f"---\n{_FAVICON_HEADMATTER_LINE}\n---\n# No headmatter at all\n"
+    )
+
+
+def test_a_nested_favicon_key_is_left_alone_for_the_top_level_one_to_win() -> None:
+    markdown = "---\ntitle: Hello\nthemeConfig:\n  favicon: nested\n---\n\nbody\n"
+
+    patched = markdown_naming_this_builds_favicon(markdown, base=_A_TALKS_BASE)
+
+    assert "  favicon: nested" in patched
+    assert _FAVICON_HEADMATTER_LINE in patched
+
+
+def test_the_favicon_href_is_anchored_to_the_talks_own_base_not_relative() -> None:
+    """A plain relative href breaks once Slidev's own router leaves the root.
+
+    History-mode routing (Slidev's default) rewrites the browser's address to
+    `<base>presenter/1` and the like without a new document load, so an href
+    resolved against the *current* address — a bare `./favicon.svg` — would
+    name a path beside `presenter/`, not beside the talk's own root.
+    """
+    markdown = "---\ntitle: Hello\n---\n\nbody\n"
+
+    patched = markdown_naming_this_builds_favicon(markdown, base=_A_TALKS_BASE)
+
+    assert f"favicon: {_A_TALKS_BASE}{_FAVICON_FILE}" in patched
+
+
 def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     remote: GitRemote,
     source: Source,
@@ -670,6 +724,30 @@ def test_a_decks_folder_at_its_commit_is_built_into_a_talk_and_a_pdf(
     ) == _WHAT_A_TALK_SAYS
     assert artefacts.pdf.read_bytes().startswith(b"%PDF")
     assert artefacts.directory.is_relative_to(tmp_path / "builds")
+
+
+def test_the_exported_deck_carries_this_builds_own_same_origin_favicon(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The toolchain's own favicon beats whatever a deck's headmatter named.
+
+    Every built talk answers under the one Content-Security-Policy the lobby
+    does, whose `img-src` admits only this origin: a deck's own favicon,
+    almost always a remote URL, would silently fail to load rather than widen
+    that policy per deck.
+    """
+    with_the_toolchain(machine, tmp_path, _A_TOOLCHAIN_THAT_BUILDS)
+    builds = builds_ready_for(tmp_path, source)
+
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
+
+    exported = artefacts.directory.parents[1] / _DECK_IN
+    favicon_line = f"favicon: {talk_address(EXAMPLE_SLUG)}{_FAVICON_FILE}"
+    assert favicon_line in (exported / SLIDES_FILE).read_text(encoding="utf-8")
+    assert (exported / _PUBLIC / _FAVICON_FILE).exists()
 
 
 def test_removing_a_build_takes_its_whole_run_directory_off_disk(
