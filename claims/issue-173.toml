@@ -1,0 +1,8 @@
+claim_id = "781787d0b51345c1ba685e2d2c762dc0"
+agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
+role = "builder"
+base = "bcd7e9e54ea006f670be25e3647e3ced27fa27dc"
+branch = "claude/issue-173-p1-touch-update-only"
+scope = ["docs/decisions", "src/presentator/adapters/identity.py", "src/presentator/application/identity.py", "src/presentator/ports/identity.py", "tests"]
+opened_commit = "3e9534a1e42cb5eb4d8c5d6cafaf23bac2aea7d9"
+whole_reason = "Ein Fix über drei Schichten (Adapter, Port, Anwendung) samt ADR und Tests."
