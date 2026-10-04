@@ -39,7 +39,8 @@ let hearingClosed = 0
 let pendingAnswerClosed = 0
 let answerMode: 'audio' | 'speech-refused' = 'audio'
 let productionSecurityHeaders: Record<string, string> = {}
-let cspViolations: string[] = []
+type CspViolation = { directive: string; blockedUri: string }
+let cspViolations: CspViolation[] = []
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
@@ -324,15 +325,18 @@ async function installMediaFakes(page: Page) {
 // serves never silently drifts from what `script-src 'self'` and the rest of
 // the production policy actually admit.
 async function installCspGuard(page: Page) {
-  await page.exposeFunction('__reportCspViolation', (detail: string) => {
-    cspViolations.push(detail)
+  await page.exposeFunction('__reportCspViolation', (directive: string, blockedUri: string) => {
+    cspViolations.push({ directive, blockedUri })
   })
   await page.addInitScript(() => {
     document.addEventListener('securitypolicyviolation', (event) => {
       const reportViolation = (window as unknown as {
-        __reportCspViolation: (detail: string) => void
+        __reportCspViolation: (directive: string, blockedUri: string) => void
       }).__reportCspViolation
-      reportViolation(`${event.violatedDirective}: ${event.blockedURI}`)
+      // `effectiveDirective` is the spec-recommended field (CSP3): unlike the
+      // legacy `violatedDirective`, it never carries the matched source list,
+      // so it compares equal to a bare directive name like 'img-src'.
+      reportViolation(event.effectiveDirective, event.blockedURI)
     })
   })
 }
@@ -369,13 +373,26 @@ beforeEach(() => {
 })
 
 // The contract (issue #183) accepts exactly one violation: Slidev's own
-// built-in favicon link is a cross-origin `cdn.jsdelivr.net` URL this
-// deployment's CSP never widens `img-src` for. A test that navigates the
-// document more than once (a plain `<a href>`, not client-side routing)
-// reports that same tolerated kind again each time; any other violation —
-// a different directive or a different origin — still fails the test.
-function isTheAcceptedFaviconViolation(violation: string) {
-  return violation.startsWith('img-src') && violation.includes('cdn.jsdelivr.net')
+// built-in favicon link is this exact cross-origin URL (from Slidev's own
+// `@slidev/parser` source) that this deployment's CSP never widens `img-src`
+// for. A test that navigates the document more than once (a plain `<a
+// href>`, not client-side routing) reports that same tolerated kind again
+// each time; any other violation — a different directive, a different host,
+// or a different path — still fails the test. Matching the exact hostname
+// and path (not a substring) also rejects a lookalike like
+// `cdn.jsdelivr.net.evil.example` or `evil.example/cdn.jsdelivr.net/...`.
+const ACCEPTED_FAVICON_URL = 'https://cdn.jsdelivr.net/gh/slidevjs/slidev/assets/favicon.png'
+
+function isTheAcceptedFaviconViolation(violation: CspViolation) {
+  if (violation.directive !== 'img-src') return false
+  let blocked: URL
+  try {
+    blocked = new URL(violation.blockedUri)
+  } catch {
+    return false
+  }
+  const accepted = new URL(ACCEPTED_FAVICON_URL)
+  return blocked.hostname === accepted.hostname && blocked.pathname === accepted.pathname
 }
 
 afterEach(() => {
@@ -494,16 +511,29 @@ describe('presenter controls', () => {
         const ai = page.getByRole('switch', { name: 'AI' })
         await ai.waitFor({ state: 'visible', timeout: 2_000 })
         await ai.click({ timeout: 2_000 })
-        // `hearing` only reaches 'local' once `AudioContext.audioWorklet.addModule`
-        // - real, not faked (installMediaFakes) - has resolved against the
-        // copied overlay's own `public/pcm-capture-processor.js` under the
-        // production CSP; a blocked or missing module throws there and the
-        // component falls back to 'browser' or 'off' instead (CoPresenter.vue).
+        // `hearing` reaches 'local' optimistically, before
+        // `AudioContext.audioWorklet.addModule` - real, not faked
+        // (installMediaFakes) - is even awaited (CoPresenter.vue), so a test
+        // that only waits for that attribute can pass while the worklet is
+        // still loading or a CSP block is still in flight. `workletLive`
+        // (snapshot()) is true only once the worklet node actually exists,
+        // which happens after `addModule` resolved against the copied
+        // overlay's own `public/pcm-capture-processor.js` under the
+        // production CSP; a blocked or missing module throws there instead
+        // and the component falls back to 'browser' or 'off'.
         await page.waitForFunction(
-          () => document.querySelector('.copresenter')?.getAttribute('data-hearing') === 'local',
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { workletLive: boolean } }
+          }).__copresenter.snapshot().workletLive,
           undefined,
           { timeout: 5_000 },
         )
+        const snapshot = await page.evaluate(
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { hearing: string } }
+          }).__copresenter.snapshot(),
+        )
+        expect(snapshot.hearing).toBe('local')
         expect(await page.getByText('No hearing').count()).toBe(0)
       } finally {
         await browser.close()
