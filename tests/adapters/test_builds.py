@@ -119,6 +119,15 @@ case "$out" in
     *) mkdir -p "$out"; printf 'a talk' > "$out/index.html";;
 esac
 """
+# Builds as above, then its export step turns one name of what was written
+# into a link, the way a deck's own `vite.config.ts` could.
+_A_TOOLCHAIN_THAT_PLANTS_A_LINK = (
+    _A_TOOLCHAIN_THAT_BUILDS
+    + """case "$out" in
+    *.pdf) cd "$(dirname "$out")"; {planted};;
+esac
+"""
+)
 # Where to write is baked in rather than read from the environment, because
 # the environment a build runs in is exactly what this stand-in is here to show.
 # Every argument is kept whole, ended by a nul, and every command by a record
@@ -900,22 +909,79 @@ def test_a_commit_the_mirror_cannot_read_the_deck_at_builds_nothing(
 
 @pytest.mark.parametrize(
     "reached",
-    ["outside", "through-a-link"],
-    ids=["a place outside the root", "a link out of the root"],
+    [Path("outside"), Path("builds/through-a-link"), Path("builds/a-run/out/talk")],
+    ids=[
+        "a place outside the root",
+        "a link out of the root",
+        "a run whose out is a link inside the root",
+    ],
 )
 def test_artefacts_that_do_not_stand_under_the_root_are_not_held(
     tmp_path: Path,
-    reached: str,
+    reached: Path,
 ) -> None:
     builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
     builds.builds.mkdir(parents=True)
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "deck.pdf").write_bytes(b"%PDF-1.7")
+    outside = a_written_talk(tmp_path / "outside")
     (builds.builds / "through-a-link").symlink_to(outside)
-    written = tmp_path / reached if reached == "outside" else builds.builds / reached
+    run = builds.builds / "a-run"
+    a_written_talk(run / "real-out" / _TALK)
+    (run / _OUT).symlink_to("real-out")
+    written = tmp_path / reached
 
-    assert not builds.holds(Artefacts(directory=written, pdf=written / "deck.pdf"))
+    assert not builds.holds(Artefacts(directory=written, pdf=written / _PDF_FILE))
+
+
+def a_written_talk(directory: Path) -> Path:
+    """A talk's page and a PDF beside it, as real files in that directory."""
+    directory.mkdir(parents=True)
+    (directory / _A_BUILT_PAGE).write_text(_WHAT_A_TALK_SAYS, encoding="utf-8")
+    (directory / _PDF_FILE).write_bytes(b"%PDF-1.7")
+    return directory
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "rm deck.pdf; ln -s {elsewhere} deck.pdf",
+        "mv deck.pdf a-real.pdf; ln -s a-real.pdf deck.pdf",
+        "mv talk a-real-talk; ln -s a-real-talk talk",
+        "ln -sf {elsewhere} talk/index.html",
+    ],
+    ids=[
+        "the PDF as a link out of the root",
+        "the PDF as a link inside the root",
+        "the talk as a link inside the root",
+        "the page as a link out of the root",
+    ],
+)
+def test_a_build_that_leaves_a_link_on_the_way_to_an_artefact_is_not_held(
+    remote: GitRemote,
+    source: Source,
+    machine: pytest.MonkeyPatch,
+    tmp_path: Path,
+    planted: str,
+) -> None:
+    """A deck's own build may write links; none of them is ever adopted.
+
+    The link is planted by the build's last step, after everything it was
+    asked for was written, so all that refuses the build is the link itself.
+    """
+    elsewhere = tmp_path / "presentator.sqlite3"
+    elsewhere.write_bytes(b"what this server keeps to itself")
+    with_the_toolchain(
+        machine,
+        tmp_path,
+        _A_TOOLCHAIN_THAT_PLANTS_A_LINK.replace(
+            "{planted}",
+            planted.format(elsewhere=elsewhere),
+        ),
+    )
+    builds = builds_ready_for(tmp_path, source)
+
+    artefacts = what_it_built(builds.build(a_deck(remote), source=source))
+
+    assert not builds.holds(artefacts)
 
 
 def test_artefacts_that_were_never_written_are_not_held(tmp_path: Path) -> None:

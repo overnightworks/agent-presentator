@@ -23,6 +23,7 @@ import os
 import select
 import shutil
 import signal
+import stat
 import subprocess
 from abc import abstractmethod
 from collections.abc import Callable
@@ -68,6 +69,9 @@ _DECK_IN: Final = "deck"
 _OUT: Final = "out"
 _TALK: Final = "talk"
 _PDF_FILE: Final = "deck.pdf"
+# The page a built talk opens on; Slidev writes it into the talk's own root.
+_THE_PAGE: Final = "index.html"
+_UP: Final = ".."
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
@@ -149,6 +153,9 @@ _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
 _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
 _CONTAINER_STAYED: Final = "the container of %s of deck %s could not be removed: %s"
 _RUN_STAYED: Final = "what build %s left could not be taken away"
+_NOT_AS_WRITTEN: Final = (
+    "build %s is refused: %s is not a file reached without a link under the root"
+)
 _STILL_RUNNING: Final = "whether a container of build %s still runs is unknown: %s"
 _LEFT_AS_IT_LIES: Final = (
     "a container of build %s may still be running, so what it left is taken"
@@ -578,12 +585,21 @@ class SlidevBuilds:
         return True
 
     def holds(self, artefacts: Artefacts) -> bool:
-        """Whether both artefacts really stand under the root builds are kept in."""
-        root = self.builds.resolve()
-        return all(
-            written.exists() and written.resolve().is_relative_to(root)
-            for written in (artefacts.directory, artefacts.pdf)
-        )
+        """Whether the talk's page and the PDF really stand under the root as files.
+
+        A deck's own code wrote every name below the root, so none of them is
+        followed: each directory on the way is opened from the one holding it,
+        never through a link, and what stands at the end has to be a regular
+        file. A link anywhere on either way refuses the build — even one that
+        points back inside the root — because an address this server hands out
+        must never come to mean a file the build did not write there.
+        """
+        root = self.builds.absolute()
+        for written in (artefacts.directory / _THE_PAGE, artefacts.pdf):
+            if not _a_file_reached_without_a_link(written, under=root):
+                _log.warning(_NOT_AS_WRITTEN, artefacts.directory.parent, written)
+                return False
+        return True
 
     def remove(self, directory: Path) -> bool:
         """Take that run's whole directory off disk, or say it is still there.
@@ -1014,6 +1030,40 @@ def _opened_within(name: str, *, held_by: int) -> int:
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
         dir_fd=held_by,
     )
+
+
+def _a_file_reached_without_a_link(written: Path, *, under: Path) -> bool:
+    """Whether that path is a regular file, every name below the root no link.
+
+    The root is this deployment's own and opened as it is configured; from
+    there on each directory is opened from the descriptor of the one holding
+    it, and the last name is looked at itself rather than at what it may point
+    to.
+    """
+    if not written.is_relative_to(under):
+        return False
+    names = written.relative_to(under).parts
+    if not names or _UP in names:
+        return False
+    *directories, name = names
+    try:
+        holder = os.open(under, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return False
+    try:
+        for directory in directories:
+            inner = _opened_within(directory, held_by=holder)
+            os.close(holder)
+            holder = inner
+        found = os.open(name, os.O_PATH | os.O_NOFOLLOW, dir_fd=holder)
+        try:
+            return stat.S_ISREG(os.fstat(found).st_mode)
+        finally:
+            os.close(found)
+    except OSError:
+        return False
+    finally:
+        os.close(holder)
 
 
 def _a_directory_of_its_own(directory: Path) -> int | None:
