@@ -98,6 +98,24 @@ reports whether it renewed one; `create` is a plain `INSERT`.
 `Identity.signed_in_user` names nobody when the renewal found no row, so the
 renewal is the admission point.
 
+### Amendment 2026-10-04 — webauth v0.11.0 names the cookies, the origin decides `Secure`
+
+Authority: [#179](https://github.com/overnightworks/agent-presentator/issues/179)
+(slice P3 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)),
+closing finding 4 of [#169](https://github.com/overnightworks/agent-presentator/issues/169).
+
+`webauth` v0.11.0 is pinned from its release wheel. The host no longer names
+the session cookie: it takes the library's names, `__Host-session_id` and
+`__Host-csrf_token` when the cookies are `Secure`, and the plain `session_id`
+and `csrf_token` when they are not. `Secure` no longer follows the connection
+the library sees: `cookie_secure` on `WebAuthConfig` is true exactly when
+`PRESENTATOR_PUBLIC_ORIGIN` is `https`, so a TLS proxy that is missing from
+`PRESENTATOR_TRUSTED_PROXIES` can no longer strip it. The host reads the
+session id only through `session_id_from_request`, which treats a request
+carrying the session cookie twice as signed out. Browsers still send the
+cookie the host used to name itself, which no longer authenticates, so every
+person signs in once more after the upgrade.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as
