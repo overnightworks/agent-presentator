@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import shutil
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -556,6 +557,28 @@ def test_an_unrecognized_invocation_is_refused_without_echoing_what_it_carried(
     assert "Set-Password" not in message
     assert "--admin" not in message
     assert _NEW_TYPED_WORDS not in message
+
+
+def test_main_with_no_argv_given_reads_the_process_s_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["agent-presentator", "Set-Password", _PERSON])
+
+    with pytest.raises(SystemExit, match="usage"):
+        main.main()
+
+
+def test_set_password_for_an_unknown_name_is_refused_and_writes_nothing(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    environment.setattr(
+        main.getpass,
+        "getpass",
+        typed_at_the_prompt(_NEW_TYPED_WORDS, _NEW_TYPED_WORDS),
+    )
+
+    with pytest.raises(SystemExit, match="no account is named"):
+        main.main(argv=["set-password", "nobody"])
 
 
 @pytest.mark.parametrize(
