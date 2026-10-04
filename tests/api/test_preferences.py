@@ -341,8 +341,13 @@ def test_voice_page_renders_the_player_for_exactly_one_active_row(
         assert 'data-sample-language="en" aria-pressed="false"' in page
         assert "Play sample" in page
         assert "data-sample-action" in page
+        assert f'<script src="{_VOICE_SAMPLE_SCRIPT}" defer></script>' in page
+        served = lobby.client.get(_VOICE_SAMPLE_SCRIPT)
+        assert served.status_code == HTTPStatus.OK
+        assert "[data-sample-player]" in served.text
     else:
         assert "data-sample-player" not in page
+        assert _VOICE_SAMPLE_SCRIPT not in page
 
 
 def test_an_admin_htmx_voice_load_refreshes_the_final_voice_page() -> None:
@@ -438,6 +443,7 @@ _GERMAN = replace(
     account_title="Konto",
 )
 _INSTANCE_NAME = "Heim"
+_VOICE_SAMPLE_SCRIPT = "/static/voice-sample.js"
 _NO_OVERRIDE = ""
 _SELECTED = re.compile(r'value="([^"]+)"\s*selected')
 

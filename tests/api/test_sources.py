@@ -560,6 +560,24 @@ def test_a_created_page_for_a_name_this_instance_does_not_have_is_not_found() ->
     )
 
 
+def test_the_source_pages_load_their_scripts_from_static_files() -> None:
+    lobby = a_signed_in_lobby()
+    add_form = lobby.get(NEW).text
+    created = the_created_page(lobby, create_source(lobby)).text
+    source_page = lobby.get(f"{SOURCES}/talks").text
+    copy_value = '<script src="/static/copy-value.js" defer></script>'
+    access_toggle = '<script src="/static/source-new.js" defer></script>'
+
+    assert copy_value in add_form
+    assert access_toggle in add_form
+    assert copy_value in created
+    assert ENGLISH.source_webhook_once in created
+    assert copy_value in source_page
+    assert ENGLISH.source_webhook_once not in source_page
+    for script in ("copy-value.js", "source-new.js"):
+        assert lobby.get(f"/static/{script}").status_code == HTTPStatus.OK
+
+
 def test_a_url_that_names_no_access_kind_has_no_access_tag() -> None:
     page = (
         a_signed_in_lobby(
