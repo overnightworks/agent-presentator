@@ -63,21 +63,6 @@
             {% if not (draft and draft.check and draft.check.fingerprint) %}disabled{% endif %}>{{ text.source_create }}</button>
   </form>
 </main>
-<script>
-document.querySelectorAll("[data-copy]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const value = button.previousElementSibling.textContent;
-    if (value) navigator.clipboard.writeText(value);
-  });
-});
-(() => {
-  const create = document.querySelector("[data-create]");
-  const proven = create.dataset.proven === "true";
-  document.querySelectorAll('input[name="access"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      create.disabled = !proven;
-    });
-  });
-})();
-</script>
+<script src="/static/copy-value.js" defer></script>
+<script src="/static/source-new.js" defer></script>
 {% endblock %}
