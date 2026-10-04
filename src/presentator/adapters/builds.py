@@ -72,17 +72,18 @@ _OUT: Final = "out"
 _TALK: Final = "talk"
 _PDF_FILE: Final = "deck.pdf"
 _UP: Final = ".."
-_PUBLIC: Final = "public"
 _FAVICON_FILE: Final = "favicon.svg"
 _FAVICON_SVG: Final = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
     '<rect width="16" height="16" rx="3" fill="#1f2933"/></svg>\n'
 )
-# Slidev's headmatter is the first `---`-fenced block; a key stands at column
-# zero (`themeConfig:`'s own nested keys are indented), so only an unindented
-# `favicon:` line is the deck's own choice of one.
-_HEADMATTER: Final = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
-_FAVICON_KEY: Final = re.compile(r"(?m)^favicon:.*$")
+_BUILT_HTML_GLOB: Final = "*.html"
+# Slidev always writes one `<link rel="icon" …>` into every page it renders —
+# its own default favicon is a remote URL (`@slidev/parser`'s own headmatter
+# default) — so this is the one tag every built page carries, whatever a
+# deck's own headmatter named or left unset.
+_ICON_LINK: Final = re.compile(r'<link\b[^>]*\brel="icon"[^>]*>', re.IGNORECASE)
+_HREF_ATTRIBUTE: Final = re.compile(r'href="[^"]*"')
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
 # deck's own build-time code.
@@ -159,6 +160,9 @@ _ADDING_UP_WITHIN: Final = timedelta(seconds=10)
 # this machine is stopped while it runs rather than found out afterwards.
 _ACCOUNTED_EVERY: Final = timedelta(seconds=2)
 _UNREADABLE_DECK: Final = "deck %s cannot be read at %s: %s"
+_FAVICON_NOT_POINTED: Final = (
+    "the favicon of deck %s's built talk could not be pointed home: %s"
+)
 _TOOLCHAIN_FAILED: Final = "%s of deck %s failed: %s"
 _TOOLCHAIN_UNAVAILABLE: Final = "%s of deck %s could not be run: %s"
 _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
@@ -561,15 +565,24 @@ class SlidevBuilds:
         The talk and the PDF are written under a directory of this build's own
         that nothing points at yet, and the directory the deck delivered from
         before is left where it stands. What the toolchain said about a failure
-        travels back with it, because the deck's page shows it (line 9).
+        travels back with it, because the deck's page shows it (line 9). A run
+        that ends any other way than handing back a talk — a failure this
+        method returns, or a fault one of its own steps could not turn into
+        one — still leaves its directory cleaned up, because a run neither
+        delivered nor removed is one this instance can never try again.
         """
         place = self._a_place_of_its_own()
-        broke = self._what_broke(deck, source=source, place=place)
-        if broke is None:
+        delivered = False
+        try:
+            broke = self._what_broke(deck, source=source, place=place)
+            if broke is not None:
+                return broke
             written = place.here / _OUT
+            delivered = True
             return Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
-        self._taken_away(place)
-        return broke
+        finally:
+            if not delivered:
+                self._taken_away(place)
 
     def _taken_away(self, place: BuildPlace) -> bool:
         """Take away everything one run's directory holds, however it got there.
@@ -681,7 +694,25 @@ class SlidevBuilds:
             )
             if broke is not None:
                 return broke
+        broke = self._favicon_pointed_home(written / _TALK, deck=deck)
+        if broke is not None:
+            return broke
         return self._more_than_it_may_leave(deck, place)
+
+    def _favicon_pointed_home(self, talk: Path, *, deck: Deck) -> BuildFailure | None:
+        """Point the talk this toolchain just wrote at this build's own favicon.
+
+        Rewriting is this host's own step over files its own toolchain just
+        wrote, never a deck author's concern, so whatever stops it is answered
+        the way any other fault of this host is (line 9) rather than left to
+        raise past the build that was trying it.
+        """
+        try:
+            point_favicon_same_origin(talk, base=talk_address(deck.slug))
+        except (OSError, UnicodeError) as unreadable:
+            _log.warning(_FAVICON_NOT_POINTED, deck.slug, unreadable)
+            return BuildFailure(text=None)
+        return None
 
     def _more_than_it_may_leave(
         self,
@@ -742,51 +773,38 @@ class SlidevBuilds:
         except MirrorError as unreadable:
             _log.warning(_UNREADABLE_DECK, deck.slug, deck.commit, unreadable)
             return False
-        _own_the_favicon(into, base=talk_address(deck.slug))
         return True
 
 
-def _own_the_favicon(into: Path, *, base: str) -> None:
-    """Force this build's own same-origin favicon over whatever the deck named.
+def point_favicon_same_origin(talk: Path, *, base: str) -> None:
+    """Rewrite every page Slidev wrote so its favicon is this build's own file.
 
-    The lobby and every built talk share one Content-Security-Policy, whose
-    `img-src` admits only this origin: a deck's own favicon is almost
-    always a remote URL, which would silently fail to load under that policy
-    and could not be let in without widening it per deck. The build toolchain
-    owns the deployment's headers, so it owns this one asset too.
+    Not underscore-prefixed: `SlidevBuilds._favicon_pointed_home` is the only
+    caller in the build pipeline, but the browser test that proves a built
+    talk loads under the deployment's own Content-Security-Policy runs this
+    exact step against a real `slidev build`, so what a browser loads and
+    what this build ships are the same code, never a second copy of it
+    (ADR 0003).
+
+    Slidev's own default favicon is a cross-origin CDN URL, which this
+    deployment's `img-src 'self'` refuses to load; post-processing the HTML
+    this toolchain already wrote — rather than the deck's own `slides.md`
+    before it runs — touches no file an operator's deck owns, and needs no
+    YAML of its own to get right. The href is anchored to `base` rather than
+    left relative: history-mode routing can serve this very document at an
+    address deeper than its own root, and a relative href would then name a
+    file beside that deeper address instead of beside this talk's own file.
     """
-    entry = into / SLIDES_FILE
-    entry.write_text(
-        markdown_naming_this_builds_favicon(
-            entry.read_text(encoding="utf-8"),
-            base=base,
-        ),
-        encoding="utf-8",
-    )
-    public = into / _PUBLIC
-    public.mkdir(exist_ok=True)
-    (public / _FAVICON_FILE).write_text(_FAVICON_SVG, encoding="utf-8")
-
-
-def markdown_naming_this_builds_favicon(markdown: str, *, base: str) -> str:
-    """The deck's own slides.md, its headmatter favicon replaced or added.
-
-    `base` names the deck's own address (`talk_address`), the one this build
-    is also told to serve from with `--base`: an href built on it still names
-    this build's favicon correctly however Slidev's own router has rewritten
-    the browser's current address, which a plain relative href would not.
-    """
-    matched = _HEADMATTER.match(markdown)
-    line = f"favicon: {base}{_FAVICON_FILE}"
-    if matched is None:
-        return f"---\n{line}\n---\n{markdown}"
-    head = matched.group(1)
-    head = (
-        _FAVICON_KEY.sub(line, head, count=1)
-        if _FAVICON_KEY.search(head)
-        else f"{head}{line}\n"
-    )
-    return f"---\n{head}---\n{markdown[matched.end() :]}"
+    (talk / _FAVICON_FILE).write_text(_FAVICON_SVG, encoding="utf-8")
+    href = f"{base}{_FAVICON_FILE}"
+    for page in sorted(talk.glob(_BUILT_HTML_GLOB)):
+        written = page.read_text(encoding="utf-8")
+        patched = _ICON_LINK.sub(
+            lambda tag: _HREF_ATTRIBUTE.sub(f'href="{href}"', tag.group(), count=1),
+            written,
+        )
+        if patched != written:
+            page.write_text(patched, encoding="utf-8")
 
 
 def the_daemon_of_this_machine(*, image: str, disk: str | None) -> Daemon:

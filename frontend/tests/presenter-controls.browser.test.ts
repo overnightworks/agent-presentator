@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import { chromium, type Page } from 'playwright-chromium'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 const run = promisify(execFile)
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -17,6 +17,7 @@ const exampleDeck = join(repositoryRoot, 'examples/copresenter-deck/slides.md')
 const providedBuild = process.env.PRESENTER_RETURN_BUILD_DIR
 const evidenceDirectory = process.env.PRESENTER_RETURN_EVIDENCE_DIR
 const wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+const builtFaviconPath = '/favicon.svg'
 
 let buildDirectory = providedBuild ?? ''
 let ownsBuildDirectory = false
@@ -26,6 +27,8 @@ let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
 let answerMode: 'audio' | 'speech-refused' = 'audio'
+let productionSecurityHeaders: Record<string, string> = {}
+let cspViolations: string[] = []
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
@@ -51,17 +54,39 @@ function mimeType(pathname: string) {
   }[extname(pathname)] ?? 'application/octet-stream'
 }
 
-// What `SecurityHeadersPolicy`'s own default sends in production
-// (`presentator.api.auth._SECURITY_HEADERS`, proven against the library's
-// exact values in `tests/api/test_auth.py`): served here too, so a built
-// talk's own `script-src 'self'` is what this test's AudioWorklet load runs
-// under, the way a browser reaching the real deployment would.
-const PRODUCTION_SECURITY_HEADERS = {
-  'content-security-policy': 'default-src \'none\'; script-src \'self\'; '
-    + 'style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com; '
-    + 'connect-src \'self\'; img-src \'self\' data: blob:; '
-    + 'media-src \'self\' blob:; font-src \'self\' https://fonts.gstatic.com; '
-    + 'manifest-src \'self\'; worker-src \'self\'; frame-ancestors \'none\'',
+// What `SecurityHeadersPolicy` really sends in production: read from
+// `presentator.api.auth._SECURITY_HEADERS` itself through this one bridge
+// call, never hand-copied here, so a changed policy fails this test's own
+// build rather than silently drifting from what a browser reaching the real
+// deployment gets.
+const PYTHON_SECURITY_HEADERS_SCRIPT = `
+import json
+from presentator.api.auth import _SECURITY_HEADERS
+print(json.dumps({"content-security-policy": _SECURITY_HEADERS.content_security_policy}))
+`
+
+// Slidev's own build always writes a cross-origin CDN favicon link; the
+// production build adapter (`presentator.adapters.builds.
+// point_favicon_same_origin`) is what every deployed talk is pointed home by,
+// so this is that exact function, not a second copy of its regex kept here.
+const PYTHON_FAVICON_SCRIPT = `
+import sys
+from pathlib import Path
+from presentator.adapters.builds import point_favicon_same_origin
+point_favicon_same_origin(Path(sys.argv[1]), base="/")
+`
+
+async function loadProductionSecurityHeaders(): Promise<Record<string, string>> {
+  const { stdout } = await run('uv', ['run', 'python', '-c', PYTHON_SECURITY_HEADERS_SCRIPT], {
+    cwd: repositoryRoot,
+  })
+  return JSON.parse(stdout) as Record<string, string>
+}
+
+async function pointBuiltFaviconSameOrigin(directory: string) {
+  await run('uv', ['run', 'python', '-c', PYTHON_FAVICON_SCRIPT, directory], {
+    cwd: repositoryRoot,
+  })
 }
 
 function boxesIntersect(first: { x: number, y: number, width: number, height: number }, second: { x: number, y: number, width: number, height: number }) {
@@ -83,6 +108,7 @@ async function buildExample() {
   await run('pnpm', ['exec', 'slidev', 'build', exampleDeck, '--out', buildDirectory], {
     cwd: frontendRoot,
   })
+  await pointBuiltFaviconSameOrigin(buildDirectory)
 }
 
 async function serveFile(pathname: string, response: ServerResponse) {
@@ -91,14 +117,14 @@ async function serveFile(pathname: string, response: ServerResponse) {
   try {
     const info = candidate ? await stat(candidate) : null
     if (info?.isFile()) {
-      response.writeHead(200, { 'content-type': mimeType(candidate), ...PRODUCTION_SECURITY_HEADERS })
+      response.writeHead(200, { 'content-type': mimeType(candidate), ...productionSecurityHeaders })
       response.end(await readFile(candidate))
       return
     }
   } catch {
     // The SPA fallback below owns client-side routes.
   }
-  response.writeHead(200, { 'content-type': 'text/html', ...PRODUCTION_SECURITY_HEADERS })
+  response.writeHead(200, { 'content-type': 'text/html', ...productionSecurityHeaders })
   response.end(await readFile(join(buildDirectory, 'index.html')))
 }
 
@@ -224,10 +250,28 @@ async function installMediaFakes(page: Page) {
   })
 }
 
+// Fails the test rather than tolerating a violation, so a page the built
+// talk serves — the favicon among it — never silently drifts from what
+// `script-src 'self'` and the rest of the production policy actually admit.
+async function installCspGuard(page: Page) {
+  await page.exposeFunction('__reportCspViolation', (detail: string) => {
+    cspViolations.push(detail)
+  })
+  await page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (event) => {
+      const reportViolation = (window as unknown as {
+        __reportCspViolation: (detail: string) => void
+      }).__reportCspViolation
+      reportViolation(`${event.violatedDirective}: ${event.blockedURI}`)
+    })
+  })
+}
+
 async function openPresenter(width: number) {
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width, height: 900 } })
   page.setDefaultTimeout(5_000)
+  await installCspGuard(page)
   await installMediaFakes(page)
   await page.goto(`${origin}/presenter/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
   return { browser, page }
@@ -235,6 +279,7 @@ async function openPresenter(width: number) {
 
 beforeAll(async () => {
   await buildExample()
+  productionSecurityHeaders = await loadProductionSecurityHeaders()
   await startServer()
 }, 60_000)
 
@@ -243,6 +288,14 @@ afterAll(async () => {
   server.closeAllConnections()
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   if (ownsBuildDirectory) await rm(buildDirectory, { recursive: true, force: true })
+})
+
+beforeEach(() => {
+  cspViolations = []
+})
+
+afterEach(() => {
+  expect(cspViolations).toEqual([])
 })
 
 describe('presenter controls', () => {
@@ -336,11 +389,28 @@ describe('presenter controls', () => {
     const browser = await chromium.launch({ headless: true })
     const page = await browser.newPage({ viewport: { width: 1024, height: 900 } })
     page.setDefaultTimeout(5_000)
+    await installCspGuard(page)
     try {
       await page.goto(`${origin}/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
       expect(await page.getByRole('link', { name: 'Home' }).count()).toBe(0)
       expect(await page.getByRole('switch', { name: 'AI' }).count()).toBe(0)
       await saveEvidence(page, 'projector.png')
+    } finally {
+      await browser.close()
+    }
+  })
+
+  it('loads the built talk\'s favicon from its own origin', async () => {
+    const browser = await chromium.launch({ headless: true })
+    const page = await browser.newPage({ viewport: { width: 1024, height: 900 } })
+    page.setDefaultTimeout(5_000)
+    await installCspGuard(page)
+    try {
+      await page.goto(`${origin}/1`, { waitUntil: 'domcontentloaded', timeout: 10_000 })
+      const href = await page.locator('link[rel="icon"]').getAttribute('href')
+      expect(href).toBe(builtFaviconPath)
+      const favicon = await page.request.get(`${origin}${builtFaviconPath}`)
+      expect(favicon.ok()).toBe(true)
     } finally {
       await browser.close()
     }
