@@ -1,7 +1,0 @@
-claim_id = "db6060a531e94b6295632d23aa0fa2a4"
-agent = "Claude 255c9087-94fa-477f-af88-8eb64e5acd39"
-role = "builder"
-base = "bcd7e9e54ea006f670be25e3647e3ced27fa27dc"
-branch = "claude/issue-174-p3a-deck-csrf-reader"
-scope = ["copresenter/README.md", "examples/copresenter-deck/components/CoPresenter.vue"]
-opened_commit = "43d37665f00c0bc09b9d9143f56356888978e316"
