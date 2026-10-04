@@ -1,8 +1,8 @@
-"""SQLite rows and Argon2id hashes behind the identity ports.
+"""SQLite rows behind the identity ports.
 
-The stores and hasher are this product's implementations of the `webauth`
-ports (ADR 0003). First start's write lock stays here until `webauth[users]`
-ships it.
+The stores are this product's implementations of the `webauth` ports
+(ADR 0003); hashing is the library's. First start's write lock stays here
+until `webauth[users]` ships it.
 """
 
 import secrets
@@ -12,8 +12,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
-from pwdlib import PasswordHash
-from pwdlib.hashers.argon2 import Argon2Hasher
 from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.sqlite import apply_schema, rows
@@ -53,14 +51,6 @@ _SESSION_COLUMNS: Final = (
     ("user_agent", "TEXT NOT NULL DEFAULT ''"),
 )
 _ATTEMPT_COLUMNS: Final = (("ip_address", "TEXT NOT NULL DEFAULT ''"),)
-
-
-def _argon2id() -> PasswordHash:
-    return PasswordHash((Argon2Hasher(),))
-
-
-def _hash_of_a_secret_nobody_typed() -> str:
-    return _argon2id().hash(secrets.token_urlsafe(_IDENTIFIER_BYTES))
 
 
 def create_identity_tables(database: Path) -> None:
@@ -319,27 +309,6 @@ class SqliteLoginAttemptStore:
                     (username, since),
                 ).fetchone()
         return int(failures)
-
-
-@dataclass(frozen=True, slots=True)
-class Argon2PasswordHasher:
-    """Argon2id, named rather than taken from a recommendation that may move."""
-
-    hashes: PasswordHash = field(default_factory=_argon2id)
-    hash_for_nobody: str = field(default_factory=_hash_of_a_secret_nobody_typed)
-
-    def hash(self, password: str) -> str:
-        """Hash a password for storage; the password itself is never kept."""
-        return self.hashes.hash(password)
-
-    def verify(self, password: str, stored_hash: str | None) -> bool:
-        """Say whether the password belongs to the stored hash."""
-        if stored_hash is None:
-            # The answer is known; the point is that a name nobody has costs the
-            # same Argon2id verification as a name somebody has.
-            self.hashes.verify(password, self.hash_for_nobody)
-            return False
-        return self.hashes.verify(password, stored_hash)
 
 
 @dataclass(frozen=True, slots=True)
