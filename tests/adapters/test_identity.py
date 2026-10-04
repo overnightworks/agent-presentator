@@ -144,7 +144,7 @@ def test_a_touched_session_keeps_its_row_and_moves_its_last_seen(
     )
 
     later = _NOW + timedelta(minutes=15)
-    sessions.touch(
+    renewed = sessions.touch(
         session,
         ip_address="198.51.100.8",
         user_agent="LaterBrowser/2.0",
@@ -152,10 +152,38 @@ def test_a_touched_session_keeps_its_row_and_moves_its_last_seen(
     )
 
     stored = sessions.load(session.id)
+    assert renewed is True
     assert stored is not None
     assert stored.last_seen == later
     assert stored.ip_address == "198.51.100.8"
     assert stored.user_agent == "LaterBrowser/2.0"
+
+
+def test_a_session_deleted_after_its_load_is_not_brought_back_by_touch(
+    database: Path,
+) -> None:
+    clock = FrozenClock(instant=_NOW)
+    request = SqliteSessionRecordStore(database, clock=clock)
+    logout = SqliteSessionRecordStore(database, clock=clock)
+    session = request.create(
+        "user-1",
+        _NOW + IDLE_WINDOW,
+        ip_address=_ADDRESS,
+        user_agent=_AGENT,
+    )
+
+    loaded = request.load(session.id)
+    assert loaded is not None
+    logout.delete(session.id)
+    renewed = request.touch(
+        loaded,
+        ip_address=_ADDRESS,
+        user_agent=_AGENT,
+        now=_NOW + timedelta(minutes=1),
+    )
+
+    assert renewed is False
+    assert request.load(session.id) is None
 
 
 def test_a_removed_session_is_gone(database: Path) -> None:

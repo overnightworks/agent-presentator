@@ -84,6 +84,20 @@ gets 401. It does not construct a session-store or audit stand-in merely to
 obtain that answer. `webauth.middleware` and `webauth.dependencies` are no
 longer banned APIs; `webauth.passwords` remains one.
 
+### Amendment 2026-10-04 — renewal, not `load`, admits a session
+
+Authority: [#173](https://github.com/overnightworks/agent-presentator/issues/173)
+(slice P1 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)),
+closing finding 7 of [#169](https://github.com/overnightworks/agent-presentator/issues/169).
+
+The SQLite session store does not keep the `webauth` port's promise that `load`
+holds the row until commit: each call opens its own autocommit connection. A
+logout that commits between a request's `load` and its renewal must therefore
+stay a logout. `touch` is a conditional `UPDATE` that never creates a row and
+reports whether it renewed one; `create` is a plain `INSERT`.
+`Identity.signed_in_user` names nobody when the renewal found no row, so the
+renewal is the admission point.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as

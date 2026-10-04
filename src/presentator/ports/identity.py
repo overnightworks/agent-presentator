@@ -71,8 +71,12 @@ class SessionRecordStore(Protocol):
         ip_address: str,
         user_agent: str,
         now: datetime,
-    ) -> None:
-        """Slide last_seen to `now` and remember where the request came from."""
+    ) -> bool:
+        """Slide last_seen to `now` and remember where the request came from.
+
+        Renews only a row that still stands and says whether it did, so a
+        session deleted after `load` is never written back.
+        """
 
     @abstractmethod
     def delete(self, session_id: str) -> None:

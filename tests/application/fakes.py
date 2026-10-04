@@ -142,13 +142,16 @@ class FakeSessionRecordStore:
         ip_address: str,
         user_agent: str,
         now: datetime,
-    ) -> None:
+    ) -> bool:
+        if record.id not in self.rows:
+            return False
         self.rows[record.id] = replace(
             record,
             last_seen=now,
             ip_address=ip_address,
             user_agent=user_agent,
         )
+        return True
 
     def delete(self, session_id: str) -> None:
         self.rows.pop(session_id, None)

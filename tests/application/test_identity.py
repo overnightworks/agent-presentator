@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from presentator.application.identity import IDLE_WINDOW, Identity
-from presentator.contracts.models import FirstStartClosedError, Role
+from presentator.contracts.models import FirstStartClosedError, Role, Session
 from tests.application.fakes import (
     CountingIdentifierFactory,
     FakeLoginAttemptStore,
@@ -24,11 +24,24 @@ def clock() -> FrozenClock:
     return FrozenClock(instant=datetime(2026, 1, 15, 9, tzinfo=UTC))
 
 
+class LoggedOutDuringTheRequest(FakeSessionRecordStore):
+    """A logout that commits between this request's load and its renewal."""
+
+    def load(self, session_id: str) -> Session | None:
+        loaded = super().load(session_id)
+        self.delete(session_id)
+        return loaded
+
+
 @pytest.fixture
 def identity(clock: FrozenClock) -> Identity:
+    return identity_over(FakeSessionRecordStore(clock=clock), clock)
+
+
+def identity_over(sessions: FakeSessionRecordStore, clock: FrozenClock) -> Identity:
     return Identity(
         users=FakeUserStore(),
-        sessions=FakeSessionRecordStore(clock=clock),
+        sessions=sessions,
         attempts=FakeLoginAttemptStore(clock=clock),
         hasher=ReversibleHasher(),
         clock=clock,
@@ -114,6 +127,17 @@ def test_a_session_at_the_idle_boundary_is_still_alive(
     clock.advance(IDLE_WINDOW)
 
     assert identity.signed_in_user(session_id) is not None
+
+
+def test_a_logout_during_the_request_is_not_undone_by_its_renewal(
+    clock: FrozenClock,
+) -> None:
+    sessions = LoggedOutDuringTheRequest(clock=clock)
+    identity = identity_over(sessions, clock)
+    session_id = sign_up_the_admin(identity)
+
+    assert identity.signed_in_user(session_id) is None
+    assert sessions.rows == {}
 
 
 @pytest.mark.parametrize(
