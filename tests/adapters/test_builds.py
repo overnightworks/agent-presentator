@@ -947,12 +947,14 @@ def a_written_talk(directory: Path) -> Path:
         "mv deck.pdf a-real.pdf; ln -s a-real.pdf deck.pdf",
         "mv talk a-real-talk; ln -s a-real-talk talk",
         "ln -sf {elsewhere} talk/index.html",
+        "rm deck.pdf; mkdir deck.pdf",
     ],
     ids=[
         "the PDF as a link out of the root",
         "the PDF as a link inside the root",
         "the talk as a link inside the root",
         "the page as a link out of the root",
+        "the PDF as a directory",
     ],
 )
 def test_a_build_that_leaves_a_link_on_the_way_to_an_artefact_is_not_held(

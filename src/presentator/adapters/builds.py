@@ -154,7 +154,7 @@ _TOOLCHAIN_TIMED_OUT: Final = "%s of deck %s ran past %s and was given up"
 _CONTAINER_STAYED: Final = "the container of %s of deck %s could not be removed: %s"
 _RUN_STAYED: Final = "what build %s left could not be taken away"
 _NOT_AS_WRITTEN: Final = (
-    "build %s is refused: %s is not a file reached without a link under the root"
+    "the talk at %s is refused: %s is not a file reached without a link under the root"
 )
 _STILL_RUNNING: Final = "whether a container of build %s still runs is unknown: %s"
 _LEFT_AS_IT_LIES: Final = (
@@ -597,7 +597,7 @@ class SlidevBuilds:
         root = self.builds.absolute()
         for written in (artefacts.directory / _THE_PAGE, artefacts.pdf):
             if not _a_file_reached_without_a_link(written, under=root):
-                _log.warning(_NOT_AS_WRITTEN, artefacts.directory.parent, written)
+                _log.warning(_NOT_AS_WRITTEN, artefacts.directory, written)
                 return False
         return True
 
