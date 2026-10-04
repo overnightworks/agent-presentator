@@ -23,7 +23,13 @@ from starlette.types import Receive, Scope, Send
 
 from presentator.api.pages import Pages, state_word
 from presentator.application.decks import Decks
-from presentator.contracts.decks import DECK_PATH, DeckPage, DeckState, ShownAttempt
+from presentator.contracts.decks import (
+    DECK_PATH,
+    TALK_PAGE,
+    DeckPage,
+    DeckState,
+    ShownAttempt,
+)
 from presentator.contracts.text import LobbyText
 
 _DECK_PAGE: Final = f"{DECK_PATH}/{{slug}}"
@@ -32,7 +38,6 @@ _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = "{slug}.pdf"
-_APPLICATION: Final = "index.html"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -229,7 +234,7 @@ class _TalkFiles(StaticFiles):
 
     def _the_application(self) -> Response:
         """The built talk's own `index.html`, or nothing if that file is gone."""
-        index = _contained_path(self._root, _APPLICATION)
+        index = _contained_path(self._root, TALK_PAGE)
         if index is None or not index.is_file():
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
         return FileResponse(index)

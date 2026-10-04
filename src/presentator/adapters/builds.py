@@ -41,6 +41,7 @@ from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
     SLIDES_FILE,
+    TALK_PAGE,
     Artefacts,
     BuildFailure,
     Deck,
@@ -69,8 +70,6 @@ _DECK_IN: Final = "deck"
 _OUT: Final = "out"
 _TALK: Final = "talk"
 _PDF_FILE: Final = "deck.pdf"
-# The page a built talk opens on; Slidev writes it into the talk's own root.
-_THE_PAGE: Final = "index.html"
 _UP: Final = ".."
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
@@ -595,7 +594,7 @@ class SlidevBuilds:
         must never come to mean a file the build did not write there.
         """
         root = self.builds.absolute()
-        for written in (artefacts.directory / _THE_PAGE, artefacts.pdf):
+        for written in (artefacts.directory / TALK_PAGE, artefacts.pdf):
             if not _a_file_reached_without_a_link(written, under=root):
                 _log.warning(_NOT_AS_WRITTEN, artefacts.directory, written)
                 return False
