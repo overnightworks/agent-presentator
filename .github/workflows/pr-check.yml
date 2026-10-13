@@ -46,6 +46,13 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # agent-coordination is a private repository (operator ruling
+          # 13.10.2026); this checkout's own token already reaches this
+          # repository's refs/aco/state, so only the uvx fetch needs the
+          # read-only token's git auth.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.OVERNIGHTWORKS_READ_TOKEN }}@github.com/overnightworks/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/overnightworks/
         # Pinned to the aco v4.1.0 release tag.
         run: uvx --from git+https://github.com/overnightworks/agent-coordination.git@v4.1.0 aco check ${{ github.event.pull_request.number }}
 
