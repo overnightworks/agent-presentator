@@ -12,6 +12,10 @@ services:
       context: .
       args:
         PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
+      # Read-only access to the private webauth repository (operator ruling
+      # 13.10.2026); the token reaches the build as a BuildKit secret alone.
+      secrets:
+        - overnightworks_read_token
     image: agent-presentator
     user: presentator
     # A build spawns a process tree of its own, and a step given up on leaves
@@ -81,3 +85,9 @@ volumes:
   database:
   mirrors:
   builds:
+
+secrets:
+  # The read-only token for the two private overnightworks repositories
+  # (operator ruling 13.10.2026); never checked in, default is the host path.
+  overnightworks_read_token:
+    file: ${OVERNIGHTWORKS_READ_TOKEN_FILE:-~/.secrets/github/overnightworks-read-token}

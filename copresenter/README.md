@@ -93,10 +93,11 @@ uv run copresenter-standin
 export COPRESENTER_SPEECH_URL="http://127.0.0.1:8765"
 ```
 
-This service:
+This service, started with `--no-sync --frozen` so it does not re-resolve
+`overnightworks-agent-providers` over the network at every start:
 
 ```sh
-uv run copresenter
+uv run --no-sync --frozen copresenter
 ```
 
 The deck, from `frontend/` after `pnpm install --frozen-lockfile`:

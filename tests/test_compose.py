@@ -45,3 +45,15 @@ def test_copresenter_uses_one_private_socket_and_runtime_uid() -> None:
     assert "8090:8090" not in written
     assert written.count("ports:") == 1
     assert written.count('"127.0.0.1:8000:8000"') == 1
+
+
+def test_the_instance_build_alone_reads_the_overnightworks_read_token() -> None:
+    written = _COMPOSE.read_text(encoding="utf-8")
+
+    # Only the instance's own build resolves webauth from source; the
+    # toolchain layer build-sandbox reuses never needs the private repository.
+    assert written.count("secrets:\n        - overnightworks_read_token") == 1
+    assert (
+        "    file: ${OVERNIGHTWORKS_READ_TOKEN_FILE:-"
+        "~/.secrets/github/overnightworks-read-token}" in written
+    )
