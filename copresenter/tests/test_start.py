@@ -124,6 +124,43 @@ def test_cleanup_does_not_unlink_a_replacement_inode(tmp_path: Path) -> None:
     path.unlink()
 
 
+def test_unix_start_replaces_a_dead_leftover_socket(tmp_path: Path) -> None:
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700)
+    path = directory / "copresenter.sock"
+    dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    dead.bind(str(path))
+    dead.close()
+
+    with private_listener(unix_settings(directory)) as listener:
+        assert listener.family == socket.AF_UNIX
+        socket_status = path.lstat()
+        assert stat.S_ISSOCK(socket_status.st_mode)
+
+    assert not path.exists()
+
+
+def test_unix_start_refuses_a_socket_with_a_live_listener(tmp_path: Path) -> None:
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700)
+    path = directory / "copresenter.sock"
+    listening = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listening.bind(str(path))
+    listening.listen()
+
+    try:
+        with (
+            pytest.raises(RuntimeError, match="already exists"),
+            private_listener(unix_settings(directory)),
+        ):
+            pass
+
+        assert stat.S_ISSOCK(path.lstat().st_mode)
+    finally:
+        listening.close()
+        path.unlink()
+
+
 def test_unix_start_requires_the_process_uid(tmp_path: Path) -> None:
     settings = Settings(
         transport=Transport.UNIX,

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 _SOCKET_NAME = "speech.sock"
 _DIRECTORY_MODE = 0o700
 _SOCKET_MODE = 0o600
+_LIVENESS_TIMEOUT_SECONDS = 0.2
 
 
 class PrivateSocket(AbstractContextManager[socket.socket]):
@@ -41,9 +42,7 @@ class PrivateSocket(AbstractContextManager[socket.socket]):
     def __enter__(self) -> socket.socket:
         """Validate the directory and bind a new private socket inode."""
         self._prepare_directory()
-        if self._path.exists() or self._path.is_symlink():
-            message = f"private speech socket already exists: {self._path}"
-            raise FileExistsError(message)
+        self._reclaim_stale_socket()
         bound = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             bound.bind(str(self._path))
@@ -74,6 +73,27 @@ class PrivateSocket(AbstractContextManager[socket.socket]):
         ):
             message = f"private speech directory is unsafe: {self._directory}"
             raise PermissionError(message)
+
+    def _reclaim_stale_socket(self) -> None:
+        """Remove a leftover socket inode nobody listens on; refuse anything live."""
+        try:
+            status = self._path.lstat()
+        except FileNotFoundError:
+            return
+        if not stat.S_ISSOCK(status.st_mode) or status.st_uid != self._runtime_uid:
+            message = f"private speech socket already exists: {self._path}"
+            raise FileExistsError(message)
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(_LIVENESS_TIMEOUT_SECONDS)
+            probe.connect(str(self._path))
+        except (ConnectionRefusedError, FileNotFoundError):
+            self._path.unlink()
+        else:
+            message = f"private speech socket already exists: {self._path}"
+            raise FileExistsError(message)
+        finally:
+            probe.close()
 
     def _remove_if_owned(self) -> None:
         if self._inode is None:

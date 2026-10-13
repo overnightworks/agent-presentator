@@ -21,6 +21,7 @@ from copresenter.config import Settings, Transport, load_settings
 _log = logging.getLogger("copresenter")
 _DIRECTORY_MODE = 0o700
 _SOCKET_MODE = 0o600
+_LIVENESS_TIMEOUT_SECONDS = 0.2
 
 
 def main() -> None:
@@ -56,13 +57,7 @@ def private_listener(settings: Settings) -> Iterator[socket.socket]:
     directory = settings.socket_path.parent
     _prepare_directory(directory)
     path = settings.socket_path
-    try:
-        path.lstat()
-    except FileNotFoundError:
-        pass
-    else:
-        message = f"private socket already exists: {path}"
-        raise RuntimeError(message)
+    _reclaim_stale_socket(path)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     owned: os.stat_result | None = None
     try:
@@ -92,6 +87,28 @@ def _prepare_directory(directory: Path) -> None:
     if stat.S_IMODE(status.st_mode) != _DIRECTORY_MODE:
         message = f"socket directory must have mode 0700: {directory}"
         raise RuntimeError(message)
+
+
+def _reclaim_stale_socket(path: Path) -> None:
+    """Remove a leftover socket inode nobody listens on; refuse anything live or foreign."""
+    try:
+        status = path.lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISSOCK(status.st_mode) or status.st_uid != os.geteuid():
+        message = f"private socket already exists: {path}"
+        raise RuntimeError(message)
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(_LIVENESS_TIMEOUT_SECONDS)
+        probe.connect(str(path))
+    except (ConnectionRefusedError, FileNotFoundError):
+        path.unlink()
+    else:
+        message = f"private socket already exists: {path}"
+        raise RuntimeError(message)
+    finally:
+        probe.close()
 
 
 def _unlink_owned(path: Path, *, device: int, inode: int) -> None:

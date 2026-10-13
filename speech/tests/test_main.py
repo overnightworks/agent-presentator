@@ -209,6 +209,38 @@ def test_private_socket_preserves_an_existing_socket_path(tmp_path) -> None:
     assert existing.exists()
 
 
+def test_private_socket_replaces_a_dead_leftover_socket(tmp_path) -> None:
+    path = tmp_path / "speech.sock"
+    dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    dead.bind(str(path))
+    dead.close()
+
+    with PrivateSocket(tmp_path, runtime_uid=os.geteuid()) as listener:
+        assert listener.family == socket.AF_UNIX
+        assert stat.S_ISSOCK(path.lstat().st_mode)
+
+    assert not path.exists()
+
+
+def test_private_socket_refuses_a_socket_with_a_live_listener(tmp_path) -> None:
+    path = tmp_path / "speech.sock"
+    listening = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listening.bind(str(path))
+    listening.listen()
+
+    try:
+        with (
+            pytest.raises(FileExistsError),
+            PrivateSocket(tmp_path, runtime_uid=os.geteuid()),
+        ):
+            pass
+
+        assert stat.S_ISSOCK(path.lstat().st_mode)
+    finally:
+        listening.close()
+        path.unlink()
+
+
 def test_failed_loader_stops_both_servers_and_cleans_the_owned_socket(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
