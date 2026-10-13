@@ -66,21 +66,9 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-# webauth is a private repository (operator ruling 13.10.2026); the token
-# that reads it enters only as a BuildKit secret, and the `insteadOf` rewrite
-# that carries it exists only for this one shell, never in an image layer, a
-# log, or `docker history`.
-RUN --mount=type=secret,id=overnightworks_read_token,required=true \
-    GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0="url.https://x-access-token:$(cat /run/secrets/overnightworks_read_token)@github.com/overnightworks/.insteadOf" \
-    GIT_CONFIG_VALUE_0="https://github.com/overnightworks/" \
-    uv sync --locked --no-dev --no-install-project
+RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
-RUN --mount=type=secret,id=overnightworks_read_token,required=true \
-    GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0="url.https://x-access-token:$(cat /run/secrets/overnightworks_read_token)@github.com/overnightworks/.insteadOf" \
-    GIT_CONFIG_VALUE_0="https://github.com/overnightworks/" \
-    uv sync --locked --no-dev --no-editable
+RUN uv sync --locked --no-dev --no-editable
 
 # The directories the instance keeps its state in are made here so that an empty
 # volume mounted over one belongs to the user that writes it.
