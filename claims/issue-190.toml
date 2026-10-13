@@ -1,0 +1,7 @@
+claim_id = "a589b8cb7ca243d892c08b678345702b"
+agent = "claude-head"
+role = "builder"
+base = "c137324dd81c3a164a74e2b979472833637b46e2"
+branch = "claude-head/issue-190-stale-socket"
+scope = ["copresenter/src/copresenter/main.py"]
+opened_commit = "7fccda9d35255ecafc02f674b5c169ebc38a6f68"
