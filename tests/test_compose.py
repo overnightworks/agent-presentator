@@ -16,6 +16,7 @@ _COMPOSE = Path(__file__).parents[1] / "compose.yaml"
 _DOCKERFILE = Path(__file__).parents[1] / "Dockerfile"
 _THE_BUILDS_VOLUME = "builds"
 _OVERNIGHTWORKS_READ_ACCESS_ID = "overnightworks_read_token"
+_OVERNIGHTWORKS_READ_ENV_VAR = "OVERNIGHTWORKS_READ_TOKEN"
 _OVERNIGHTWORKS_READ_TOKEN_MOUNT = (
     f"--mount=type=secret,id={_OVERNIGHTWORKS_READ_ACCESS_ID},required=true"
 )
@@ -30,7 +31,7 @@ class _Service(TypedDict):
 
 
 class _SecretSource(TypedDict):
-    file: str
+    environment: str
 
 
 class _ComposeFile(TypedDict):
@@ -112,8 +113,9 @@ def test_the_instance_build_alone_reads_the_overnightworks_read_token() -> None:
         _OVERNIGHTWORKS_READ_ACCESS_ID
     ]
     assert "secrets" not in services["build-sandbox"]["build"]
-    assert _load_compose()["secrets"][_OVERNIGHTWORKS_READ_ACCESS_ID]["file"] == (
-        "${OVERNIGHTWORKS_READ_TOKEN_FILE:-~/.secrets/github/overnightworks-read-token}"
+    assert (
+        _load_compose()["secrets"][_OVERNIGHTWORKS_READ_ACCESS_ID]["environment"]
+        == _OVERNIGHTWORKS_READ_ENV_VAR
     )
 
 

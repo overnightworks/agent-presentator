@@ -88,6 +88,9 @@ volumes:
 
 secrets:
   # The read-only token for the two private overnightworks repositories
-  # (operator ruling 13.10.2026); never checked in, default is the host path.
+  # (operator ruling 13.10.2026); never checked in. Compose with buildx bake
+  # refuses a secret file outside the project directory (it would need
+  # `--allow=fs.read=<path>`), so whoever runs the build exports it into this
+  # environment variable from the host file instead.
   overnightworks_read_token:
-    file: ${OVERNIGHTWORKS_READ_TOKEN_FILE:-~/.secrets/github/overnightworks-read-token}
+    environment: OVERNIGHTWORKS_READ_TOKEN
