@@ -3,6 +3,6 @@ agent = "claude-head"
 role = "builder"
 base = "10e3b0569206e95cfd4126b73d68d5d1813404b3"
 branch = "claude-head/issue-189-private-libs"
-scope = [".github/workflows/ci.yml", "Dockerfile", "README.md", "compose.yaml", "copresenter/README.md", "copresenter/pyproject.toml", "copresenter/uv.lock", "docs/OPERATIONS.md", "pyproject.toml", "tests/test_compose.py", "uv.lock"]
+scope = [".github/workflows/ci.yml", ".github/workflows/pr-check.yml", "Dockerfile", "README.md", "compose.yaml", "copresenter/README.md", "copresenter/pyproject.toml", "copresenter/uv.lock", "docs/OPERATIONS.md", "pyproject.toml", "tests/test_compose.py", "uv.lock"]
 opened_commit = "3ecc4ccc8cc27831419cd9c55683f061db1ced22"
 whole_reason = "one cause (private libs) touches start, build, CI and their docs together"
