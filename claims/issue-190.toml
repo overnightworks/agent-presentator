@@ -3,5 +3,6 @@ agent = "claude-head"
 role = "builder"
 base = "c137324dd81c3a164a74e2b979472833637b46e2"
 branch = "claude-head/issue-190-stale-socket"
-scope = ["copresenter/src/copresenter/main.py"]
+scope = ["copresenter/src/copresenter/main.py", "copresenter/tests/test_start.py", "speech/src/speech/__main__.py", "speech/tests/test_main.py"]
 opened_commit = "7fccda9d35255ecafc02f674b5c169ebc38a6f68"
+whole_reason = "the same stale-socket refusal lives in both socket-owning services and their start tests"
