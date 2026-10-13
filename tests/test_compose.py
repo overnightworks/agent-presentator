@@ -7,6 +7,7 @@ with itself.
 """
 
 from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 import yaml
@@ -20,8 +21,27 @@ _OVERNIGHTWORKS_READ_TOKEN_MOUNT = (
 )
 
 
-def _load_compose() -> dict[str, object]:
-    return yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+class _ServiceBuild(TypedDict, total=False):
+    secrets: list[str]
+
+
+class _Service(TypedDict):
+    build: _ServiceBuild
+
+
+class _SecretSource(TypedDict):
+    file: str
+
+
+class _ComposeFile(TypedDict):
+    services: dict[str, _Service]
+    secrets: dict[str, _SecretSource]
+
+
+def _load_compose() -> _ComposeFile:
+    # The shape this test pins is exactly what it asserts below; a file that
+    # drifts from it fails those assertions, not this narrowing.
+    return cast("_ComposeFile", yaml.safe_load(_COMPOSE.read_text(encoding="utf-8")))
 
 
 def _dockerfile_run_instructions() -> list[str]:
@@ -88,7 +108,7 @@ def test_the_instance_build_alone_reads_the_overnightworks_read_token() -> None:
 
     # Only the instance's own build resolves webauth from source; the
     # toolchain layer build-sandbox reuses never needs the private repository.
-    assert services["presentator"]["build"]["secrets"] == [
+    assert services["presentator"]["build"].get("secrets") == [
         _OVERNIGHTWORKS_READ_ACCESS_ID
     ]
     assert "secrets" not in services["build-sandbox"]["build"]
