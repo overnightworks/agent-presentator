@@ -222,6 +222,41 @@ def test_private_socket_replaces_a_dead_leftover_socket(tmp_path) -> None:
     assert not path.exists()
 
 
+def test_private_socket_refuses_a_concurrent_start_while_the_listener_is_running(
+    tmp_path,
+) -> None:
+    with (
+        PrivateSocket(tmp_path, runtime_uid=os.geteuid()),
+        pytest.raises(FileExistsError, match="starting or running"),
+        PrivateSocket(tmp_path, runtime_uid=os.geteuid()),
+    ):
+        pass
+
+
+def test_private_socket_refuses_when_the_socket_is_replaced_mid_check(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "speech.sock"
+    dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    dead.bind(str(path))
+    dead.close()
+
+    def swap_then_report_dead(swapped_path: Path) -> bool:
+        swapped_path.unlink()
+        swapped_path.write_text("replacement", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(__main__, "_probe_is_dead", swap_then_report_dead)
+
+    with (
+        pytest.raises(FileExistsError, match="changed during reclamation"),
+        PrivateSocket(tmp_path, runtime_uid=os.geteuid()),
+    ):
+        pass
+
+    assert path.read_text(encoding="utf-8") == "replacement"
+
+
 def test_private_socket_refuses_a_socket_with_a_live_listener(tmp_path) -> None:
     path = tmp_path / "speech.sock"
     listening = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

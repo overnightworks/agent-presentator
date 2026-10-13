@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from copresenter import main as copresenter_main
 from copresenter.answer import provider_runtime
 from copresenter.config import Settings, Transport
 from copresenter.main import private_listener
@@ -159,6 +160,45 @@ def test_unix_start_refuses_a_socket_with_a_live_listener(tmp_path: Path) -> Non
     finally:
         listening.close()
         path.unlink()
+
+
+def test_concurrent_start_refuses_while_the_listener_is_running(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "private"
+
+    with (
+        private_listener(unix_settings(directory)),
+        pytest.raises(RuntimeError, match="starting or running"),
+        private_listener(unix_settings(directory)),
+    ):
+        pass
+
+
+def test_reclaim_refuses_when_the_socket_is_replaced_mid_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700)
+    path = directory / "copresenter.sock"
+    dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    dead.bind(str(path))
+    dead.close()
+
+    def swap_then_report_dead(swapped_path: Path) -> bool:
+        swapped_path.unlink()
+        swapped_path.write_text("replacement", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(copresenter_main, "_probe_is_dead", swap_then_report_dead)
+
+    with (
+        pytest.raises(RuntimeError, match="changed during reclamation"),
+        private_listener(unix_settings(directory)),
+    ):
+        pass
+
+    assert path.read_text(encoding="utf-8") == "replacement"
 
 
 def test_unix_start_requires_the_process_uid(tmp_path: Path) -> None:
