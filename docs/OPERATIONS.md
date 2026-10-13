@@ -512,10 +512,10 @@ COPRESENTER_DECK=<the deck folder> \
   uv run --no-sync --frozen copresenter
 ```
 
-The co-presenter starts without network access to GitHub: `--no-sync --frozen`
+The co-presenter starts without depending on the network: `--no-sync --frozen`
 runs the environment the last `uv sync` installed instead of re-resolving
-`overnightworks-agent-providers` at every start, which a reboot with private
-repositories would otherwise fail at with exit 2.
+`overnightworks-agent-providers` at every start, which a reboot without
+network access would otherwise fail at with exit 2.
 
 Set `PRESENTATOR_PUBLIC_ORIGIN` to the exact canonical browser origin and
 `COPRESENTER_SOCKET_DIRECTORY` plus `PRESENTATOR_RUNTIME_UID` for Compose.
