@@ -55,12 +55,10 @@ pnpm test
 pnpm build:example
 ```
 
-And the image CI builds, from the repository root — webauth is a private
-repository, so the build takes a read-only token as a BuildKit secret
-([docs/OPERATIONS.md](docs/OPERATIONS.md) owns where that token lives):
+And the image CI builds, from the repository root:
 
 ```sh
-docker build --secret id=overnightworks_read_token,env=OVERNIGHTWORKS_READ_TOKEN .
+docker build .
 ```
 
 Which layer's test is the proof, and how to target a local run, is

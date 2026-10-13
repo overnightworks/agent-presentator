@@ -166,21 +166,7 @@ docker compose --profile images build
 ```
 
 Without that profile only the instance is built, and the sandbox image stays as
-it was; "Building the decks" says what it is for.
-
-`webauth` is a private repository (operator ruling 13.10.2026), so the build
-reads a read-only token through a BuildKit secret, never a build argument or an
-image layer. Compose with buildx bake refuses a secret file outside the
-project directory, so `compose.yaml` sources it from the `OVERNIGHTWORKS_READ_TOKEN`
-environment variable instead; whoever runs the build exports it from the host
-file for that command alone, for example:
-
-```sh
-OVERNIGHTWORKS_READ_TOKEN="$(cat ~/.secrets/github/overnightworks-read-token)" docker compose build
-```
-
-A build without that variable fails loud, naming the missing secret. Five of
-the settings this
+it was; "Building the decks" says what it is for. Five of the settings this
 file names are not a deployment's choice inside a container but a fact of the
 image's own filesystem and network, so the image sets them and their defaults
 elsewhere here do not apply, and compose adds the two the sandbox is:
@@ -526,10 +512,10 @@ COPRESENTER_DECK=<the deck folder> \
   uv run --no-sync --frozen copresenter
 ```
 
-The co-presenter starts without network access to GitHub: `--no-sync --frozen`
+The co-presenter starts without depending on the network: `--no-sync --frozen`
 runs the environment the last `uv sync` installed instead of re-resolving
-`overnightworks-agent-providers` at every start, which a reboot with private
-repositories would otherwise fail at with exit 2.
+`overnightworks-agent-providers` at every start, which a reboot without
+network access would otherwise fail at with exit 2.
 
 Set `PRESENTATOR_PUBLIC_ORIGIN` to the exact canonical browser origin and
 `COPRESENTER_SOCKET_DIRECTORY` plus `PRESENTATOR_RUNTIME_UID` for Compose.
