@@ -465,9 +465,10 @@ jobs:
 
       # An image without CA certificates builds cleanly and only fails once a
       # real HTTPS source is added, so the proof has to be an actual TLS
-      # fetch, not a package-list check.
+      # fetch, not a package-list check. The target must stay public and
+      # anonymously reachable, so this is not the (private) repository itself.
       - name: Smoke test HTTPS reachability
-        run: docker run --rm agent-presentator:${{ github.sha }} git ls-remote https://github.com/overnightworks/agent-presentator.git HEAD
+        run: docker run --rm agent-presentator:${{ github.sha }} git ls-remote https://github.com/git/git.git HEAD
 
   secrets:
     name: Secret scan

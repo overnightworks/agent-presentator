@@ -8,8 +8,44 @@ with itself.
 
 from pathlib import Path
 
+import pytest
+import yaml
+
 _COMPOSE = Path(__file__).parents[1] / "compose.yaml"
+_DOCKERFILE = Path(__file__).parents[1] / "Dockerfile"
 _THE_BUILDS_VOLUME = "builds"
+_OVERNIGHTWORKS_READ_ACCESS_ID = "overnightworks_read_token"
+_OVERNIGHTWORKS_READ_TOKEN_MOUNT = (
+    f"--mount=type=secret,id={_OVERNIGHTWORKS_READ_ACCESS_ID},required=true"
+)
+
+
+def _load_compose() -> dict[str, object]:
+    return yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+
+
+def _dockerfile_run_instructions() -> list[str]:
+    """Join each `RUN` and its backslash continuations into one instruction."""
+    instructions: list[str] = []
+    current: list[str] = []
+    for line in _DOCKERFILE.read_text(encoding="utf-8").splitlines():
+        if current:
+            current.append(line)
+        elif line.startswith("RUN "):
+            current = [line]
+        else:
+            continue
+        if not line.rstrip().endswith("\\"):
+            instructions.append("\n".join(current))
+            current = []
+    return instructions
+
+
+_UV_SYNC_INSTRUCTIONS = [
+    instruction
+    for instruction in _dockerfile_run_instructions()
+    if "uv sync" in instruction
+]
 
 
 def test_the_server_is_handed_the_very_volume_this_file_declares() -> None:
@@ -48,12 +84,31 @@ def test_copresenter_uses_one_private_socket_and_runtime_uid() -> None:
 
 
 def test_the_instance_build_alone_reads_the_overnightworks_read_token() -> None:
-    written = _COMPOSE.read_text(encoding="utf-8")
+    services = _load_compose()["services"]
 
     # Only the instance's own build resolves webauth from source; the
     # toolchain layer build-sandbox reuses never needs the private repository.
-    assert written.count("secrets:\n        - overnightworks_read_token") == 1
-    assert (
-        "    file: ${OVERNIGHTWORKS_READ_TOKEN_FILE:-"
-        "~/.secrets/github/overnightworks-read-token}" in written
+    assert services["presentator"]["build"]["secrets"] == [
+        _OVERNIGHTWORKS_READ_ACCESS_ID
+    ]
+    assert "secrets" not in services["build-sandbox"]["build"]
+    assert _load_compose()["secrets"][_OVERNIGHTWORKS_READ_ACCESS_ID]["file"] == (
+        "${OVERNIGHTWORKS_READ_TOKEN_FILE:-~/.secrets/github/overnightworks-read-token}"
     )
+
+
+def test_the_dockerfile_resolves_dependencies_through_uv_sync_at_least_once() -> None:
+    # A parametrized test over zero cases passes vacuously; this pins that the
+    # family below actually holds the instructions it claims to check.
+    assert _UV_SYNC_INSTRUCTIONS
+
+
+@pytest.mark.parametrize(
+    "instruction", _UV_SYNC_INSTRUCTIONS, ids=range(len(_UV_SYNC_INSTRUCTIONS))
+)
+def test_every_uv_sync_mounts_the_required_overnightworks_read_token(
+    instruction: str,
+) -> None:
+    # A dependency resolution that reaches webauth without the token must fail
+    # loud rather than silently fetch an outdated or public fallback.
+    assert _OVERNIGHTWORKS_READ_TOKEN_MOUNT in instruction
