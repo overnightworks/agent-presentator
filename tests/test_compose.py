@@ -7,7 +7,7 @@ with itself.
 """
 
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 import pytest
 import yaml
@@ -20,14 +20,24 @@ _OVERNIGHTWORKS_READ_ENV_VAR = "OVERNIGHTWORKS_READ_TOKEN"
 _OVERNIGHTWORKS_READ_TOKEN_MOUNT = (
     f"--mount=type=secret,id={_OVERNIGHTWORKS_READ_ACCESS_ID},required=true"
 )
+_OVERNIGHTWORKS_READ_SENSITIVE_VALUES = (
+    _OVERNIGHTWORKS_READ_ACCESS_ID,
+    _OVERNIGHTWORKS_READ_ENV_VAR,
+)
 
 
 class _ServiceBuild(TypedDict, total=False):
     secrets: list[str]
+    args: dict[str, str]
 
 
 class _Service(TypedDict):
     build: _ServiceBuild
+    # Both are runtime exposures the build-time secret mount must stay the
+    # only path for: a plain environment entry or a service-level (not
+    # build-level) secret would hand the running container the value.
+    environment: NotRequired[dict[str, str] | list[str]]
+    secrets: NotRequired[list[str]]
 
 
 class _SecretSource(TypedDict):
@@ -117,6 +127,44 @@ def test_the_instance_build_alone_reads_the_overnightworks_read_token() -> None:
         _load_compose()["secrets"][_OVERNIGHTWORKS_READ_ACCESS_ID]["environment"]
         == _OVERNIGHTWORKS_READ_ENV_VAR
     )
+
+
+def _mentions_a_sensitive_value(value: object) -> bool:
+    """Whether `value` carries the token or its secret id anywhere inside it.
+
+    Walks dict values/keys and list entries so a mutation that moves the
+    token into `environment`'s list form, a nested mapping, or alongside
+    other entries is still caught.
+    """
+    if isinstance(value, str):
+        return any(
+            sensitive in value for sensitive in _OVERNIGHTWORKS_READ_SENSITIVE_VALUES
+        )
+    if isinstance(value, dict):
+        mapping = cast("dict[object, object]", value)
+        return any(
+            _mentions_a_sensitive_value(key) or _mentions_a_sensitive_value(entry)
+            for key, entry in mapping.items()
+        )
+    if isinstance(value, list):
+        entries = cast("list[object]", value)
+        return any(_mentions_a_sensitive_value(entry) for entry in entries)
+    return False
+
+
+@pytest.mark.parametrize("service_name", sorted(_load_compose()["services"]))
+def test_no_service_exposes_the_overnightworks_read_token_at_runtime(
+    service_name: str,
+) -> None:
+    service = _load_compose()["services"][service_name]
+
+    # The BuildKit secret mount (asserted above) is the only sanctioned path
+    # for this token; a runtime environment entry, a service-level secret
+    # (distinct from the build-level mount), or a build argument would each
+    # hand the daemon or the running container the value or its id instead.
+    assert not _mentions_a_sensitive_value(service.get("environment"))
+    assert not _mentions_a_sensitive_value(service.get("secrets"))
+    assert not _mentions_a_sensitive_value(service["build"].get("args"))
 
 
 def test_the_dockerfile_resolves_dependencies_through_uv_sync_at_least_once() -> None:
