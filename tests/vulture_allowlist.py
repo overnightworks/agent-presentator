@@ -183,3 +183,14 @@ VoiceLoadOutcome.NOT_ACTIVATED
 
 # `UdsSpeech` decodes this private-wire outcome through `_DownloadPayload`.
 VoiceDownloadOutcome.ALREADY_COMPLETE
+
+
+# `tests/test_compose.py`'s `_SecretSource.file` is a TypedDict field, read
+# as `source["file"]` and never by attribute; pyright itself refuses `.file`
+# on a TypedDict (reportAttributeAccessIssue), so a plain stand-in class
+# carries the same field name for vulture's attribute-name match instead.
+class _TypedDictFieldReadByItemAccess:
+    file: str
+
+
+_TypedDictFieldReadByItemAccess.file
