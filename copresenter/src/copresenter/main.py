@@ -77,7 +77,7 @@ def private_listener(settings: Settings) -> Iterator[socket.socket]:
             if owned is not None:
                 _unlink_owned(path, device=owned.st_dev, inode=owned.st_ino)
     finally:
-        _release_start_lock(lock_fd, path)
+        _release_start_lock(lock_fd)
 
 
 def _lock_path_for(path: Path) -> Path:
@@ -98,13 +98,19 @@ def _acquire_start_lock(path: Path) -> int:
     return fd
 
 
-def _release_start_lock(fd: int, path: Path) -> None:
+def _release_start_lock(fd: int) -> None:
+    """Unlock and close only; never unlink.
+
+    Unlinking here would let a third starter reuse this path's inode for a
+    brand-new lock while a second starter (who acquired it between this
+    release and the unlink) still believes it holds the one true lock. The
+    file's existence never means a lock is held; the kernel lock already
+    ended when this descriptor closes.
+    """
     try:
         fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
-    with suppress(FileNotFoundError):
-        _lock_path_for(path).unlink()
 
 
 def _prepare_directory(directory: Path) -> None:

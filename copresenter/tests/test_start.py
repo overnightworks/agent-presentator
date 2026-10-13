@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import socket
 import stat
@@ -199,6 +200,47 @@ def test_reclaim_refuses_when_the_socket_is_replaced_mid_check(
         pass
 
     assert path.read_text(encoding="utf-8") == "replacement"
+
+
+def test_lock_file_survives_release_and_the_next_start_reacquires_its_inode(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "private"
+    path = directory / "copresenter.sock"
+    lock_path = path.with_name(path.name + ".lock")
+
+    with private_listener(unix_settings(directory)):
+        pass
+
+    first_inode = lock_path.stat().st_ino
+
+    with private_listener(unix_settings(directory)):
+        assert lock_path.stat().st_ino == first_inode
+
+
+def test_concurrent_start_refuses_when_another_process_holds_the_released_lock_inode(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "private"
+    path = directory / "copresenter.sock"
+    lock_path = path.with_name(path.name + ".lock")
+
+    with private_listener(unix_settings(directory)):
+        pass  # starter A acquired, bound, and released; the lock path's inode remains
+
+    # starter B takes that same, still-existing lock inode directly, as it would
+    # between A's release and C's next attempt.
+    holder_b = os.open(lock_path, os.O_RDWR)
+    fcntl.flock(holder_b, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with (
+            pytest.raises(RuntimeError, match="starting or running"),
+            private_listener(unix_settings(directory)),
+        ):
+            pass
+    finally:
+        fcntl.flock(holder_b, fcntl.LOCK_UN)
+        os.close(holder_b)
 
 
 def test_unix_start_requires_the_process_uid(tmp_path: Path) -> None:

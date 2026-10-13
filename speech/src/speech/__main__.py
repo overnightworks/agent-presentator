@@ -10,7 +10,7 @@ import signal
 import socket
 import stat
 import threading
-from contextlib import AbstractContextManager, suppress
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -88,6 +88,14 @@ class PrivateSocket(AbstractContextManager[socket.socket]):
         return fd
 
     def _release_start_lock(self) -> None:
+        """Unlock and close only; never unlink.
+
+        Unlinking here would let a third starter reuse this path's inode for
+        a brand-new lock while a second starter (who acquired it between this
+        release and the unlink) still believes it holds the one true lock.
+        The file's existence never means a lock is held; the kernel lock
+        already ended when this descriptor closes.
+        """
         if self._lock_fd is None:
             return
         try:
@@ -95,8 +103,6 @@ class PrivateSocket(AbstractContextManager[socket.socket]):
         finally:
             os.close(self._lock_fd)
         self._lock_fd = None
-        with suppress(FileNotFoundError):
-            self._lock_path.unlink()
 
     def _prepare_directory(self) -> None:
         self._directory.mkdir(mode=_DIRECTORY_MODE, parents=True, exist_ok=True)

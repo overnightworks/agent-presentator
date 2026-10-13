@@ -1,6 +1,7 @@
 """The private listener has a narrow, ownership-checked lifetime."""
 
 import asyncio
+import fcntl
 import os
 import signal
 import socket
@@ -274,6 +275,43 @@ def test_private_socket_refuses_a_socket_with_a_live_listener(tmp_path) -> None:
     finally:
         listening.close()
         path.unlink()
+
+
+def test_private_socket_lock_survives_release_and_the_next_start_reacquires_its_inode(
+    tmp_path,
+) -> None:
+    lock_path = tmp_path / "speech.sock.lock"
+
+    with PrivateSocket(tmp_path, runtime_uid=os.geteuid()):
+        pass
+
+    first_inode = lock_path.stat().st_ino
+
+    with PrivateSocket(tmp_path, runtime_uid=os.geteuid()):
+        assert lock_path.stat().st_ino == first_inode
+
+
+def test_private_socket_refuses_when_another_process_holds_the_released_lock_inode(
+    tmp_path,
+) -> None:
+    lock_path = tmp_path / "speech.sock.lock"
+
+    with PrivateSocket(tmp_path, runtime_uid=os.geteuid()):
+        pass  # starter A acquired, bound, and released; the lock path's inode remains
+
+    # starter B takes that same, still-existing lock inode directly, as it would
+    # between A's release and C's next attempt.
+    holder_b = os.open(lock_path, os.O_RDWR)
+    fcntl.flock(holder_b, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with (
+            pytest.raises(FileExistsError, match="starting or running"),
+            PrivateSocket(tmp_path, runtime_uid=os.geteuid()),
+        ):
+            pass
+    finally:
+        fcntl.flock(holder_b, fcntl.LOCK_UN)
+        os.close(holder_b)
 
 
 def test_failed_loader_stops_both_servers_and_cleans_the_owned_socket(
