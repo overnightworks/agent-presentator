@@ -560,6 +560,9 @@ def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
 
     assert _ONLY_THIS_TEST_WROTE_IT not in refused.text
     assert refused.headers["content-type"] != _PDF_TYPE
+    if replaced.startswith("talk/assets"):
+        assert refused.status_code == HTTPStatus.NOT_FOUND
+        assert refused.json() == {"detail": HTTPStatus.NOT_FOUND.phrase}
 
 
 def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
