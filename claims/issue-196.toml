@@ -1,8 +1,0 @@
-claim_id = "97b6123d62ce45c28cd7a269ff4d2986"
-agent = "Claude fe12493e-3d52-442e-b01b-4ee4336de2f0"
-role = "builder"
-base = "5dafa4b074d0fd03f6bf72aedee37bfaf5725245"
-branch = "claude/issue-196-legal-pages"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/decisions", "docs/mockups", "src/presentator/adapters/catalogs/en.po", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/api/static/lobby.css", "src/presentator/api/templates/base.html", "src/presentator/api/templates/datenschutz.html", "src/presentator/contracts/text.py", "tests/api/test_auth.py", "tests/vulture_allowlist.py"]
-opened_commit = "e169fcd3502ed67d837347dbd6de215e855be8e2"
-whole_reason = "Footer, public page, its text owner, catalog labels, styles, guard tests and the superseding ADR land as one capability; split halves would ship a dead link or an orphaned page."
