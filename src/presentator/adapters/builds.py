@@ -34,7 +34,7 @@ from enum import StrEnum
 from pathlib import Path
 from tempfile import mkdtemp
 from time import monotonic
-from typing import IO, Final, Protocol, cast
+from typing import IO, BinaryIO, Final, Protocol, cast
 
 from gitmirror.model import MirrorError, Revision
 from presentator.adapters.decks import SourceMirrors
@@ -604,10 +604,23 @@ class SlidevBuilds:
         """
         root = self.builds.absolute()
         for written in (artefacts.directory / TALK_PAGE, artefacts.pdf):
-            if not _a_file_reached_without_a_link(written, under=root):
+            found = opened_without_a_link(written, under=root, how=os.O_PATH)
+            if found is None:
                 _log.warning(_NOT_AS_WRITTEN, artefacts.directory, written)
                 return False
+            os.close(found)
         return True
+
+    def read(self, written: Path) -> BinaryIO | None:
+        """That file of a build for reading, or nothing where it is not one.
+
+        The check and the open are one step: what is handed back was opened
+        from the root down without following a link, so a name a build swapped
+        for a link since `holds` looked cannot lead anywhere this server did
+        not write.
+        """
+        found = opened_without_a_link(written, under=self.builds.absolute())
+        return None if found is None else os.fdopen(found, "rb")
 
     def remove(self, directory: Path) -> bool:
         """Take that run's whole directory off disk, or say it is still there.
@@ -1040,38 +1053,44 @@ def _opened_within(name: str, *, held_by: int) -> int:
     )
 
 
-def _a_file_reached_without_a_link(written: Path, *, under: Path) -> bool:
-    """Whether that path is a regular file, every name below the root no link.
+def opened_without_a_link(
+    written: Path,
+    *,
+    under: Path,
+    how: int = os.O_RDONLY,
+) -> int | None:
+    """That path as a descriptor, if it is a regular file and no name on it a link.
 
     The root is this deployment's own and opened as it is configured; from
     there on each directory is opened from the descriptor of the one holding
     it, and the last name is looked at itself rather than at what it may point
-    to.
+    to. A name that is not a regular file is closed again, and never read: it
+    is opened without waiting, so a pipe a build left cannot hold a request.
     """
     if not written.is_relative_to(under):
-        return False
+        return None
     names = written.relative_to(under).parts
     if not names or _UP in names:
-        return False
+        return None
     *directories, name = names
     try:
         holder = os.open(under, os.O_RDONLY | os.O_DIRECTORY)
     except OSError:
-        return False
+        return None
     try:
         for directory in directories:
             inner = _opened_within(directory, held_by=holder)
             os.close(holder)
             holder = inner
-        found = os.open(name, os.O_PATH | os.O_NOFOLLOW, dir_fd=holder)
-        try:
-            return stat.S_ISREG(os.fstat(found).st_mode)
-        finally:
-            os.close(found)
-    except OSError:
-        return False
+        found = os.open(name, how | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=holder)
+    except (OSError, ValueError):
+        return None
     finally:
         os.close(holder)
+    if stat.S_ISREG(os.fstat(found).st_mode):
+        return found
+    os.close(found)
+    return None
 
 
 def _a_directory_of_its_own(directory: Path) -> int | None:

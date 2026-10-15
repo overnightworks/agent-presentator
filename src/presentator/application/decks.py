@@ -18,7 +18,7 @@ from hashlib import sha256
 from hmac import compare_digest
 from pathlib import Path
 from threading import Lock
-from typing import Final
+from typing import BinaryIO, Final
 from urllib.parse import urlparse
 
 from presentator.contracts.decks import (
@@ -757,6 +757,10 @@ class Decks:
         if deck is None or deck.build is None:
             return None
         return deck.build.pdf
+
+    def open_build_file(self, written: Path) -> BinaryIO | None:
+        """A file a build wrote, opened to be delivered, or nothing if it is not one."""
+        return self.builder.read(written)
 
     def source_address(self) -> str | None:
         """The git address an empty list names, while one source is all there is.

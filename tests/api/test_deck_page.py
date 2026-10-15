@@ -24,8 +24,10 @@ from tests.api.lobby import (
     a_configured_source,
     a_lobby,
     a_signed_in_lobby,
+    a_swapped_build,
     a_user_store,
     an_account,
+    real_builds_under,
 )
 from tests.application.fakes import FakeDeckStore
 
@@ -519,6 +521,63 @@ def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
     assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
+def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
+    """A directory holding the secret under every name a build file has."""
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    for name in ("deck.pdf", "app.js", "index.html"):
+        (secret / name).write_text(_ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
+    return secret
+
+
+@pytest.mark.parametrize(
+    ("replaced", "address"),
+    [
+        ("deck.pdf", _PDF),
+        ("talk/assets/app.js", f"{_PROJECTOR}assets/app.js"),
+        ("talk/assets", f"{_PROJECTOR}assets/app.js"),
+        ("talk", f"{_PROJECTOR}assets/app.js"),
+        ("talk/index.html", _PRESENTER),
+    ],
+    ids=["the pdf", "an asset", "a directory on the way", "the talk", "the page"],
+)
+def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
+    tmp_path: Path,
+    replaced: str,
+    address: str,
+) -> None:
+    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
+    secret = a_secret_a_link_may_point_at(tmp_path)
+    target = run / replaced
+    if target.is_dir():
+        shutil.rmtree(target)
+        target.symlink_to(secret)
+    else:
+        target.unlink()
+        target.symlink_to(secret / target.name)
+
+    refused = signed_in.get(address)
+
+    assert _ONLY_THIS_TEST_WROTE_IT not in refused.text
+    assert refused.headers["content-type"] != _PDF_TYPE
+    if replaced.startswith("talk/assets"):
+        assert refused.status_code == HTTPStatus.NOT_FOUND
+        assert refused.json() == {"detail": HTTPStatus.NOT_FOUND.phrase}
+
+
+def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
+    tmp_path: Path,
+) -> None:
+    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
+    (run / "deck.pdf").unlink()
+    (run / "deck.pdf").symlink_to(a_secret_a_link_may_point_at(tmp_path) / "deck.pdf")
+
+    refused = signed_in.get(_PDF)
+
+    assert refused.status_code == HTTPStatus.NOT_FOUND
+    assert ENGLISH.deck_unknown_title in refused.text
+
+
 @pytest.mark.parametrize(
     "address",
     [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}a-route-the-build-did-not-write"],
@@ -538,6 +597,7 @@ def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk)),
             source=a_configured_source(_ADDRESS),
+            builder=real_builds_under(tmp_path),
         ),
     )
 

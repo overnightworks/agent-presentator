@@ -18,13 +18,19 @@ from webauth.liveness import IdleWindowLiveness
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
-from presentator.adapters.builds import PackageJsonThemes
+from gitmirror.model import CredentialReference
+from presentator.adapters.builds import (
+    ContainerToolchain,
+    PackageJsonThemes,
+    SlidevBuilds,
+)
 from presentator.adapters.catalog import (
     CATALOG_DIRECTORY,
     age_in_words,
     duration_in_words,
     load_catalogs,
 )
+from presentator.adapters.decks import SourceMirrors
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -42,7 +48,9 @@ from presentator.application.identity import (
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
+    Build,
     ConnectionCheckResult,
+    Deck,
     DeckFolder,
     Source,
     SourceRun,
@@ -58,6 +66,7 @@ from presentator.contracts.voice import (
     VoiceSnapshot,
     VoiceUnavailableError,
 )
+from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
     DEFAULT_THEME_SET,
@@ -94,6 +103,7 @@ USERNAME: Final = "felix"
 NEIGHBOUR: Final = "anna"
 ADMIN: Final = "the-admin"
 SOURCE_ID: Final = "the-source-the-instance-carries"
+_A_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 TYPED_WORDS: Final = "the words only this test types"
 # A real browser always sends both: navigation prefers text/html, and a
 # same-site request carries Sec-Fetch-Site since Chrome 76 and Firefox 90. A
@@ -258,6 +268,8 @@ class GivenDecks:
     toolchain_project: Path | None = None
     key_drafts: FakeDeployKeyDrafts = field(default_factory=FakeDeployKeyDrafts)
     voice: VoiceStatusUse | None = None
+    # Set only by a test proving what the real adapter lets a request read.
+    builder: BuildRunner | None = None
 
 
 NO_DECKS: Final = GivenDecks()
@@ -320,7 +332,7 @@ def a_lobby_app(
             ),
         ),
         store=FakeDeckStore() if given.store is None else given.store,
-        builder=FakeBuildRunner(),
+        builder=FakeBuildRunner() if given.builder is None else given.builder,
         source_runs=run_store,
         checker=FakeConnectionChecker(answer=given.checked),
         toolchain_themes=(
@@ -409,6 +421,72 @@ def a_lobby_that_claims_no_origin_of_its_own(
         headers={"accept": "text/html"},
     )
     return Lobby(client=client, clock=clock)
+
+
+class _NoCredentials:
+    def resolve(self, reference: CredentialReference) -> str | None:
+        return None
+
+
+def real_builds_under(root: Path) -> SlidevBuilds:
+    """The real adapter over a real directory; only what it reads is ever used."""
+    return SlidevBuilds(
+        builds=root,
+        toolchain=ContainerToolchain(
+            image="unused",
+            volume="unused",
+            memory="1g",
+            disk=None,
+            bound=timedelta(minutes=1),
+        ),
+        mirrors=SourceMirrors(
+            directory=root / "mirrors",
+            credentials=_NoCredentials(),
+            pull_timeout=timedelta(minutes=1),
+            local_mount=FakeLocalMount(),
+        ),
+        output_megabytes=1,
+    )
+
+
+def a_swapped_build(tmp_path: Path, *, slug: str) -> tuple[TestClient, Path]:
+    """A signed-in lobby on a built deck, and the run directory a link may land in.
+
+    The deck was adopted with plain files; each test then lays its link, which
+    is what a deck's own code can do after the build was held.
+    """
+    run = tmp_path / "run"
+    talk = run / "talk"
+    (talk / "assets").mkdir(parents=True)
+    (talk / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
+    (talk / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    pdf = run / "deck.pdf"
+    pdf.write_bytes(b"%PDF-1.7 the real one")
+    store = FakeDeckStore()
+    store.put(
+        Deck(
+            slug=slug,
+            title=slug,
+            changed_at=NOW,
+            owner_id=ADMIN,
+            source_id=SOURCE_ID,
+            commit=_A_COMMIT,
+            build=None,
+            attempt=None,
+        ),
+    )
+    store.put_build(
+        slug,
+        Build(directory=talk, pdf=pdf, commit=_A_COMMIT, built_at=NOW),
+    )
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=store,
+            source=a_configured_source("git@heimserver:decks.git"),
+            builder=real_builds_under(tmp_path),
+        ),
+    )
+    return signed_in, run
 
 
 def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:

@@ -7,7 +7,7 @@ excuse.
 """
 
 from presentator.api.auth import DeckRow
-from presentator.api.decks import Banner
+from presentator.api.decks import Banner, TalkFiles
 from presentator.api.legal import LegalDocument, LegalSection, Phrase
 from presentator.api.sources import (
     SourceDeckRow,
@@ -193,3 +193,6 @@ VoiceLoadOutcome.NOT_ACTIVATED
 
 # `UdsSpeech` decodes this private-wire outcome through `_DownloadPayload`.
 VoiceDownloadOutcome.ALREADY_COMPLETE
+
+# `StaticFiles.__call__` dispatches to this override for every talk request.
+TalkFiles.get_response

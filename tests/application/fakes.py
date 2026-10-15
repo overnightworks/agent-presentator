@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, BinaryIO, Final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -700,6 +700,10 @@ class FakeBuildRunner:
             written.is_relative_to(BUILDS_ROOT)
             for written in (artefacts.directory, artefacts.pdf)
         )
+
+    def read(self, written: Path) -> BinaryIO | None:
+        # Links are the real adapter's concern and are proven against it.
+        return written.open("rb") if written.is_file() else None
 
     def remove(self, directory: Path) -> bool:
         self.removed.append(directory)
