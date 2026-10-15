@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 from starlette.requests import HTTPConnection
 
@@ -95,6 +95,11 @@ class AskRequest(BaseModel, extra="forbid"):
     slide: int = Field(ge=1)
     language: SampleLanguage | None = None
 
+    @field_validator("language", mode="before")
+    @classmethod
+    def _empty_language_is_no_language(cls, value: object) -> object:
+        return None if value == "" else value
+
 
 def add_copresenter_routes(
     app: FastAPI,
@@ -128,7 +133,7 @@ def add_copresenter_routes(
             },
         )
 
-    def _ask(request: Request, question: AskRequest) -> Response:
+    async def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
         if connection is None:
             return JSONResponse(

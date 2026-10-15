@@ -62,16 +62,17 @@ class RetryAfter:
     seconds: int
 
 
-@dataclass(slots=True)
+@dataclass(eq=False, slots=True)
 class AskTicket:
     """The one answer a session is allowed to stream right now."""
 
     session_id: str
-    _answering: set[str]
+    _answering: dict[str, "AskTicket"]
 
     def release(self) -> None:
-        """Free the session for its next question; releasing twice is harmless."""
-        self._answering.discard(self.session_id)
+        """Free the session if this ticket still holds it; later calls do nothing."""
+        if self._answering.get(self.session_id) is self:
+            del self._answering[self.session_id]
 
 
 @dataclass(slots=True)
@@ -80,6 +81,9 @@ class AskLimiter:
 
     A session leaves no record once its asks left the window and nothing of it
     is streaming, so a signed-out session cannot make this grow.
+
+    Not thread-safe: call it only from the event-loop thread, where no await
+    separates a check from its update.
     """
 
     clock: Clock
@@ -87,7 +91,7 @@ class AskLimiter:
     _asked: dict[str, deque[datetime]] = field(
         default_factory=dict[str, deque[datetime]]
     )
-    _answering: set[str] = field(default_factory=set[str])
+    _answering: dict[str, AskTicket] = field(default_factory=dict[str, AskTicket])
 
     def admit(self, session_id: str) -> AskTicket | RetryAfter:
         """Count the question and hand out its ticket, or say when to retry."""
@@ -100,8 +104,9 @@ class AskLimiter:
             freed_at = asked[0] + self.limits.window
             return RetryAfter(max(1, math.ceil((freed_at - now).total_seconds())))
         asked.append(now)
-        self._answering.add(session_id)
-        return AskTicket(session_id, self._answering)
+        ticket = AskTicket(session_id, self._answering)
+        self._answering[session_id] = ticket
+        return ticket
 
     def _forget_idle_sessions(self, now: datetime) -> None:
         oldest_counted = now - self.limits.window
