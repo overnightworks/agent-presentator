@@ -9,16 +9,20 @@ the session guard in front of the whole lobby covers every address here, the
 two views and the download included.
 """
 
+import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
+from mimetypes import guess_type
 from pathlib import Path
-from typing import Final
+from typing import BinaryIO, Final
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
-from starlette.responses import FileResponse
+from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from presentator.api.pages import Pages, state_word
@@ -37,7 +41,11 @@ _DECK_PDF: Final = f"{_DECK_PAGE}/pdf"
 _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
-_SAVED_AS: Final = "{slug}.pdf"
+_SAVED_AS: Final = 'attachment; filename="{slug}.pdf"'
+_UNKNOWN_TYPE: Final = "text/plain"
+_CHUNK_BYTES: Final = 64 * 1024
+_HEAD: Final = "HEAD"
+_READS: Final = frozenset({"GET", _HEAD})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -136,12 +144,14 @@ class _DeckPage:
         already stopped that lookup.
         """
         export = self.decks.exported_pdf(slug)
-        if export is None or not export.is_file():
+        file = None if export is None else self.decks.open_build_file(export)
+        if file is None:
             return self._no_such_deck(request)
-        return FileResponse(
-            export,
+        return _delivered(
+            file,
             media_type=_PDF_TYPE,
-            filename=_SAVED_AS.format(slug=slug),
+            method=request.method,
+            headers={"content-disposition": _SAVED_AS.format(slug=slug)},
         )
 
     def _no_such_deck(self, request: Request) -> Response:
@@ -208,48 +218,69 @@ class _BuiltTalk:
             return
         # Which directory a deck delivers from is a row, not a setting, so the
         # files are rooted per request rather than once at startup.
-        await _TalkFiles(directory)(scope, receive, send)
+        await _TalkFiles(directory, self.decks)(scope, receive, send)
 
 
 class _TalkFiles(StaticFiles):
     """A Slidev single-page application: its files, then its `index.html`."""
 
-    def __init__(self, directory: Path) -> None:
-        super().__init__(directory=directory, html=True)
+    def __init__(self, directory: Path, decks: Decks) -> None:
+        super().__init__(directory=directory)
         self._root = directory
+        self._decks = decks
 
     async def get_response(self, path: str, scope: Scope) -> Response:
-        """Serve a real file, or the application for any path still inside the talk."""
+        """Serve a real file, or the application for any path still inside the talk.
+
+        A file is what the build port opened without following a link, so a
+        name that is a link, a directory, or nothing is not a file here, and a
+        wrong address under the talk is the application like any other.
+        """
+        if scope["method"] not in _READS:
+            raise HTTPException(status_code=HTTPStatus.METHOD_NOT_ALLOWED)
         if _leaves_the_talk(self._root, path):
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
-        try:
-            response = await super().get_response(path, scope)
-        except HTTPException as missing:
-            if missing.status_code != HTTPStatus.NOT_FOUND:
-                raise
-            return self._the_application()
-        if response.status_code != HTTPStatus.NOT_FOUND:
-            return response
-        return self._the_application()
+        name, file = await run_in_threadpool(self._opened, path)
+        return _delivered(
+            file,
+            media_type=guess_type(name)[0] or _UNKNOWN_TYPE,
+            method=scope["method"],
+        )
 
-    def _the_application(self) -> Response:
-        """The built talk's own `index.html`, or nothing if that file is gone."""
-        index = _contained_path(self._root, TALK_PAGE)
-        if index is None or not index.is_file():
-            raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
-        return FileResponse(index)
+    def _opened(self, path: str) -> tuple[str, BinaryIO]:
+        """That file of the talk, or else the talk's own `index.html`."""
+        for name in (path, TALK_PAGE):
+            file = self._decks.open_build_file(self._root / name)
+            if file is not None:
+                return name, file
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
+
+
+def _delivered(
+    file: BinaryIO,
+    *,
+    media_type: str,
+    method: str,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """The open file as an answer; the descriptor is all that is ever read."""
+    size = os.fstat(file.fileno()).st_size
+    sent = {**(headers or {}), "content-length": str(size)}
+    if method == _HEAD:
+        file.close()
+        return Response(media_type=media_type, headers=sent)
+    return StreamingResponse(_chunks(file), media_type=media_type, headers=sent)
+
+
+def _chunks(file: BinaryIO) -> Iterator[bytes]:
+    with file:
+        while chunk := file.read(_CHUNK_BYTES):
+            yield chunk
 
 
 def _leaves_the_talk(directory: Path, path: str) -> bool:
     """Whether resolving this path would step outside the talk's directory."""
-    return _contained_path(directory, path) is None
-
-
-def _contained_path(directory: Path, path: str) -> Path | None:
-    """The resolved path below the talk, if resolving it stays there."""
-    root = directory.resolve()
-    resolved = (directory / path).resolve()
-    return resolved if resolved.is_relative_to(root) else None
+    return not (directory / path).resolve().is_relative_to(directory.resolve())
 
 
 def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:

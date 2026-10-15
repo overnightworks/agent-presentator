@@ -519,6 +519,97 @@ def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
     assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
+def a_swapped_build(tmp_path: Path) -> tuple[TestClient, Path]:
+    """A signed-in lobby on a built deck, and the run directory a link may land in.
+
+    The deck was adopted with plain files; each test then lays its link, which
+    is what a deck's own code can do after the build was held.
+    """
+    run = tmp_path / "run"
+    talk = run / "talk"
+    (talk / "assets").mkdir(parents=True)
+    (talk / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
+    (talk / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    pdf = run / "deck.pdf"
+    pdf.write_bytes(b"%PDF-1.7 the real one")
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk, pdf=pdf)),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+    return signed_in, run
+
+
+def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
+    """A directory holding the secret under every name a build file has."""
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    for name in ("deck.pdf", "app.js", "index.html"):
+        (secret / name).write_text(_ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
+    return secret
+
+
+@pytest.mark.parametrize(
+    ("replaced", "address"),
+    [
+        ("deck.pdf", _PDF),
+        ("talk/assets/app.js", f"{_PROJECTOR}assets/app.js"),
+        ("talk/assets", f"{_PROJECTOR}assets/app.js"),
+        ("talk", f"{_PROJECTOR}assets/app.js"),
+        ("talk/index.html", _PRESENTER),
+    ],
+    ids=["the pdf", "an asset", "a directory on the way", "the talk", "the page"],
+)
+def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
+    tmp_path: Path,
+    replaced: str,
+    address: str,
+) -> None:
+    signed_in, run = a_swapped_build(tmp_path)
+    secret = a_secret_a_link_may_point_at(tmp_path)
+    target = run / replaced
+    if target.is_dir():
+        shutil.rmtree(target)
+        target.symlink_to(secret)
+    else:
+        target.unlink()
+        target.symlink_to(secret / target.name)
+
+    refused = signed_in.get(address)
+
+    assert _ONLY_THIS_TEST_WROTE_IT not in refused.text
+    assert refused.headers["content-type"] != _PDF_TYPE
+
+
+def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
+    tmp_path: Path,
+) -> None:
+    signed_in, run = a_swapped_build(tmp_path)
+    (run / "deck.pdf").unlink()
+    (run / "deck.pdf").symlink_to(a_secret_a_link_may_point_at(tmp_path) / "deck.pdf")
+
+    refused = signed_in.get(_PDF)
+
+    assert refused.status_code == HTTPStatus.NOT_FOUND
+    assert ENGLISH.deck_unknown_title in refused.text
+
+
+def test_a_head_request_to_an_asset_answers_its_headers_without_its_body(
+    tmp_path: Path,
+) -> None:
+    address = f"{_PROJECTOR}assets/app.js"
+    signed_in, _ = a_swapped_build(tmp_path)
+    full = signed_in.get(address)
+
+    head = signed_in.head(address)
+
+    assert head.status_code == full.status_code
+    assert head.headers["content-length"] == full.headers["content-length"]
+    assert head.headers["content-type"] == full.headers["content-type"]
+    assert head.content == b""
+
+
 @pytest.mark.parametrize(
     "address",
     [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}a-route-the-build-did-not-write"],
