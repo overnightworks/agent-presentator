@@ -4,7 +4,10 @@ Audience: humans and agents working on the client surface or on how a talk is
 reached from outside.
 
 - Status: ACCEPTED 2026-09-06 — logging in and presenting without AI are phase
-  M0 of [VISION.md](../VISION.md)
+  M0 of [VISION.md](../VISION.md). Amended 2026-10-14: the Cloudflare Access
+  outer door is superseded by [ADR 0015](0015-public-like-songmaker-own-login.md);
+  the tunnel, the browser-only client, and the fallbacks stand (see Decision
+  and Rejected alternatives)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -45,6 +48,13 @@ instance's allow-list. Access is the outer door and admits the instance's
 people; the application login is the second door, and everyone on that list
 still passes through it as the account [ADR 0011](0011-instance-users.md) gives
 them.
+
+> **Amendment 2026-10-14** — operator ruling on
+> [#196](https://github.com/overnightworks/agent-presentator/issues/196),
+> recorded as [ADR 0015](0015-public-like-songmaker-own-login.md): no
+> Cloudflare Access stands in front of the tunnel. The instance is public like
+> Songmaker, its own login is the only door, and the Impressum and
+> Datenschutzerklärung are reachable without it. The tunnel itself stands.
 
 Every deck has two offline fallbacks, produced with its build: a static build
 that presents without the server, and a PDF export. A dead tunnel costs the AI
@@ -93,7 +103,8 @@ no view can start a competing voice.
 - Keepalive and resume are in the first slice that opens the socket. A run that
   cannot be rejoined is a talk that ends when the network hiccups.
 - Two doors mean two places to add a person, and an instance host has to keep
-  the Access allow-list and the account list in step.
+  the Access allow-list and the account list in step. (Amended 2026-10-14: one
+  door, so one place, per [ADR 0015](0015-public-like-songmaker-own-login.md).)
 - Cloudflare's plan limits on streaming through a public hostname are an
   operations item to check before the first talk. Nothing here has measured
   them, and a limit found on stage is found too late.
@@ -110,6 +121,9 @@ no view can start a competing voice.
   into the network path; it does not say which account they are, who owns which
   deck, or whether they may start a run. That is
   [ADR 0011](0011-instance-users.md)'s question, and it needs the second door.
+  (Amended 2026-10-14: that second door is now the only one, and Access is not
+  in front of it either, per
+  [ADR 0015](0015-public-like-songmaker-own-login.md).)
 - **A live-only presentation with no static fallback.** The March 2026 talk
   proved the concept works when the network cooperates. A product that only
   works then is not one the operator can rely on for the next talk.
