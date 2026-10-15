@@ -57,6 +57,15 @@ msgstr "Log in"
 msgid "login_refused"
 msgstr "Login incorrect, please wait a moment"
 
+msgid "footer_impressum"
+msgstr "Impressum"
+
+msgid "footer_datenschutz"
+msgstr "Datenschutz"
+
+msgid "legal_back_to_login"
+msgstr "← Login"
+
 msgid "setup_title"
 msgstr "Set up admin"
 

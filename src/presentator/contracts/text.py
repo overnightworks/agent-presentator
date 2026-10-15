@@ -29,6 +29,9 @@ class LobbyText:
     login_password: str
     login_submit: str
     login_refused: str
+    footer_impressum: str
+    footer_datenschutz: str
+    legal_back_to_login: str
     setup_title: str
     setup_once: str
     setup_explanation: str

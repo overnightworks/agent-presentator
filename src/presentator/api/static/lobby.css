@@ -876,3 +876,81 @@ td form {
 [data-source] [data-actions] button[type="submit"]:is(:hover, :active, :focus) {
   width: auto;
 }
+
+/* The two legal links close every page, signed in or out, in the same quiet
+ * row the picture draws (docs/mockups/m0-lobby.html, "Rechtliches"). Pico
+ * spreads a `nav` to both edges; this one is centred instead.
+ */
+.app-footer {
+  display: flex;
+  justify-content: center;
+  padding: 14px 28px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+}
+
+@media (max-width: 520px) {
+  .app-footer {
+    padding: 14px 16px;
+  }
+}
+
+.legal-page {
+  max-width: 640px;
+}
+
+.legal-page h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.legal-page h2 {
+  margin: 4px 0 0;
+  font-family: var(--cond);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.legal-page p,
+.legal-page li {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.legal-page ul {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legal-page section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+
+.legal-page > section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+/* A fact the code does not settle stays visibly open until the operator
+ * approves the wording. */
+.legal-page .offen {
+  color: var(--busy);
+}

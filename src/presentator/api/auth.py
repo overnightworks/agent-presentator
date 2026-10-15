@@ -1,8 +1,9 @@
 """The pages that sign a person in and out, and the guard on everything else.
 
-Every address but signing in, first start, and signing out answers the login
-redirect while nobody is signed in, a form another site submitted is refused,
-and no answer may be replayed from the browser cache (issue #8, lines 11 to 15).
+Every address but signing in, first start, signing out, and the
+Datenschutzerklärung answers the login redirect while nobody is signed in, a
+form another site submitted is refused, and no answer may be replayed from the
+browser cache (issue #8, lines 11 to 15).
 """
 
 import logging
@@ -45,6 +46,7 @@ from webauth.proxies import client_user_agent, resolve_client_ip
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
+from presentator.api.legal import DATENSCHUTZ, Emphasis
 from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
@@ -85,11 +87,15 @@ _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _SETUP: Final = "/setup"
-# Signing in, first start, and signing out are the only addresses that work
-# without a session; logging out ends one rather than using one. The theme
-# stylesheet has to render the login and setup pages themselves, so it is
-# public too.
+_DATENSCHUTZ: Final = "/datenschutz"
+# Signing in, first start, and signing out are the addresses the guard leaves
+# alone; logging out ends a session rather than using one. The theme
+# stylesheet has to render the open pages themselves, so it is public too.
 _WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
+# The Datenschutzerklärung has to be readable before anyone signs in (ADR
+# 0015), yet a reader who is signed in keeps the header and the sliding window
+# there like on every other page.
+_OPEN_TO_A_SIGNED_OUT_READER: Final = frozenset({_DATENSCHUTZ})
 _CSRF_POLICY: Final = CsrfPolicy(
     exempt=PathRules(prefixes=(HOOK_CALLS,)),
 )
@@ -204,6 +210,9 @@ class _Surfaces:
             return await call_next(request)
         connection = signed_in_connection(request, self.identity)
         if connection is None:
+            if path in _OPEN_TO_A_SIGNED_OUT_READER:
+                request.state.signed_in_person = None
+                return await call_next(request)
             return unauthenticated_response(request, _LOGIN_REDIRECT)
         request.state.signed_in_person = connection.person
         request.state.signed_in_session_id = connection.session_id
@@ -329,6 +338,15 @@ class _Surfaces:
             return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
         return self._signed_in(request, session_id)
 
+    def datenschutz_page(self, request: Request) -> Response:
+        """Show the Datenschutzerklärung to anyone, signed in or not."""
+        return self.pages.page(
+            request,
+            "datenschutz.html",
+            document=DATENSCHUTZ,
+            emphasis=Emphasis,
+        )
+
     def _login(self, request: Request, *, refused: bool) -> Response:
         return self.pages.page(request, "login.html", refused=refused)
 
@@ -405,6 +423,7 @@ def create_lobby(
     lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(_SETUP, surfaces.setup_page, methods=["GET"])
     lobby.add_api_route(_SETUP, surfaces.set_up_admin, methods=["POST"])
+    lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))
     add_deck_pages(lobby, decks=decks, pages=pages)

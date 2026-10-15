@@ -138,3 +138,20 @@ from projector view.
 | `m0-lobby/presenter-home-active.png` | Presenter, AI active — 1024 px |
 | `m0-lobby/presenter-home-active-narrow.png` | Presenter, AI active — 390 px |
 | `m0-lobby/projector-return-absent.png` | Projector — Home absent, 1024 px |
+
+### Rechtliches (#196)
+
+Impressum and Datenschutz, reachable without a session, and the same footer
+links carried onto a page after login. The Datenschutz artboards show the
+page's layout with shortened text. The words are owned by
+`src/presentator/api/legal.py`; [`legal-datenschutz-draft.md`](legal-datenschutz-draft.md)
+is their copy for the operator's approval before they go online (issue #196,
+line 3).
+
+| PNG | Caption | Lines |
+|---|---|---|
+| `m0-lobby/legal-login.png` | Login with legal links, 1024 px | 1 |
+| `m0-lobby/legal-login-narrow.png` | Login with legal links, 390 px | 1 |
+| `m0-lobby/legal-deck-list.png` | Deck list with legal links, 1024 px | 4 |
+| `m0-lobby/legal-datenschutz.png` | Datenschutz, reachable without login, 1024 px | 3 |
+| `m0-lobby/legal-datenschutz-narrow.png` | Datenschutz, reachable without login, 390 px | 3 |

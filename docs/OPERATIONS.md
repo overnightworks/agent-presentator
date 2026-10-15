@@ -546,10 +546,9 @@ curl -X POST -H "Authorization: Bearer <the-secret-shown-once>" \
   https://<your-address>/sources/decks/fetch
 ```
 
-That path needs a Cloudflare Access bypass policy for `/sources/*` — a git host
-has no browser to pass the outer door with — while every other address stays
-behind Access ([ADR 0007](decisions/0007-browser-client-behind-tunnel.md)); the
-secret is what guards it instead. Do not bypass `/settings/sources`.
+No login stands in front of a `POST` under `/sources/`, because a git host has
+no browser to sign in with; the secret is what guards it instead
+([ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
 
 ## Branch protection
 

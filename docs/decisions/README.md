@@ -25,6 +25,7 @@ number is never reused and never renumbered.
 - [ADR 0012: Appearance is a theme file and language is a catalog; neither is code](0012-themes-and-language.md)
 - [ADR 0013: One library encrypts a source's secret at rest, and the child process is where the plaintext goes](0013-secrets-at-rest-and-credential-delivery.md)
 - [ADR 0014: The toolchain owns a deck's build-time dependencies; a deck declares none](0014-toolchain-owns-build-dependencies.md)
+- [ADR 0015: The instance is public like Songmaker, behind its own login, with no Cloudflare Access](0015-public-like-songmaker-own-login.md)
 
 ## How to read a record
 

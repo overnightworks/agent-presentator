@@ -59,6 +59,14 @@ answer with one sentence — never a per-outcome status or message. Logging out
 is a POST that deletes the session row. No answer may be replayed from the
 browser cache.
 
+Every lobby page, signed in or out, ends with two links: Impressum goes to the
+operator's one Impressum at `https://hallucinai.de/impressum`, Datenschutz to
+`/datenschutz`. That page answers without a session and shows the German
+Datenschutzerklärung that `presentator.api.legal` owns; its wording waits for
+the operator's approval before Presentator goes online
+([#197](https://github.com/overnightworks/agent-presentator/issues/197),
+[ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
+
 The SQLite stores and first start stay this repository's
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),
 [ADR 0011](decisions/0011-instance-users.md)); passwords are hashed by

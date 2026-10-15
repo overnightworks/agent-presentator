@@ -4,7 +4,9 @@ Audience: humans and agents building login, the first-run setup, or anything
 that asks who owns a thing.
 
 - Status: ACCEPTED 2026-09-06 — first-run setup and login are phase M0 of
-  [VISION.md](../VISION.md)
+  [VISION.md](../VISION.md). Amended 2026-10-14: the login is the only door,
+  per [ADR 0015](0015-public-like-songmaker-own-login.md) (see Rejected
+  alternatives)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06, filed against
   [songmaker #825](https://github.com/overnightworks/songmaker/issues/825#issuecomment-5559001283)
@@ -80,7 +82,10 @@ administration surface built here to be deleted later.
   is no case for a stranger creating an account on the operator's home server.
 - **OAuth or an external identity provider.** It adds a dependency and a flow
   for a handful of accounts on a self-hosted instance, and Cloudflare Access
-  already stands in front of the door.
+  already stands in front of the door. (Amended 2026-10-14: no Access stands
+  in front of the login, per
+  [ADR 0015](0015-public-like-songmaker-own-login.md); the first reason holds
+  on its own.)
 - **Per-user AI subscriptions.** The subscriptions are the host's, and metering
   them per user would be an accounting product this one is not.
 - **Roles beyond `admin` and `user`.** No caller needs a third role. Adding one

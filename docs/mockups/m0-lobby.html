@@ -568,6 +568,83 @@
     gap: 20px;
   }
 
+  /* ---------- legal links (#196): same two links, logged out and in ---------- */
+
+  .legal-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+
+  .app-footer {
+    display: flex;
+    justify-content: center;
+    padding: 14px 28px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .login .legal-links {
+    justify-content: center;
+  }
+
+  @container (max-width: 520px) {
+    .app-footer { padding: 14px 16px; }
+  }
+
+  /* ---------- legal page body (#196) ---------- */
+
+  .legal-page {
+    max-width: 640px;
+  }
+
+  .legal-page h1 {
+    margin: 0 0 4px;
+    font-size: 21px;
+    font-weight: 600;
+  }
+
+  .legal-page h2 {
+    margin: 4px 0 0;
+    font-family: var(--cond);
+    font-size: 12.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .legal-page p,
+  .legal-page li {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .legal-page ul {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .legal-page section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 14px;
+  }
+
+  .legal-page > section:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .legal-page .offen {
+    color: var(--busy);
+  }
+
   /* ---------- login ---------- */
 
   .login {
@@ -4405,6 +4482,298 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
           <div class="projector-slide">From feedback to flow</div>
         </div>
       </figure>
+    </div>
+  </section>
+
+  <!-- ================= RECHTLICHES (#196) ================= -->
+  <section class="group">
+    <div class="group-head">
+      <h2>Rechtliches (#196)</h2>
+      <span class="lines">lines 1, 3, 4</span>
+    </div>
+
+    <div class="boards">
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Login with legal links <span class="w">1024 px</span></div>
+          <p class="board-note">The same two links as every page after login: "Impressum" (links straight to hallucinai.de, no copy here) and "Datenschutz" (Presentator's own page). Both reachable without a session (line 1).</p>
+        </figcaption>
+        <div class="frame" style="--w: 520px">
+          <div class="route">presentator.local/login</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login</h1>
+                <div class="field">
+                  <label for="lu1">Username</label>
+                  <div class="input placeholder" id="lu1">felix</div>
+                </div>
+                <div class="field">
+                  <label for="lp1">Password</label>
+                  <div class="input dots" id="lp1">••••••••••</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Login with legal links <span class="w">390 px</span></div>
+          <p class="board-note">Narrow phone width: the two links stay below the card, reachable without logging in (line 1).</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/login</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login</h1>
+                <div class="field">
+                  <label for="lu2">Username</label>
+                  <div class="input placeholder" id="lu2">felix</div>
+                </div>
+                <div class="field">
+                  <label for="lp2">Password</label>
+                  <div class="input dots" id="lp2">••••••••••</div>
+                </div>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Deck list with legal links <span class="w">1024 px</span></div>
+          <p class="board-note">The same footer, now signed in: the two links travel with the app chrome onto every page after login, not only the lobby (line 4).</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <nav class="nav">
+                  <a class="nav-link nav-link--now" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
+                  <a class="nav-link" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
+                </nav>
+              </div>
+              <div class="person">
+                <span class="person-btn" tabindex="0">
+                  <span class="avatar">FH</span>
+                  <span class="person-name">felix</span>
+                  <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                </span>
+              </div>
+            </div>
+            <div class="body">
+              <div class="list-head">
+                <h1>Decks</h1>
+                <a class="source" href="#sources">3 sources</a>
+              </div>
+              <div class="rows">
+                <div class="row row--head">
+                  <span>State</span>
+                  <span>Deck</span>
+                  <span>Changed</span>
+                </div>
+                <a class="row" href="#deck-kundenfeedback">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Kundenfeedback Q3</span>
+                    <span class="slug">kundenfeedback</span>
+                  </span>
+                  <span class="age">2 minutes ago</span>
+                </a>
+                <a class="row" href="#deck-onboarding">
+                  <span class="state state--ok"><span class="glyph"></span>ready</span>
+                  <span class="row-name">
+                    <span class="row-title">Onboarding Handwerk</span>
+                    <span class="slug">onboarding-handwerk</span>
+                  </span>
+                  <span class="age">yesterday</span>
+                </a>
+              </div>
+            </div>
+            <div class="app-footer">
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board" id="datenschutz">
+        <figcaption class="board-cap">
+          <div class="board-title">Datenschutz, reachable without login <span class="w">1024 px</span></div>
+          <p class="board-note">The page's layout with its text shortened. The words are owned by <span class="path">src/presentator/api/legal.py</span>; the operator approves them as <span class="path">docs/mockups/legal-datenschutz-draft.md</span> before they go online (line 3). Every <span class="offen">[offen: …]</span> marks a fact the code does not settle.</p>
+        </figcaption>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.local/datenschutz</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+              </div>
+              <a class="crumb" href="#login">&larr; Login</a>
+            </div>
+            <div class="body legal-page">
+              <section>
+                <h1>Datenschutzerklärung</h1>
+                <p>Entwurf, aus dem Code abgeleitet. Jede Stelle, die sich nicht aus dem Code ergibt, ist mit <span class="offen">[offen: …]</span> markiert statt geraten.</p>
+              </section>
+              <section>
+                <h2>1. Verantwortlicher</h2>
+                <p>Verantwortlich für diese Anwendung ist der Betreiber. Kontaktdaten: siehe <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
+              </section>
+              <section>
+                <h2>2. Welche Daten wir verarbeiten</h2>
+                <ul>
+                  <li><b>Benutzerkonto:</b> Benutzername, Rolle (Admin/Nutzer) und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an; es gibt keine Selbstregistrierung.</li>
+                  <li><b>Sitzungen und Cookies:</b> ein serverseitig signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, nur über HTTPS) sowie ein zweites, von JavaScript lesbares Cookie ausschließlich zum Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach 12 Stunden Inaktivität als beendet; die Zeile wird beim Abmelden gelöscht.</li>
+                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse und Zeitpunkt, zum Schutz vor automatisiertem Ausprobieren (nach 5 Fehlversuchen wird gedrosselt).</li>
+                  <li><b>Decks und Quellen:</b> der Inhalt Ihrer verbundenen Git-Quellen (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt und zu Vorträgen gebaut. Ein Lesezugriffsschlüssel pro Quelle wird verschlüsselt gespeichert und kann nach der Eingabe nur erneuert, nie wieder angezeigt werden.</li>
+                  <li><b>CoPresenter (Sprachfunktion):</b> Ihre gesprochene Frage wird lokal in Text umgewandelt; die Audio-Rohdaten werden dabei nicht gespeichert. Der erkannte Text, die aktuelle Folie und der vollständige Deckinhalt werden an den in Abschnitt 3 genannten KI-Anbieter gesendet. Die gesprochene Antwort wird lokal erzeugt und nur für die Wiedergabe gestreamt, nicht dauerhaft gespeichert.</li>
+                  <li><b>Server-Protokolle:</b> die Anwendung schreibt Betriebsprotokolle. <span class="offen">[offen: Aufbewahrungsdauer und Speicherort liegen an der Server-Konfiguration des Betreibers, nicht im Anwendungscode.]</span></li>
+                </ul>
+              </section>
+              <section>
+                <h2>3. Empfänger und externe Anbieter</h2>
+                <ul>
+                  <li><b>Anthropic (Claude):</b> aktuell der einzige aktiv genutzte Antwort-Anbieter des CoPresenter-Features, über den eigenen Claude-Zugang des Betreibers, nicht über einen pro Anfrage übertragenen API-Schlüssel. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und der gesamte Deckinhalt. <span class="offen">[offen: Anthropics eigene Aufbewahrungs- und Verarbeitungspraxis liegt außerhalb dieses Codes.]</span></li>
+                  <li><b>Grok, Codex:</b> die Technik ist vorbereitet, wird vom Code aktuell aber nicht aufgerufen — nur Claude beantwortet Fragen. <span class="offen">[offen: ob/wann sich das ändert, legt der Betreiber fest.]</span></li>
+                  <li><b>Sprachausgabe und Spracherkennung:</b> laufen lokal auf dem Server des Betreibers (Piper und Chatterbox für die Sprachausgabe; lokale Spracherkennung). Keine Übertragung an einen externen Sprachanbieter.</li>
+                  <li>Keine Weitergabe an weitere Dritte, kein Verkauf von Daten, keine Werbung, kein Tracking, keine Analyse-Tools.</li>
+                </ul>
+              </section>
+              <section>
+                <h2>4. Speicherort</h2>
+                <p>Benutzerkonten, Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
+              </section>
+              <section>
+                <h2>5. Speicherdauer</h2>
+                <ul>
+                  <li><b>Benutzerkonten:</b> bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Sitzungen:</b> Zeile gelöscht beim Abmelden. <span class="offen">[offen: eine nie abgemeldete Sitzung wird im Code nicht automatisch gelöscht.]</span></li>
+                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> <span class="offen">[offen: keine automatische Löschung im Code hinterlegt.]</span></li>
+                  <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel:</b> spätestens nach 24 Stunden automatisch entfernt.</li>
+                  <li><b>Decks und Builds:</b> bis die Quelle entfernt wird oder der Ordner aus Git verschwindet.</li>
+                  <li><b>CoPresenter-Audio:</b> nicht gespeichert, nur für die Antwortdauer gestreamt.</li>
+                  <li><b>Server-Protokolle:</b> <span class="offen">[offen: siehe Abschnitt 2.]</span></li>
+                </ul>
+              </section>
+              <section>
+                <h2>6. Ihre Rechte</h2>
+                <p>Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit, Widerspruch und Beschwerde bei einer Aufsichtsbehörde. Zur Ausübung wenden Sie sich an die im <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a> genannte Kontaktadresse.</p>
+              </section>
+              <section>
+                <h2>7. Stand</h2>
+                <p><span class="offen">[offen: Datum wird bei der Freigabe durch den Betreiber gesetzt.]</span></p>
+              </section>
+            </div>
+            <div class="app-footer">
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Datenschutz, reachable without login <span class="w">390 px</span></div>
+          <p class="board-note">The same page at narrow phone width, its text shortened further, still reachable without a session (line 3).</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.local/datenschutz</div>
+          <div class="app">
+            <div class="app-bar">
+              <div class="brand">
+                <div class="wordmark">Presen<span>tator</span></div>
+              </div>
+              <a class="crumb" href="#login">&larr; Login</a>
+            </div>
+            <div class="body legal-page">
+              <section>
+                <h1>Datenschutzerklärung</h1>
+                <p>Entwurf, aus dem Code abgeleitet. Jede Stelle, die sich nicht aus dem Code ergibt, ist mit <span class="offen">[offen: …]</span> markiert statt geraten.</p>
+              </section>
+              <section>
+                <h2>1. Verantwortlicher</h2>
+                <p>Verantwortlich für diese Anwendung ist der Betreiber. Kontaktdaten: siehe <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
+              </section>
+              <section>
+                <h2>2. Welche Daten wir verarbeiten</h2>
+                <ul>
+                  <li><b>Benutzerkonto:</b> Benutzername, Rolle und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an.</li>
+                  <li><b>Sitzungen und Cookies:</b> ein signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, HTTPS) plus ein CSRF-Cookie ohne Tracking. Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, letzte Aktivität. Gültig 12 Stunden; Zeile gelöscht beim Abmelden.</li>
+                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse, Zeitpunkt — Schutz vor Ausprobieren.</li>
+                  <li><b>Decks und Quellen:</b> gespiegelter Git-Inhalt (Folien, Notizen); ein verschlüsselter Lesezugriffsschlüssel pro Quelle.</li>
+                  <li><b>CoPresenter:</b> gesprochene Frage lokal in Text umgewandelt (Audio nicht gespeichert); Text, aktuelle Folie und Deckinhalt gehen an den KI-Anbieter unten. Antwort-Audio nur gestreamt.</li>
+                  <li><b>Server-Protokolle:</b> <span class="offen">[offen: Aufbewahrungsdauer liegt an der Server-Konfiguration.]</span></li>
+                </ul>
+              </section>
+              <section>
+                <h2>3. Empfänger und externe Anbieter</h2>
+                <ul>
+                  <li><b>Anthropic (Claude):</b> einziger aktiv genutzter Anbieter, über den eigenen Claude-Zugang des Betreibers. <span class="offen">[offen: Anthropics eigene Aufbewahrung liegt außerhalb dieses Codes.]</span></li>
+                  <li><b>Grok, Codex:</b> vorbereitet, aber vom Code aktuell nicht aufgerufen.</li>
+                  <li><b>Sprachausgabe/-erkennung:</b> lokal (Piper, Chatterbox) — keine externe Übertragung.</li>
+                  <li>Keine Weitergabe an weitere Dritte, kein Tracking, keine Werbung.</li>
+                </ul>
+              </section>
+              <section>
+                <h2>4. Speicherort</h2>
+                <p>Lokal auf dem Server des Betreibers, außer der CoPresenter-Übertragung an Anthropic.</p>
+              </section>
+              <section>
+                <h2>5. Speicherdauer</h2>
+                <ul>
+                  <li><b>Benutzerkonten:</b> bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Sitzungen:</b> gelöscht beim Abmelden. <span class="offen">[offen: keine automatische Löschung einer nie abgemeldeten Sitzung.]</span></li>
+                  <li><b>Anmeldeversuche:</b> <span class="offen">[offen: keine automatische Löschung im Code.]</span></li>
+                  <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> nach spätestens 24 Stunden entfernt.</li>
+                  <li><b>Decks/Builds:</b> bis die Quelle entfernt wird.</li>
+                  <li><b>CoPresenter-Audio:</b> nicht gespeichert.</li>
+                </ul>
+              </section>
+              <section>
+                <h2>6. Ihre Rechte</h2>
+                <p>Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch, Beschwerde — Kontakt über das <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
+              </section>
+              <section>
+                <h2>7. Stand</h2>
+                <p><span class="offen">[offen: Datum wird bei Freigabe gesetzt.]</span></p>
+              </section>
+            </div>
+            <div class="app-footer">
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
     </div>
   </section>
 
