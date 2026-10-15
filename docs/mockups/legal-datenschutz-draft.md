@@ -1,14 +1,16 @@
 # Datenschutzerklärung — Presentator (Entwurf für #196)
 
-Entwurf, aus dem Code abgeleitet (Stand dieser Branch, Commit 5dafa4b). Der
-Betreiber muss diesen Text prüfen und freigeben, bevor er online geht (Linie
-3). Jede Stelle, die sich nicht aus dem Code ergibt, ist mit
-`[offen: …]` markiert statt geraten.
-
-Dieser Text geht unverändert auch auf das Datenschutz-Artboard in
-`m0-lobby.html`.
+Der Betreiber prüft und gibt diesen Text frei, bevor er online geht (#197,
+Linie 3). Der veröffentlichte Text gehört `src/presentator/api/legal.py`;
+alles unterhalb der Linie entspricht ihm Wort für Wort. Die Leerlaufzeit
+(12 Stunden) und die Fehlversuchsgrenze (5) liest der Code aus
+`application/identity.py`. Die Datenschutz-Artboards in `m0-lobby.html` zeigen
+das Seitenlayout mit gekürztem Text, nicht diesen Wortlaut.
 
 ---
+
+Entwurf, aus dem Code abgeleitet. Jede Stelle, die sich nicht aus dem Code
+ergibt, ist mit `[offen: …]` markiert statt geraten.
 
 ## 1. Verantwortlicher
 
@@ -31,7 +33,7 @@ Verantwortlich für diese Anwendung ist der Betreiber. Kontaktdaten: siehe
   Zeitpunkt, zum Schutz vor automatisiertem Ausprobieren (nach 5 Fehlversuchen
   wird gedrosselt).
 - **Decks und Quellen:** Der Inhalt der von Ihnen verbundenen Git-Quellen
-  (Foliertitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt
+  (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt
   und zu Vorträgen gebaut. Ein Lesezugriffsschlüssel pro Quelle (z. B. ein
   SSH-Deploy-Key) wird verschlüsselt gespeichert und kann nach der Eingabe nur
   erneuert, nie wieder angezeigt werden.
