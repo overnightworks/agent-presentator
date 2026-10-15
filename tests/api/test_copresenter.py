@@ -352,10 +352,9 @@ def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
     [
         {"said": "x" * (MAX_SAID_LENGTH + 1)},
         {"language": "fr"},
-        {"language": ""},
         {"language": "DE"},
     ],
-    ids=["too-long", "foreign-language", "empty-language", "upper-case-language"],
+    ids=["too-long", "foreign-language", "upper-case-language"],
 )
 def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     invalid: dict[str, object],
@@ -371,8 +370,13 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
 
 @pytest.mark.parametrize(
     "allowed",
-    [{"said": "x" * MAX_SAID_LENGTH}, {"language": "en"}, {"language": None}],
-    ids=["longest-said", "english", "no-language"],
+    [
+        {"said": "x" * MAX_SAID_LENGTH},
+        {"language": "en"},
+        {"language": None},
+        {"language": ""},
+    ],
+    ids=["longest-said", "english", "no-language", "empty-language"],
 )
 def test_ask_accepts_the_limit_and_the_offered_languages(
     allowed: dict[str, object],
@@ -436,11 +440,15 @@ def test_each_session_has_its_own_question_budget() -> None:
         limiter=AskLimiter(clock=limiter_clock)
     )
     sign_in(first)
+    other = TestClient(
+        first.app,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
+    other.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
     for _ in range(20):
         ask(first)
-
-    other, _private, _clock = a_copresenter_lobby()
-    sign_in(other)
 
     assert ask(first).status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert ask(other).status_code == HTTPStatus.OK
