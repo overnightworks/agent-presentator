@@ -17,8 +17,12 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
-from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
-from presentator.application.copresenter import CoPresenterUse
+from presentator.api.copresenter import (
+    MAX_SAID_LENGTH,
+    CoPresenterSurface,
+    add_copresenter_routes,
+)
+from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -38,6 +42,7 @@ from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
     A_BROWSERS_SOCKET_ADDRESS,
+    NOW,
     TYPED_WORDS,
     USERNAME,
     a_lobby_app,
@@ -45,8 +50,15 @@ from tests.api.lobby import (
 from tests.application.fakes import FakeUserStore, FrozenClock, ReversibleHasher
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+    from collections.abc import (
+        AsyncGenerator,
+        AsyncIterator,
+        Awaitable,
+        Callable,
+        Mapping,
+    )
 
+    from httpx2 import Response
     from starlette.requests import HTTPConnection
     from starlette.types import Message, Scope
 
@@ -186,12 +198,14 @@ def a_copresenter_lobby(
     *,
     users: FakeUserStore | None = None,
     delay: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    limiter: AskLimiter | None = None,
 ) -> tuple[TestClient, RecordingPrivateCoPresenter, FrozenClock]:
     private = RecordingPrivateCoPresenter()
     app, clock = a_lobby_app(
         users=users,
         copresenter=CoPresenterSurface(
             use=CoPresenterUse(private=private),
+            limiter=limiter or AskLimiter(clock=FrozenClock(instant=NOW)),
             public_origin=PUBLIC_ORIGIN,
             delay=delay,
         ),
@@ -258,6 +272,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
         app,
         surface=CoPresenterSurface(
             use=CoPresenterUse(private=private),
+            limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
             public_origin=PUBLIC_ORIGIN,
         ),
         admission=no_session,
@@ -322,6 +337,113 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
     assert private.questions == [
         Question(said="Was ist wichtig?", slide=2, language="de")
     ]
+
+
+def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
+    return client.post(
+        "/copresenter/ask",
+        json=body,
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"said": "x" * (MAX_SAID_LENGTH + 1)},
+        {"language": "fr"},
+        {"language": ""},
+        {"language": "DE"},
+    ],
+    ids=["too-long", "foreign-language", "empty-language", "upper-case-language"],
+)
+def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
+    invalid: dict[str, object],
+) -> None:
+    client, private, _clock = a_copresenter_lobby()
+    sign_in(client)
+
+    response = ask(client, {**QUESTION, **invalid})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert private.questions == []
+
+
+@pytest.mark.parametrize(
+    "allowed",
+    [{"said": "x" * MAX_SAID_LENGTH}, {"language": "en"}, {"language": None}],
+    ids=["longest-said", "english", "no-language"],
+)
+def test_ask_accepts_the_limit_and_the_offered_languages(
+    allowed: dict[str, object],
+) -> None:
+    client, private, _clock = a_copresenter_lobby()
+    sign_in(client)
+
+    response = ask(client, {**QUESTION, **allowed})
+
+    assert response.status_code == HTTPStatus.OK
+    assert len(private.questions) == 1
+
+
+def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> None:
+    limiter_clock = FrozenClock(instant=NOW)
+    client, private, _clock = a_copresenter_lobby(
+        limiter=AskLimiter(clock=limiter_clock)
+    )
+    sign_in(client)
+    for _ in range(20):
+        assert ask(client).status_code == HTTPStatus.OK
+        limiter_clock.advance(timedelta(seconds=10))
+
+    refused = ask(client)
+    limiter_clock.advance(timedelta(seconds=int(refused.headers["retry-after"])))
+    allowed_again = ask(client)
+
+    assert refused.status_code == HTTPStatus.TOO_MANY_REQUESTS
+    assert refused.headers["retry-after"] == "400"
+    assert len(private.questions) == 20 + 1
+    assert allowed_again.status_code == HTTPStatus.OK
+
+
+def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> None:
+    client, private, _clock = a_copresenter_lobby()
+    sign_in(client)
+    second: list[Response] = []
+
+    def ask_again_mid_answer(index: int) -> None:
+        if index == 0 and not second:
+            second.append(ask(client))
+
+    private.busy_answer_events = 3
+    private.answer_event_hook = ask_again_mid_answer
+
+    first = ask(client)
+    after = ask(client)
+
+    assert first.status_code == HTTPStatus.OK
+    assert [response.status_code for response in second] == [
+        HTTPStatus.TOO_MANY_REQUESTS
+    ]
+    assert second[0].headers["retry-after"] == "1"
+    assert after.status_code == HTTPStatus.OK
+    assert len(private.questions) == len([first, after])
+
+
+def test_each_session_has_its_own_question_budget() -> None:
+    limiter_clock = FrozenClock(instant=NOW)
+    first, _private, _clock = a_copresenter_lobby(
+        limiter=AskLimiter(clock=limiter_clock)
+    )
+    sign_in(first)
+    for _ in range(20):
+        ask(first)
+
+    other, _private, _clock = a_copresenter_lobby()
+    sign_in(other)
+
+    assert ask(first).status_code == HTTPStatus.TOO_MANY_REQUESTS
+    assert ask(other).status_code == HTTPStatus.OK
 
 
 def test_private_answer_events_preserve_the_public_stream_contract() -> None:
