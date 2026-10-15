@@ -286,17 +286,10 @@ class _OpenedFile(FileResponse):
         self._file.close()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        with self._file:
-            await super().__call__(scope, receive, send)
-
-    async def _handle_simple(
-        self,
-        send: Send,
-        send_header_only: bool,  # noqa: FBT001
-        send_pathsend: bool,  # noqa: ARG002, FBT001
-    ) -> None:
         # A server handed the name of a descriptor would look for a file of it.
-        await super()._handle_simple(send, send_header_only, send_pathsend=False)
+        without_pathsend = {**scope, "extensions": {}}
+        with self._file:
+            await super().__call__(without_pathsend, receive, send)
 
 
 def _leaves_the_talk(directory: Path, path: str) -> bool:
