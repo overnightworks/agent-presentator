@@ -142,9 +142,11 @@ from projector view.
 ### Rechtliches (#196)
 
 Impressum and Datenschutz, reachable without a session, and the same footer
-links carried onto a page after login. Drafted from the code; the Datenschutz
-text's source is [`legal-datenschutz-draft.md`](legal-datenschutz-draft.md),
-pending the operator's approval before it goes online (issue #196, line 3).
+links carried onto a page after login. The Datenschutz artboards show the
+page's layout with shortened text. The words are owned by
+`src/presentator/api/legal.py`; [`legal-datenschutz-draft.md`](legal-datenschutz-draft.md)
+is their copy for the operator's approval before they go online (issue #196,
+line 3).
 
 | PNG | Caption | Lines |
 |---|---|---|

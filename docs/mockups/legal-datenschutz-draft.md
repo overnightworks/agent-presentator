@@ -1,6 +1,6 @@
 # Datenschutzerklärung — Presentator (Entwurf für #196)
 
-Der Betreiber prüft und gibt diesen Text frei, bevor er online geht (#197,
+Der Betreiber prüft und gibt diesen Text frei, bevor er online geht (#196,
 Linie 3). Der veröffentlichte Text gehört `src/presentator/api/legal.py`;
 alles unterhalb der Linie entspricht ihm Wort für Wort. Die Leerlaufzeit
 (12 Stunden) und die Fehlversuchsgrenze (5) liest der Code aus

@@ -4622,7 +4622,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
       <figure class="board" id="datenschutz">
         <figcaption class="board-cap">
           <div class="board-title">Datenschutz, reachable without login <span class="w">1024 px</span></div>
-          <p class="board-note">Drafted from the code (<span class="path">docs/mockups/legal-datenschutz-draft.md</span>), identical text on both widths. The operator approves this text before it goes online (line 3); every <span class="offen">[offen: …]</span> marks a fact the code does not settle.</p>
+          <p class="board-note">The page's layout with its text shortened. The words are owned by <span class="path">src/presentator/api/legal.py</span>; the operator approves them as <span class="path">docs/mockups/legal-datenschutz-draft.md</span> before they go online (line 3). Every <span class="offen">[offen: …]</span> marks a fact the code does not settle.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/datenschutz</div>
@@ -4646,7 +4646,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
                   <li><b>Benutzerkonto:</b> Benutzername, Rolle (Admin/Nutzer) und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an; es gibt keine Selbstregistrierung.</li>
-                  <li><b>Sitzungen und Cookies:</b> ein serverseitig signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Strict</code>, nur über HTTPS) sowie ein zweites, von JavaScript lesbares Cookie ausschließlich zum Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach 12 Stunden Inaktivität als beendet; die Zeile wird beim Abmelden gelöscht.</li>
+                  <li><b>Sitzungen und Cookies:</b> ein serverseitig signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, nur über HTTPS) sowie ein zweites, von JavaScript lesbares Cookie ausschließlich zum Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach 12 Stunden Inaktivität als beendet; die Zeile wird beim Abmelden gelöscht.</li>
                   <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse und Zeitpunkt, zum Schutz vor automatisiertem Ausprobieren (nach 5 Fehlversuchen wird gedrosselt).</li>
                   <li><b>Decks und Quellen:</b> der Inhalt Ihrer verbundenen Git-Quellen (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt und zu Vorträgen gebaut. Ein Lesezugriffsschlüssel pro Quelle wird verschlüsselt gespeichert und kann nach der Eingabe nur erneuert, nie wieder angezeigt werden.</li>
                   <li><b>CoPresenter (Sprachfunktion):</b> Ihre gesprochene Frage wird lokal in Text umgewandelt; die Audio-Rohdaten werden dabei nicht gespeichert. Der erkannte Text, die aktuelle Folie und der vollständige Deckinhalt werden an den in Abschnitt 3 genannten KI-Anbieter gesendet. Die gesprochene Antwort wird lokal erzeugt und nur für die Wiedergabe gestreamt, nicht dauerhaft gespeichert.</li>
@@ -4700,7 +4700,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Datenschutz, reachable without login <span class="w">390 px</span></div>
-          <p class="board-note">Same text, narrow phone width, still reachable without a session (line 3).</p>
+          <p class="board-note">The same page at narrow phone width, its text shortened further, still reachable without a session (line 3).</p>
         </figcaption>
         <div class="frame" style="--w: 390px">
           <div class="route">presentator.local/datenschutz</div>
@@ -4724,7 +4724,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
                   <li><b>Benutzerkonto:</b> Benutzername, Rolle und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an.</li>
-                  <li><b>Sitzungen und Cookies:</b> ein signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Strict</code>, HTTPS) plus ein CSRF-Cookie ohne Tracking. Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, letzte Aktivität. Gültig 12 Stunden; Zeile gelöscht beim Abmelden.</li>
+                  <li><b>Sitzungen und Cookies:</b> ein signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, HTTPS) plus ein CSRF-Cookie ohne Tracking. Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, letzte Aktivität. Gültig 12 Stunden; Zeile gelöscht beim Abmelden.</li>
                   <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse, Zeitpunkt — Schutz vor Ausprobieren.</li>
                   <li><b>Decks und Quellen:</b> gespiegelter Git-Inhalt (Folien, Notizen); ein verschlüsselter Lesezugriffsschlüssel pro Quelle.</li>
                   <li><b>CoPresenter:</b> gesprochene Frage lokal in Text umgewandelt (Audio nicht gespeichert); Text, aktuelle Folie und Deckinhalt gehen an den KI-Anbieter unten. Antwort-Audio nur gestreamt.</li>
