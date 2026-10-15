@@ -10,7 +10,6 @@ two views and the download included.
 """
 
 import os
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
@@ -21,8 +20,10 @@ from typing import BinaryIO, Final
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse
+from starlette.staticfiles import NotModifiedResponse
 from starlette.types import Receive, Scope, Send
 
 from presentator.api.pages import Pages, state_word
@@ -41,11 +42,10 @@ _DECK_PDF: Final = f"{_DECK_PAGE}/pdf"
 _DECK_TEMPLATE: Final = "deck.html"
 _UNKNOWN_DECK_TEMPLATE: Final = "deck_unknown.html"
 _PDF_TYPE: Final = "application/pdf"
-_SAVED_AS: Final = 'attachment; filename="{slug}.pdf"'
-_UNKNOWN_TYPE: Final = "text/plain"
-_CHUNK_BYTES: Final = 64 * 1024
-_HEAD: Final = "HEAD"
-_READS: Final = frozenset({"GET", _HEAD})
+_SAVED_AS: Final = "{slug}.pdf"
+_UNKNOWN_TYPE: Final = "application/octet-stream"
+_READS: Final = frozenset({"GET", "HEAD"})
+_THE_OPEN_FILE: Final = "/proc/self/fd/{descriptor}"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -147,11 +147,10 @@ class _DeckPage:
         file = None if export is None else self.decks.open_build_file(export)
         if file is None:
             return self._no_such_deck(request)
-        return _delivered(
+        return _OpenedFile(
             file,
             media_type=_PDF_TYPE,
-            method=request.method,
-            headers={"content-disposition": _SAVED_AS.format(slug=slug)},
+            filename=_SAVED_AS.format(slug=slug),
         )
 
     def _no_such_deck(self, request: Request) -> Response:
@@ -241,11 +240,14 @@ class _TalkFiles(StaticFiles):
         if _leaves_the_talk(self._root, path):
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
         name, file = await run_in_threadpool(self._opened, path)
-        return _delivered(
+        response = _OpenedFile(
             file,
             media_type=guess_type(name)[0] or _UNKNOWN_TYPE,
-            method=scope["method"],
         )
+        if self.is_not_modified(response.headers, Headers(scope=scope)):
+            response.close()
+            return NotModifiedResponse(response.headers)
+        return response
 
     def _opened(self, path: str) -> tuple[str, BinaryIO]:
         """That file of the talk, or else the talk's own `index.html`."""
@@ -256,26 +258,45 @@ class _TalkFiles(StaticFiles):
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND)
 
 
-def _delivered(
-    file: BinaryIO,
-    *,
-    media_type: str,
-    method: str,
-    headers: dict[str, str] | None = None,
-) -> Response:
-    """The open file as an answer; the descriptor is all that is ever read."""
-    size = os.fstat(file.fileno()).st_size
-    sent = {**(headers or {}), "content-length": str(size)}
-    if method == _HEAD:
-        file.close()
-        return Response(media_type=media_type, headers=sent)
-    return StreamingResponse(_chunks(file), media_type=media_type, headers=sent)
+class _OpenedFile(FileResponse):
+    """A file answered from the descriptor it was opened as, with FileResponse's HTTP.
 
+    Ranges, conditional headers, `HEAD` and the saved-as name are Starlette's
+    own; only where the bytes come from differs. The descriptor is the file
+    that was checked, so it is read through the kernel's name for it, never
+    through the path it was found by.
+    """
 
-def _chunks(file: BinaryIO) -> Iterator[bytes]:
-    with file:
-        while chunk := file.read(_CHUNK_BYTES):
-            yield chunk
+    def __init__(
+        self,
+        file: BinaryIO,
+        *,
+        media_type: str,
+        filename: str | None = None,
+    ) -> None:
+        self._file = file
+        super().__init__(
+            _THE_OPEN_FILE.format(descriptor=file.fileno()),
+            media_type=media_type,
+            filename=filename,
+            stat_result=os.fstat(file.fileno()),
+        )
+
+    def close(self) -> None:
+        self._file.close()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        with self._file:
+            await super().__call__(scope, receive, send)
+
+    async def _handle_simple(
+        self,
+        send: Send,
+        send_header_only: bool,  # noqa: FBT001
+        send_pathsend: bool,  # noqa: ARG002, FBT001
+    ) -> None:
+        # A server handed the name of a descriptor would look for a file of it.
+        await super()._handle_simple(send, send_header_only, send_pathsend=False)
 
 
 def _leaves_the_talk(directory: Path, path: str) -> bool:

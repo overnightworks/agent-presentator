@@ -26,6 +26,7 @@ from tests.api.lobby import (
     a_signed_in_lobby,
     a_user_store,
     an_account,
+    real_builds_under,
 )
 from tests.application.fakes import FakeDeckStore
 
@@ -218,6 +219,71 @@ def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
     assert download.headers["content-type"] == _PDF_TYPE
     assert download.headers["content-disposition"] == _SAVED_AS
     assert download.content == _EXPORTED_PDF.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "slug",
+    ["Präsentation", "日本語", "price-€"],
+    ids=["latin-1", "outside latin-1", "a currency sign"],
+)
+def test_the_download_of_a_deck_with_a_unicode_name_is_saved_under_that_name(
+    slug: str,
+) -> None:
+    signed_in = a_signed_in_lobby(
+        GivenDecks(
+            store=a_deck_store(slug=slug, built=a_build()),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    download = signed_in.get(f"/deck/{quote(slug)}/pdf")
+
+    assert download.status_code == HTTPStatus.OK
+    assert (
+        download.headers["content-disposition"]
+        == f"attachment; filename*=utf-8''{quote(slug)}.pdf"
+    )
+
+
+def test_a_file_of_no_known_type_is_delivered_as_bytes(tmp_path: Path) -> None:
+    signed_in, run = a_swapped_build(tmp_path)
+    (run / "talk" / "assets" / "blob").write_bytes(b"\x00\x01")
+
+    blob = signed_in.get(f"{_PROJECTOR}assets/blob")
+
+    assert blob.headers["content-type"] == "application/octet-stream"
+
+
+def test_a_range_of_a_file_is_answered_with_only_that_range(tmp_path: Path) -> None:
+    signed_in, _ = a_swapped_build(tmp_path)
+
+    part = signed_in.get(f"{_PROJECTOR}assets/app.js", headers={"range": "bytes=0-6"})
+
+    assert part.status_code == HTTPStatus.PARTIAL_CONTENT
+    assert part.content == b"console"
+    assert part.headers["content-range"] == "bytes 0-6/14"
+
+
+def test_a_range_beyond_a_file_is_refused(tmp_path: Path) -> None:
+    signed_in, _ = a_swapped_build(tmp_path)
+
+    refused = signed_in.get(
+        f"{_PROJECTOR}assets/app.js",
+        headers={"range": "bytes=99-"},
+    )
+
+    assert refused.status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE
+
+
+def test_an_unchanged_file_is_answered_as_not_modified(tmp_path: Path) -> None:
+    signed_in, _ = a_swapped_build(tmp_path)
+    address = f"{_PROJECTOR}assets/app.js"
+    etag = signed_in.get(address).headers["etag"]
+
+    again = signed_in.get(address, headers={"if-none-match": etag})
+
+    assert again.status_code == HTTPStatus.NOT_MODIFIED
+    assert again.content == b""
 
 
 def test_the_deck_page_names_the_themes_this_instance_builds_with() -> None:
@@ -536,6 +602,7 @@ def a_swapped_build(tmp_path: Path) -> tuple[TestClient, Path]:
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk, pdf=pdf)),
             source=a_configured_source(_ADDRESS),
+            builder=real_builds_under(tmp_path),
         ),
     )
     return signed_in, run
@@ -629,6 +696,7 @@ def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk)),
             source=a_configured_source(_ADDRESS),
+            builder=real_builds_under(tmp_path),
         ),
     )
 
