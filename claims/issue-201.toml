@@ -1,0 +1,8 @@
+claim_id = "4f6f3ef2f0af426f8812ddfbb956acbe"
+agent = "Claude fe12493e-3d52-442e-b01b-4ee4336de2f0"
+role = "builder"
+base = "1f94a3cd04023ee198f2ecbe30c3c9f8e9bdae86"
+branch = "claude/issue-201-auslieferung-von-build-dateien-ber-einen"
+scope = ["src/presentator/adapters/builds.py", "src/presentator/api/decks.py", "src/presentator/application/decks.py", "src/presentator/host/main.py", "src/presentator/ports/decks.py", "tests/adapters/test_builds.py", "tests/api/test_deck_page.py", "tests/application/test_decks.py"]
+opened_commit = "246207820304ae201a4a54269bfb20c7bc475502"
+whole_reason = "Port, adapter, API serving and their tests are one security change that must not land half."
