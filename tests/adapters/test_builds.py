@@ -8,6 +8,7 @@ denies it this machine, is proven by driving the real interface.
 """
 
 import os
+import shutil
 import stat
 import subprocess
 import time
@@ -72,6 +73,7 @@ _DECK_IN = "deck"
 _OUT = "out"
 _TALK = "talk"
 _PDF_FILE = "deck.pdf"
+_A_DATABASE_FILE = "presentator.sqlite3"
 _TOOLCHAIN_SCRATCH = "node_modules"
 _A_SLUG_WITH_PUNCTUATION = "a,deck:of-punctuation"
 _A_SLUG_OF_SPACES = "a deck of spaces"
@@ -1007,6 +1009,88 @@ def test_a_build_that_leaves_a_link_on_the_way_to_an_artefact_is_not_held(
     artefacts = what_it_built(builds.build(a_deck(remote), source=source))
 
     assert not builds.holds(artefacts)
+
+
+def test_a_file_of_a_build_is_read_as_it_was_written(tmp_path: Path) -> None:
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
+    run = a_run_with_an_asset(builds)
+
+    file = builds.read(run / _TALK / "assets" / "app.js")
+
+    assert file is not None
+    with file:
+        assert file.read() == b"console.log(1)"
+
+
+@pytest.mark.parametrize(
+    ("replaced", "read"),
+    [
+        (_PDF_FILE, _PDF_FILE),
+        ("talk/assets/app.js", "talk/assets/app.js"),
+        ("talk/assets", "talk/assets/app.js"),
+        ("talk", "talk/index.html"),
+    ],
+    ids=["the PDF", "an asset", "a directory on the way", "the talk itself"],
+)
+def test_a_file_replaced_by_a_link_after_the_build_was_held_is_not_read(
+    tmp_path: Path,
+    replaced: str,
+    read: str,
+) -> None:
+    """The link comes after `holds` said yes, which is the gap `read` closes."""
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
+    run = a_run_with_an_asset(builds)
+    assert builds.holds(Artefacts(directory=run / _TALK, pdf=run / _PDF_FILE))
+    secret = a_secret_beside_the_root(tmp_path)
+    target = run / replaced
+    if target.is_dir():
+        shutil.rmtree(target)
+        target.symlink_to(secret.parent)
+    else:
+        target.unlink()
+        target.symlink_to(secret)
+
+    assert builds.read(run / read) is None
+
+
+@pytest.mark.parametrize("nothing_there", ["no-such-file", "talk"])
+def test_a_name_that_is_no_file_of_a_build_is_not_read(
+    tmp_path: Path,
+    nothing_there: str,
+) -> None:
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
+    run = a_run_with_an_asset(builds)
+
+    assert builds.read(run / nothing_there) is None
+
+
+def test_a_path_that_leaves_the_root_is_not_read(tmp_path: Path) -> None:
+    builds = builds_under(tmp_path, toolchain=on_this_machine(tmp_path))
+    builds.builds.mkdir(parents=True)
+
+    assert builds.read(a_secret_beside_the_root(tmp_path)) is None
+    assert builds.read(builds.builds / ".." / _A_DATABASE_FILE) is None
+
+
+def a_secret_beside_the_root(tmp_path: Path) -> Path:
+    """Something this server keeps to itself, named like every file a build has."""
+    secret = tmp_path / "secret" / _A_DATABASE_FILE
+    secret.parent.mkdir(exist_ok=True)
+    secret.write_bytes(b"what this server keeps to itself")
+    (secret.parent / "app.js").write_bytes(secret.read_bytes())
+    (secret.parent / _A_BUILT_PAGE).write_bytes(secret.read_bytes())
+    return secret
+
+
+def a_run_with_an_asset(builds: SlidevBuilds) -> Path:
+    """A run holding a talk with one asset, and its PDF, as real files."""
+    run = builds.builds / "a-run"
+    talk = a_written_talk(run / _TALK)
+    (run / _PDF_FILE).write_bytes((talk / _PDF_FILE).read_bytes())
+    (talk / _PDF_FILE).unlink()
+    (talk / "assets").mkdir()
+    (talk / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    return run
 
 
 def test_artefacts_that_were_never_written_are_not_held(tmp_path: Path) -> None:

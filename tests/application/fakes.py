@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, BinaryIO, Final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from presentator.adapters.builds import opened_without_a_link
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.decks import (
     RECENT_SOURCE_RUNS,
@@ -700,6 +702,12 @@ class FakeBuildRunner:
             written.is_relative_to(BUILDS_ROOT)
             for written in (artefacts.directory, artefacts.pdf)
         )
+
+    def read(self, written: Path) -> BinaryIO | None:
+        # The paths tests arrange are real files in a temporary directory, so
+        # the walk starts at the filesystem's root rather than at BUILDS_ROOT.
+        found = opened_without_a_link(written, under=Path(written.anchor))
+        return None if found is None else os.fdopen(found, "rb")
 
     def remove(self, directory: Path) -> bool:
         self.removed.append(directory)

@@ -7,7 +7,7 @@ Named for decks rather than for a catalogue, because the message catalog
 from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from presentator.contracts.decks import (
     Artefacts,
@@ -291,6 +291,16 @@ class BuildRunner(Protocol):
 
         A deck is code (ADR 0005), so where a build says it wrote is checked
         rather than trusted before that place becomes an address.
+        """
+
+    @abstractmethod
+    def read(self, written: Path) -> BinaryIO | None:
+        """That file of a build opened for reading, or nothing where it is not one.
+
+        Nothing is what a missing file, a directory, and a link anywhere on the
+        way to the file all answer alike: a deck's own code wrote the names, so
+        none is followed, and what is handed back is the file that was opened,
+        not a path to open again.
         """
 
     @abstractmethod
