@@ -98,6 +98,7 @@ class AskRequest(BaseModel, extra="forbid"):
     @field_validator("language", mode="before")
     @staticmethod
     def empty_language_is_no_language(value: object) -> object:
+        """Treat the browser's empty language field as no language chosen."""
         return None if value == "" else value
 
 
