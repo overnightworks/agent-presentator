@@ -286,10 +286,8 @@ class _OpenedFile(FileResponse):
         self._file.close()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # A server handed the name of a descriptor would look for a file of it.
-        without_pathsend = {**scope, "extensions": {}}
         with self._file:
-            await super().__call__(without_pathsend, receive, send)
+            await super().__call__(scope, receive, send)
 
 
 def _leaves_the_talk(directory: Path, path: str) -> bool:

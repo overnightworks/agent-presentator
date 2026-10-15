@@ -24,6 +24,7 @@ from tests.api.lobby import (
     a_configured_source,
     a_lobby,
     a_signed_in_lobby,
+    a_swapped_build,
     a_user_store,
     an_account,
     real_builds_under,
@@ -219,71 +220,6 @@ def test_the_download_hands_the_file_the_deck_names_over_to_be_saved(
     assert download.headers["content-type"] == _PDF_TYPE
     assert download.headers["content-disposition"] == _SAVED_AS
     assert download.content == _EXPORTED_PDF.read_bytes()
-
-
-@pytest.mark.parametrize(
-    "slug",
-    ["Präsentation", "日本語", "price-€"],
-    ids=["latin-1", "outside latin-1", "a currency sign"],
-)
-def test_the_download_of_a_deck_with_a_unicode_name_is_saved_under_that_name(
-    slug: str,
-) -> None:
-    signed_in = a_signed_in_lobby(
-        GivenDecks(
-            store=a_deck_store(slug=slug, built=a_build()),
-            source=a_configured_source(_ADDRESS),
-        ),
-    )
-
-    download = signed_in.get(f"/deck/{quote(slug)}/pdf")
-
-    assert download.status_code == HTTPStatus.OK
-    assert (
-        download.headers["content-disposition"]
-        == f"attachment; filename*=utf-8''{quote(slug)}.pdf"
-    )
-
-
-def test_a_file_of_no_known_type_is_delivered_as_bytes(tmp_path: Path) -> None:
-    signed_in, run = a_swapped_build(tmp_path)
-    (run / "talk" / "assets" / "blob").write_bytes(b"\x00\x01")
-
-    blob = signed_in.get(f"{_PROJECTOR}assets/blob")
-
-    assert blob.headers["content-type"] == "application/octet-stream"
-
-
-def test_a_range_of_a_file_is_answered_with_only_that_range(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path)
-
-    part = signed_in.get(f"{_PROJECTOR}assets/app.js", headers={"range": "bytes=0-6"})
-
-    assert part.status_code == HTTPStatus.PARTIAL_CONTENT
-    assert part.content == b"console"
-    assert part.headers["content-range"] == "bytes 0-6/14"
-
-
-def test_a_range_beyond_a_file_is_refused(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path)
-
-    refused = signed_in.get(
-        f"{_PROJECTOR}assets/app.js",
-        headers={"range": "bytes=99-"},
-    )
-
-    assert refused.status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE
-
-
-def test_an_unchanged_file_is_answered_as_not_modified(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path)
-    address = f"{_PROJECTOR}assets/app.js"
-    etag = signed_in.get(address).headers["etag"]
-
-    again = signed_in.get(address, headers={"if-none-match": etag})
-
-    assert again.status_code == HTTPStatus.NOT_MODIFIED
-    assert again.content == b""
 
 
 def test_the_deck_page_names_the_themes_this_instance_builds_with() -> None:
@@ -585,29 +521,6 @@ def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
     assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
-def a_swapped_build(tmp_path: Path) -> tuple[TestClient, Path]:
-    """A signed-in lobby on a built deck, and the run directory a link may land in.
-
-    The deck was adopted with plain files; each test then lays its link, which
-    is what a deck's own code can do after the build was held.
-    """
-    run = tmp_path / "run"
-    talk = run / "talk"
-    (talk / "assets").mkdir(parents=True)
-    (talk / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
-    (talk / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
-    pdf = run / "deck.pdf"
-    pdf.write_bytes(b"%PDF-1.7 the real one")
-    signed_in = a_signed_in_lobby(
-        GivenDecks(
-            store=a_deck_store(built=a_build(talk=talk, pdf=pdf)),
-            source=a_configured_source(_ADDRESS),
-            builder=real_builds_under(tmp_path),
-        ),
-    )
-    return signed_in, run
-
-
 def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
     """A directory holding the secret under every name a build file has."""
     secret = tmp_path / "secret"
@@ -633,7 +546,7 @@ def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
     replaced: str,
     address: str,
 ) -> None:
-    signed_in, run = a_swapped_build(tmp_path)
+    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
     secret = a_secret_a_link_may_point_at(tmp_path)
     target = run / replaced
     if target.is_dir():
@@ -652,7 +565,7 @@ def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
 def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
     tmp_path: Path,
 ) -> None:
-    signed_in, run = a_swapped_build(tmp_path)
+    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
     (run / "deck.pdf").unlink()
     (run / "deck.pdf").symlink_to(a_secret_a_link_may_point_at(tmp_path) / "deck.pdf")
 
@@ -660,21 +573,6 @@ def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
 
     assert refused.status_code == HTTPStatus.NOT_FOUND
     assert ENGLISH.deck_unknown_title in refused.text
-
-
-def test_a_head_request_to_an_asset_answers_its_headers_without_its_body(
-    tmp_path: Path,
-) -> None:
-    address = f"{_PROJECTOR}assets/app.js"
-    signed_in, _ = a_swapped_build(tmp_path)
-    full = signed_in.get(address)
-
-    head = signed_in.head(address)
-
-    assert head.status_code == full.status_code
-    assert head.headers["content-length"] == full.headers["content-length"]
-    assert head.headers["content-type"] == full.headers["content-type"]
-    assert head.content == b""
 
 
 @pytest.mark.parametrize(
