@@ -217,13 +217,14 @@ class _BuiltTalk:
             return
         # Which directory a deck delivers from is a row, not a setting, so the
         # files are rooted per request rather than once at startup.
-        await _TalkFiles(directory, self.decks)(scope, receive, send)
+        await TalkFiles(directory, self.decks)(scope, receive, send)
 
 
-class _TalkFiles(StaticFiles):
+class TalkFiles(StaticFiles):
     """A Slidev single-page application: its files, then its `index.html`."""
 
     def __init__(self, directory: Path, decks: Decks) -> None:
+        """Root the files at one deck's built `directory`."""
         super().__init__(directory=directory)
         self._root = directory
         self._decks = decks
