@@ -22,7 +22,7 @@ from presentator.api.copresenter import (
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, CoPresenterUse
+from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -210,15 +210,15 @@ def a_copresenter_lobby(
             delay=delay,
         ),
     )
-    return (
-        TestClient(
-            app,
-            base_url=A_BROWSERS_ADDRESS,
-            follow_redirects=False,
-            headers=A_BROWSERS_HEADERS,
-        ),
-        private,
-        clock,
+    return another_browser(app), private, clock
+
+
+def another_browser(app: FastAPI) -> TestClient:
+    return TestClient(
+        app,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
     )
 
 
@@ -369,17 +369,22 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
 
 
 @pytest.mark.parametrize(
-    "allowed",
+    ("allowed", "language_handed_on"),
     [
-        {"said": "x" * MAX_SAID_LENGTH},
-        {"language": "en"},
-        {"language": None},
-        {"language": ""},
+        ({"said": "x" * MAX_SAID_LENGTH}, "de"),
+        ({"language": "en"}, "en"),
+        ({"language": None}, None),
+        ({"language": ""}, None),
     ],
-    ids=["longest-said", "english", "no-language", "empty-language"],
+    ids=[
+        "longest-said",
+        "english",
+        "no-language-means-the-default",
+        "empty-language-means-the-default-never-an-empty-string",
+    ],
 )
 def test_ask_accepts_the_limit_and_the_offered_languages(
-    allowed: dict[str, object],
+    allowed: dict[str, object], language_handed_on: str | None
 ) -> None:
     client, private, _clock = a_copresenter_lobby()
     sign_in(client)
@@ -387,7 +392,31 @@ def test_ask_accepts_the_limit_and_the_offered_languages(
     response = ask(client, {**QUESTION, **allowed})
 
     assert response.status_code == HTTPStatus.OK
-    assert len(private.questions) == 1
+    assert [question.language for question in private.questions] == [language_handed_on]
+
+
+def test_an_answered_question_frees_its_session_on_the_event_loop_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    released_on_event_loop: list[bool] = []
+    release = AskTicket.release
+
+    def release_and_note_the_thread(ticket: AskTicket) -> None:
+        try:
+            asyncio.get_running_loop()
+            released_on_event_loop.append(True)
+        except RuntimeError:
+            released_on_event_loop.append(False)
+        release(ticket)
+
+    monkeypatch.setattr(AskTicket, "release", release_and_note_the_thread)
+    client, _private, _clock = a_copresenter_lobby()
+    sign_in(client)
+
+    ask(client)
+
+    assert released_on_event_loop
+    assert all(released_on_event_loop)
 
 
 def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> None:
@@ -440,12 +469,7 @@ def test_each_session_has_its_own_question_budget() -> None:
         limiter=AskLimiter(clock=limiter_clock)
     )
     sign_in(first)
-    other = TestClient(
-        first.app,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
-    )
+    other = another_browser(first.app)
     other.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
     for _ in range(20):
         ask(first)
