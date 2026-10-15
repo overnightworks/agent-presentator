@@ -1,7 +1,0 @@
-claim_id = "95734fb7da0545e4aa85cc1b255046dc"
-agent = "Claude fe12493e-3d52-442e-b01b-4ee4336de2f0"
-role = "builder"
-base = "5dafa4b074d0fd03f6bf72aedee37bfaf5725245"
-branch = "claude/issue-199-mit-license"
-scope = ["LICENSE", "pyproject.toml", "scripts/check_root_layout.py"]
-opened_commit = "66410e5f206154d8cc5ad50147b95ae5c25369a5"
