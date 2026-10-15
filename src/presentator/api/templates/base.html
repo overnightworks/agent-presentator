@@ -1,3 +1,4 @@
+{% set impressum_address = "https://hallucinai.de/impressum" -%}
 <!DOCTYPE html>
 <html lang="{{ text.language_tag }}"{% if theme %} data-theme="{{ theme }}"{% endif %}>
   <head>
@@ -12,5 +13,11 @@
   <body>
     {% if person %}{% include "header.html" %}{% endif %}
     {% block body %}{% endblock %}
+    <footer class="app-footer">
+      <nav class="legal-links">
+        <a href="{{ impressum_address }}">{{ text.footer_impressum }}</a>
+        <a href="/datenschutz">{{ text.footer_datenschutz }}</a>
+      </nav>
+    </footer>
   </body>
 </html>

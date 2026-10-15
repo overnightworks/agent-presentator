@@ -19,6 +19,7 @@ from webauth.middleware.security_headers import (
 from webauth.policies import default_content_security_policy
 
 from presentator.api.hooks import hook_address
+from presentator.api.legal import DATENSCHUTZ
 from presentator.application.identity import (
     FAILURE_WINDOW,
     FAILURES_BEFORE_THROTTLE,
@@ -594,7 +595,7 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
     signed_in_lobby: Lobby,
 ) -> None:
-    for path in ("/", "/login"):
+    for path in ("/", "/login", "/datenschutz"):
         page = signed_in_lobby.client.get(path).text
 
         assert not _HEX_COLOUR.search(page)
@@ -625,3 +626,39 @@ def test_a_signed_out_page_carries_only_the_wordmark(lobby: Lobby) -> None:
     assert ENGLISH.wordmark in page
     assert ENGLISH.log_out not in page
     assert USERNAME not in page
+
+
+def _links_the_impressum_and_the_datenschutz(page: str) -> bool:
+    """Both footer links, the Impressum pointing at the operator's one page."""
+    return (
+        f'<a href="https://hallucinai.de/impressum">{ENGLISH.footer_impressum}</a>'
+        in page
+        and f'<a href="/datenschutz">{ENGLISH.footer_datenschutz}</a>' in page
+    )
+
+
+def test_the_datenschutz_opens_without_a_session(lobby: Lobby) -> None:
+    answer = lobby.client.get("/datenschutz")
+
+    assert answer.status_code == HTTPStatus.OK
+    assert DATENSCHUTZ.title in answer.text
+    assert '<a href="/login">' in answer.text
+
+
+@pytest.mark.parametrize("path", ["/login", "/setup", "/datenschutz"])
+def test_a_signed_out_page_links_the_impressum_and_the_datenschutz(
+    lobby: Lobby,
+    path: str,
+) -> None:
+    assert _links_the_impressum_and_the_datenschutz(lobby.client.get(path).text)
+
+
+@pytest.mark.parametrize("path", ["/", "/account", "/datenschutz"])
+def test_a_signed_in_page_links_the_impressum_and_the_datenschutz(
+    signed_in_lobby: Lobby,
+    path: str,
+) -> None:
+    page = signed_in_lobby.client.get(path).text
+
+    assert ENGLISH.log_out in page
+    assert _links_the_impressum_and_the_datenschutz(page)

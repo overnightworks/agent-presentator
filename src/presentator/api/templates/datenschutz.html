@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ document.title }}{% endblock %}
+{% block body %}
+{% macro phrases(paragraph) -%}
+  {%- for phrase in paragraph -%}
+    {%- if phrase.emphasis is sameas emphasis.LABEL -%}
+      <b>{{ phrase.words }}</b>
+    {%- elif phrase.emphasis is sameas emphasis.OPEN_POINT -%}
+      <span class="offen">{{ phrase.words }}</span>
+    {%- elif phrase.emphasis is sameas emphasis.IMPRESSUM -%}
+      <a href="{{ impressum_address }}">{{ phrase.words }}</a>
+    {%- else -%}
+      {{ phrase.words }}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endmacro %}
+{% if not person %}
+<header>
+  <nav>
+    <ul><li><strong>{{ text.wordmark }}</strong></li></ul>
+    <ul><li><a href="/login">{{ text.legal_back_to_login }}</a></li></ul>
+  </nav>
+</header>
+{% endif %}
+<main class="legal-page" lang="{{ document.language_tag }}">
+  <section>
+    <h1>{{ document.title }}</h1>
+    <p>{{ phrases(document.introduction) }}</p>
+  </section>
+  {% for section in document.sections %}
+  <section>
+    <h2>{{ section.heading }}</h2>
+    {% if section.listed %}
+    <ul>
+      {% for paragraph in section.paragraphs %}
+      <li>{{ phrases(paragraph) }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    {% for paragraph in section.paragraphs %}
+    <p>{{ phrases(paragraph) }}</p>
+    {% endfor %}
+    {% endif %}
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}

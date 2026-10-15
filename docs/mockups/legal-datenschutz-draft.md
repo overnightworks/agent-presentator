@@ -21,7 +21,7 @@ Verantwortlich für diese Anwendung ist der Betreiber. Kontaktdaten: siehe
   Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator
   an; es gibt keine Selbstregistrierung.
 - **Sitzungen und Cookies:** Beim Login setzen wir ein Sitzungs-Cookie
-  (serverseitig signiert, `HttpOnly`, `SameSite=Strict`, nur über HTTPS) und
+  (serverseitig signiert, `HttpOnly`, `SameSite=Lax`, nur über HTTPS) und
   ein zweites, von JavaScript lesbares Cookie ausschließlich zum
   Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID,
   Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität.
