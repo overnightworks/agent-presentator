@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
     from httpx2 import Response
     from starlette.requests import HTTPConnection
-    from starlette.types import Message, Scope
+    from starlette.types import ASGIApp, Message, Scope
 
     from presentator.ports.copresenter import PrivateHearing
 
@@ -213,7 +213,7 @@ def a_copresenter_lobby(
     return another_browser(app), private, clock
 
 
-def another_browser(app: FastAPI) -> TestClient:
+def another_browser(app: ASGIApp) -> TestClient:
     return TestClient(
         app,
         base_url=A_BROWSERS_ADDRESS,
