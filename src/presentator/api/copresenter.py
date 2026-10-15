@@ -96,8 +96,8 @@ class AskRequest(BaseModel, extra="forbid"):
     language: SampleLanguage | None = None
 
     @field_validator("language", mode="before")
-    @classmethod
-    def _empty_language_is_no_language(cls, value: object) -> object:
+    @staticmethod
+    def empty_language_is_no_language(value: object) -> object:
         return None if value == "" else value
 
 
