@@ -1,0 +1,8 @@
+claim_id = "97b6123d62ce45c28cd7a269ff4d2986"
+agent = "Claude fe12493e-3d52-442e-b01b-4ee4336de2f0"
+role = "builder"
+base = "5dafa4b074d0fd03f6bf72aedee37bfaf5725245"
+branch = "claude/issue-196-legal-pages"
+scope = ["docs/mockups"]
+opened_commit = "e169fcd3502ed67d837347dbd6de215e855be8e2"
+whole_reason = "The picture step only extends the mockup directory; the build rescopes later."
