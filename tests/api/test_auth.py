@@ -19,7 +19,7 @@ from webauth.middleware.security_headers import (
 from webauth.policies import default_content_security_policy
 
 from presentator.api.hooks import hook_address
-from presentator.api.legal import DATENSCHUTZ
+from presentator.api.legal import DATENSCHUTZ, Emphasis
 from presentator.application.identity import (
     FAILURE_WINDOW,
     FAILURES_BEFORE_THROTTLE,
@@ -643,6 +643,25 @@ def test_the_datenschutz_opens_without_a_session(lobby: Lobby) -> None:
     assert answer.status_code == HTTPStatus.OK
     assert DATENSCHUTZ.title in answer.text
     assert '<a href="/login">' in answer.text
+
+
+def test_the_datenschutz_renders_every_section_and_links_the_impressum(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+    impressum_mentions_in_the_text = sum(
+        phrase.emphasis is Emphasis.IMPRESSUM
+        for section in DATENSCHUTZ.sections
+        for paragraph in section.paragraphs
+        for phrase in paragraph
+    )
+
+    assert all(
+        f"<h2>{section.heading}</h2>" in page for section in DATENSCHUTZ.sections
+    )
+    assert page.count('<a href="https://hallucinai.de/impressum">') == (
+        1 + impressum_mentions_in_the_text
+    )
 
 
 @pytest.mark.parametrize("path", ["/login", "/setup", "/datenschutz"])

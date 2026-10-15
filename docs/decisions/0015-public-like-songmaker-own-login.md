@@ -35,7 +35,7 @@ The instance is a public site like Songmaker. Its own login is the only door;
 Cloudflare Access does not stand in front of it, and the tunnel stays the way
 the home server is reached without an inbound port.
 
-Every page, signed in or out, ends with two links. "Impressum" points straight
+Every lobby page, signed in or out, ends with two links. "Impressum" points straight
 at the operator's one Impressum on `hallucinai.de`, so the same operator's
 details have one text and no copy here. "Datenschutz" opens the instance's own
 Datenschutzerklärung at `/datenschutz`, which names what this instance stores
@@ -56,7 +56,7 @@ have been driven in a real browser at phone and desktop width.
 
 - One account list, not two: adding a person is creating their account
   (ADR 0011); no allow-list has to be kept in step with it.
-- Signing in and out, first start, the theme stylesheet, the source hook's
+- Signing in and out, first start, the static assets, the source hook's
   `POST`, and the Datenschutzerklärung are reachable from the internet without
   a session.
   The login's throttle and the guard are the whole defence of everything else.

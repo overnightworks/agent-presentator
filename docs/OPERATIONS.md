@@ -548,8 +548,7 @@ curl -X POST -H "Authorization: Bearer <the-secret-shown-once>" \
 
 No login stands in front of a `POST` under `/sources/`, because a git host has
 no browser to sign in with; the secret is what guards it instead
-([ADR 0015](decisions/0015-public-like-songmaker-own-login.md) names every
-address the internet reaches without a session).
+([ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
 
 ## Branch protection
 
