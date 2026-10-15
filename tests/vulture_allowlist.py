@@ -7,6 +7,7 @@ excuse.
 """
 
 from presentator.api.auth import DeckRow
+from presentator.api.copresenter import AskRequest
 from presentator.api.decks import Banner, TalkFiles
 from presentator.api.legal import LegalDocument, LegalSection, Phrase
 from presentator.api.sources import (
@@ -196,3 +197,6 @@ VoiceDownloadOutcome.ALREADY_COMPLETE
 
 # `StaticFiles.__call__` dispatches to this override for every talk request.
 TalkFiles.get_response
+
+# Pydantic runs this `field_validator` on every `AskRequest.language` value.
+AskRequest.empty_language_is_no_language

@@ -73,6 +73,10 @@ ignore = [
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "webauth.passwords".msg = "Only the host names the hasher; it composes WebAuthConfig."
 
+[tool.ruff.lint.flake8-type-checking]
+# A pydantic field's annotation is read at runtime, so its import is not type-only.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 

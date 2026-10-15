@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from starlette.background import BackgroundTask
 from starlette.requests import HTTPConnection
 
+from presentator.application.copresenter import RetryAfter
 from presentator.contracts.copresenter import (
     AnswerEvent,
     AnswerText,
@@ -27,12 +29,18 @@ from presentator.contracts.copresenter import (
     Question,
     Sentence,
 )
+from presentator.contracts.voice import SampleLanguage
 
 if TYPE_CHECKING:
     from starlette.responses import Response
     from starlette.types import Message
 
-    from presentator.application.copresenter import CoPresenterHearing, CoPresenterUse
+    from presentator.application.copresenter import (
+        AskLimiter,
+        AskTicket,
+        CoPresenterHearing,
+        CoPresenterUse,
+    )
 
 _CHECK_INTERVAL_SECONDS: Final = 0.5
 _POLICY_VIOLATION: Final = 1008
@@ -41,6 +49,7 @@ _INTERNAL_ERROR: Final = 1011
 _GENERIC_ANSWER_FAILURE: Final = "the answer could not be spoken"
 _GENERIC_HEARING_FAILURE: Final = "hearing unavailable"
 _BROWSER_DISCONNECT: Final = "websocket.disconnect"
+MAX_SAID_LENGTH: Final = 2_000
 
 
 class SignedIn(Protocol):
@@ -61,6 +70,7 @@ class CoPresenterSurface:
     """The use case and browser origin installed on the public surface."""
 
     use: CoPresenterUse
+    limiter: AskLimiter
     public_origin: str
     delay: Delay = asyncio.sleep
 
@@ -81,9 +91,15 @@ class _SessionGuard:
 class AskRequest(BaseModel, extra="forbid"):
     """The only browser fields a private answer may receive."""
 
-    said: str = Field(min_length=1)
+    said: str = Field(min_length=1, max_length=MAX_SAID_LENGTH)
     slide: int = Field(ge=1)
-    language: str | None = None
+    language: SampleLanguage | None = None
+
+    @field_validator("language", mode="before")
+    @staticmethod
+    def empty_language_is_no_language(value: object) -> object:
+        """Treat the browser's empty language field as no language chosen."""
+        return None if value == "" else value
 
 
 def add_copresenter_routes(
@@ -118,11 +134,18 @@ def add_copresenter_routes(
             },
         )
 
-    def _ask(request: Request, question: AskRequest) -> Response:
+    async def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
         if connection is None:
             return JSONResponse(
                 {"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED
+            )
+        ticket = surface.limiter.admit(connection.session_id)
+        if isinstance(ticket, RetryAfter):
+            return JSONResponse(
+                {"detail": "Too many questions"},
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(ticket.seconds)},
             )
         return StreamingResponse(
             _answer_events(
@@ -130,14 +153,15 @@ def add_copresenter_routes(
                 question=Question(
                     said=question.said,
                     slide=question.slide,
-                    language=question.language,
+                    language=question.language and question.language.value,
                 ),
-                session_id=connection.session_id,
                 use=use,
                 guard=guard,
+                ticket=ticket,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            background=BackgroundTask(_release_on_event_loop, ticket),
         )
 
     async def _hear(socket: WebSocket, language: str = "de") -> None:
@@ -167,16 +191,22 @@ def add_copresenter_routes(
     app.include_router(router)
 
 
+async def _release_on_event_loop(ticket: AskTicket) -> None:
+    # An async callable keeps Starlette from running the release on a worker
+    # thread; the limiter is only safe on the event-loop thread.
+    ticket.release()
+
+
 async def _answer_events(
     request: Request,
     *,
     question: Question,
-    session_id: str,
     use: CoPresenterUse,
     guard: _SessionGuard,
+    ticket: AskTicket,
 ) -> AsyncIterator[bytes]:
     session_watch = asyncio.create_task(
-        _watch_session(request, session_id=session_id, guard=guard)
+        _watch_session(request, session_id=ticket.session_id, guard=guard)
     )
     try:
         try:
@@ -204,6 +234,7 @@ async def _answer_events(
         except CoPresenterUnavailableError:
             yield _error_sse()
     finally:
+        ticket.release()
         await _finish_tasks((session_watch,))
 
 

@@ -4,8 +4,14 @@ import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
-from presentator.application.copresenter import CoPresenterUse
+from presentator.application.copresenter import (
+    AskLimiter,
+    AskTicket,
+    CoPresenterUse,
+    RetryAfter,
+)
 from presentator.contracts.copresenter import (
     AnswerEvent,
     AnswerText,
@@ -15,6 +21,7 @@ from presentator.contracts.copresenter import (
     Question,
 )
 from presentator.ports.copresenter import PrivateHearing
+from tests.application.fakes import FrozenClock
 
 
 @dataclass
@@ -107,3 +114,31 @@ async def _end_hearing() -> None:
     assert private.hearing.frames == [b"pcm"]
     assert private.hearing.closed == 1
     assert private.hearing_exits == 1
+
+
+def test_a_released_old_ticket_cannot_free_the_slot_of_a_newer_answer() -> None:
+    limiter = AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
+    old = limiter.admit("session")
+    assert isinstance(old, AskTicket)
+    old.release()
+    newer = limiter.admit("session")
+    assert isinstance(newer, AskTicket)
+
+    old.release()
+
+    assert limiter.admit("session") == RetryAfter(1)
+
+
+def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
+    clock = FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC))
+    limiter = AskLimiter(clock=clock)
+    for name in ("quiet-one", "quiet-two"):
+        ticket = limiter.admit(name)
+        assert isinstance(ticket, AskTicket)
+        ticket.release()
+    clock.advance(limiter.limits.window + timedelta(seconds=1))
+
+    assert isinstance(limiter.admit("late"), AskTicket)
+
+    assert "quiet-one" not in repr(limiter)
+    assert "quiet-two" not in repr(limiter)

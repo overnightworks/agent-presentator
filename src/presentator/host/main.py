@@ -72,7 +72,7 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
-from presentator.application.copresenter import CoPresenterUse
+from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
 from presentator.application.identity import (
     FAILURE_WINDOW,
@@ -221,6 +221,7 @@ def build_instance(settings: Settings) -> Instance:
                     use=CoPresenterUse(
                         private=UdsCoPresenter(settings.copresenter_socket),
                     ),
+                    limiter=AskLimiter(clock=clock),
                     public_origin=settings.public_origin,
                 ),
                 voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),

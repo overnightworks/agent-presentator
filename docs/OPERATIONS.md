@@ -528,6 +528,12 @@ over https, `csrf_token` over plain http) in `x-csrf-token`. Logout, expiry,
 deactivation, or a session-store failure closes the hearing lease and an
 ongoing answer within one second.
 
+`/ask` bounds what one session may spend. `said` is at most 2000 characters and
+`language` is empty or `de`/`en`; anything else is refused with 422 before a
+turn starts. A session streams one answer at a time and may ask 20 questions
+per 10 minutes. An ask beyond either limit gets 429 with a `Retry-After` header
+(seconds until it may be asked again) and starts no turn.
+
 ## The fetch-now hook
 
 Adding a source creates `POST /sources/<name>/fetch` for that source and shows
