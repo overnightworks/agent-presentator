@@ -609,9 +609,8 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
           {"context": "Python: tests"},
           {"context": "Frontend: lint, types, tests, deck build"},
           {"context": "Container image"},
-          {"context": "Secret scan"},
           {"context": "pr-check"},
-          {"context": "SonarCloud scan"}
+          {"context": "quality / verdict"}
         ]
       }
     }
@@ -633,9 +632,24 @@ that check: the workflow answers `merge_group` by holding the name
 green, because the classification already ran on the pull request that
 armed the candidate.
 
-## SonarCloud
+## SonarCloud and the quality gate
 
-The SonarCloud project is created by dispatching the one-off bootstrap
+The `quality` job of `ci.yml` calls the shared gate workflow of
+`overnightworks/quality`, pinned by commit SHA. Its `hygiene` job scans the
+history for secrets and the workflows for unsafe patterns, its `sonar` job runs
+the SonarCloud scan, and its `verdict` job is the one required check
+`quality / verdict`: it is green only when every job named in
+`quality/config.toml` (`mandatory_jobs`, the display names of this workflow's
+jobs) and the gate's own jobs are green. The `tests` job hands its coverage
+report to the scan as the artifact `coverage`. `SONAR_TOKEN` is passed to the
+gate by name, never `inherit`. The `quality_gate` property of this repository in
+the fleet registry records that `quality / verdict` is expected on `main`, but
+it does not edit the ruleset: the operator adds the `quality / verdict` context
+to the required status checks of the `main` ruleset (the example above) by hand
+immediately before this change lands, and removes the retired scanner checks in
+the same edit.
+
+The SonarCloud project was created by dispatching the one-off bootstrap
 workflow, which also switches Automatic Analysis off:
 
 ```sh
@@ -644,7 +658,7 @@ gh workflow run sonar-bootstrap.yml --ref main
 
 Running it again is harmless; it converges on the same state. Automatic
 Analysis and the CI scan are mutually exclusive: while Automatic Analysis is
-on, SonarCloud refuses the report the `SonarCloud scan` job uploads.
+on, SonarCloud refuses the report the gate's `sonar` job uploads.
 
 The project runs SonarCloud's built-in "Sonar way" gate. A custom
 `presentator` gate exists in the organisation but is not associated, because
