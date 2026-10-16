@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@slidev/cli": "52.19.1",
+    "@slidev/cli": "53.0.0",
     "@slidev/theme-apple-basic": "0.25.1",
     "@slidev/theme-bricks": "0.25.0",
     "@slidev/theme-default": "0.25.0",
