@@ -28,7 +28,7 @@ dev = [
     "httpx==0.28.1",
     "pytest==9.1.1",
     "ruff==0.16.2",
-    "websockets==15.0.1",
+    "websockets==17.2",
 ]
 
 [tool.hatch.build.targets.wheel]
