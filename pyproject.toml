@@ -28,7 +28,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "pyright==1.1.411",
-    "ruff==0.16.2",
+    "ruff==0.17.0",
     "vulture==2.16",
 ]
 
