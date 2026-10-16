@@ -609,7 +609,8 @@ gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <
           {"context": "Python: tests"},
           {"context": "Frontend: lint, types, tests, deck build"},
           {"context": "Container image"},
-          {"context": "pr-check"}
+          {"context": "pr-check"},
+          {"context": "quality / verdict"}
         ]
       }
     }
@@ -642,8 +643,11 @@ the SonarCloud scan, and its `verdict` job is the one required check
 jobs) and the gate's own jobs are green. The `tests` job hands its coverage
 report to the scan as the artifact `coverage`. `SONAR_TOKEN` is passed to the
 gate by name, never `inherit`. The `quality_gate` property of this repository in
-the fleet registry makes `quality / verdict` a required context of `main`
-without a ruleset edit here.
+the fleet registry records that `quality / verdict` is expected on `main`, but
+it does not edit the ruleset: the operator adds the `quality / verdict` context
+to the required status checks of the `main` ruleset (the example above) by hand
+immediately before this change lands, and removes the retired scanner checks in
+the same edit.
 
 The SonarCloud project was created by dispatching the one-off bootstrap
 workflow, which also switches Automatic Analysis off:
