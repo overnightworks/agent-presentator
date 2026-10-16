@@ -19,7 +19,7 @@ presentator-qwen-worker = "presentator_qwen.__main__:main"
 presentator-speech-provider-contract = { path = "../provider-contract", editable = true }
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "ruff==0.16.2"]
+dev = ["pytest==9.1.1", "ruff==0.17.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/presentator_qwen"]
