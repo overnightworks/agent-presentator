@@ -8,7 +8,7 @@
 # (frontend/.nvmrc); uv brings the Python that .python-version names. Every
 # image named here is held by digest, because a tag is a name its owner may
 # move.
-FROM node:24.20.0-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0 AS runtime-user
+FROM node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS runtime-user
 
 ARG PRESENTATOR_RUNTIME_UID=1001
 RUN case "$PRESENTATOR_RUNTIME_UID" in \
