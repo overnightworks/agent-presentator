@@ -221,6 +221,15 @@ Before adding a literal, constant, default, or fixture value, classify its owner
 - Use examples only when they prevent a likely misread.
 - Code examples require a real stack, imports, owner, and configuration source.
 
+## Checks
+
+CI calls the shared quality gate from the `quality` job of
+`.github/workflows/ci.yml`, pinned by SHA. Its required check is
+`quality / verdict`; `quality/config.toml` lists the jobs that must be green
+for it, so a new mandatory CI job is added there by its display name. Secret
+scanning and the SonarCloud scan run inside the gate, and
+`sonar-project.properties` may carry only the keys the gate allows.
+
 ## Finish
 
 - Read the diff before finishing.

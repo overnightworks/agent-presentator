@@ -32,6 +32,8 @@ jobs:
         # checkout's own credentials. A shallow checkout is enough.
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
         # No Python pin here: this job runs aco's own tool environment
