@@ -28,7 +28,7 @@
   </section>
   <p><a href="/settings/sources/{{ source_name }}">{{ text.source_created_done }}</a></p>
   {% if webhook_secret %}
-  <p role="status">{{ text.source_created_toast }}</p>
+  <output>{{ text.source_created_toast }}</output>
   {% endif %}
 </main>
 <script src="/static/copy-value.js" defer></script>

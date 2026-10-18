@@ -32,10 +32,11 @@
       <strong>{{ text.voice_sample_active.format(name=active_voice.name) }}</strong>
     </header>
     <div data-sample-controls>
-      <div role="group" aria-label="{{ text.voice_sample_language }}">
+      <fieldset>
+        <legend>{{ text.voice_sample_language }}</legend>
         <button type="button" data-sample-language="de" aria-pressed="true">{{ text.voice_sample_german }}</button>
         <button type="button" data-sample-language="en" aria-pressed="false">{{ text.voice_sample_english }}</button>
-      </div>
+      </fieldset>
       <span data-sample-status aria-live="polite" hidden></span>
       <button type="button" data-sample-action>{{ text.voice_sample_play }}</button>
     </div>

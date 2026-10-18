@@ -130,6 +130,18 @@ main > header [type="submit"] {
   width: auto;
 }
 
+main > output {
+  display: block;
+  margin-bottom: var(--pico-typography-spacing-vertical);
+}
+
+[data-deploy-key-heading] {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  margin-bottom: var(--pico-spacing);
+}
+
 /* The picture's section label over a group of controls — quiet and small, so
  * the field labels below it stay the loudest words of the group.
  */
@@ -595,11 +607,18 @@ main code {
   text-transform: none;
 }
 
-[data-sample-controls] [role="group"] {
+[data-sample-controls] fieldset {
   display: flex;
   gap: 0;
   margin: 0;
   width: auto;
+}
+
+[data-sample-controls] fieldset legend {
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
 }
 
 [data-sample-controls] button {
@@ -607,7 +626,7 @@ main code {
   width: auto;
 }
 
-[data-sample-controls] [role="group"] > [data-sample-language] {
+[data-sample-controls] fieldset > [data-sample-language] {
   background: var(--screen);
   border-color: var(--line);
   color: var(--ink-soft);
