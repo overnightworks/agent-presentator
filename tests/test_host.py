@@ -328,8 +328,9 @@ def test_an_instance_that_does_not_say_what_builds_a_deck_refuses_to_start(
     if half is not None:
         environment.setenv(half, _A_HALF_NAMED_SANDBOX)
 
+    settings = load_settings()
     with pytest.raises(ConfigurationError, match="build_image and build_volume"):
-        main.build_instance(load_settings())
+        main.build_instance(settings)
 
 
 def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
@@ -338,8 +339,9 @@ def test_an_instance_whose_daemon_cannot_hold_a_build_in_its_place_refuses(
 ) -> None:
     a_container_run(environment, tmp_path, _A_DAEMON_TOO_OLD_TO_BUILD_ON)
 
+    settings = load_settings()
     with pytest.raises(ConfigurationError, match=_THE_VERSION_A_SUBPATH_NEEDS):
-        main.build_instance(load_settings())
+        main.build_instance(settings)
 
 
 def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
@@ -350,8 +352,9 @@ def test_an_instance_whose_machine_cannot_bound_a_build_refuses_to_start(
 
     # Nothing bounding what a build writes beside its talk is not something an
     # instance may find out about after it has served a deck.
+    settings = load_settings()
     with pytest.raises(ConfigurationError, match=_A_DRIVER):
-        main.build_instance(load_settings())
+        main.build_instance(settings)
 
 
 def test_an_instance_told_in_as_many_words_to_do_without_it_starts_and_says_so(

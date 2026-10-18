@@ -211,18 +211,18 @@ async def _sample_busy(tmp_path: Path) -> None:
     )
     socket_path = tmp_path / "speech.sock"
     async with _Serving(app, socket_path):
+        speech = UdsSpeech(socket_path)
         with pytest.raises(VoiceSampleBusyError):
-            await UdsSpeech(socket_path).sample(VoiceId.PIPER, SampleLanguage.GERMAN)
+            await speech.sample(VoiceId.PIPER, SampleLanguage.GERMAN)
 
 
 def test_missing_private_socket_refuses_a_sample_without_tcp_fallback(
     tmp_path: Path,
 ) -> None:
     async def sample() -> None:
+        speech = UdsSpeech(tmp_path / "missing.sock")
         with pytest.raises(VoiceUnavailableError):
-            await UdsSpeech(tmp_path / "missing.sock").sample(
-                VoiceId.PIPER, SampleLanguage.GERMAN
-            )
+            await speech.sample(VoiceId.PIPER, SampleLanguage.GERMAN)
 
     asyncio.run(sample())
 
@@ -267,10 +267,9 @@ def test_uds_sample_maps_invalid_media_and_nonbusy_failures_to_unavailable(
     monkeypatch.setattr(speech.httpx2, "AsyncClient", client)
 
     async def sample() -> None:
+        speech = UdsSpeech(tmp_path / "missing.sock")
         with pytest.raises(VoiceUnavailableError):
-            await UdsSpeech(tmp_path / "missing.sock").sample(
-                VoiceId.PIPER, SampleLanguage.GERMAN
-            )
+            await speech.sample(VoiceId.PIPER, SampleLanguage.GERMAN)
 
     asyncio.run(sample())
 

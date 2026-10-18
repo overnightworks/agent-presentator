@@ -47,6 +47,7 @@ ACCESS: Final = f"{SOURCES}/{{name}}/access"
 WEBHOOK: Final = f"{SOURCES}/{{name}}/webhook"
 REMOVE: Final = f"{SOURCES}/{{name}}/remove"
 REMOVE_CONFIRMED: Final = f"{SOURCES}/{{name}}/remove/confirmed"
+_SOURCE_PAGE: Final = "source.html"
 _HTTPS_ACCESS: Final = "https"
 _SSH_ACCESS: Final = "ssh"
 _FILE_ACCESS: Final = "file"
@@ -333,7 +334,7 @@ class _Surfaces:
         text = self.pages.appearance(request).text
         return self.pages.page(
             request,
-            "source.html",
+            _SOURCE_PAGE,
             source=self._view(
                 request,
                 shown,
@@ -373,7 +374,7 @@ class _Surfaces:
             text = self.pages.appearance(request).text
             return self.pages.page(
                 request,
-                "source.html",
+                _SOURCE_PAGE,
                 source=self._view(request, shown, text, webhook_secret=None),
                 refused=text.source_refused_secret,
             )
@@ -446,7 +447,7 @@ class _Surfaces:
                 return Response(status_code=HTTPStatus.NOT_FOUND)
             return self.pages.page(
                 request,
-                "source.html",
+                _SOURCE_PAGE,
                 source=self._view(request, shown, text, webhook_secret=None),
                 refused=text.source_remove_refused,
             )

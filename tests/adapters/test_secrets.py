@@ -69,8 +69,9 @@ def test_the_box_does_not_encrypt_with_the_raw_instance_key() -> None:
     raw_box = Fernet(urlsafe_b64encode(_THE_RAW_INSTANCE_KEY))
 
     assert box.decrypt(raw_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode())) is None
+    sealed = box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS)
     with pytest.raises(InvalidToken):
-        raw_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
+        raw_box.decrypt(sealed)
 
 
 def test_the_same_instance_key_answers_the_same_fingerprint_key_every_time() -> None:
@@ -94,8 +95,9 @@ def test_the_fingerprint_key_never_matches_the_secret_boxs_own_key() -> None:
         box.decrypt(fingerprint_box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS.encode()))
         is None
     )
+    sealed = box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS)
     with pytest.raises(InvalidToken):
-        fingerprint_box.decrypt(box.encrypt(_WHAT_THE_GIT_HOST_EXPECTS))
+        fingerprint_box.decrypt(sealed)
 
 
 def test_a_generated_deploy_key_is_a_valid_openssh_ed25519_pair() -> None:

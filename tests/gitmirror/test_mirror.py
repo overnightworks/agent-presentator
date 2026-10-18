@@ -1073,8 +1073,9 @@ def test_a_machine_without_git_refuses_to_mirror(
 ) -> None:
     monkeypatch.setenv("PATH", "")
 
+    mirror = a_mirror("file:///nowhere.git", directory=tmp_path)
     with pytest.raises(GitUnavailableError):
-        a_mirror("file:///nowhere.git", directory=tmp_path).connect()
+        mirror.connect()
 
 
 def test_a_reachable_check_answers_with_the_heads_full_commit(
