@@ -46,11 +46,12 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 """
 _IDENTIFIER_BYTES: Final = 32
 _FIRST_START_IS_OVER: Final = "this instance already has an account"
+_BLANK_TEXT_COLUMN: Final = "TEXT NOT NULL DEFAULT ''"
 _SESSION_COLUMNS: Final = (
-    ("ip_address", "TEXT NOT NULL DEFAULT ''"),
-    ("user_agent", "TEXT NOT NULL DEFAULT ''"),
+    ("ip_address", _BLANK_TEXT_COLUMN),
+    ("user_agent", _BLANK_TEXT_COLUMN),
 )
-_ATTEMPT_COLUMNS: Final = (("ip_address", "TEXT NOT NULL DEFAULT ''"),)
+_ATTEMPT_COLUMNS: Final = (("ip_address", _BLANK_TEXT_COLUMN),)
 
 
 def create_identity_tables(database: Path) -> None:

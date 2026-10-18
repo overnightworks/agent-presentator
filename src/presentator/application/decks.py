@@ -177,6 +177,8 @@ def hash_webhook_secret(secret: str) -> bytes:
 def _refusal_for(
     draft: NewSourceDraft,
     *,
+    name: str,
+    url: str,
     proven: bool,
     existing: tuple[Source, ...],
 ) -> SourceRefusal | None:
@@ -185,7 +187,7 @@ def _refusal_for(
     SSH checks with the account-owned draft key; every access kind needs that
     Check proof before it can create a source.
     """
-    name, url, access, secret = draft.name, draft.url, draft.access, draft.secret
+    access, secret = draft.access, draft.secret
     checks = (
         (
             name == _RESERVED_SOURCE_NAME or _SOURCE_NAME.fullmatch(name) is None,
@@ -428,11 +430,10 @@ class Decks:
             ):
                 return SourceRemovalStale(current=preview)
             mirror_gone = self.folders.forget(source)
-            builds_gone = [
-                self.builder.remove(deck.build.directory)
-                for deck in carried
-                if deck.build is not None
-            ]
+            build_directories = (
+                deck.build.directory for deck in carried if deck.build is not None
+            )
+            builds_gone = list(map(self.builder.remove, build_directories))
             if not mirror_gone or not all(builds_gone):
                 return SourceRemovalRefusal.DISK_LEFTOVER
             self.store.remove_for_source(source.id)
@@ -552,7 +553,9 @@ class Decks:
         address = draft.url.strip()
         existing = self.sources.all()
         preflight = _refusal_for(
-            replace(draft, name=named, url=address),
+            draft,
+            name=named,
+            url=address,
             proven=True,
             existing=existing,
         )

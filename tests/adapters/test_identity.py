@@ -293,10 +293,9 @@ def test_a_second_first_account_is_refused_even_after_an_empty_count(
     assert users.count() == 0
     users.add_first_account(an_account())
 
+    stranger = an_account(user_id="user-2", username="stranger")
     with pytest.raises(FirstStartClosedError, match="already has an account"):
-        users.add_first_account(
-            an_account(user_id="user-2", username="stranger"),
-        )
+        users.add_first_account(stranger)
 
     assert users.count() == 1
     assert users.get_by_username("stranger") is None
