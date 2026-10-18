@@ -1,8 +1,0 @@
-claim_id = "dbd02f7fdfe84875832215a960926114"
-agent = "claude"
-role = "builder"
-base = "2a0fc40309a6ea56d389d93adc3e6f600e09704e"
-branch = "claude/issue-115-agent-providers-0-3-0"
-scope = ["copresenter/README.md", "copresenter/pyproject.toml", "copresenter/scripts/prove_loop.py", "copresenter/src/copresenter/answer.py", "copresenter/src/copresenter/config.py", "copresenter/src/copresenter/main.py", "copresenter/tests", "copresenter/uv.lock", "docs/OPERATIONS.md"]
-opened_commit = "7c8eaa9ac084415b699c8b665dd6b1ab98086b60"
-whole_reason = "Ein Bibliotheks-Pin samt Migration seines einzigen Importeurs, dessen Konfiguration und Tests: trennt sich nicht, weil der Pin ohne die Migration nicht baut."
