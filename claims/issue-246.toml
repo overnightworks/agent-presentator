@@ -1,8 +1,0 @@
-claim_id = "76bf52f10f954ae396c01702ab5bec71"
-agent = "claude"
-role = "builder"
-base = "2a0fc40309a6ea56d389d93adc3e6f600e09704e"
-branch = "claude/issue-246-sonar-d1-python"
-scope = ["src/presentator/adapters/identity.py", "src/presentator/api/sources.py", "src/presentator/application/decks.py", "tests/adapters/test_identity.py", "tests/adapters/test_secrets.py", "tests/adapters/test_speech.py", "tests/gitmirror/test_mirror.py", "tests/test_host.py"]
-opened_commit = "ab7a4d3b067f8ad36d0e50d6f2d65bbbdec34747"
-whole_reason = "A bundle of small Sonar cards from one distributor slice; each fix is one or two lines, and splitting would multiply lane overhead."
