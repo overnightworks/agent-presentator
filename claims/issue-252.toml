@@ -1,0 +1,8 @@
+claim_id = "25231d6b647140329bf86cf7ac06ecf5"
+agent = "claude"
+role = "builder"
+base = "f9023b6d69189093ac53410eb1714ed220ef3bde"
+branch = "claude/issue-252-a0-probe"
+scope = [".github/workflows/probe-a0.yml", "Dockerfile", "compose.probe-a0.yaml", "scripts/probe_a0"]
+opened_commit = "e5e6fba331e73f7e2023c0e24a3294c321bf777c"
+whole_reason = "A disposable probe on its own branch: image identity, compose override, probe controller and its workflow belong to one measurement that never lands."
