@@ -3,7 +3,7 @@
 import math
 from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock
@@ -69,7 +69,7 @@ class AskTicket:
 
     session_id: str
     _answering: dict[str, "AskTicket"]
-    _guard: Lock
+    _guard: AbstractContextManager[bool]
 
     def release(self) -> None:
         """Free the session if this ticket still holds it; later calls do nothing."""
@@ -95,11 +95,11 @@ class AskLimiter:
         default_factory=dict[str, deque[datetime]]
     )
     _answering: dict[str, AskTicket] = field(default_factory=dict[str, AskTicket])
-    _guard: Lock = field(default_factory=Lock)
+    guard: AbstractContextManager[bool] = field(default_factory=Lock)
 
     def admit(self, session_id: str) -> AskTicket | RetryAfter:
         """Count the question and hand out its ticket, or say when to retry."""
-        with self._guard:
+        with self.guard:
             return self._admit(session_id)
 
     def _admit(self, session_id: str) -> AskTicket | RetryAfter:
@@ -112,7 +112,7 @@ class AskLimiter:
             freed_at = asked[0] + self.limits.window
             return RetryAfter(max(1, math.ceil((freed_at - now).total_seconds())))
         asked.append(now)
-        ticket = AskTicket(session_id, self._answering, self._guard)
+        ticket = AskTicket(session_id, self._answering, self.guard)
         self._answering[session_id] = ticket
         return ticket
 

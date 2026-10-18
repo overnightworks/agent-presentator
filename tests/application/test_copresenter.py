@@ -2,7 +2,6 @@
 
 import asyncio
 import threading
-import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -151,44 +150,71 @@ def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
     assert "quiet-two" not in repr(limiter)
 
 
-RACE_WINDOW_SECONDS = 0.02
 THREADS = 8
+DEADLOCK_SECONDS = 10
 
 
-class LingeringAnswering(dict[str, AskTicket]):
-    """An answering table that lingers around each check and change, widening races."""
+class ObservedLock:
+    """A real lock that reports entry attempts and can hold its next holder inside."""
 
-    def __contains__(self, key: object) -> bool:
-        """Report membership, then linger before the caller acts on it."""
-        found = super().__contains__(key)
-        time.sleep(RACE_WINDOW_SECONDS)
-        return found
+    def __init__(self) -> None:
+        """Start with nobody pausing inside."""
+        self._lock = threading.Lock()
+        self._bookkeeping = threading.Lock()
+        self._attempts = 0
+        self._pausing = False
+        self.holder_inside = threading.Event()
+        self.attempted_by_all = threading.Event()
+        self._holder_may_leave = threading.Event()
 
-    def __delitem__(self, key: str) -> None:
-        """Linger before the change, then make it."""
-        time.sleep(RACE_WINDOW_SECONDS)
-        super().__delitem__(key)
+    def hold_next_holder_until_all_attempted(self) -> None:
+        self._attempts = 0
+        self._pausing = True
+
+    def let_the_holder_leave(self) -> None:
+        self._holder_may_leave.set()
+
+    def __enter__(self) -> bool:
+        """Announce the attempt, then take the lock; pause inside when asked to."""
+        with self._bookkeeping:
+            self._attempts += 1
+            if self._attempts == THREADS:
+                self.attempted_by_all.set()
+        self._lock.acquire()
+        if self._pausing:
+            self._pausing = False
+            self.holder_inside.set()
+            self._holder_may_leave.wait(timeout=DEADLOCK_SECONDS)
+        return True
+
+    def __exit__(self, *_exception: object) -> None:
+        """Give the lock back."""
+        self._lock.release()
 
 
-def at_the_same_instant[Result](action: Callable[[], Result]) -> list[Result]:
-    barrier = threading.Barrier(THREADS)
-
-    def start_together() -> Result:
-        barrier.wait()
-        return action()
-
+def run_on_many_threads_while_one_holds_the_lock[Result](
+    guard: ObservedLock, action: Callable[[], Result]
+) -> list[Result]:
+    guard.hold_next_holder_until_all_attempted()
     with ThreadPoolExecutor(max_workers=THREADS) as pool:
-        futures = [pool.submit(start_together) for _ in range(THREADS)]
+        futures = [pool.submit(action) for _ in range(THREADS)]
+        try:
+            assert guard.holder_inside.wait(timeout=DEADLOCK_SECONDS)
+            assert guard.attempted_by_all.wait(timeout=DEADLOCK_SECONDS)
+        finally:
+            guard.let_the_holder_leave()
         return [future.result() for future in futures]
 
 
 def test_simultaneous_asks_of_one_session_on_many_threads_admit_exactly_one() -> None:
+    guard = ObservedLock()
     limiter = AskLimiter(
-        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)),
-        _answering=LingeringAnswering(),
+        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)), guard=guard
     )
 
-    outcomes = at_the_same_instant(lambda: limiter.admit("session"))
+    outcomes = run_on_many_threads_while_one_holds_the_lock(
+        guard, lambda: limiter.admit("session")
+    )
 
     admitted = [outcome for outcome in outcomes if isinstance(outcome, AskTicket)]
     refused = [outcome for outcome in outcomes if isinstance(outcome, RetryAfter)]
@@ -197,13 +223,16 @@ def test_simultaneous_asks_of_one_session_on_many_threads_admit_exactly_one() ->
 
 
 def test_simultaneous_releases_of_one_ticket_free_the_slot_exactly_once() -> None:
+    guard = ObservedLock()
     limiter = AskLimiter(
-        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)),
-        _answering=LingeringAnswering(),
+        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)), guard=guard
     )
-    ticket = limiter.admit("session")
-    assert isinstance(ticket, AskTicket)
+    old = limiter.admit("session")
+    assert isinstance(old, AskTicket)
 
-    at_the_same_instant(ticket.release)
+    run_on_many_threads_while_one_holds_the_lock(guard, old.release)
 
-    assert isinstance(limiter.admit("session"), AskTicket)
+    replacement = limiter.admit("session")
+    assert isinstance(replacement, AskTicket)
+    old.release()
+    assert limiter.admit("session") == RetryAfter(1)
