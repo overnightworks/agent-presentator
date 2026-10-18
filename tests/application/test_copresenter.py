@@ -184,7 +184,9 @@ class ObservedLock:
         if self._pausing:
             self._pausing = False
             self.holder_inside.set()
-            self._holder_may_leave.wait(timeout=DEADLOCK_SECONDS)
+            if not self._holder_may_leave.wait(timeout=DEADLOCK_SECONDS):
+                self._lock.release()
+                raise TimeoutError
         return True
 
     def __exit__(self, *_exception: object) -> None:
