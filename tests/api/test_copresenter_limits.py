@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi import FastAPI
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME
 
-from presentator.api.copresenter import MAX_SAID_LENGTH
-from presentator.application.copresenter import AskLimiter
+from presentator.api.copresenter import (
+    MAX_SAID_LENGTH,
+    CoPresenterSurface,
+    add_copresenter_routes,
+)
+from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
 from tests.api.lobby import TYPED_WORDS, USERNAME
 from tests.api.test_copresenter import (
     NOW,
+    PUBLIC_ORIGIN,
     QUESTION,
+    RecordingPrivateCoPresenter,
     a_copresenter_lobby,
     another_browser,
     sign_in,
@@ -26,6 +36,7 @@ if TYPE_CHECKING:
 
     from fastapi.testclient import TestClient
     from httpx2 import Response
+    from starlette.types import ASGIApp, Message, Scope
 
 
 def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
@@ -141,3 +152,64 @@ def test_each_session_has_its_own_question_budget() -> None:
 
     assert ask(first).status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert ask(other).status_code == HTTPStatus.OK
+
+
+@dataclass(frozen=True)
+class FixedSession:
+    """The admitted session of a browser."""
+
+    session_id: str = "session"
+
+
+def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> None:
+    limiter = AskLimiter(clock=FrozenClock(instant=NOW))
+    private = RecordingPrivateCoPresenter()
+    app = FastAPI()
+    add_copresenter_routes(
+        app,
+        surface=CoPresenterSurface(
+            use=CoPresenterUse(private=private),
+            limiter=limiter,
+            public_origin=PUBLIC_ORIGIN,
+        ),
+        admission=lambda _connection: FixedSession(),
+    )
+
+    asyncio.run(_ask_and_disconnect_before_the_body_is_sent(app))
+
+    assert private.questions == []
+    assert isinstance(limiter.admit(FixedSession().session_id), AskTicket)
+
+
+async def _ask_and_disconnect_before_the_body_is_sent(app: ASGIApp) -> None:
+    messages: list[Message] = [
+        {"type": "http.request", "body": json.dumps(QUESTION).encode()},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive() -> Message:
+        return messages.pop(0) if messages else await asyncio.Future()
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            await asyncio.Future()
+
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/copresenter/ask",
+        "raw_path": b"/copresenter/ask",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+        ],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 443),
+        "state": {},
+    }
+
+    await app(scope, receive, send)

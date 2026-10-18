@@ -1,12 +1,12 @@
 """Lifetime ownership for private co-presenter operations."""
 
-import asyncio
 import math
 from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from threading import Lock
 
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -69,11 +69,11 @@ class AskTicket:
 
     session_id: str
     _answering: dict[str, "AskTicket"]
-    _guard: asyncio.Lock
+    _guard: Lock
 
-    async def release(self) -> None:
+    def release(self) -> None:
         """Free the session if this ticket still holds it; later calls do nothing."""
-        async with self._guard:
+        with self._guard:
             if self._answering.get(self.session_id) is self:
                 del self._answering[self.session_id]
 
@@ -85,8 +85,8 @@ class AskLimiter:
     A session leaves no record once its asks left the window and nothing of it
     is streaming, so a signed-out session cannot make this grow.
 
-    Every check and update runs under one lock, so concurrent asks on the event
-    loop cannot interleave between them.
+    Safe to call from any thread: every check and update runs under one lock,
+    so concurrent asks cannot interleave between them.
     """
 
     clock: Clock
@@ -95,11 +95,11 @@ class AskLimiter:
         default_factory=dict[str, deque[datetime]]
     )
     _answering: dict[str, AskTicket] = field(default_factory=dict[str, AskTicket])
-    _guard: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _guard: Lock = field(default_factory=Lock)
 
-    async def admit(self, session_id: str) -> AskTicket | RetryAfter:
+    def admit(self, session_id: str) -> AskTicket | RetryAfter:
         """Count the question and hand out its ticket, or say when to retry."""
-        async with self._guard:
+        with self._guard:
             return self._admit(session_id)
 
     def _admit(self, session_id: str) -> AskTicket | RetryAfter:

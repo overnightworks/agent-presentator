@@ -1,12 +1,13 @@
 """The application owns each private co-presenter operation it starts."""
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+import threading
+import time
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-
-import pytest
 
 from presentator.application.copresenter import (
     AskLimiter,
@@ -118,48 +119,91 @@ async def _end_hearing() -> None:
     assert private.hearing_exits == 1
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
+def a_limiter() -> AskLimiter:
+    return AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
 
 
-@pytest.mark.anyio
-async def test_a_released_old_ticket_cannot_free_the_slot_of_a_newer_answer() -> None:
-    limiter = AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
-    old = await limiter.admit("session")
+def test_a_released_old_ticket_cannot_free_the_slot_of_a_newer_answer() -> None:
+    limiter = a_limiter()
+    old = limiter.admit("session")
     assert isinstance(old, AskTicket)
-    await old.release()
-    newer = await limiter.admit("session")
+    old.release()
+    newer = limiter.admit("session")
     assert isinstance(newer, AskTicket)
 
-    await old.release()
+    old.release()
 
-    assert await limiter.admit("session") == RetryAfter(1)
+    assert limiter.admit("session") == RetryAfter(1)
 
 
-@pytest.mark.anyio
-async def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
+def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
     clock = FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC))
     limiter = AskLimiter(clock=clock)
     for name in ("quiet-one", "quiet-two"):
-        ticket = await limiter.admit(name)
+        ticket = limiter.admit(name)
         assert isinstance(ticket, AskTicket)
-        await ticket.release()
+        ticket.release()
     clock.advance(limiter.limits.window + timedelta(seconds=1))
 
-    assert isinstance(await limiter.admit("late"), AskTicket)
+    assert isinstance(limiter.admit("late"), AskTicket)
 
     assert "quiet-one" not in repr(limiter)
     assert "quiet-two" not in repr(limiter)
 
 
-@pytest.mark.anyio
-async def test_two_concurrent_asks_of_one_session_admit_exactly_one() -> None:
-    limiter = AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
+RACE_WINDOW_SECONDS = 0.02
+THREADS = 8
 
-    outcomes = await asyncio.gather(limiter.admit("session"), limiter.admit("session"))
+
+class LingeringAnswering(dict[str, AskTicket]):
+    """An answering table that lingers around each check and change, widening races."""
+
+    def __contains__(self, key: object) -> bool:
+        """Report membership, then linger before the caller acts on it."""
+        found = super().__contains__(key)
+        time.sleep(RACE_WINDOW_SECONDS)
+        return found
+
+    def __delitem__(self, key: str) -> None:
+        """Linger before the change, then make it."""
+        time.sleep(RACE_WINDOW_SECONDS)
+        super().__delitem__(key)
+
+
+def at_the_same_instant[Result](action: Callable[[], Result]) -> list[Result]:
+    barrier = threading.Barrier(THREADS)
+
+    def start_together() -> Result:
+        barrier.wait()
+        return action()
+
+    with ThreadPoolExecutor(max_workers=THREADS) as pool:
+        futures = [pool.submit(start_together) for _ in range(THREADS)]
+        return [future.result() for future in futures]
+
+
+def test_simultaneous_asks_of_one_session_on_many_threads_admit_exactly_one() -> None:
+    limiter = AskLimiter(
+        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)),
+        _answering=LingeringAnswering(),
+    )
+
+    outcomes = at_the_same_instant(lambda: limiter.admit("session"))
 
     admitted = [outcome for outcome in outcomes if isinstance(outcome, AskTicket)]
     refused = [outcome for outcome in outcomes if isinstance(outcome, RetryAfter)]
     assert len(admitted) == 1
-    assert refused == [RetryAfter(1)]
+    assert refused == [RetryAfter(1)] * (THREADS - 1)
+
+
+def test_simultaneous_releases_of_one_ticket_free_the_slot_exactly_once() -> None:
+    limiter = AskLimiter(
+        clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)),
+        _answering=LingeringAnswering(),
+    )
+    ticket = limiter.admit("session")
+    assert isinstance(ticket, AskTicket)
+
+    at_the_same_instant(ticket.release)
+
+    assert isinstance(limiter.admit("session"), AskTicket)

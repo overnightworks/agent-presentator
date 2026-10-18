@@ -134,13 +134,13 @@ def add_copresenter_routes(
             },
         )
 
-    async def _ask(request: Request, question: AskRequest) -> Response:
+    def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
         if connection is None:
             return JSONResponse(
                 {"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED
             )
-        ticket = await surface.limiter.admit(connection.session_id)
+        ticket = surface.limiter.admit(connection.session_id)
         if isinstance(ticket, RetryAfter):
             return JSONResponse(
                 {"detail": "Too many questions"},
@@ -228,7 +228,7 @@ async def _answer_events(
         except CoPresenterUnavailableError:
             yield _error_sse()
     finally:
-        await ticket.release()
+        ticket.release()
         await _finish_tasks((session_watch,))
 
 
