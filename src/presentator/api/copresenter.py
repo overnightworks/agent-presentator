@@ -134,7 +134,7 @@ def add_copresenter_routes(
             },
         )
 
-    async def _ask(request: Request, question: AskRequest) -> Response:
+    def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
         if connection is None:
             return JSONResponse(
@@ -161,7 +161,7 @@ def add_copresenter_routes(
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            background=BackgroundTask(_release_on_event_loop, ticket),
+            background=BackgroundTask(ticket.release),
         )
 
     async def _hear(socket: WebSocket, language: str = "de") -> None:
@@ -189,12 +189,6 @@ def add_copresenter_routes(
     router.add_api_route("/ask", _ask, methods=["POST"])
     router.add_api_websocket_route("/hear", _hear)
     app.include_router(router)
-
-
-async def _release_on_event_loop(ticket: AskTicket) -> None:
-    # An async callable keeps Starlette from running the release on a worker
-    # thread; the limiter is only safe on the event-loop thread.
-    ticket.release()
 
 
 async def _answer_events(
