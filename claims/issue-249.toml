@@ -1,0 +1,8 @@
+claim_id = "89d7833551074d9e806132cfd718e82d"
+agent = "claude"
+role = "builder"
+base = "1dd119f1dc8021815706b5459bad973f225c7f97"
+branch = "claude/issue-249-sonar-d3-templates"
+scope = ["src/presentator/api/static/lobby.css", "src/presentator/api/templates/source_created.html", "src/presentator/api/templates/source_new.html", "src/presentator/api/templates/sources.html", "src/presentator/api/templates/voice.html", "tests/api"]
+opened_commit = "b0ceea03ce7d07ce4ea14bcceeb2016a77459c9b"
+whole_reason = "Four one-line markup fixes from one distributor slice, plus their shared stylesheet and page tests."
