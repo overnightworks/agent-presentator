@@ -6,6 +6,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from presentator.application.copresenter import (
     AskLimiter,
     AskTicket,
@@ -116,29 +118,48 @@ async def _end_hearing() -> None:
     assert private.hearing_exits == 1
 
 
-def test_a_released_old_ticket_cannot_free_the_slot_of_a_newer_answer() -> None:
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_a_released_old_ticket_cannot_free_the_slot_of_a_newer_answer() -> None:
     limiter = AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
-    old = limiter.admit("session")
+    old = await limiter.admit("session")
     assert isinstance(old, AskTicket)
-    old.release()
-    newer = limiter.admit("session")
+    await old.release()
+    newer = await limiter.admit("session")
     assert isinstance(newer, AskTicket)
 
-    old.release()
+    await old.release()
 
-    assert limiter.admit("session") == RetryAfter(1)
+    assert await limiter.admit("session") == RetryAfter(1)
 
 
-def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
+@pytest.mark.anyio
+async def test_sessions_that_asked_once_and_went_quiet_leave_no_record() -> None:
     clock = FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC))
     limiter = AskLimiter(clock=clock)
     for name in ("quiet-one", "quiet-two"):
-        ticket = limiter.admit(name)
+        ticket = await limiter.admit(name)
         assert isinstance(ticket, AskTicket)
-        ticket.release()
+        await ticket.release()
     clock.advance(limiter.limits.window + timedelta(seconds=1))
 
-    assert isinstance(limiter.admit("late"), AskTicket)
+    assert isinstance(await limiter.admit("late"), AskTicket)
 
     assert "quiet-one" not in repr(limiter)
     assert "quiet-two" not in repr(limiter)
+
+
+@pytest.mark.anyio
+async def test_two_concurrent_asks_of_one_session_admit_exactly_one() -> None:
+    limiter = AskLimiter(clock=FrozenClock(instant=datetime(2026, 1, 1, tzinfo=UTC)))
+
+    outcomes = await asyncio.gather(limiter.admit("session"), limiter.admit("session"))
+
+    admitted = [outcome for outcome in outcomes if isinstance(outcome, AskTicket)]
+    refused = [outcome for outcome in outcomes if isinstance(outcome, RetryAfter)]
+    assert len(admitted) == 1
+    assert refused == [RetryAfter(1)]
