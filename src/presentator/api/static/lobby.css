@@ -139,7 +139,8 @@ main > output {
   color: inherit;
   font-size: inherit;
   font-weight: inherit;
-  margin-bottom: var(--pico-spacing);
+  line-height: inherit;
+  margin-bottom: calc(var(--pico-spacing) * 0.375);
 }
 
 /* The picture's section label over a group of controls — quiet and small, so
@@ -608,22 +609,38 @@ main code {
 }
 
 [data-sample-controls] fieldset {
-  display: flex;
+  display: inline-flex;
   gap: 0;
   margin: 0;
   width: auto;
 }
 
 [data-sample-controls] fieldset legend {
+  border: 0;
+  clip-path: inset(50%);
   height: 1px;
+  margin: -1px;
   overflow: hidden;
+  padding: 0;
   position: absolute;
+  white-space: nowrap;
   width: 1px;
 }
 
 [data-sample-controls] button {
   margin: 0;
   width: auto;
+}
+
+[data-sample-controls] fieldset > button:first-of-type {
+  border-bottom-right-radius: 0;
+  border-top-right-radius: 0;
+}
+
+[data-sample-controls] fieldset > button:last-of-type {
+  border-bottom-left-radius: 0;
+  border-top-left-radius: 0;
+  margin-left: calc(var(--pico-border-width) * -1);
 }
 
 [data-sample-controls] fieldset > [data-sample-language] {
