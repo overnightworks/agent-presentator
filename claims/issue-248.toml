@@ -1,0 +1,8 @@
+claim_id = "da11ee16f09e4ad0881009011de0d1f2"
+agent = "claude"
+role = "builder"
+base = "1dd119f1dc8021815706b5459bad973f225c7f97"
+branch = "claude/issue-248-sonar-d2-ask-limiter"
+scope = ["src/presentator/api/copresenter.py", "src/presentator/application/copresenter.py", "tests/api/test_copresenter.py", "tests/api/test_copresenter_limits.py", "tests/application/test_copresenter.py"]
+opened_commit = "76b6bfb5f15c837370d4834d68802873425a7f15"
+whole_reason = "One concurrency contract (the ask limiter) changes together with its two callers and their tests."
