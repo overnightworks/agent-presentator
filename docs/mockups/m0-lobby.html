@@ -1407,7 +1407,7 @@
 
   .sep { color: var(--ink-faint); }
 
-  /* ---------- accounts: the one new state, the user row ---------- */
+  /* ---------- the switched-off state ---------- */
 
   /* downloaded — split disc, grey: switched off, not broken */
   .state--off { color: var(--ink-faint); }
@@ -3859,7 +3859,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Account <span class="w">1024 px</span></div>
-          <p class="board-note">Everyone has this page — one question: what is mine. Name and role (Admin) come from Keycloak, the role from the group /apps/presentator/admin: no password form and no state, because there is nothing local to change or switch off. Language and theme override the instance default for you only (lines 21, 22). Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
+          <p class="board-note">Everyone has this page — one question: what is mine. Name and role (Admin) come from Keycloak, the role from the group /apps/presentator/admin: no password form and no state, because there is nothing local to switch off. Language and theme override the instance default for you only (lines 21, 22). Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/account</div>
@@ -4311,7 +4311,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator nutzt von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> aktuell der einzige aktiv genutzte Antwort-Anbieter des CoPresenter-Features, über den eigenen Claude-Zugang des Betreibers, nicht über einen pro Anfrage übertragenen API-Schlüssel. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und der gesamte Deckinhalt. <span class="offen">[offen: Anthropics eigene Aufbewahrungs- und Verarbeitungspraxis liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> die Technik ist vorbereitet, wird vom Code aktuell aber nicht aufgerufen — nur Claude beantwortet Fragen. <span class="offen">[offen: ob/wann sich das ändert, legt der Betreiber fest.]</span></li>
                   <li><b>Sprachausgabe und Spracherkennung:</b> laufen lokal auf dem Server des Betreibers (Piper und Chatterbox für die Sprachausgabe; lokale Spracherkennung). Keine Übertragung an einen externen Sprachanbieter.</li>
@@ -4325,7 +4325,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
+                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Kennung (Subject-ID), Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
                   <li><b>Sitzungen:</b> Zeile gelöscht beim Abmelden. <span class="offen">[offen: eine nie abgemeldete Sitzung wird im Code nicht automatisch gelöscht.]</span></li>
                   <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel:</b> spätestens nach 24 Stunden automatisch entfernt.</li>
                   <li><b>Decks und Builds:</b> bis die Quelle entfernt wird oder der Ordner aus Git verschwindet.</li>
@@ -4388,7 +4388,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator nutzt von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> einziger aktiv genutzter Anbieter, über den eigenen Claude-Zugang des Betreibers. <span class="offen">[offen: Anthropics eigene Aufbewahrung liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> vorbereitet, aber vom Code aktuell nicht aufgerufen.</li>
                   <li><b>Sprachausgabe/-erkennung:</b> lokal (Piper, Chatterbox) — keine externe Übertragung.</li>
@@ -4402,7 +4402,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
+                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Kennung (Subject-ID), Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
                   <li><b>Sitzungen:</b> gelöscht beim Abmelden. <span class="offen">[offen: keine automatische Löschung einer nie abgemeldeten Sitzung.]</span></li>
                   <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> nach spätestens 24 Stunden entfernt.</li>
                   <li><b>Decks/Builds:</b> bis die Quelle entfernt wird.</li>
