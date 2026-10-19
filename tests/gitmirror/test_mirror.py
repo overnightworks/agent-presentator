@@ -560,6 +560,10 @@ def test_the_helper_answers_with_the_user_name_git_puts_in_the_request() -> None
                 "https://alice@host.example/r.git\n",
                 "https://alice@host.example/r\r.git",
                 "http://alice@[::1/r.git",
+                "https://alice@/host.example/r.git",
+                "https://alice@/127.0.0.1:9/r.git",
+                "https://alice@host.example%2F/r.git",
+                "https://alice@host.example:abc/r.git",
                 "https://al ice@host.example/r.git",
                 "https://al\u00e9ice@host.example/r.git",
                 "https://al%zzice@host.example/r.git",
@@ -1095,6 +1099,24 @@ def test_a_url_with_a_second_at_sends_no_secret_to_the_host_after_it(
     with _dumb_http_remote(bare) as (url, served):
         mirror = a_mirror(
             url.replace("://", "://alice@other.invalid@"),
+            directory=tmp_path,
+            credential=_TOKEN_REFERENCE,
+            resolver=OneKnownSecret(),
+        )
+        connection = mirror.connect()
+
+    assert connection.state is not ConnectionState.READY
+    assert served.authorization is None
+
+
+def test_a_url_with_an_empty_host_sends_no_secret_to_the_host_in_its_path(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    bare = _prepared_bare_repo(remote)
+    with _dumb_http_remote(bare) as (url, served):
+        mirror = a_mirror(
+            url.replace("://", "://alice@/"),
             directory=tmp_path,
             credential=_TOKEN_REFERENCE,
             resolver=OneKnownSecret(),

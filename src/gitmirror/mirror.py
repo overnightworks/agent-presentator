@@ -73,6 +73,10 @@ _HTTP_AUTHORITY: Final = re.compile(
 _PLAIN_USER_NAME: Final = re.compile(
     r"(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+"
 )
+# A non-empty reg-name or a bracketed IPv6 literal, then an optional port: the
+# host forms libcurl reads the same as git does. An empty host would make
+# libcurl take the first path segment for it.
+_PLAIN_HOST: Final = re.compile(r"(?:[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?")
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
@@ -338,10 +342,11 @@ def split_user_name(url: str) -> tuple[str, str | None]:
     """That URL without a user name it names alone, and the user name decoded.
 
     Only a plain http(s) URL whose authority holds exactly one `@`, a user
-    name of plain userinfo characters and no password is split; every other
-    shape, an ssh remote or a doubtful one included, is returned unchanged for
-    git to judge. The user name is cut out of the original text, so nothing
-    else in it moves. A user name git's line protocol cannot carry is refused.
+    name of plain userinfo characters, no password and a plain host is split;
+    every other shape, an ssh remote or a doubtful one included, is returned
+    unchanged for git to judge. The user name is cut out of the original text,
+    so nothing else in it moves. A user name git's line protocol cannot carry
+    is refused.
     """
     match = _HTTP_AUTHORITY.match(url)
     if match is None or not url.isprintable():
@@ -351,8 +356,7 @@ def split_user_name(url: str) -> tuple[str, str | None]:
     if (
         authority.count("@") != 1
         or _PLAIN_USER_NAME.fullmatch(userinfo) is None
-        or "\\" in authority
-        or authority.count("[") != authority.count("]")
+        or _PLAIN_HOST.fullmatch(host) is None
     ):
         return url, None
     user_name = unquote(userinfo, errors="surrogateescape")
