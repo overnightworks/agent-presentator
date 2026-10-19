@@ -3,5 +3,6 @@ agent = "claude"
 role = "builder"
 base = "8bc61c0e8f062ae6a3f1474453d0dde901390d56"
 branch = "claude/issue-278-chatterbox-provider-sicherheitswarnungen"
-scope = ["speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/uv.lock"]
+scope = [".github/dependabot.yml", "speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/tests/test_model.py", "speech/providers/chatterbox/uv.lock"]
 opened_commit = "52cdaf6b6a4313fcccc10166be7bdd4028e6c860"
+whole_reason = "The setuptools pin is only durable with its Dependabot ignore and the guard test that catches a missing pkg_resources; the lock, pin, ignore and test change together."
