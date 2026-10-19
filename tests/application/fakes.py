@@ -163,7 +163,7 @@ class FakePeople:
 
 @dataclass(frozen=True, slots=True)
 class MatchingLiveness:
-    """The idle-window rule a test can freeze, matching the library's `<=`."""
+    """An idle-window rule for exercising `Identity` without a library."""
 
     window: timedelta = SESSION_LIFETIME
 

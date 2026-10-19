@@ -1,7 +1,7 @@
 """The live session and logout.
 
 A sign-in lasts at most `SESSION_LIFETIME` from the moment it opened, however
-often it is used (operator ruling of 19.10.2026 on issue #242).
+often it is used.
 """
 
 from dataclasses import dataclass

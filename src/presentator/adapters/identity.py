@@ -47,7 +47,6 @@ _OLD_VERSION_REFUSAL: Final = (
     " starts a fresh one (docs/OPERATIONS.md, 'Starting over from an old"
     " database')."
 )
-_IDENTITY_TABLES: Final = ("users", "sessions")
 
 
 def create_identity_tables(database: Path) -> None:
@@ -71,15 +70,10 @@ def _refuse_an_old_database(database: Path) -> None:
     connection = sqlite3.connect(f"{database.absolute().as_uri()}?{options}", uri=True)
     try:
         cursor = connection.cursor()
-        tables = {
-            str(table[0])
-            for table in cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
-            )
-        }
+        tables = _table_names(cursor)
         is_old = "login_attempts" in tables or any(
-            table in tables and _column_names(cursor, table) != _fresh_columns()[table]
-            for table in _IDENTITY_TABLES
+            table in tables and _column_names(cursor, table) != columns
+            for table, columns in _fresh_columns().items()
         )
     finally:
         connection.close()
@@ -91,11 +85,19 @@ def _fresh_columns() -> dict[str, set[str]]:
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(_SCHEMA)
-        return {
-            table: _column_names(fresh.cursor(), table) for table in _IDENTITY_TABLES
-        }
+        cursor = fresh.cursor()
+        return {table: _column_names(cursor, table) for table in _table_names(cursor)}
     finally:
         fresh.close()
+
+
+def _table_names(cursor: sqlite3.Cursor) -> set[str]:
+    return {
+        str(table[0])
+        for table in cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'",
+        ).fetchall()
+    }
 
 
 def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:

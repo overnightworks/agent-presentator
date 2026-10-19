@@ -300,6 +300,39 @@ def test_a_file_from_an_older_version_is_refused_and_left_untouched(
     assert sorted(tmp_path.iterdir()) == folder_before
 
 
+@pytest.mark.parametrize(
+    "started",
+    [
+        pytest.param("", id="file-with-no-tables"),
+        pytest.param(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL"
+            " UNIQUE, role TEXT NOT NULL);",
+            id="users-only-after-a-first-start-stopped-early",
+        ),
+    ],
+)
+def test_a_file_this_version_started_is_completed_not_refused(
+    tmp_path: Path,
+    started: str,
+) -> None:
+    database = tmp_path / "identity.sqlite3"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript("PRAGMA journal_mode=WAL;" + started)
+
+    create_identity_tables(database)
+
+    with closing(sqlite3.connect(database)) as connection:
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(sessions)")]
+    assert columns == [
+        "id",
+        "user_id",
+        "created_at",
+        "last_seen",
+        "ip_address",
+        "user_agent",
+    ]
+
+
 def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untouched(
     tmp_path: Path,
 ) -> None:

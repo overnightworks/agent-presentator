@@ -82,7 +82,7 @@ def test_a_login_survives_a_ninety_minute_talk(
         assert identity.signed_in_user(session_id) is not None
 
 
-def test_an_unused_session_expires_after_the_window(
+def test_a_session_the_liveness_rule_refuses_is_signed_out_and_removed(
     identity: Identity,
     people: FakePeople,
     clock: FrozenClock,
@@ -92,18 +92,7 @@ def test_an_unused_session_expires_after_the_window(
     clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
 
     assert identity.signed_in_user(session_id) is None
-
-
-def test_a_session_at_the_idle_boundary_is_still_alive(
-    identity: Identity,
-    people: FakePeople,
-    clock: FrozenClock,
-) -> None:
-    session_id = sign_in_the_admin(people)
-
-    clock.advance(SESSION_LIFETIME)
-
-    assert identity.signed_in_user(session_id) is not None
+    assert people.sessions.rows == {}
 
 
 def test_a_logout_during_the_request_is_not_undone_by_its_renewal(

@@ -50,8 +50,8 @@ Nobody can sign in yet: the password login and `/setup` are gone, and the
 Keycloak sign-in arrives with K13
 ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
 `/login` shows the heading and the legal links only. A session that SQLite
-holds is carried by a signed cookie that ends twelve hours after the sign-in
-that opened it, however often it is used. `webauth` v0.17.0 owns the cookie and
+holds is carried by a signed cookie, and the session ends twelve hours after the
+sign-in that opened it, however often it is used. `webauth` v0.17.0 owns the cookie and
 CSRF-origin mechanism and formats the refusal for a missing session. The
 host's `Identity` still decides which SQLite session names a signed-in person.
 A signed-out browser navigation goes to `/login` with the requested path and

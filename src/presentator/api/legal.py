@@ -216,7 +216,8 @@ DATENSCHUTZ: Final = LegalDocument(
                         "löscht der Code die Zeile nicht automatisch — sie "
                         "bleibt bestehen, auch wenn sie "
                         f"{_SESSION_HOURS} Stunden nach der Anmeldung nicht "
-                        "mehr als gültig gilt.",
+                        "mehr als gültig gilt, und wird erst gelöscht, wenn "
+                        "die Sitzung danach noch einmal vorgelegt wird.",
                     ),
                 ),
                 _point(
