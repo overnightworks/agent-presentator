@@ -148,11 +148,14 @@ DATENSCHUTZ: Final = LegalDocument(
                     "CoPresenter (Sprachfunktion):",
                     "Ihre gesprochene Frage wird auf dem Server in Text "
                     "umgewandelt; die Audio-Rohdaten werden nicht gespeichert. "
-                    "Der Browser sendet nur die Nummer der Folie, die er zeigt. "
-                    "Der erkannte Text, der Inhalt dieser Folie und das Deck, "
-                    "mit dem der CoPresenter gestartet wurde, jede Folie mit "
-                    "ihren Notizen, werden an Anthropic gesendet, um eine "
-                    "Antwort zu erzeugen; dieses Deck kann vom Deck im Browser "
+                    "Von der Folie, die er zeigt, sendet der Browser nur die "
+                    "Nummer, daneben das Mikrofon-Audio und den erkannten Text "
+                    "der Frage. Der CoPresenter nimmt die Folie mit dieser "
+                    "Nummer aus dem Deck, mit dem er gestartet wurde, falls "
+                    "dieses Deck sie hat. Der erkannte Text, der Inhalt dieser "
+                    "Folie und jede Folie dieses Decks mit ihren Notizen "
+                    "werden an Anthropic gesendet, um eine Antwort zu "
+                    "erzeugen; dieses Deck kann vom Deck im Browser "
                     "abweichen. Solange der CoPresenter zuhört, wird Sprache im "
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
                     "als Frage an Anthropic gesendet, außer während der "
@@ -203,8 +206,10 @@ DATENSCHUTZ: Final = LegalDocument(
                     "den eigenen Claude-Zugang des Betreibers (die installierte "
                     "claude-Kommandozeile). Anthropic ist dafür ein eigener "
                     "Verantwortlicher. Übertragen werden die gesprochene Frage "
-                    "als Text, der Inhalt der Folie, deren Nummer der Browser meldet, und "
-                    "das Deck, mit dem der CoPresenter gestartet wurde.",
+                    "als Text, der Inhalt der Folie mit der Nummer, die der Browser "
+                    "meldet, aus dem Deck, mit dem der CoPresenter gestartet wurde "
+                    "(falls dieses Deck sie hat), und jede Folie dieses Decks mit "
+                    "ihren Notizen.",
                 ),
                 _point(
                     "Browser-Hersteller:",
