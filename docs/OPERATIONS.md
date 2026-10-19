@@ -69,13 +69,22 @@ mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 and no first admin: accounts arrive with the Keycloak sign-in of
 [#242](https://github.com/overnightworks/agent-presentator/issues/242).
 
-The client address keys on the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
+### Starting over from the password version
+
+A database file that still holds the password sign-in's tables
+(`login_attempts`, or `users.password_hash`) is refused at start, before
+anything is written to it. Back up the database volume, then move the file
+aside (for example to `presentator.sqlite3.password-version`); the next start
+creates a fresh database. The backup is what lets you return to the password
+version. Decks and sources are re-added in the fresh database.
+
+The client address is the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
 is correct for a direct run. Behind the tunnel of
 [ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
 connects from localhost, so that peer is `127.0.0.1` and every request through
 the tunnel shares one address. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 (`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`:
-each real address gets its own budget instead of sharing the tunnel's one, and
+the session records the real client address instead of the tunnel's one, and
 the fetch-now hook address the Sources page shows names the https the tunnel
 client saw, not the plain http the app itself is served over. The guard against
 another site's form does not depend on this list: a modern browser's own

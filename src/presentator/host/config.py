@@ -132,7 +132,7 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     speech_socket: Annotated[Path, AfterValidator(_an_absolute_path)] = Path(
         "/run/presentator-speech/speech.sock"
     )
-    # Empty: the login budget keys on the ASGI peer. A list is the peers whose
+    # Empty: the client address is the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
 

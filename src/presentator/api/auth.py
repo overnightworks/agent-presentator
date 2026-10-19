@@ -56,10 +56,13 @@ _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
+_SETUP: Final = "/setup"
 # Signing in and signing out are the addresses the guard leaves
 # alone; logging out ends a session rather than using one. The theme
 # stylesheet has to render the open pages themselves, so it is public too.
-_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT})
+# `/setup` is a retired address: it answers 404 to everyone, so a signed-out
+# reader is not sent to a login for a page that does not exist.
+_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header and the sliding window
 # there like on every other page.
@@ -74,8 +77,8 @@ _LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
 # Nothing in the lobby or a built talk needs an inline script, an external
 # script host, or a frame: every asset ships under `/static` or a deck's own
 # build directory, both served from this origin. A built Slidev talk inlines
-# styles and loads its fonts from Google Fonts, which the library's default no
-# longer admits. The microphone grant is the co-presenter's own: never the
+# styles and loads its fonts from Google Fonts, which the library's default
+# policy does not admit. The microphone grant is the co-presenter's own: never the
 # camera, never a page's location.
 CONTENT_SECURITY_POLICY: Final = default_content_security_policy(
     [],

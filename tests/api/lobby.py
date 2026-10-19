@@ -62,7 +62,7 @@ from presentator.contracts.voice import (
     VoiceSnapshot,
     VoiceUnavailableError,
 )
-from presentator.host.main import web_auth_config
+from presentator.host.main import lobby_web_auth_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
@@ -201,7 +201,7 @@ def a_web_auth(*, cookie_secure: bool = True) -> WebAuthConfig:
     `cookie_secure` stands in for the production derivation from
     `public_origin`'s scheme: a route test names the origin it wants driven.
     """
-    host_config = web_auth_config(
+    host_config = lobby_web_auth_config(
         SecretStr("t" * 32),
         liveness=IdleWindowLiveness(int(IDLE_WINDOW.total_seconds())),
         trusted_proxies="",

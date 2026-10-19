@@ -40,11 +40,45 @@ _SESSION_COLUMNS: Final = (
 )
 
 
+class PasswordDatabaseError(RuntimeError):
+    """The file still holds the password version's tables."""
+
+
+_OLD_VERSION_REFUSAL: Final = (
+    "%s still holds the password sign-in's tables (login_attempts or"
+    " users.password_hash). Back up the database volume, then move this file"
+    " aside so the instance starts a fresh one (docs/OPERATIONS.md,"
+    " 'Starting over from the password version')."
+)
+
+
 def create_identity_tables(database: Path) -> None:
-    """Make the accounts and sessions tables exist, and drop what passwords left."""
+    """Make the accounts and sessions tables exist in a file no password ever filled."""
+    _refuse_a_password_database(database)
     apply_schema(database, _SCHEMA)
     _ensure_columns(database, "sessions", _SESSION_COLUMNS)
-    _drop_password_storage(database)
+
+
+def _refuse_a_password_database(database: Path) -> None:
+    """Look read-only, so the refused file stays byte-identical."""
+    if not database.exists():
+        return
+    connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+    try:
+        cursor = connection.cursor()
+        tables = {
+            str(table[0])
+            for table in cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'",
+            )
+        }
+        keeps_passwords = "login_attempts" in tables or (
+            "users" in tables and "password_hash" in _column_names(cursor, "users")
+        )
+    finally:
+        connection.close()
+    if keeps_passwords:
+        raise PasswordDatabaseError(_OLD_VERSION_REFUSAL % database)
 
 
 def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:
@@ -64,13 +98,6 @@ def _ensure_columns(
         for name, declaration in columns:
             if name not in named:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
-
-
-def _drop_password_storage(database: Path) -> None:
-    with rows(database) as cursor:
-        cursor.execute("DROP TABLE IF EXISTS login_attempts")
-        if "password_hash" in _column_names(cursor, "users"):
-            cursor.execute("ALTER TABLE users DROP COLUMN password_hash")
 
 
 @dataclass(frozen=True, slots=True)

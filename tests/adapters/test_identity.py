@@ -9,6 +9,7 @@ from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.identity import (
     IdleWindow,
+    PasswordDatabaseError,
     SqliteSessionRecordStore,
     SqliteUserStore,
     SystemClock,
@@ -237,54 +238,31 @@ def test_deleting_sessions_for_nobody_drops_nothing(database: Path) -> None:
     assert sessions.delete_for_user("nobody") == 0
 
 
-def test_an_older_file_gains_the_origin_columns_and_loses_the_passwords(
+@pytest.mark.parametrize(
+    "password_version",
+    [
+        pytest.param(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL,"
+            " role TEXT NOT NULL, password_hash TEXT NOT NULL);",
+            id="password-hash-column",
+        ),
+        pytest.param(
+            "CREATE TABLE login_attempts (username TEXT NOT NULL,"
+            " failed_at TEXT NOT NULL);",
+            id="login-attempts-table",
+        ),
+    ],
+)
+def test_a_file_from_the_password_version_is_refused_and_left_untouched(
     tmp_path: Path,
+    password_version: str,
 ) -> None:
     database = tmp_path / "identity.sqlite3"
     with sqlite3.connect(database) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE users (
-                id TEXT PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL,
-                password_hash TEXT NOT NULL
-            );
-            INSERT INTO users VALUES ('user-1', 'felix', 'admin', 'a stored hash');
-            CREATE TABLE sessions (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                last_seen TEXT NOT NULL
-            );
-            CREATE TABLE login_attempts (
-                username TEXT NOT NULL,
-                failed_at TEXT NOT NULL
-            );
-            """,
-        )
+        connection.executescript(password_version)
+    before = database.read_bytes()
 
-    create_identity_tables(database)
-    sessions = SqliteSessionRecordStore(database, clock=FrozenClock(instant=_NOW))
-    session = sessions.create(
-        "user-1",
-        _NOW + IDLE_WINDOW,
-        ip_address=_ADDRESS,
-        user_agent=_AGENT,
-    )
+    with pytest.raises(PasswordDatabaseError, match=r"OPERATIONS\.md"):
+        create_identity_tables(database)
 
-    loaded = sessions.load(session.id)
-    assert loaded is not None
-    assert loaded.ip_address == _ADDRESS
-    assert SqliteUserStore(database).get("user-1") == an_admin()
-    with sqlite3.connect(database) as connection:
-        tables = {
-            table[0]
-            for table in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
-            )
-        }
-        user_columns = [
-            column[1] for column in connection.execute("PRAGMA table_info(users)")
-        ]
-    assert "login_attempts" not in tables
-    assert "password_hash" not in user_columns
+    assert database.read_bytes() == before

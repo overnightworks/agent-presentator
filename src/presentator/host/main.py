@@ -48,6 +48,7 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     IdleWindow,
+    PasswordDatabaseError,
     SqliteSessionRecordStore,
     SqliteUserStore,
     SystemClock,
@@ -112,14 +113,17 @@ class Instance:
 
 def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
-    create_identity_tables(settings.database)
+    try:
+        create_identity_tables(settings.database)
+    except PasswordDatabaseError as refused:
+        raise cannot_start(str(refused)) from None
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
     liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
-    web_auth = web_auth_config(
+    web_auth = lobby_web_auth_config(
         settings.secret_key,
         liveness=liveness,
         trusted_proxies=settings.trusted_proxies,
@@ -253,7 +257,7 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     )
 
 
-def web_auth_config(
+def lobby_web_auth_config(
     secret: SecretStr,
     *,
     liveness: IdleWindowLiveness,

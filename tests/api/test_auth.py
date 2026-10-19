@@ -197,14 +197,13 @@ def test_there_is_no_first_start_page_to_set_up_an_admin(
 
 
 @pytest.mark.parametrize("method", ["get", "post"])
-def test_nobody_reaches_a_first_start_page_while_signed_out(
+def test_there_is_no_first_start_page_for_a_signed_out_reader_either(
     lobby: Lobby,
     method: str,
 ) -> None:
     answer = lobby.client.request(method, "/setup")
 
-    assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login?next=%2Fsetup"
+    assert answer.status_code == HTTPStatus.NOT_FOUND
 
 
 def test_the_login_page_offers_no_form_and_no_password_field(lobby: Lobby) -> None:

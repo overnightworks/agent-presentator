@@ -3,6 +3,7 @@
 import asyncio
 import re
 import shutil
+import sqlite3
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -142,7 +143,12 @@ def a_real_instance() -> Instance:
     return main.build_instance(load_settings())
 
 
-def signed_in(instance: Instance, *, base_url: str = A_BROWSERS_ADDRESS) -> TestClient:
+def signed_in(
+    instance: Instance,
+    *,
+    base_url: str = A_BROWSERS_ADDRESS,
+    peer: str = "testclient",
+) -> TestClient:
     """A browser at that stack, signed in as the admin the database carries."""
     database = load_settings().database
     seed_user(database, _ADMIN)
@@ -156,6 +162,7 @@ def signed_in(instance: Instance, *, base_url: str = A_BROWSERS_ADDRESS) -> Test
         instance.lobby,
         base_url=base_url,
         follow_redirects=False,
+        client=(peer, 50000),
         headers=A_BROWSERS_HEADERS,
     )
     hand_over_session_cookies(
@@ -370,6 +377,33 @@ def test_the_cookies_are_secure_and_host_only_exactly_when_the_origin_is_https(
     assert [cookie.split("=", 1)[0] for cookie in cookies] == list(cookie_names)
     assert all(("; Secure" in cookie) is secure for cookie in cookies)
     assert answered.is_success
+
+
+@pytest.mark.parametrize(
+    ("trusted_proxies", "hook_scheme"),
+    [("127.0.0.1", "https"), ("", "http")],
+    ids=["trusted-peer", "no-trusted-peer"],
+)
+def test_the_hook_address_names_https_only_behind_a_trusted_proxy(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+    *,
+    trusted_proxies: str,
+    hook_scheme: str,
+) -> None:
+    origin = "http://presentator.test"
+    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", trusted_proxies)
+    instance = a_polled_source(remote, tmp_path)
+    browser = signed_in(instance, base_url=origin, peer="127.0.0.1")
+
+    page = browser.get(
+        f"/settings/sources/{_SOURCE_NAME}",
+        headers={"x-forwarded-proto": "https"},
+    )
+
+    assert f"{hook_scheme}://presentator.test{hook_address(_SOURCE_NAME)}" in page.text
 
 
 @pytest.mark.usefixtures("environment")
@@ -731,3 +765,19 @@ def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
 
     assert sorted(listed_together) == sorted([EXAMPLE_SLUG, _ANOTHER_SLUG])
     assert after_the_delete == [_ANOTHER_SLUG]
+
+
+def test_an_instance_refuses_a_password_version_database_before_changing_it(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "presentator.sqlite3"
+    environment.setenv("PRESENTATOR_DATABASE", str(database))
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE login_attempts (username TEXT)")
+    before = database.read_bytes()
+
+    with pytest.raises(ConfigurationError, match="move this file"):
+        a_real_instance()
+
+    assert database.read_bytes() == before

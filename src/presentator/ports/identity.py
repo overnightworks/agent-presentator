@@ -70,7 +70,7 @@ class IdentifierFactory(Protocol):
 
     @abstractmethod
     def new_id(self) -> str:
-        """A user id is minted here."""
+        """A deck or source id is minted here."""
 
 
 class SessionLiveness(Protocol):
