@@ -14,13 +14,13 @@ without it the process refuses to start. In development it lives in a gitignored
 `.env` at the repository root; on the server it comes from the process
 environment. A refusal names the setting and what is wrong with it, never the
 value it was given, so a mistyped secret does not land in the startup output.
-Five refused logins for one name inside five minutes, and five failures from
-one address inside five minutes regardless of name, are throttled; the page
-says the same sentence it says for a wrong password. A session lasts twelve
-idle hours and slides forward on every request; logging out deletes the row.
+Signing in arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242));
+until then nobody can sign in and every page leads to `/login`. A session lasts
+twelve idle hours and slides forward on every request; logging out deletes the
+row.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
-`webauth` v0.11.0's mechanism (`issue_session_cookies` /
+`webauth` v0.17.0's mechanism (`issue_session_cookies` /
 `clear_session_cookies` / `session_id_from_request`), as are the fail-closed
 CSRF-origin policy, the browser-or-JSON answer for a missing session, and the
 refusal of a request that carries the session cookie twice: it is treated as
@@ -65,16 +65,36 @@ below is what a direct run uses; the container image replaces some of them, and
 SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
 mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 (`127.0.0.1`), `PRESENTATOR_PORT` (`8000`), and `PRESENTATOR_TRUSTED_PROXIES`
-(empty: a comma-separated list of addresses or networks). An empty instance
-offers `/setup` once, to create the admin; from then on that page is closed.
+(empty: a comma-separated list of addresses or networks). There is no `/setup`
+and no first admin: accounts arrive with the Keycloak sign-in of
+[#242](https://github.com/overnightworks/agent-presentator/issues/242).
 
-The address budget keys on the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
+### Starting over from the password version
+
+A database file that still holds the password sign-in's tables
+(`login_attempts`, or `users.password_hash`) is refused at start, before
+the file or its `-wal` is written to; a `-shm` may appear. The order matters:
+
+1. Stop presentator.
+2. Take the backup as the backup section describes, but leave out the script's
+   final `docker compose start`: the service must stay stopped.
+3. Move the complete database state aside: the file and its `-wal` and `-shm`
+   companions (after an unclean shutdown committed transactions can still sit
+   in `-wal`), or the whole database volume.
+4. Start the new version. It creates a fresh database.
+
+The backup is what lets you return to the password version. Decks and sources
+are re-added in the fresh database, and the fresh start gets fresh builds and
+mirrors volumes
+([#242](https://github.com/overnightworks/agent-presentator/issues/242) S9).
+
+The client address is the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
 is correct for a direct run. Behind the tunnel of
 [ADR 0007](decisions/0007-browser-client-behind-tunnel.md) the tunnel client
-connects from localhost, so that peer is `127.0.0.1` and every login through
-the tunnel shares one budget. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
+connects from localhost, so that peer is `127.0.0.1` and every request through
+the tunnel shares one address. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 (`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`:
-each real address gets its own budget instead of sharing the tunnel's one, and
+the session records the real client address instead of the tunnel's one, and
 the fetch-now hook address the Sources page shows names the https the tunnel
 client saw, not the plain http the app itself is served over. The guard against
 another site's form does not depend on this list: a modern browser's own
@@ -88,13 +108,9 @@ the tunnel client and the server share one loopback; a container has a network
 of its own and sees that same client as its gateway, which the section after
 this one names.
 
-Starting an instance creates the tables it needs, and changes in place what it
-finds: a file written before a source was a row of its own keeps its decks and
-gains the column naming the source they came from, one written before a source
-could hold its own secret gains that column, and one written before a source
-carried a webhook-secret hash gains that column. There is no migration tool
-beyond what a start does itself, so an older shape a start cannot upgrade is
-still a file to delete and set up again.
+Starting an instance creates the tables it needs; a file written by the
+password version is refused instead (see "Starting over from the password
+version").
 
 An instance starts with no source. An admin adds one under Settings · Sources
 with a name and Git URL. HTTPS needs a read-only token; SSH uses the owned
@@ -221,7 +237,7 @@ docker compose up -d
 ```
 
 Without that line the instance answers every request against the connection it
-has — http, and one login budget for the whole tunnel; the form guard itself
+has — http, and one client address for the whole tunnel; the form guard itself
 still passes a real browser, which sends `Sec-Fetch-Site` regardless of what
 proxy the connection came through. After a change to the subnet, what the
 running container's gateway really is:
@@ -232,8 +248,8 @@ docker compose ps -q presentator | xargs docker inspect \
 ```
 
 An instance without a source runs and lists nothing; the settings above say
-what each further variable does and what a refused one costs. The first start
-offers `/setup` at `http://127.0.0.1:8000/setup` once, to create the admin.
+what each further variable does and what a refused one costs. Signing in
+arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
 
 A source need not leave this machine at all: a folder becomes one by being a
 bare git repository under a host directory mounted read-only into the
@@ -302,8 +318,9 @@ sources, the decks and the talks that were built, with nothing built again.
 `docker compose down -v` deletes them, which is the one command that loses an
 instance.
 
-An upgrade is the new tree, the image again, and the service again; a start
-changes the tables it finds in place, as above:
+An upgrade is the new tree, the image again, and the service again; a file
+from the password version is refused at start (see "Starting over from the
+password version"):
 
 ```sh
 git pull && docker compose --profile images build && docker compose up -d

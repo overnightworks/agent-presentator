@@ -12,21 +12,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from presentator.contracts.decks import Build, BuildAttempt, BuildOutcome, Deck
-from presentator.contracts.models import Role
 from presentator.contracts.text import Catalogs
 from tests.api.lobby import (
     ADMIN,
     ENGLISH,
     NOW,
     SOURCE_ID,
-    USERNAME,
     GivenDecks,
     a_configured_source,
     a_lobby,
     a_signed_in_lobby,
     a_swapped_build,
-    a_user_store,
-    an_account,
     real_builds_under,
 )
 from tests.application.fakes import FakeDeckStore
@@ -299,7 +295,6 @@ def test_a_toolchain_manifest_package_json_does_not_carry_omits_the_row(
 def test_the_row_uses_the_catalogs_own_separator_between_names() -> None:
     catalog = replace(ENGLISH, deck_theme_separator=" | ")
     lobby = a_lobby(
-        users=a_user_store(an_account(USERNAME, role=Role.ADMIN)),
         catalogs=Catalogs(by_tag={catalog.language_tag: catalog}),
         given=GivenDecks(
             store=a_deck_store(built=a_build()),
@@ -307,7 +302,7 @@ def test_the_row_uses_the_catalogs_own_separator_between_names() -> None:
             themes=_THEMES,
         ),
     )
-    lobby.log_in()
+    lobby.sign_in()
 
     page = lobby.client.get(_PAGE).text
 

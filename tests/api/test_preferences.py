@@ -9,7 +9,6 @@ from httpx2 import Response
 
 from presentator.api.preferences import ACCOUNT, SETTINGS, THEME
 from presentator.application.voice import VoiceStatusUse
-from presentator.contracts.models import Role
 from presentator.contracts.preferences import ThemeChoice
 from presentator.contracts.text import Catalogs
 from presentator.contracts.voice import (
@@ -32,8 +31,6 @@ from tests.api.lobby import (
     USERNAME,
     Lobby,
     a_lobby,
-    a_user_store,
-    an_account,
 )
 
 
@@ -88,18 +85,17 @@ class RecordingSpeech:
 def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(
-        users=a_user_store(an_account(NEIGHBOUR)),
         voice=VoiceStatusUse(private=reader),
     )
 
-    lobby.log_in(username=NEIGHBOUR)
+    lobby.sign_in(username=NEIGHBOUR)
     refused = lobby.client.get("/settings/voice")
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert reader.calls == 0
 
     admin = a_lobby(voice=VoiceStatusUse(private=reader))
-    admin.set_up_admin()
+    admin.sign_in()
     answered = admin.client.get("/settings/voice")
 
     assert answered.status_code == HTTPStatus.OK
@@ -110,18 +106,17 @@ def test_only_an_admin_reaches_voice_status_before_private_io() -> None:
 def test_only_an_admin_can_load_a_voice_before_private_io() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(
-        users=a_user_store(an_account(NEIGHBOUR)),
         voice=VoiceStatusUse(private=reader),
     )
 
-    lobby.log_in(username=NEIGHBOUR)
+    lobby.sign_in(username=NEIGHBOUR)
     refused = lobby.client.post("/settings/voice/piper/load")
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert reader.loaded is None
 
     admin = a_lobby(voice=VoiceStatusUse(private=reader))
-    admin.set_up_admin()
+    admin.sign_in()
     loaded = admin.client.post("/settings/voice/chatterbox/load")
 
     assert loaded.status_code == HTTPStatus.SEE_OTHER
@@ -141,18 +136,17 @@ def test_only_an_admin_can_start_qwen_download_before_private_io(
 ) -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(
-        users=a_user_store(an_account(NEIGHBOUR)),
         voice=VoiceStatusUse(private=reader),
     )
 
-    lobby.log_in(username=NEIGHBOUR)
+    lobby.sign_in(username=NEIGHBOUR)
     refused = lobby.client.post("/settings/voice/qwen3-tts-0.6b/download")
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert reader.downloads == 0
 
     admin = a_lobby(voice=VoiceStatusUse(private=reader))
-    admin.set_up_admin()
+    admin.sign_in()
     started = admin.client.post(
         "/settings/voice/qwen3-tts-0.6b/download", headers=headers
     )
@@ -166,7 +160,7 @@ def test_only_an_admin_can_start_qwen_download_before_private_io(
 def test_a_foreign_qwen_download_request_reaches_no_private_work() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     refused = lobby.client.post(
         "/settings/voice/qwen3-tts-0.6b/download",
@@ -181,7 +175,7 @@ def test_qwen_download_failure_exposes_only_the_catalogue_state() -> None:
     sentinel = "secret-upstream-url-and-token"
     reader = RecordingSpeech(download_error=VoiceUnavailableError(sentinel))
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     answered = lobby.client.post(
         "/settings/voice/qwen3-tts-0.6b/download",
@@ -213,7 +207,7 @@ def test_qwen_downloading_catalogue_polls_without_swapping_the_player() -> None:
         )
     )
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     page = lobby.client.get("/settings/voice").text
 
@@ -226,11 +220,10 @@ def test_qwen_downloading_catalogue_polls_without_swapping_the_player() -> None:
 def test_only_an_admin_can_sample_the_active_voice_before_private_io() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(
-        users=a_user_store(an_account(NEIGHBOUR)),
         voice=VoiceStatusUse(private=reader),
     )
 
-    lobby.log_in(username=NEIGHBOUR)
+    lobby.sign_in(username=NEIGHBOUR)
     refused = lobby.client.post("/settings/voice/piper/sample/de")
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
@@ -238,7 +231,7 @@ def test_only_an_admin_can_sample_the_active_voice_before_private_io() -> None:
     assert reader.sample_calls == 0
 
     admin = a_lobby(voice=VoiceStatusUse(private=reader))
-    admin.set_up_admin()
+    admin.sign_in()
     sample = admin.client.post("/settings/voice/piper/sample/en")
 
     assert sample.status_code == HTTPStatus.OK
@@ -250,7 +243,7 @@ def test_only_an_admin_can_sample_the_active_voice_before_private_io() -> None:
 def test_a_foreign_sample_request_reaches_no_private_work() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     refused = lobby.client.post(
         "/settings/voice/piper/sample/de",
@@ -284,7 +277,7 @@ def test_sample_route_preserves_busy_and_sanitizes_private_refusals(
 ) -> None:
     reader = RecordingSpeech(sample_error=failure)
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     refused = lobby.client.post("/settings/voice/piper/sample/de")
 
@@ -298,7 +291,7 @@ def test_invalid_sample_path_is_a_generic_non_audio_failure_before_private_work(
 ):
     reader = RecordingSpeech()
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     refused = lobby.client.post("/settings/voice/not-a-voice/sample/not-a-language")
 
@@ -331,7 +324,7 @@ def test_voice_page_renders_the_player_for_exactly_one_active_row(
         )
     )
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     page = lobby.client.get("/settings/voice").text
 
@@ -353,7 +346,7 @@ def test_voice_page_renders_the_player_for_exactly_one_active_row(
 def test_an_admin_htmx_voice_load_refreshes_the_final_voice_page() -> None:
     reader = RecordingSpeech()
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     loaded = lobby.client.post(
         "/settings/voice/piper/load",
@@ -367,7 +360,7 @@ def test_an_admin_htmx_voice_load_refreshes_the_final_voice_page() -> None:
 
 def test_an_admin_sees_unknown_voice_tab_when_private_service_fails() -> None:
     lobby = a_lobby()
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     answered = lobby.client.get("/settings/voice")
 
@@ -425,7 +418,7 @@ def test_voice_page_renders_retry_loading_and_typed_recovery(
         )
     )
     lobby = a_lobby(voice=VoiceStatusUse(private=reader))
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     page = lobby.client.get("/settings/voice").text
 
@@ -456,19 +449,15 @@ def what_the_selects_show(page: str) -> list[str]:
 def an_instance_of_two_people(*, catalogs: Catalogs = CATALOGS) -> Lobby:
     """An admin and a person without the role, both able to sign in."""
     lobby = a_lobby(
-        users=a_user_store(
-            an_account(USERNAME, role=Role.ADMIN),
-            an_account(NEIGHBOUR),
-        ),
         catalogs=catalogs,
     )
-    lobby.log_in()
+    lobby.sign_in()
     return lobby
 
 
 def signed_in_as(lobby: Lobby, username: str) -> None:
     lobby.client.post("/logout")
-    lobby.log_in(username=username)
+    lobby.sign_in(username=username)
 
 
 def save_settings(

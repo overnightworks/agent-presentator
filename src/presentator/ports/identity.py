@@ -1,48 +1,22 @@
 """The capabilities the login calls out through; adapters fill them.
 
-The stores and the hasher are this product's implementations of the
-`webauth` ports (ADR 0003); the session cookie is the library's own (issue
-#105). First start and the first admin stay here until `webauth[users]`
-ships them.
+The stores are this product's implementations of the `webauth` ports (ADR
+0003); the session cookie is the library's own (issue #105).
 """
 
 from abc import abstractmethod
 from datetime import datetime
 from typing import Protocol
 
-from presentator.contracts.models import Account, Session, User
+from presentator.contracts.models import Session, User
 
 
 class UserStore(Protocol):
-    """Accounts an admin creates; first start is the only path without one."""
+    """The people who may sign in."""
 
     @abstractmethod
     def get(self, user_id: str) -> User | None:
         """A live session names its user by id."""
-
-    @abstractmethod
-    def get_by_username(self, username: str) -> Account | None:
-        """Login looks up the typed name, never an enumeration of accounts."""
-
-    @abstractmethod
-    def add_first_account(self, account: Account) -> None:
-        """Store the instance's first account, refusing once one exists.
-
-        Counting and inserting are one step, so two first starts at the same
-        moment cannot both become admin.
-        """
-
-    @abstractmethod
-    def create(self, username: str, password_hash: str, role: str) -> Account:
-        """Add an account once an admin exists to create one."""
-
-    @abstractmethod
-    def count(self) -> int:
-        """First start is offered only while no account exists."""
-
-    @abstractmethod
-    def first_admin(self) -> User | None:
-        """Whoever set this instance up, and therefore owns what it configures."""
 
 
 class SessionRecordStore(Protocol):
@@ -91,46 +65,12 @@ class SessionRecordStore(Protocol):
         """Drop the oldest sessions above `max_sessions`, newest kept."""
 
 
-class LoginAttemptStore(Protocol):
-    """Failed attempts are counted so guessing is throttled."""
-
-    @abstractmethod
-    def record(self, *, ip_address: str, username: str, success: bool) -> None:
-        """Remember one attempt; only a failure spends the budget."""
-
-    @abstractmethod
-    def count_recent_failures(
-        self,
-        *,
-        ip_address: str,
-        window_seconds: int,
-        username: str | None = None,
-    ) -> int:
-        """Failures inside the window, by username when given, else by address."""
-
-
-class PasswordHasher(Protocol):
-    """Hashing is a port so Argon2id stays in the adapter."""
-
-    @abstractmethod
-    def hash(self, password: str) -> str:
-        """First start and admin-created accounts store only the hash."""
-
-    @abstractmethod
-    def verify(self, password: str, stored_hash: str | None) -> bool:
-        """Say whether the password belongs to the hash, and refuse an absent one.
-
-        An absent hash still costs a full verification, so an unknown name and a
-        wrong password cannot be told apart by how long the answer takes.
-        """
-
-
 class IdentifierFactory(Protocol):
     """Unguessable ids come from the adapter, so the application draws no randomness."""
 
     @abstractmethod
     def new_id(self) -> str:
-        """A user id is minted here."""
+        """A deck or source id is minted here."""
 
 
 class SessionLiveness(Protocol):

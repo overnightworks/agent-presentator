@@ -1,35 +1,28 @@
 """SQLite rows behind the identity ports.
 
 The stores are this product's implementations of the `webauth` ports
-(ADR 0003); hashing is the library's. First start's write lock stays here
-until `webauth[users]` ships it.
+(ADR 0003).
 """
 
 import secrets
+import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
 from webauth.liveness import IdleWindowLiveness
 
 from presentator.adapters.sqlite import apply_schema, rows
-from presentator.contracts.models import (
-    Account,
-    FirstStartClosedError,
-    Role,
-    Session,
-    User,
-)
+from presentator.contracts.models import Role, Session, User
 from presentator.ports.clock import Clock
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
-    role TEXT NOT NULL,
-    password_hash TEXT NOT NULL
+    role TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -38,42 +31,64 @@ CREATE TABLE IF NOT EXISTS sessions (
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS login_attempts (
-    username TEXT NOT NULL,
-    ip_address TEXT NOT NULL DEFAULT '',
-    failed_at TEXT NOT NULL
-);
 """
 _IDENTIFIER_BYTES: Final = 32
-_FIRST_START_IS_OVER: Final = "this instance already has an account"
-_BLANK_TEXT_COLUMN: Final = "TEXT NOT NULL DEFAULT ''"
-_SESSION_COLUMNS: Final = (
-    ("ip_address", _BLANK_TEXT_COLUMN),
-    ("user_agent", _BLANK_TEXT_COLUMN),
+
+
+class PasswordDatabaseError(RuntimeError):
+    """The file still holds the password version's tables."""
+
+
+_OLD_VERSION_REFUSAL: Final = (
+    "%s still holds the password sign-in's tables (login_attempts or"
+    " users.password_hash). Take the backup, then move the database and its"
+    " -wal and -shm files aside so the instance starts a fresh one (docs/OPERATIONS.md,"
+    " 'Starting over from the password version')."
 )
-_ATTEMPT_COLUMNS: Final = (("ip_address", _BLANK_TEXT_COLUMN),)
 
 
 def create_identity_tables(database: Path) -> None:
-    """Make the accounts, sessions, and attempts tables exist."""
+    """Make the accounts and sessions tables exist in a file no password ever filled."""
+    _refuse_a_password_database(database)
     apply_schema(database, _SCHEMA)
-    _ensure_columns(database, "sessions", _SESSION_COLUMNS)
-    _ensure_columns(database, "login_attempts", _ATTEMPT_COLUMNS)
 
 
-def _ensure_columns(
-    database: Path,
-    table: str,
-    columns: tuple[tuple[str, str], ...],
-) -> None:
-    with rows(database) as cursor:
-        named = {
-            str(column[1])
-            for column in cursor.execute(f"PRAGMA table_info({table})").fetchall()
+def _refuse_a_password_database(database: Path) -> None:
+    """Look without writing: the main file and its -wal never change.
+
+    A -wal without frames is looked at immutable, so no side file appears. A
+    -wal with frames is looked at read-only only, because an immutable look
+    would miss a password schema committed solely there; SQLite may then create
+    -shm.
+    """
+    if not database.exists():
+        return
+    write_ahead_log = database.with_name(database.name + "-wal")
+    has_logged_frames = write_ahead_log.exists() and write_ahead_log.stat().st_size > 0
+    options = "mode=ro" if has_logged_frames else "mode=ro&immutable=1"
+    connection = sqlite3.connect(f"{database.absolute().as_uri()}?{options}", uri=True)
+    try:
+        cursor = connection.cursor()
+        tables = {
+            str(table[0])
+            for table in cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'",
+            )
         }
-        for name, declaration in columns:
-            if name not in named:
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+        keeps_passwords = "login_attempts" in tables or (
+            "users" in tables and "password_hash" in _column_names(cursor, "users")
+        )
+    finally:
+        connection.close()
+    if keeps_passwords:
+        raise PasswordDatabaseError(_OLD_VERSION_REFUSAL % database)
+
+
+def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:
+    return {
+        str(column[1])
+        for column in cursor.execute(f"PRAGMA table_info({table})").fetchall()
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,74 +103,6 @@ class SqliteUserStore:
             row = cursor.execute(
                 "SELECT id, username, role FROM users WHERE id = ?",
                 (user_id,),
-            ).fetchone()
-        return None if row is None else _user(row)
-
-    def get_by_username(self, username: str) -> Account | None:
-        """Read the account and its hash for the name someone typed."""
-        with rows(self.database) as cursor:
-            row = cursor.execute(
-                "SELECT id, username, role, password_hash FROM users"
-                " WHERE username = ?",
-                (username,),
-            ).fetchone()
-        if row is None:
-            return None
-        user_id, stored_name, role, password_hash = row
-        return Account(
-            id=user_id,
-            username=stored_name,
-            role=Role(role),
-            password_hash=password_hash,
-        )
-
-    def add_first_account(self, account: Account) -> None:
-        """Count and insert inside one write lock, so first start happens once."""
-        with rows(self.database) as cursor:
-            cursor.execute("BEGIN IMMEDIATE")
-            (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
-            if accounts:
-                raise FirstStartClosedError(_FIRST_START_IS_OVER)
-            cursor.execute(
-                "INSERT INTO users (id, username, role, password_hash)"
-                " VALUES (?, ?, ?, ?)",
-                (
-                    account.id,
-                    account.username,
-                    account.role.value,
-                    account.password_hash,
-                ),
-            )
-
-    def create(self, username: str, password_hash: str, role: str) -> Account:
-        """Add an account once the instance already has one."""
-        user_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
-        with rows(self.database) as cursor:
-            cursor.execute(
-                "INSERT INTO users (id, username, role, password_hash)"
-                " VALUES (?, ?, ?, ?)",
-                (user_id, username, role, password_hash),
-            )
-        return Account(
-            id=user_id,
-            username=username,
-            role=Role(role),
-            password_hash=password_hash,
-        )
-
-    def count(self) -> int:
-        """How many accounts exist, which is what first start asks."""
-        with rows(self.database) as cursor:
-            (accounts,) = cursor.execute("SELECT count(*) FROM users").fetchone()
-        return int(accounts)
-
-    def first_admin(self) -> User | None:
-        """The account first start created, or nothing while none exists."""
-        with rows(self.database) as cursor:
-            row = cursor.execute(
-                "SELECT id, username, role FROM users WHERE role = ?"
-                " ORDER BY rowid LIMIT 1",
-                (Role.ADMIN.value,),
             ).fetchone()
         return None if row is None else _user(row)
 
@@ -270,49 +217,6 @@ class SqliteSessionRecordStore:
 
 
 @dataclass(frozen=True, slots=True)
-class SqliteLoginAttemptStore:
-    """The failed-attempts table."""
-
-    database: Path
-    clock: Clock = field(default_factory=SystemClock)
-
-    def record(self, *, ip_address: str, username: str, success: bool) -> None:
-        """Remember a refused attempt; a success spends nothing."""
-        if success:
-            return
-        with rows(self.database) as cursor:
-            cursor.execute(
-                "INSERT INTO login_attempts (username, ip_address, failed_at)"
-                " VALUES (?, ?, ?)",
-                (username, ip_address, self.clock.now().isoformat()),
-            )
-
-    def count_recent_failures(
-        self,
-        *,
-        ip_address: str,
-        window_seconds: int,
-        username: str | None = None,
-    ) -> int:
-        """Count refused attempts inside the caller's window."""
-        since = (self.clock.now() - timedelta(seconds=window_seconds)).isoformat()
-        with rows(self.database) as cursor:
-            if username is None:
-                (failures,) = cursor.execute(
-                    "SELECT count(*) FROM login_attempts"
-                    " WHERE ip_address = ? AND failed_at >= ?",
-                    (ip_address, since),
-                ).fetchone()
-            else:
-                (failures,) = cursor.execute(
-                    "SELECT count(*) FROM login_attempts"
-                    " WHERE username = ? AND failed_at >= ?",
-                    (username, since),
-                ).fetchone()
-        return int(failures)
-
-
-@dataclass(frozen=True, slots=True)
 class TokenIdentifierFactory:
     """Ids nobody can guess."""
 
@@ -339,6 +243,6 @@ class IdleWindow:
         return self.policy.admits_stored_session(_LastSeen(session.last_seen), at)
 
 
-def _user(account: Sequence[str]) -> User:
-    user_id, username, role = account
+def _user(row: Sequence[str]) -> User:
+    user_id, username, role = row
     return User(id=user_id, username=username, role=Role(role))

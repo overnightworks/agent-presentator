@@ -30,8 +30,8 @@ def test_the_shipped_catalog_carries_every_word_the_lobby_needs() -> None:
     text = load_lobby_text(_SHIPPED_CATALOG)
 
     assert text.language_tag == DEFAULT_LANGUAGE_TAG
-    assert text.login_submit == "Log in"
-    assert text.setup_submit == "Create admin"
+    assert text.login_title == "Login"
+    assert text.log_out == "Log out"
 
 
 def test_the_instance_offers_the_language_it_ships_with() -> None:
