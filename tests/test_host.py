@@ -4,6 +4,7 @@ import asyncio
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -773,11 +774,28 @@ def test_an_instance_refuses_a_password_version_database_before_changing_it(
 ) -> None:
     database = tmp_path / "presentator.sqlite3"
     environment.setenv("PRESENTATOR_DATABASE", str(database))
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("CREATE TABLE login_attempts (username TEXT)")
+        connection.commit()
     before = database.read_bytes()
+    folder_before = sorted(tmp_path.iterdir())
 
-    with pytest.raises(ConfigurationError, match="move this file"):
+    with pytest.raises(ConfigurationError, match="move the database"):
         a_real_instance()
 
     assert database.read_bytes() == before
+    assert sorted(tmp_path.iterdir()) == folder_before
+
+
+def test_an_instance_on_a_relative_database_path_starts_again_after_its_first_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment.chdir(tmp_path)
+    environment.setenv("PRESENTATOR_DATABASE", "presentator.sqlite3")
+    a_real_instance()
+
+    a_real_instance()
+
+    assert (tmp_path / "presentator.sqlite3").is_file()

@@ -1,6 +1,7 @@
 """The identity bridge against a temporary SQLite file."""
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -258,11 +259,13 @@ def test_a_file_from_the_password_version_is_refused_and_left_untouched(
     password_version: str,
 ) -> None:
     database = tmp_path / "identity.sqlite3"
-    with sqlite3.connect(database) as connection:
-        connection.executescript(password_version)
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript("PRAGMA journal_mode=WAL;" + password_version)
     before = database.read_bytes()
+    folder_before = sorted(tmp_path.iterdir())
 
     with pytest.raises(PasswordDatabaseError, match=r"OPERATIONS\.md"):
         create_identity_tables(database)
 
     assert database.read_bytes() == before
+    assert sorted(tmp_path.iterdir()) == folder_before

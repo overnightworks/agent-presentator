@@ -73,10 +73,14 @@ and no first admin: accounts arrive with the Keycloak sign-in of
 
 A database file that still holds the password sign-in's tables
 (`login_attempts`, or `users.password_hash`) is refused at start, before
-anything is written to it. Back up the database volume, then move the file
-aside (for example to `presentator.sqlite3.password-version`); the next start
-creates a fresh database. The backup is what lets you return to the password
-version. Decks and sources are re-added in the fresh database.
+anything is written to it. Stop presentator, take the backup as the backup
+section describes, then move the complete database state aside: the file and
+its `-wal` and `-shm` companions (after an unclean shutdown committed
+transactions can still sit in `-wal`), or the whole database volume. The next
+start creates a fresh database. The backup is what lets you return to the
+password version. Decks and sources are re-added in the fresh database, and the
+fresh start gets fresh builds and mirrors volumes
+([#242](https://github.com/overnightworks/agent-presentator/issues/242) S9).
 
 The client address is the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
 is correct for a direct run. Behind the tunnel of
@@ -98,13 +102,9 @@ the tunnel client and the server share one loopback; a container has a network
 of its own and sees that same client as its gateway, which the section after
 this one names.
 
-Starting an instance creates the tables it needs, and changes in place what it
-finds: a file written before a source was a row of its own keeps its decks and
-gains the column naming the source they came from, one written before a source
-could hold its own secret gains that column, and one written before a source
-carried a webhook-secret hash gains that column. There is no migration tool
-beyond what a start does itself, so an older shape a start cannot upgrade is
-still a file to delete and set up again.
+Starting an instance creates the tables it needs; a file written by the
+password version is refused instead (see "Starting over from the password
+version").
 
 An instance starts with no source. An admin adds one under Settings · Sources
 with a name and Git URL. HTTPS needs a read-only token; SSH uses the owned
@@ -312,8 +312,9 @@ sources, the decks and the talks that were built, with nothing built again.
 `docker compose down -v` deletes them, which is the one command that loses an
 instance.
 
-An upgrade is the new tree, the image again, and the service again; a start
-changes the tables it finds in place, as above:
+An upgrade is the new tree, the image again, and the service again; a file
+from the password version is refused at start (see "Starting over from the
+password version"):
 
 ```sh
 git pull && docker compose --profile images build && docker compose up -d

@@ -12,8 +12,10 @@ builds the deck a push changed, shows what state that build is in, delivers
 that talk and its PDF from the page, and lets an admin and every person say how
 the lobby looks and which language it speaks. M0 is tracked on
 [#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
-and login landed as
-[#22](https://github.com/overnightworks/agent-presentator/issues/22), the deck
+and password login landed as
+[#22](https://github.com/overnightworks/agent-presentator/issues/22) and were
+removed by [#262](https://github.com/overnightworks/agent-presentator/issues/262)
+(K13), the deck
 list as
 [#26](https://github.com/overnightworks/agent-presentator/issues/26), the deck
 page and the serving boundary as

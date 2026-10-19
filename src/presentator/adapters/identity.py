@@ -41,8 +41,8 @@ class PasswordDatabaseError(RuntimeError):
 
 _OLD_VERSION_REFUSAL: Final = (
     "%s still holds the password sign-in's tables (login_attempts or"
-    " users.password_hash). Back up the database volume, then move this file"
-    " aside so the instance starts a fresh one (docs/OPERATIONS.md,"
+    " users.password_hash). Take the backup, then move the database and its"
+    " -wal and -shm files aside so the instance starts a fresh one (docs/OPERATIONS.md,"
     " 'Starting over from the password version')."
 )
 
@@ -54,10 +54,12 @@ def create_identity_tables(database: Path) -> None:
 
 
 def _refuse_a_password_database(database: Path) -> None:
-    """Look read-only, so the refused file stays byte-identical."""
+    """Look read-only and immutable, so a refused WAL database gains no -shm or -wal."""
     if not database.exists():
         return
-    connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"{database.absolute().as_uri()}?mode=ro&immutable=1", uri=True
+    )
     try:
         cursor = connection.cursor()
         tables = {
