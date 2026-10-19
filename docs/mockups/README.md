@@ -28,7 +28,7 @@ wide). Per-artboard renders in `m0-lobby/`, device scale factor 2, cropped to
 each `.board` element, in document order. "Lines" gives the issue #8
 expectation lines the artboard's own caption cites; where the caption cites
 none, the group's line range from the sheet's section header is given instead
-(marked "group"). The Voice table's "Ruling" column links the adopted V1–V9
+(marked "group"). "K13" refers to the #242 picture. The Voice table's "Ruling" column links the adopted V1–V9
 requirements that its caption or rendered state demonstrates.
 
 ### Sign-in · Keycloak (K13, #242)

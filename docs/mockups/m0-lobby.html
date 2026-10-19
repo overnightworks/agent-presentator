@@ -504,8 +504,6 @@
     margin-bottom: -1px;
   }
 
-  .row--user .stand .lbl { display: none; }
-
   .row--head {
     font-family: var(--cond);
     font-size: 11px;
@@ -700,10 +698,6 @@
     color: var(--ink-soft);
   }
 
-  .input.placeholder {
-    color: var(--ink-faint);
-  }
-
   /* ---------- buttons ---------- */
 
   .btn {
@@ -767,7 +761,7 @@
   .flow-host { font-family: var(--mono); font-size: 12.5px; color: var(--ink); overflow-wrap: anywhere; }
   .flow-what { font-size: 13px; color: var(--ink-soft); }
   .flow-arrow { align-self: center; font-family: var(--mono); font-size: 18px; color: var(--ink-faint); }
-  @container (max-width: 700px) { .flow { flex-direction: column; } .flow-arrow { transform: rotate(90deg); } }
+  @container (max-width: 700px) { .flow { flex-direction: column; } .flow-step { flex: none; } .flow-arrow { transform: rotate(90deg); } }
 
   /* ---------- state markers: shape + colour ---------- */
 
@@ -916,7 +910,6 @@
     .row .row-name { grid-column: 1 / -1; grid-row: 2; }
     .list-head { flex-direction: column; gap: 8px; }
     .row--head { display: none; }
-    .row--user .stand .lbl { display: inline; }
     .actions { flex-direction: column; align-items: stretch; }
     .actions .btn { width: 100%; box-sizing: border-box; }
   }
@@ -1416,21 +1409,13 @@
 
   /* ---------- accounts: the one new state, the user row ---------- */
 
-  /* deactivated — split disc, grey: switched off, not broken */
+  /* downloaded — split disc, grey: switched off, not broken */
   .state--off { color: var(--ink-faint); }
   .state--off .glyph {
     border-radius: 50%;
     background: var(--ink-faint);
     clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);
   }
-
-  /* fixed tracks: every row is its own grid, so only fixed widths line the columns up */
-  .row--user {
-    grid-template-columns: 142px minmax(0, 1fr) 62px 176px 222px;
-    gap: 14px;
-  }
-
-  .row--user .row-act { justify-self: end; }
 
   /* ---------- voice: model rows and sample player ---------- */
 
@@ -1498,15 +1483,6 @@
     .row--src .age { grid-column: 2; grid-row: 1; }
     .row--src .src-name { grid-column: 1 / -1; grid-row: 2; }
     .row--src .row-act { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
-    .row--user {
-      grid-template-columns: minmax(0, 1fr) auto;
-      row-gap: 8px;
-    }
-    .row--user .state { grid-column: 1; grid-row: 1; }
-    .row--user .tag { grid-column: 2; grid-row: 1; justify-self: end; }
-    .row--user .src-name { grid-column: 1 / -1; grid-row: 2; }
-    .row--user .stand { grid-column: 1 / -1; grid-row: 3; }
-    .row--user .row-act { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
     .row--voice {
       grid-template-columns: minmax(0, 1fr) auto;
       row-gap: 6px;
@@ -1651,16 +1627,6 @@
       <circle cx="18" cy="6" r="3"></circle>
       <circle cx="6" cy="18" r="3"></circle>
       <path d="M18 9a9 9 0 0 1-9 9"></path>
-    </symbol>
-    <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-      <circle cx="9" cy="7" r="4"></circle>
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-    </symbol>
-    <symbol id="icon-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path>
-      <circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle>
     </symbol>
     <symbol id="icon-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
       <rect width="20" height="14" x="2" y="3" rx="2"></rect>
@@ -3301,7 +3267,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Split screen <span class="w">390 px</span></div>
-          <p class="board-note">State and action stay in the first row, the model name wraps below it — the row pattern from Sources and Users, reused rather than reinvented. The player stacks under the rows; DE/EN and Play/Stop keep their own line.</p>
+          <p class="board-note">State and action stay in the first row, the model name wraps below it — the row pattern from Sources, reused rather than reinvented. The player stacks under the rows; DE/EN and Play/Stop keep their own line.</p>
         </figcaption>
         <div class="frame" style="--w: 390px">
           <div class="route">presentator.local/settings/voice</div>
@@ -3758,7 +3724,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Service status unknown <span class="w">Excerpt</span></div>
-          <p class="board-note">Reuses the same grey, split-circle token as a deactivated account — switched off or simply not confirmed, never red. A failed attempt (triangle) and an unconfirmed status are kept visibly apart. V9 settles this state: hide unverified rows and offer Check again to refresh.</p>
+          <p class="board-note">Reuses the same grey, split-circle token as downloaded — switched off or simply not confirmed, never red. A failed attempt (triangle) and an unconfirmed status are kept visibly apart. V9 settles this state: hide unverified rows and offer Check again to refresh.</p>
         </figcaption>
         <div class="frame" style="--w: 420px">
           <div class="route">presentator.local/settings/voice</div>
@@ -4345,7 +4311,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Name und Gruppe, kein Passwort.</li>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> aktuell der einzige aktiv genutzte Antwort-Anbieter des CoPresenter-Features, über den eigenen Claude-Zugang des Betreibers, nicht über einen pro Anfrage übertragenen API-Schlüssel. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und der gesamte Deckinhalt. <span class="offen">[offen: Anthropics eigene Aufbewahrungs- und Verarbeitungspraxis liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> die Technik ist vorbereitet, wird vom Code aktuell aber nicht aufgerufen — nur Claude beantwortet Fragen. <span class="offen">[offen: ob/wann sich das ändert, legt der Betreiber fest.]</span></li>
                   <li><b>Sprachausgabe und Spracherkennung:</b> laufen lokal auf dem Server des Betreibers (Piper und Chatterbox für die Sprachausgabe; lokale Spracherkennung). Keine Übertragung an einen externen Sprachanbieter.</li>
@@ -4354,12 +4320,12 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               </section>
               <section>
                 <h2>4. Speicherort</h2>
-                <p>Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
+                <p>Benutzerkonten (lokaler Eintrag), Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
               </section>
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> bei Keycloak, bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
                   <li><b>Sitzungen:</b> Zeile gelöscht beim Abmelden. <span class="offen">[offen: eine nie abgemeldete Sitzung wird im Code nicht automatisch gelöscht.]</span></li>
                   <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel:</b> spätestens nach 24 Stunden automatisch entfernt.</li>
                   <li><b>Decks und Builds:</b> bis die Quelle entfernt wird oder der Ordner aus Git verschwindet.</li>
@@ -4422,7 +4388,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Name und Gruppe, kein Passwort.</li>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> einziger aktiv genutzter Anbieter, über den eigenen Claude-Zugang des Betreibers. <span class="offen">[offen: Anthropics eigene Aufbewahrung liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> vorbereitet, aber vom Code aktuell nicht aufgerufen.</li>
                   <li><b>Sprachausgabe/-erkennung:</b> lokal (Piper, Chatterbox) — keine externe Übertragung.</li>
@@ -4436,7 +4402,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> bei Keycloak, bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
                   <li><b>Sitzungen:</b> gelöscht beim Abmelden. <span class="offen">[offen: keine automatische Löschung einer nie abgemeldeten Sitzung.]</span></li>
                   <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> nach spätestens 24 Stunden entfernt.</li>
                   <li><b>Decks/Builds:</b> bis die Quelle entfernt wird.</li>
