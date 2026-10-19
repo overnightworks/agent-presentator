@@ -1925,3 +1925,47 @@ def test_https_and_ssh_urls_name_their_access_kind() -> None:
     assert access_kind_of(scp) is AccessKind.SSH
     assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
     assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None
+
+
+_AMBIGUOUS_HOST_URLS = (
+    "https://good.example\\@evil.example/r.git",
+    "https://a@b@c/r.git",
+    "ssh://git@a@b/r.git",
+    "git@a@b:r.git",
+    "git\\@a@b:r.git",
+)
+
+
+@pytest.mark.parametrize("url", _AMBIGUOUS_HOST_URLS)
+def test_a_url_whose_authority_reads_as_two_hosts_names_no_access(url: str) -> None:
+    assert access_kind_of(url) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "kind"),
+    [
+        ("https://host/r.git", AccessKind.HTTPS),
+        ("https://user@host/r.git", AccessKind.HTTPS),
+        ("https://host/r.git?x=a@b", AccessKind.HTTPS),
+        ("ssh://git@host:2222/r.git", AccessKind.SSH),
+        ("git@host:r.git", AccessKind.SSH),
+        ("file:///srv/r.git", AccessKind.FILE),
+    ],
+)
+def test_an_unambiguous_url_keeps_its_access_kind(url: str, kind: AccessKind) -> None:
+    assert access_kind_of(url) is kind
+
+
+@pytest.mark.parametrize("url", _AMBIGUOUS_HOST_URLS[:2])
+def test_check_connection_refuses_an_ambiguous_url_before_any_probe(url: str) -> None:
+    decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
+
+    checked = decks.check_connection(
+        url=url,
+        access="https",
+        secret=_READ_ONLY,
+        owner_id=_OWNER,
+        key_draft_id="",
+    )
+
+    assert checked.failure is SourceRunFailure.REFUSED

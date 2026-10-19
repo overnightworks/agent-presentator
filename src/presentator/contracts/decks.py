@@ -109,20 +109,36 @@ def local_mount_path_of(url: str) -> PurePosixPath | None:
     return PurePosixPath(posixpath.normpath(raw))
 
 
+def _authority_is_ambiguous(authority: str) -> bool:
+    return "\\" in authority or authority.count("@") > 1
+
+
+def _remote_access_kind_of(url: str, scheme: str, netloc: str) -> AccessKind | None:
+    if scheme == "https":
+        kind, authority = AccessKind.HTTPS, netloc
+    elif scheme == "ssh":
+        kind, authority = AccessKind.SSH, netloc
+    else:
+        kind, authority = AccessKind.SSH, url.split(":", 1)[0]
+        if authority.count("@") != 1:
+            return None
+    return None if _authority_is_ambiguous(authority) else kind
+
+
 def access_kind_of(url: str) -> AccessKind | None:
     """The access the URL's scheme names, or nothing when it names none.
 
     HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy
     key; `file://` or a bare absolute path is this box's own mount. Anything
-    else is not an access this product has.
+    else is not an access this product has. An authority that could be read
+    as two hosts (a backslash, or a second `@`) names none, because curl and
+    a person reading it would send the secret to different ones.
     """
     if any(character < " " for character in url):
         return None
     parsed = urlparse(url)
-    if parsed.scheme == "https":
-        return AccessKind.HTTPS
-    if parsed.scheme == "ssh" or (not parsed.scheme and "@" in url):
-        return AccessKind.SSH
+    if parsed.scheme in {"https", "ssh"} or (not parsed.scheme and "@" in url):
+        return _remote_access_kind_of(url, parsed.scheme, parsed.netloc)
     if local_mount_path_of(url) is not None:
         return AccessKind.FILE
     return None
