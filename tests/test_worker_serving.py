@@ -358,11 +358,11 @@ class RootConnection(socket.socket):
     """A connection whose peer is uid 0."""
 
     @overload
-    def getsockopt(self, level: int, optname: int, /) -> int: ...
+    def getsockopt(self, _level: int, _optname: int, /) -> int: ...
     @overload
-    def getsockopt(self, level: int, optname: int, buflen: int, /) -> bytes: ...
+    def getsockopt(self, _level: int, _optname: int, _buflen: int, /) -> bytes: ...
     def getsockopt(
-        self, level: int, optname: int, buflen: int | None = None, /
+        self, _level: int, _optname: int, _buflen: int | None = None, /
     ) -> int | bytes:
         return worker.PEER_CREDENTIALS.pack(1, 0, 0)
 
