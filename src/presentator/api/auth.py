@@ -28,6 +28,7 @@ from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
 from webauth.policies import (
     CacheControlRule,
+    CspDirective,
     CsrfPolicy,
     PathRules,
     SecurityHeadersPolicy,
@@ -70,12 +71,21 @@ _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
 )
 _LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
-# Nothing in the lobby or a built talk needs an inline script or style, an
-# external script host, or a frame: every asset ships under `/static` or a
-# deck's own build directory, both served from this origin. The microphone
-# grant is the co-presenter's own: never the camera, never a page's location.
+# Nothing in the lobby or a built talk needs an inline script, an external
+# script host, or a frame: every asset ships under `/static` or a deck's own
+# build directory, both served from this origin. A built Slidev talk inlines
+# styles and loads its fonts from Google Fonts, which the library's default no
+# longer admits. The microphone grant is the co-presenter's own: never the
+# camera, never a page's location.
+CONTENT_SECURITY_POLICY: Final = default_content_security_policy(
+    [],
+    added_sources={
+        CspDirective.STYLE_SRC: ["'unsafe-inline'", "https://fonts.googleapis.com"],
+        CspDirective.FONT_SRC: ["https://fonts.gstatic.com"],
+    },
+)
 _SECURITY_HEADERS: Final = SecurityHeadersPolicy(
-    content_security_policy=default_content_security_policy([]),
+    content_security_policy=CONTENT_SECURITY_POLICY,
     permissions_policy="camera=(), microphone=(self), geolocation=()",
     cache_control_rules=(CacheControlRule(PathRules(prefixes=("/",)), "no-store"),),
 )

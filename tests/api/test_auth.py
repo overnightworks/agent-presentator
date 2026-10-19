@@ -16,8 +16,8 @@ from webauth.middleware.security_headers import (
     REFERRER_POLICY,
     STRICT_TRANSPORT_SECURITY,
 )
-from webauth.policies import default_content_security_policy
 
+from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
 from presentator.application.identity import (
@@ -53,16 +53,13 @@ _EXPORTED_PDF = Path(__file__).parent / "exported_deck.pdf"
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
 # page's own location, only the co-presenter's microphone.
 _MIC_ONLY_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=()"
-# `default_content_security_policy([])` is the exact call `presentator.api.auth`
-# makes: no script hash ever widens it, the way an inline build output would.
-_EXPECTED_CSP = default_content_security_policy([])
 # Every one of these answers the same way whatever carried the request: a
 # page, a static file, a 404 nothing names, or an exception nothing caught.
 _EVERY_SECURITY_HEADER = {
     "cache-control": "no-store",
     "x-content-type-options": CONTENT_TYPE_OPTIONS,
     "x-frame-options": FRAME_OPTIONS,
-    "content-security-policy": _EXPECTED_CSP,
+    "content-security-policy": CONTENT_SECURITY_POLICY,
     "referrer-policy": REFERRER_POLICY,
     "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
 }
