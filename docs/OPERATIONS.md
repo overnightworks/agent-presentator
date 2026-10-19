@@ -507,7 +507,8 @@ sixteen-page PDF.
 The voice that answers beside a talk is two host processes on the machine that
 holds the GPU: the speech service on `127.0.0.1:8090` (`speech/`, never
 exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the installed
-`claude` executable with the operator's own login. Speech starts first and is
+`claude` executable with the operator's own login, so only the admin role may
+use it. Speech starts first and is
 ready when `GET /health` says both models are; the co-presenter is pointed at
 the deck folder it should know, that speech address, and one private Unix
 socket directory. Both host processes and the Presentator container use the

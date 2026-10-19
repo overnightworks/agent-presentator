@@ -60,6 +60,11 @@ class SignedIn(Protocol):
         """The authoritative session id retained by an operation."""
         ...
 
+    @property
+    def is_admin(self) -> bool:
+        """Whether the person holds the one role that may use the co-presenter."""
+        ...
+
 
 Admission = Callable[[HTTPConnection], SignedIn | None]
 Delay = Callable[[float], Awaitable[None]]
@@ -82,7 +87,11 @@ class _SessionGuard:
 
     def same_session(self, connection: HTTPConnection, session_id: str) -> bool:
         admitted = self.admission(connection)
-        return admitted is not None and admitted.session_id == session_id
+        return (
+            admitted is not None
+            and admitted.is_admin
+            and admitted.session_id == session_id
+        )
 
     async def wait(self) -> None:
         await self.delay(_CHECK_INTERVAL_SECONDS)
@@ -114,10 +123,9 @@ def add_copresenter_routes(
     guard = _SessionGuard(admission=admission, delay=surface.delay)
 
     async def _who(request: Request) -> JSONResponse:
-        if admission(request) is None:
-            return JSONResponse(
-                {"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED
-            )
+        connection = admission(request)
+        if connection is None or not connection.is_admin:
+            return _refusal(connection)
         try:
             ready = await use.readiness()
         except CoPresenterUnavailableError:
@@ -136,10 +144,8 @@ def add_copresenter_routes(
 
     def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
-        if connection is None:
-            return JSONResponse(
-                {"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED
-            )
+        if connection is None or not connection.is_admin:
+            return _refusal(connection)
         ticket = surface.limiter.admit(connection.session_id)
         if isinstance(ticket, RetryAfter):
             return JSONResponse(
@@ -173,7 +179,7 @@ def add_copresenter_routes(
             await socket.close(code=_POLICY_VIOLATION)
             return
         connection = admission(socket)
-        if connection is None:
+        if connection is None or not connection.is_admin:
             await socket.close(code=_POLICY_VIOLATION)
             return
         await socket.accept()
@@ -189,6 +195,12 @@ def add_copresenter_routes(
     router.add_api_route("/ask", _ask, methods=["POST"])
     router.add_api_websocket_route("/hear", _hear)
     app.include_router(router)
+
+
+def _refusal(connection: SignedIn | None) -> JSONResponse:
+    if connection is None:
+        return JSONResponse({"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED)
+    return JSONResponse({"detail": "Operator only"}, HTTPStatus.FORBIDDEN)
 
 
 async def _answer_events(
