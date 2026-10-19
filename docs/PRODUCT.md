@@ -133,7 +133,8 @@ halves and HTTPS tokens are encrypted and never shown. The name is
 password in its userinfo is refused, of remote addresses only
 `https://[user@]host[:port]/…`, `ssh://[user@]host[:port]/…` and
 `user@host:path` are an access — the host a plain name or an IPv6 literal in
-brackets, an ssh path free of `%`, `?`, `#`, `[` and `]` — and every other
+brackets, an `ssh://` path free of `%`, `?`, `#`, `[` and `]`,
+an scp path free of `[` and `]` — and every other
 remote spelling, `http://` and any control character included, is refused
 before any secret is used. The access kind is derived from the URL scheme; an
 unknown radio value, a URL that names no access, or a mismatch with the chosen
