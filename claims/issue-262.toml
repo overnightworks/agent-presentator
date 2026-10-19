@@ -1,8 +1,0 @@
-claim_id = "892cdc36eb1a44218b6c3d4c7842f394"
-agent = "claude"
-role = "builder"
-base = "37fa4caa683c45fae108769232804498bdf59dbb"
-branch = "claude/issue-262-k13-s1-webauth-017"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "pyproject.toml", "scripts/capture_theme_screenshots.mjs", "src/presentator/adapters/catalogs/en.po", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/api/templates/login.html", "src/presentator/api/templates/setup.html", "src/presentator/application/identity.py", "src/presentator/contracts/models.py", "src/presentator/contracts/text.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "src/presentator/ports/identity.py", "tests", "uv.lock"]
-opened_commit = "6e1569a6f39e9caeeed6bd8b7427f1774b5bedfa"
-whole_reason = "The webauth bump removes the very APIs the password surfaces call, so the bump and their removal land together; mostly deletions across the four ADR 0001 layers and their tests."
