@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from presentator.application.identity import FAILURES_BEFORE_THROTTLE, IDLE_WINDOW
+from presentator.application.identity import IDLE_WINDOW
 
 _SECONDS_PER_HOUR: Final = 3600
 
@@ -96,9 +96,9 @@ DATENSCHUTZ: Final = LegalDocument(
             paragraphs=(
                 _point(
                     "Benutzerkonto:",
-                    "Benutzername, Rolle (Admin/Nutzer) und ein mit Argon2id "
-                    "gehashtes Passwort. Konten legt ausschließlich ein "
-                    "Administrator an; es gibt keine Selbstregistrierung.",
+                    "Benutzername und Rolle (Admin/Nutzer). Konten legt "
+                    "ausschließlich ein Administrator an; es gibt keine "
+                    "Selbstregistrierung.",
                 ),
                 _point(
                     "Sitzungen und Cookies:",
@@ -110,12 +110,6 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach "
                     f"{_IDLE_HOURS} Stunden Inaktivität als beendet; die Zeile "
                     "selbst wird beim Abmelden gelöscht.",
-                ),
-                _point(
-                    "Fehlgeschlagene Anmeldeversuche:",
-                    "Benutzername, IP-Adresse und Zeitpunkt, zum Schutz vor "
-                    "automatisiertem Ausprobieren (nach "
-                    f"{FAILURES_BEFORE_THROTTLE} Fehlversuchen wird gedrosselt).",
                 ),
                 _point(
                     "Decks und Quellen:",

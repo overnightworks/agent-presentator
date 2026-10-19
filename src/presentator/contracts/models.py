@@ -5,10 +5,6 @@ from datetime import datetime
 from enum import StrEnum
 
 
-class FirstStartClosedError(RuntimeError):
-    """An instance with an account creates the next one through an admin only."""
-
-
 class Role(StrEnum):
     """An instance has only these two roles (ADR 0011)."""
 
@@ -18,7 +14,7 @@ class Role(StrEnum):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class User:
-    """Who may log in; the password hash never rides along on this record."""
+    """Who may log in."""
 
     id: str
     username: str
@@ -28,21 +24,6 @@ class User:
     def is_admin(self) -> bool:
         """Only an admin reaches Settings and the instance defaults (ADR 0011)."""
         return self.role is Role.ADMIN
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Account:
-    """The stored account the login machinery reads, hash included."""
-
-    id: str
-    username: str
-    role: Role
-    password_hash: str
-    is_active: bool = True
-
-    def as_user(self) -> User:
-        """The person this account is, without the hash."""
-        return User(id=self.id, username=self.username, role=self.role)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

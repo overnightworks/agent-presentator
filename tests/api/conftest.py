@@ -12,5 +12,5 @@ def lobby() -> Lobby:
 
 @pytest.fixture
 def signed_in_lobby(lobby: Lobby) -> Lobby:
-    lobby.set_up_admin()
+    lobby.sign_in()
     return lobby

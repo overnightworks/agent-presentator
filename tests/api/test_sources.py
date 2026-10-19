@@ -36,23 +36,17 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role
 from tests.api.lobby import (
-    A_BROWSERS_ADDRESS,
-    A_BROWSERS_HEADERS,
     ADMIN,
     ENGLISH,
     NEIGHBOUR,
     NO_DECKS,
     NOW,
-    TYPED_WORDS,
     USERNAME,
     GivenDecks,
     Lobby,
     a_configured_source,
     a_lobby,
-    a_lobby_app,
     a_signed_in_lobby,
-    a_user_store,
-    an_account,
 )
 from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
 
@@ -112,20 +106,14 @@ def a_run(
 
 
 def an_instance_of_two_people(*, given: GivenDecks = NO_DECKS) -> Lobby:
-    lobby = a_lobby(
-        users=a_user_store(
-            an_account(USERNAME, role=Role.ADMIN),
-            an_account(NEIGHBOUR),
-        ),
-        given=given,
-    )
-    lobby.log_in()
+    lobby = a_lobby(given=given)
+    lobby.sign_in()
     return lobby
 
 
 def signed_in_as(lobby: Lobby, username: str) -> None:
     lobby.client.post("/logout")
-    lobby.log_in(username=username)
+    lobby.sign_in(username=username)
 
 
 def fetch(
@@ -489,30 +477,11 @@ def two_admin_sessions(
     other_username: str = NEIGHBOUR,
 ) -> tuple[TestClient, TestClient]:
     """Two browser sessions over one app, each with its own cookie jar."""
-    accounts = [an_account(USERNAME, role=Role.ADMIN)]
-    if other_username != USERNAME:
-        accounts.append(an_account(other_username, role=Role.ADMIN))
-    app, _ = a_lobby_app(
-        users=a_user_store(*accounts),
-    )
-    creator = TestClient(
-        app,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
-    )
-    other = TestClient(
-        app,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
-    )
-    creator.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
-    other.post(
-        "/login",
-        data={"username": other_username, "password": TYPED_WORDS},
-    )
-    return creator, other
+    first = a_lobby()
+    first.sign_in()
+    second = first.another_browser()
+    second.sign_in(username=other_username, role=Role.ADMIN)
+    return first.client, second.client
 
 
 def a_one_time_secret(operation: str, creator: TestClient) -> Response:

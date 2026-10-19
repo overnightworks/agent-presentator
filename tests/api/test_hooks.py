@@ -98,7 +98,7 @@ def hooked() -> Lobby:
 
 def test_a_call_carrying_the_sources_secret_takes_the_push_in(hooked: Lobby) -> None:
     called = call_hook(hooked.client, headers=carrying_bearer(_WORDS_A))
-    hooked.set_up_admin()
+    hooked.sign_in()
 
     assert called.status_code == HTTPStatus.NO_CONTENT
     assert "Kundenfeedback Q3" in hooked.client.get("/").text
@@ -106,7 +106,7 @@ def test_a_call_carrying_the_sources_secret_takes_the_push_in(hooked: Lobby) -> 
 
 def test_a_call_with_the_gitlab_header_takes_the_push_in(hooked: Lobby) -> None:
     called = call_hook(hooked.client, headers=carrying_gitlab(_WORDS_A))
-    hooked.set_up_admin()
+    hooked.sign_in()
 
     assert called.status_code == HTTPStatus.NO_CONTENT
     assert "Kundenfeedback Q3" in hooked.client.get("/").text
@@ -135,7 +135,7 @@ def test_whatever_a_host_posts_in_its_body_changes_nothing(hooked: Lobby) -> Non
         },
         content=b'{"repository": {"name": "somebody-elses-repository"}}',
     )
-    hooked.set_up_admin()
+    hooked.sign_in()
 
     assert called.status_code == HTTPStatus.NO_CONTENT
     assert "Kundenfeedback Q3" in hooked.client.get("/").text
@@ -143,7 +143,7 @@ def test_whatever_a_host_posts_in_its_body_changes_nothing(hooked: Lobby) -> Non
 
 def test_source_bs_secret_does_not_open_source_a(hooked: Lobby) -> None:
     refused = call_hook(hooked.client, headers=carrying_bearer(_WORDS_B))
-    hooked.set_up_admin()
+    hooked.sign_in()
 
     assert (refused.status_code, refused.content) == (HTTPStatus.NOT_FOUND, b"")
     assert "Kundenfeedback Q3" not in hooked.client.get("/").text

@@ -90,14 +90,6 @@ LobbyText.legal_back_to_login
 # route tests.
 LobbyText.section_decks
 LobbyText.login_title
-LobbyText.login_username
-LobbyText.login_password
-LobbyText.setup_title
-LobbyText.setup_once
-LobbyText.setup_explanation
-LobbyText.setup_username
-LobbyText.setup_password
-LobbyText.setup_repeat_password
 LobbyText.decks_title
 LobbyText.decks_column_deck
 LobbyText.deck_back

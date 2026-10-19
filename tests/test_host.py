@@ -1,9 +1,10 @@
 """The composition root, from the environment to a lobby that answers."""
 
 import asyncio
-import logging
 import re
 import shutil
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -13,14 +14,12 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from webauth.config import installed_web_auth_config
 from webauth.cookies import (
     DEFAULT_CSRF_COOKIE_NAME,
     DEFAULT_SESSION_COOKIE_NAME,
     PLAIN_CSRF_COOKIE_NAME,
     PLAIN_SESSION_COOKIE_NAME,
-)
-from webauth.passwords import (  # noqa: TID251 - pins the error a stale hash raises
-    UnknownHashFormatError,
 )
 
 from presentator.adapters.decks import (
@@ -28,16 +27,16 @@ from presentator.adapters.decks import (
     SqliteSourceStore,
 )
 from presentator.adapters.identity import (
-    SqliteUserStore,
+    SqliteSessionRecordStore,
     TokenIdentifierFactory,
 )
 from presentator.adapters.secrets import secret_box
 from presentator.adapters.sqlite import rows
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
-from presentator.application.identity import FAILURES_BEFORE_THROTTLE
+from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.decks import SourceWrite
-from presentator.contracts.models import Account, Role
+from presentator.contracts.models import Role, User
 from presentator.host import main
 from presentator.host.config import (
     NO_BOUND_AT_ALL,
@@ -45,23 +44,22 @@ from presentator.host.config import (
     load_settings,
 )
 from presentator.host.main import Instance
-from tests.api.lobby import A_BROWSERS_ADDRESS, A_BROWSERS_HEADERS
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_BROWSERS_HEADERS,
+    hand_over_session_cookies,
+)
 from tests.conftest import (
     EXAMPLE_SLUG,
     EXAMPLE_TITLE,
     GitRemote,
     with_the_program,
 )
+from tests.people import copy_of_a_crashed_password_database, seed_user
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
-_TYPED_WORDS = "the words only this test types"
-# _TYPED_WORDS hashed with Argon2id at 64 MiB, t=3, p=4: a stored hash under a
-# cost profile other than the library's one, as existing accounts carry.
-_64_MIB_HASH_OF_THE_TYPED_WORDS = (
-    "$argon2id$v=19$m=65536,t=3,p=4"
-    "$pFeGwOgbAz/UEaKqo238lg$Q/qsY/43dnDojwFTTMh1+iV/+v48zgkL1uStvltGh4g"
-)
+_ADMIN = User(id="id-of-felix", username=_PERSON, role=Role.ADMIN)
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _DELETED_AT = datetime(2026, 1, 16, 9, tzinfo=UTC)
 _PUSHED_AGAIN_AT = datetime(2026, 2, 1, 9, tzinfo=UTC)
@@ -69,10 +67,6 @@ _ANOTHER_SLUG = "kundenfeedback"
 _SOURCE_NAME = "talks"
 _ANOTHER_SOURCE_NAME = "more-talks"
 _WHAT_THE_HOST_CARRIES = "the words only this source's host was given"
-_PEER = "127.0.0.1"
-_FORWARDED_CLIENT = "203.0.113.10"
-_ANOTHER_CLIENT = "198.51.100.20"
-_WRONG_WORDS = "guessed"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
@@ -150,31 +144,32 @@ def a_real_instance() -> Instance:
     return main.build_instance(load_settings())
 
 
-def a_real_lobby() -> TestClient:
-    """A browser at that stack."""
-    return TestClient(
-        a_real_instance().lobby,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
+def signed_in(
+    instance: Instance,
+    *,
+    base_url: str = A_BROWSERS_ADDRESS,
+    peer: str = "testclient",
+) -> TestClient:
+    """A browser at that stack, signed in as the admin the database carries."""
+    database = load_settings().database
+    seed_user(database, _ADMIN)
+    session = SqliteSessionRecordStore(database).create(
+        _ADMIN.id,
+        datetime.now(UTC) + IDLE_WINDOW,
+        ip_address="",
+        user_agent="",
     )
-
-
-def signed_in(instance: Instance) -> TestClient:
-    """A browser at that stack with the instance's admin created and signed in."""
     client = TestClient(
         instance.lobby,
-        base_url=A_BROWSERS_ADDRESS,
+        base_url=base_url,
         follow_redirects=False,
+        client=(peer, 50000),
         headers=A_BROWSERS_HEADERS,
     )
-    client.post(
-        "/setup",
-        data={
-            "username": _PERSON,
-            "password": _TYPED_WORDS,
-            "repeated_password": _TYPED_WORDS,
-        },
+    hand_over_session_cookies(
+        client,
+        session.id,
+        installed_web_auth_config(instance.lobby),
     )
     return client
 
@@ -198,79 +193,6 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
     assert len(served) == 1
     assert TestClient(served[0]).get("/login").is_success
-
-
-def a_browser(instance: Instance, *, peer: str = _PEER) -> TestClient:
-    """A browser whose ASGI peer is an address, so a proxy list can trust it."""
-    return TestClient(
-        instance.lobby,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        client=(peer, 50000),
-        headers=A_BROWSERS_HEADERS,
-    )
-
-
-def an_admin_signed_out(instance: Instance) -> TestClient:
-    """The real stack with its admin created and its session ended."""
-    lobby = a_browser(instance)
-    lobby.post(
-        "/setup",
-        data={
-            "username": _PERSON,
-            "password": _TYPED_WORDS,
-            "repeated_password": _TYPED_WORDS,
-        },
-    )
-    lobby.post("/logout")
-    return lobby
-
-
-def spend_the_address_budget(lobby: TestClient, *, forwarded: str) -> None:
-    """Refuse under distinct names, so only this address is spent."""
-    for index in range(FAILURES_BEFORE_THROTTLE):
-        lobby.post(
-            "/login",
-            data={"username": f"nobody-{index}", "password": _WRONG_WORDS},
-            headers={"x-forwarded-for": forwarded},
-        )
-
-
-@pytest.mark.usefixtures("environment")
-def test_without_trusted_proxies_the_login_budget_keys_on_the_peer() -> None:
-    lobby = an_admin_signed_out(a_real_instance())
-    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
-
-    still_the_peer = lobby.post(
-        "/login",
-        data={"username": _PERSON, "password": _TYPED_WORDS},
-        headers={"x-forwarded-for": _ANOTHER_CLIENT},
-    )
-
-    assert still_the_peer.status_code == HTTPStatus.OK
-    assert DEFAULT_SESSION_COOKIE_NAME not in still_the_peer.cookies
-
-
-def test_a_trusted_proxy_makes_the_forwarded_client_the_one_the_budget_counts(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", _PEER)
-    lobby = an_admin_signed_out(a_real_instance())
-    spend_the_address_budget(lobby, forwarded=_FORWARDED_CLIENT)
-
-    same_client = lobby.post(
-        "/login",
-        data={"username": _PERSON, "password": _TYPED_WORDS},
-        headers={"x-forwarded-for": _FORWARDED_CLIENT},
-    )
-    other_client = lobby.post(
-        "/login",
-        data={"username": _PERSON, "password": _TYPED_WORDS},
-        headers={"x-forwarded-for": _ANOTHER_CLIENT},
-    )
-
-    assert same_client.status_code == HTTPStatus.OK
-    assert other_client.status_code == HTTPStatus.SEE_OTHER
 
 
 def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
@@ -388,7 +310,7 @@ def test_a_deck_an_instance_can_only_build_in_a_container_it_lacks_offers_no_vie
 ) -> None:
     a_container_run(environment, tmp_path, _A_DAEMON_THAT_BUILDS_NOTHING)
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -412,38 +334,15 @@ def a_container_run(
 
 
 @pytest.mark.usefixtures("environment")
-def test_the_real_stack_signs_a_person_in_and_out_and_keeps_the_password_quiet(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    real_lobby = a_real_lobby()
+def test_the_real_stack_keeps_a_seeded_person_in_until_they_sign_out() -> None:
+    real_lobby = signed_in(a_real_instance())
+    assert _PERSON in real_lobby.get("/").text
 
-    with caplog.at_level(logging.DEBUG):
-        created = real_lobby.post(
-            "/setup",
-            data={
-                "username": _PERSON,
-                "password": _TYPED_WORDS,
-                "repeated_password": _TYPED_WORDS,
-            },
-        )
-        assert created.status_code == HTTPStatus.SEE_OTHER
-        assert _PERSON in real_lobby.get("/").text
+    signed_in_cookie = real_lobby.cookies[DEFAULT_SESSION_COOKIE_NAME]
+    assert real_lobby.post("/logout").status_code == HTTPStatus.SEE_OTHER
 
-        signed_in_cookie = real_lobby.cookies[DEFAULT_SESSION_COOKIE_NAME]
-        assert real_lobby.post("/logout").status_code == HTTPStatus.SEE_OTHER
-
-        real_lobby.cookies.set(DEFAULT_SESSION_COOKIE_NAME, signed_in_cookie)
-        assert real_lobby.get("/").status_code == HTTPStatus.FOUND
-
-        real_lobby.cookies.delete(DEFAULT_SESSION_COOKIE_NAME)
-        signed_in_again = real_lobby.post(
-            "/login",
-            data={"username": _PERSON, "password": _TYPED_WORDS},
-        )
-        assert signed_in_again.status_code == HTTPStatus.SEE_OTHER
-        assert real_lobby.get("/").is_success
-
-    assert _TYPED_WORDS not in caplog.text
+    real_lobby.cookies.set(DEFAULT_SESSION_COOKIE_NAME, signed_in_cookie)
+    assert real_lobby.get("/").status_code == HTTPStatus.FOUND
 
 
 @pytest.mark.parametrize(
@@ -471,60 +370,55 @@ def test_the_cookies_are_secure_and_host_only_exactly_when_the_origin_is_https(
     secure: bool,
 ) -> None:
     environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
-    browser = TestClient(
-        a_real_instance().lobby,
-        base_url=origin,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
-    )
+    browser = signed_in(a_real_instance(), base_url=origin)
 
-    created = browser.post(
-        "/setup",
-        data={
-            "username": _PERSON,
-            "password": _TYPED_WORDS,
-            "repeated_password": _TYPED_WORDS,
-        },
-    )
+    answered = browser.get("/")
 
-    cookies = created.headers.get_list("set-cookie")
+    cookies = answered.headers.get_list("set-cookie")
     assert [cookie.split("=", 1)[0] for cookie in cookies] == list(cookie_names)
     assert all(("; Secure" in cookie) is secure for cookie in cookies)
-    assert browser.get("/").is_success
+    assert answered.is_success
+
+
+@pytest.mark.parametrize(
+    ("trusted_proxies", "hook_scheme"),
+    [("127.0.0.1", "https"), ("", "http")],
+    ids=["trusted-peer", "no-trusted-peer"],
+)
+def test_the_hook_address_names_https_only_behind_a_trusted_proxy(
+    environment: pytest.MonkeyPatch,
+    remote: GitRemote,
+    tmp_path: Path,
+    *,
+    trusted_proxies: str,
+    hook_scheme: str,
+) -> None:
+    origin = "http://presentator.test"
+    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
+    environment.setenv("PRESENTATOR_TRUSTED_PROXIES", trusted_proxies)
+    instance = a_polled_source(remote, tmp_path)
+    browser = signed_in(instance, base_url=origin, peer="127.0.0.1")
+
+    page = browser.get(
+        f"/settings/sources/{_SOURCE_NAME}",
+        headers={"x-forwarded-proto": "https"},
+    )
+
+    assert f"{hook_scheme}://presentator.test{hook_address(_SOURCE_NAME)}" in page.text
 
 
 @pytest.mark.usefixtures("environment")
-def test_the_real_stack_refuses_a_login_nobody_has_an_account_for() -> None:
-    real_lobby = a_real_lobby()
+def test_the_real_stack_offers_no_password_login_and_no_first_start() -> None:
+    real_lobby = signed_in(a_real_instance())
 
-    refused = real_lobby.post(
+    password_posted = real_lobby.post(
         "/login",
-        data={"username": "nobody", "password": _TYPED_WORDS},
+        data={"username": _PERSON, "password": "the words only this test types"},
     )
 
-    assert refused.status_code == HTTPStatus.OK
-    assert DEFAULT_SESSION_COOKIE_NAME not in real_lobby.cookies
-
-
-@pytest.mark.usefixtures("environment")
-def test_a_password_stored_at_64_mib_fails_the_login_loudly() -> None:
-    real_lobby = a_real_lobby()
-    SqliteUserStore(load_settings().database).add_first_account(
-        Account(
-            id=TokenIdentifierFactory().new_id(),
-            username=_PERSON,
-            role=Role.ADMIN,
-            password_hash=_64_MIB_HASH_OF_THE_TYPED_WORDS,
-        ),
-    )
-
-    with pytest.raises(UnknownHashFormatError):
-        real_lobby.post(
-            "/login",
-            data={"username": _PERSON, "password": _TYPED_WORDS},
-        )
-
-    assert DEFAULT_SESSION_COOKIE_NAME not in real_lobby.cookies
+    assert password_posted.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert real_lobby.get("/setup").status_code == HTTPStatus.NOT_FOUND
+    assert 'type="password"' not in real_lobby.get("/login").text
 
 
 @pytest.mark.usefixtures("bare_environment")
@@ -558,18 +452,6 @@ def a_signed_in_instance() -> TestClient:
     return signed_in(a_real_instance())
 
 
-def logged_in(instance: Instance) -> TestClient:
-    """A browser at that stack, signed in as the account it already carries."""
-    client = TestClient(
-        instance.lobby,
-        base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
-        headers=A_BROWSERS_HEADERS,
-    )
-    client.post("/login", data={"username": _PERSON, "password": _TYPED_WORDS})
-    return client
-
-
 def a_polled_source(
     remote: GitRemote,
     tmp_path: Path,
@@ -581,14 +463,12 @@ def a_polled_source(
     instance = a_real_instance()
     signed_in(instance)
     database = tmp_path / "presentator.sqlite3"
-    admin = SqliteUserStore(database).first_admin()
-    assert admin is not None
     added = sources_over(database).add(
         SourceWrite(
             name=name,
             url=remote.url,
             ref="main",
-            owner_id=admin.id,
+            owner_id=_ADMIN.id,
             access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
             hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
         ),
@@ -642,7 +522,7 @@ def test_the_real_stack_pulls_with_the_secret_its_own_key_can_open(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     asyncio.run(instance.poller.tick())
     database = tmp_path / "presentator.sqlite3"
     stored = sources_over(database).all()[0]
@@ -669,7 +549,7 @@ def test_a_deck_pushed_after_the_start_is_listed_after_one_tick_and_no_request(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     before_the_tick = lobby.get("/").text
@@ -687,7 +567,7 @@ def test_the_hook_with_the_sources_secret_lists_a_push_at_once(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     asyncio.run(instance.poller.tick())
     remote.commit_example_deck(at=_PUSHED_AT)
 
@@ -703,7 +583,7 @@ def test_a_hook_call_with_a_wrong_secret_leaves_the_list_as_it_was(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     asyncio.run(instance.poller.tick())
     remote.commit_example_deck(at=_PUSHED_AT)
 
@@ -718,7 +598,7 @@ def test_a_source_without_a_webhook_hash_is_refused_alike_not_sent_to_login(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    lobby = logged_in(a_polled_source(remote, tmp_path, armed=False))
+    lobby = signed_in(a_polled_source(remote, tmp_path, armed=False))
     remote.commit_example_deck(at=_PUSHED_AT)
     lobby.cookies.clear()
 
@@ -741,9 +621,7 @@ def test_a_deck_the_real_stack_took_in_belongs_to_the_instance_admin(
     asyncio.run(instance.poller.tick())
 
     kept = SqliteDeckStore(database=database).all()
-    admin = SqliteUserStore(database).first_admin()
-    assert admin is not None
-    assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, admin.id)]
+    assert [(deck.slug, deck.owner_id) for deck in kept] == [(EXAMPLE_SLUG, _ADMIN.id)]
 
 
 def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
@@ -753,7 +631,7 @@ def test_a_deck_the_real_stack_cannot_build_keeps_its_page_and_offers_no_view(
 ) -> None:
     environment.setenv("PRESENTATOR_TOOLCHAIN", str(tmp_path / "no-toolchain-here"))
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -771,7 +649,7 @@ def test_a_tick_whose_fetch_exceeds_its_bound_leaves_the_list_answering(
 ) -> None:
     environment.setenv("PRESENTATOR_SOURCE_TIMEOUT_SECONDS", "0")
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
 
     asyncio.run(instance.poller.tick())
@@ -788,7 +666,7 @@ def test_a_source_that_has_gone_away_still_leaves_its_decks_listed(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(instance.poller.tick())
 
@@ -832,7 +710,7 @@ def test_a_deck_deleted_in_git_leaves_the_lobby_and_returns_as_the_same_deck(
     tmp_path: Path,
 ) -> None:
     instance = a_polled_source(remote, tmp_path)
-    lobby = logged_in(instance)
+    lobby = signed_in(instance)
     database = tmp_path / "presentator.sqlite3"
     remote.commit_example_deck(at=_PUSHED_AT)
     remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
@@ -861,19 +739,17 @@ def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
     tmp_path: Path,
 ) -> None:
     first = a_polled_source(remote, tmp_path)
-    lobby = logged_in(first)
+    lobby = signed_in(first)
     remote.commit_example_deck(at=_PUSHED_AT)
     asyncio.run(first.poller.tick())
     another_remote.commit_example_deck(at=_PUSHED_AT, into=_ANOTHER_SLUG)
     database = tmp_path / "presentator.sqlite3"
-    admin = SqliteUserStore(database).first_admin()
-    assert admin is not None
     added = sources_over(database).add(
         SourceWrite(
             name=_ANOTHER_SOURCE_NAME,
             url=another_remote.url,
             ref="main",
-            owner_id=admin.id,
+            owner_id=_ADMIN.id,
             access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
             hook_secret_hash=hash_webhook_secret(_WHAT_THE_HOST_CARRIES),
         ),
@@ -890,3 +766,55 @@ def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
 
     assert sorted(listed_together) == sorted([EXAMPLE_SLUG, _ANOTHER_SLUG])
     assert after_the_delete == [_ANOTHER_SLUG]
+
+
+def test_an_instance_refuses_a_password_version_database_before_changing_it(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "presentator.sqlite3"
+    environment.setenv("PRESENTATOR_DATABASE", str(database))
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE login_attempts (username TEXT)")
+        connection.commit()
+    before = database.read_bytes()
+    folder_before = sorted(tmp_path.iterdir())
+
+    with pytest.raises(ConfigurationError, match="move the database"):
+        a_real_instance()
+
+    assert database.read_bytes() == before
+    assert sorted(tmp_path.iterdir()) == folder_before
+
+
+def test_an_instance_on_a_relative_database_path_starts_again_after_its_first_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment.chdir(tmp_path)
+    environment.setenv("PRESENTATOR_DATABASE", "presentator.sqlite3")
+    a_real_instance()
+
+    a_real_instance()
+
+    assert (tmp_path / "presentator.sqlite3").is_file()
+
+
+def test_an_instance_refuses_a_password_schema_only_in_the_write_ahead_log(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = copy_of_a_crashed_password_database(
+        tmp_path / "crashed" / "presentator.sqlite3"
+    )
+    environment.setenv("PRESENTATOR_DATABASE", str(database))
+    log = database.with_name(database.name + "-wal")
+    main_file_before = database.read_bytes()
+    log_before = log.read_bytes()
+
+    with pytest.raises(ConfigurationError, match="move the database"):
+        a_real_instance()
+
+    assert database.read_bytes() == main_file_before
+    assert log.read_bytes() == log_before

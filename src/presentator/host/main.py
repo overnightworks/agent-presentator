@@ -15,9 +15,6 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig
 from webauth.liveness import IdleWindowLiveness
-from webauth.passwords import (  # noqa: TID251 - the host alone composes the hasher
-    Argon2idPasswordHasher,
-)
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
@@ -51,7 +48,7 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     IdleWindow,
-    SqliteLoginAttemptStore,
+    PasswordDatabaseError,
     SqliteSessionRecordStore,
     SqliteUserStore,
     SystemClock,
@@ -74,12 +71,7 @@ from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
-from presentator.application.identity import (
-    FAILURE_WINDOW,
-    FAILURES_BEFORE_THROTTLE,
-    IDLE_WINDOW,
-    Identity,
-)
+from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
@@ -121,17 +113,18 @@ class Instance:
 
 def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
-    create_identity_tables(settings.database)
+    try:
+        create_identity_tables(settings.database)
+    except PasswordDatabaseError as refused:
+        raise cannot_start(str(refused)) from None
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
-    hasher = Argon2idPasswordHasher()
     liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
-    web_auth = _web_auth_config(
+    web_auth = lobby_web_auth_config(
         settings.secret_key,
-        hasher=hasher,
         liveness=liveness,
         trusted_proxies=settings.trusted_proxies,
         public_origin=settings.public_origin,
@@ -142,10 +135,7 @@ def build_instance(settings: Settings) -> Instance:
     identity = Identity(
         users=accounts,
         sessions=SqliteSessionRecordStore(settings.database, clock=clock),
-        attempts=SqliteLoginAttemptStore(settings.database, clock=clock),
-        hasher=hasher,
         clock=clock,
-        identifiers=identifiers,
         liveness=IdleWindow(liveness),
     )
     sources = SqliteSourceStore(
@@ -267,38 +257,29 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     )
 
 
-def _web_auth_config(
+def lobby_web_auth_config(
     secret: SecretStr,
     *,
-    hasher: Argon2idPasswordHasher,
     liveness: IdleWindowLiveness,
     trusted_proxies: str,
     public_origin: str,
 ) -> WebAuthConfig:
-    """The library configuration this host runs: Argon2id, no Redis, last_seen.
+    """The library configuration this host runs: no Redis, last_seen.
 
     The cookies carry `Secure`, and the library's `__Host-` names, exactly when
     the origin people reach the lobby under is https: a browser would not send
     a `Secure` cookie back over plain http.
     """
-    idle_seconds = int(IDLE_WINDOW.total_seconds())
-    failure_seconds = int(FAILURE_WINDOW.total_seconds())
     return WebAuthConfig(
         session_secret=secret,
         trusted_proxies=TrustedProxies.parse(trusted_proxies),
-        password_hasher=hasher,
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset(),
         allowed_hosts_patterns=(),
-        session_max_age_seconds=idle_seconds,
+        cookie_max_age_seconds=int(IDLE_WINDOW.total_seconds()),
         session_liveness=liveness,
-        login_rate_limit=FAILURES_BEFORE_THROTTLE,
-        login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
-        login_lockout_window_seconds=failure_seconds,
-        login_rate_window_seconds=failure_seconds,
         cookie_samesite="lax",
         cookie_secure=urlsplit(public_origin).scheme == "https",
-        session_cache=None,
     )
 
 
