@@ -11,7 +11,7 @@ dependencies = [
     "fastapi==0.141.1",
     "faster-whisper==1.2.1",
     "huggingface-hub==1.30.0",
-    "numpy==1.26.4",
+    "numpy==2.5.4",
     "nvidia-cublas-cu12==12.4.5.8",
     "nvidia-cudnn-cu12==9.1.0.70",
     "piper-tts==1.8.0",
