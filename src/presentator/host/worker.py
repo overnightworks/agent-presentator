@@ -1,4 +1,4 @@
-"""The build worker's start-up refusal: it runs only inside the sealed container."""
+"""The build worker: it refuses to start outside the sealed container, then serves."""
 
 import argparse
 import ctypes
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ BUILD_IDENTITY = (10001, 10001)
 WIRE_IDENTITY = (10002, 10002)
 ROOT_MODE = 0o755
 WORK_MOUNT = "/work"
-# Mount points below the root, so the self-check names no world-writable path.
 SOCKET_DIRECTORY = "/run/presentator-build"
 SOCKET_NAME = "worker.sock"
 SOCKET_DIRECTORY_MODE = 0o750
@@ -36,6 +35,7 @@ SOCKET_MODE = 0o660
 BIND_UMASK = 0o117
 LISTEN_BACKLOG = 4
 PEER_CREDENTIALS = struct.Struct("3i")
+# Mount points below the root, so the self-check names no world-writable path.
 SCRATCH_MOUNT_NAMES = ("tmp", "dev/shm", SOCKET_DIRECTORY.lstrip("/"))
 TMPFS_MOUNTS = tuple(
     str(Path("/") / name) for name in (WORK_MOUNT.lstrip("/"), *SCRATCH_MOUNT_NAMES)
@@ -155,6 +155,13 @@ class Snapshot:
     unreadable: frozenset[Predicate] = frozenset()
 
 
+class Server(Protocol):
+    """Serves the socket for the runtime uid and the controller group."""
+
+    def __call__(self, *, controller_gid: int, runtime_uid: int) -> int:
+        """Run until a refusal and return its exit status."""
+
+
 @dataclass(frozen=True)
 class Boundary:
     """The process effects and reads the start-up steps go through."""
@@ -162,7 +169,7 @@ class Boundary:
     set_non_dumpable: Callable[[], None]
     set_umask: Callable[[], None]
     read_snapshot: Callable[[], Snapshot]
-    serve: Callable[..., int]
+    serve: Server
 
 
 def _status_fields(process_status: str) -> dict[str, str]:
@@ -366,12 +373,11 @@ def _read_identity() -> Identity:
     )
 
 
-def _socket_present(path: Path) -> bool:
+def _lstat_if_present(path: Path) -> os.stat_result | None:
     try:
-        os.lstat(path)
+        return os.lstat(path)
     except FileNotFoundError:
-        return False
-    return True
+        return None
 
 
 def _read_mount_facts(root: Path) -> tuple[bool, str, int, int, str, bool]:
@@ -382,7 +388,10 @@ def _read_mount_facts(root: Path) -> tuple[bool, str, int, int, str, bool]:
         stat.S_IMODE(work.st_mode),
         work.st_uid,
         (root / "proc/net/dev").read_text(),
-        any(_socket_present(root / socket.lstrip("/")) for socket in DOCKER_SOCKETS),
+        any(
+            _lstat_if_present(root / docker_socket.lstrip("/")) is not None
+            for docker_socket in DOCKER_SOCKETS
+        ),
     )
 
 
@@ -456,22 +465,18 @@ def read_snapshot(root: Path) -> Snapshot:
     )
 
 
-def _lstat_if_present(path: Path) -> os.stat_result | None:
-    try:
-        return path.lstat()
-    except FileNotFoundError:
-        return None
-
-
 def _fix_up_socket_directory(
     directory: Path, controller_uid: int, controller_gid: int
 ) -> None:
     try:
-        status = directory.lstat()
-        if not (stat.S_ISDIR(status.st_mode) and status.st_uid == controller_uid):
-            raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY)
-        os.chown(directory, -1, controller_gid)
-        directory.chmod(SOCKET_DIRECTORY_MODE)
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if os.fstat(descriptor).st_uid != controller_uid:
+                raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY)
+            os.fchown(descriptor, -1, controller_gid)
+            os.fchmod(descriptor, SOCKET_DIRECTORY_MODE)
+        finally:
+            os.close(descriptor)
     except OSError as error:
         raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY) from error
 
@@ -501,14 +506,17 @@ def bind_socket(
     directory: Path, controller_uid: int, controller_gid: int
 ) -> socket.socket:
     """Step 5: bind under a narrow umask and check what the bind created."""
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    except OSError as error:
+        raise StartRefusedError(StartRefusal.BIND) from error
     socket_path = directory / SOCKET_NAME
     try:
         os.umask(BIND_UMASK)
         try:
             listener.bind(str(socket_path))
         finally:
-            os.umask(ONLY_THE_OWNER)
+            _set_umask()
         status = socket_path.lstat()
     except OSError as error:
         listener.close()
@@ -533,8 +541,8 @@ def start_listening(listener: socket.socket) -> None:
 
 
 def peer_admitted(peer_uid: int, runtime_uid: int) -> bool:
-    """Only the runtime uid may talk to the worker, uid 0 included."""
-    return peer_uid == runtime_uid
+    """Only the runtime uid may talk to the worker; uid 0 never."""
+    return peer_uid != 0 and peer_uid == runtime_uid
 
 
 def _peer_uid(connection: socket.socket) -> int:
@@ -556,7 +564,12 @@ def accept_connections(
     """Hand each runtime-uid connection to the handler; close every other at once."""
     while True:
         connection, _address = listener.accept()
-        if peer_admitted(_peer_uid(connection), runtime_uid):
+        try:
+            peer_uid = _peer_uid(connection)
+        except OSError:
+            connection.close()
+            raise
+        if peer_admitted(peer_uid, runtime_uid):
             handle(connection)
         else:
             connection.close()

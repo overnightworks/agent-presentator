@@ -224,13 +224,17 @@ FAILURES = {
 }
 
 
-def boundary_over(snapshot: Snapshot, events: list[str]) -> Boundary:
+def boundary_over(
+    snapshot: Snapshot, events: list[str], served: dict[str, int] | None = None
+) -> Boundary:
     def read_snapshot() -> Snapshot:
         events.append("read")
         return snapshot
 
-    def serve(**_served: int) -> int:
+    def serve(**arguments: int) -> int:
         events.append("serve")
+        if served is not None:
+            served.update(arguments)
         return 0
 
     return Boundary(
@@ -270,6 +274,15 @@ def test_sealed_start_serves_and_returns_the_serving_status() -> None:
 
     assert worker.main([], boundary_over(sealed_snapshot(), events)) == 0
     assert events[-1] == "serve"
+
+
+def test_start_serves_for_the_runtime_uid_and_the_controller_group() -> None:
+    served: dict[str, int] = {}
+    snapshot = with_identity(runtime_uid=1001)(sealed_snapshot())
+
+    worker.main([], boundary_over(snapshot, [], served))
+
+    assert served == {"controller_gid": 1000, "runtime_uid": 1001}
 
 
 def test_refusal_exits_two_and_logs_the_predicate_without_environment_values(

@@ -5,7 +5,9 @@ import os
 import socket
 import stat
 import threading
+import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,8 @@ OWN_GID = os.getgid()
 FOREIGN_UID = OWN_UID + 1
 PRIVATE_MODE = 0o700
 CONNECTIONS = 2
+WAIT_SECONDS = 5
+SUPPLEMENTARY_GIDS = tuple(gid for gid in os.getgroups() if gid != OWN_GID)
 
 
 class StopServingError(Exception):
@@ -34,9 +38,11 @@ def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     os.umask(before)
 
 
-def run_serve(
-    volume: Path, runtime_uid: int, handled: list[socket.socket], admitted: int
-) -> tuple[threading.Thread, list[object]]:
+@contextmanager
+def serving(
+    volume: Path, runtime_uid: int, admitted: int
+) -> Iterator[tuple[threading.Thread, list[socket.socket], list[object]]]:
+    handled: list[socket.socket] = []
     outcome: list[object] = []
 
     def handle(connection: socket.socket) -> None:
@@ -59,24 +65,29 @@ def run_serve(
         except StopServingError:
             outcome.append("stopped")
 
-    thread = threading.Thread(target=run)
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
-    return thread, outcome
+    try:
+        yield thread, handled, outcome
+    finally:
+        thread.join(WAIT_SECONDS)
 
 
 def connect(volume: Path) -> socket.socket:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(5)
+    client.settimeout(WAIT_SECONDS)
     client.connect(str(volume / worker.SOCKET_NAME))
     return client
 
 
-def connect_when_bound(volume: Path) -> socket.socket:
-    while True:
+def connect_when_bound(volume: Path, thread: threading.Thread) -> socket.socket:
+    deadline = time.monotonic() + WAIT_SECONDS
+    while thread.is_alive() and time.monotonic() < deadline:
         try:
             return connect(volume)
         except (FileNotFoundError, ConnectionRefusedError):
             continue
+    pytest.fail("the worker did not start serving")
 
 
 def make_regular_file(path: Path) -> None:
@@ -142,7 +153,7 @@ def test_refuses_a_volume_root_of_another_uid_and_leaves_its_mode(volume: Path) 
 
 
 def test_refuses_a_volume_root_that_is_a_symlink_or_a_file(volume: Path) -> None:
-    link = volume.with_name("link")
+    link = volume / "link"
     link.symlink_to(volume)
     plain_file = volume / "file"
     plain_file.write_text("")
@@ -173,11 +184,50 @@ def test_binds_a_group_socket_in_a_group_directory(volume: Path) -> None:
     assert directory_status.st_gid == OWN_GID
 
 
-def test_refuses_a_socket_the_controller_does_not_own_after_bind(volume: Path) -> None:
+@pytest.mark.parametrize(
+    ("controller_uid", "controller_gid"),
+    [(FOREIGN_UID, OWN_GID), (OWN_UID, OWN_GID + 1)],
+    ids=["foreign-uid", "foreign-gid"],
+)
+def test_refuses_a_socket_the_controller_does_not_own_after_bind(
+    volume: Path, controller_uid: int, controller_gid: int
+) -> None:
     with pytest.raises(worker.StartRefusedError) as refused:
-        worker.bind_socket(volume, FOREIGN_UID, OWN_GID)
+        worker.bind_socket(volume, controller_uid, controller_gid)
 
     assert refused.value.refusal == StartRefusal.BIND
+    assert stat.S_ISSOCK((volume / worker.SOCKET_NAME).lstat().st_mode)
+
+
+def test_refuses_the_start_when_no_socket_can_be_allocated(
+    volume: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def exhausted(*_arguments: object) -> socket.socket:
+        raise OSError(errno.EMFILE, "too many open files")
+
+    monkeypatch.setattr(worker.socket, "socket", exhausted)
+
+    status = worker.serve(
+        volume,
+        controller_uid=OWN_UID,
+        controller_gid=OWN_GID,
+        runtime_uid=OWN_UID,
+        handle=worker.close_unread,
+    )
+
+    assert status == worker.REFUSAL_EXIT_STATUS
+    assert f"start refused: {StartRefusal.BIND}" in caplog.text
+
+
+@pytest.mark.skipif(
+    not SUPPLEMENTARY_GIDS, reason="the runner has no supplementary group"
+)
+def test_hands_the_volume_root_to_the_controller_group(volume: Path) -> None:
+    controller_gid = SUPPLEMENTARY_GIDS[0]
+
+    worker.prepare_socket_directory(volume, OWN_UID, controller_gid)
+
+    assert volume.stat().st_gid == controller_gid
 
 
 def test_connect_is_refused_between_bind_and_listen_and_succeeds_after(
@@ -250,19 +300,13 @@ def test_the_runtime_uid_is_admitted() -> None:
     assert worker.peer_admitted(OWN_UID, runtime_uid=OWN_UID)
 
 
-@pytest.mark.parametrize("peer_uid", [0, FOREIGN_UID])
-def test_any_other_peer_uid_is_refused_uid_zero_included(peer_uid: int) -> None:
-    assert not worker.peer_admitted(peer_uid, runtime_uid=OWN_UID)
-
-
-class UnreadableConnection(socket.socket):
-    """A connection that counts reads."""
-
-    reads = 0
-
-    def recv(self, *_arguments: object) -> bytes:
-        UnreadableConnection.reads += 1
-        return b""
+@pytest.mark.parametrize(
+    ("peer_uid", "runtime_uid"), [(0, OWN_UID), (FOREIGN_UID, OWN_UID), (0, 0)]
+)
+def test_any_other_peer_uid_is_refused_uid_zero_included(
+    peer_uid: int, runtime_uid: int
+) -> None:
+    assert not worker.peer_admitted(peer_uid, runtime_uid=runtime_uid)
 
 
 class BoundedListener(socket.socket):
@@ -274,32 +318,66 @@ class BoundedListener(socket.socket):
         if self.accepts_left == 0:
             raise StopServingError
         self.accepts_left -= 1
+        return super().accept()
+
+
+class UnidentifiableConnection(socket.socket):
+    """A connection whose peer credentials cannot be read."""
+
+    def getsockopt(self, *_arguments: object) -> int:
+        raise OSError(errno.ENOTSOCK, "no peer credentials")
+
+
+class UnidentifiableListener(BoundedListener):
+    """A listener whose accepted connections have no readable peer credentials."""
+
+    accepted: list[socket.socket]
+
+    def accept(self) -> tuple[socket.socket, object]:
         connection, address = super().accept()
-        return UnreadableConnection(fileno=connection.detach()), address
+        unidentifiable = UnidentifiableConnection(fileno=connection.detach())
+        self.accepted.append(unidentifiable)
+        return unidentifiable, address
 
 
-def listening_with(volume: Path, accepts: int) -> BoundedListener:
+def listening_with(
+    volume: Path, accepts: int, listener_class: type[BoundedListener] = BoundedListener
+) -> BoundedListener:
     worker.prepare_socket_directory(volume, OWN_UID, OWN_GID)
     plain = worker.bind_socket(volume, OWN_UID, OWN_GID)
-    listener = BoundedListener(fileno=plain.detach())
+    listener = listener_class(fileno=plain.detach())
     listener.accepts_left = accepts
     worker.start_listening(listener)
     return listener
 
 
-def test_a_foreign_peer_is_closed_unread_and_never_reaches_the_handler(
-    volume: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_foreign_peer_is_reset_unread_and_never_reaches_the_handler(
+    volume: Path,
 ) -> None:
     handled: list[socket.socket] = []
-    monkeypatch.setattr(UnreadableConnection, "reads", 0)
     with listening_with(volume, accepts=1) as listener:
         client = connect(volume)
+        client.send(b"x")
         with pytest.raises(StopServingError):
             worker.accept_connections(listener, FOREIGN_UID, handled.append)
-        assert client.recv(1) == b""
+        with pytest.raises(ConnectionResetError):
+            client.recv(1)
 
     assert handled == []
-    assert UnreadableConnection.reads == 0
+
+
+def test_a_connection_without_readable_credentials_is_closed_and_the_error_surfaces(
+    volume: Path,
+) -> None:
+    handled: list[socket.socket] = []
+    with listening_with(volume, 1, UnidentifiableListener) as listener:
+        listener.accepted = []
+        connect(volume)
+        with pytest.raises(OSError, match="no peer credentials"):
+            worker.accept_connections(listener, OWN_UID, handled.append)
+
+    assert handled == []
+    assert [connection.fileno() for connection in listener.accepted] == [-1]
 
 
 def test_the_runtime_uid_is_handed_to_the_handler_once_per_connection(
@@ -317,17 +395,16 @@ def test_the_runtime_uid_is_handed_to_the_handler_once_per_connection(
 def test_serve_binds_listens_and_hands_over_connections_until_stopped(
     volume: Path,
 ) -> None:
-    handled: list[socket.socket] = []
-    thread, outcome = run_serve(volume, OWN_UID, handled, admitted=CONNECTIONS)
+    with serving(volume, OWN_UID, admitted=CONNECTIONS) as (thread, handled, outcome):
+        for _ in range(CONNECTIONS):
+            client = connect_when_bound(volume, thread)
+            assert client.recv(1) == b""
+            client.close()
+        thread.join(WAIT_SECONDS)
 
-    for _ in range(CONNECTIONS):
-        client = connect_when_bound(volume)
-        assert client.recv(1) == b""
-        client.close()
-    thread.join(5)
-
-    assert len(handled) == CONNECTIONS
-    assert outcome == ["stopped"]
+        assert not thread.is_alive()
+        assert len(handled) == CONNECTIONS
+        assert outcome == ["stopped"]
 
 
 def test_refuses_a_stale_socket_it_cannot_remove(volume: Path) -> None:
