@@ -110,9 +110,8 @@ convention = "google"
 # gives it a container; both programs are constants resolved on PATH, and every
 # argument is built here out of the deck's own row, never out of a request.
 "src/presentator/adapters/builds.py" = ["S404", "S603"]
-# The worker's self-check names the container's own `/tmp` and `/dev/shm`
-# tmpfs mounts as the sealed paths it requires; it creates nothing in them.
-"src/presentator/host/worker.py" = ["S108"]
+# The worker's test names the container's `/tmp` and `/dev/shm` mounts as fixture data;
+# it creates nothing in them.
 "tests/test_worker.py" = ["S108"]
 # Drives that toolchain and that client as the stand-in scripts it puts on PATH.
 "tests/adapters/test_builds.py" = ["S404", "S603"]

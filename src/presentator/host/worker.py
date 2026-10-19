@@ -24,8 +24,14 @@ WIRE_USER = "presentator-wire"
 BUILD_IDENTITY = (10001, 10001)
 WIRE_IDENTITY = (10002, 10002)
 ROOT_MODE = 0o755
-TMPFS_MOUNTS = ("/work", "/tmp", "/dev/shm", "/run/presentator-build")
-NO_EXECUTION_MOUNTS = ("/work", "/tmp")
+WORK_MOUNT = "/work"
+# Mount points below the root, so the self-check names no world-writable path.
+SCRATCH_MOUNT_NAMES = ("tmp", "dev/shm", "run/presentator-build")
+TMPFS_MOUNTS = tuple(
+    str(Path("/") / name) for name in (WORK_MOUNT.lstrip("/"), *SCRATCH_MOUNT_NAMES)
+)
+NO_EXECUTION_MOUNTS = TMPFS_MOUNTS[:2]
+GROUP_AND_OTHERS_WRITE = stat.S_IWGRP | stat.S_IWOTH
 HARDENED_MOUNT_OPTIONS = frozenset({"nosuid", "nodev", "noexec"})
 DOCKER_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock")
 SLIDEV_BINARY = "/app/frontend/node_modules/.bin/slidev"
@@ -223,7 +229,7 @@ def _toolchain_present(snapshot: Snapshot) -> bool:
         and all(
             mode is not None
             and mode & stat.S_IXOTH
-            and not mode & (stat.S_IWGRP | stat.S_IWOTH)
+            and not mode & GROUP_AND_OTHERS_WRITE
             for mode in entries
         )
         and toolchain.vite_link_target == VITE_CACHE_TARGET
@@ -260,7 +266,7 @@ def _set_non_dumpable() -> None:
 
 
 def _set_umask() -> None:
-    os.umask(0o022)
+    os.umask(GROUP_AND_OTHERS_WRITE)
 
 
 def _mode_if_file_or_directory(path: str) -> int | None:
@@ -326,7 +332,7 @@ def _read_mount_facts() -> tuple[bool, str, os.stat_result, str]:
     return (
         bool(os.statvfs("/").f_flag & os.ST_RDONLY),
         Path("/proc/self/mountinfo").read_text(),
-        Path("/work").stat(),
+        Path(WORK_MOUNT).stat(),
         Path("/proc/net/dev").read_text(),
     )
 
