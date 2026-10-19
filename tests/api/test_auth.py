@@ -20,6 +20,7 @@ from webauth.middleware.security_headers import (
 from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
+from presentator.application.decks import DRAFT_MAX_AGE
 from presentator.application.identity import (
     SESSION_LIFETIME,
 )
@@ -545,6 +546,37 @@ def test_the_datenschutz_renders_every_section_and_links_the_impressum(
     )
     assert f"siehe {impressum_link}." in page
     assert f"die im {impressum_link} genannte Kontaktadresse" in page
+
+
+def test_the_datenschutz_leaves_nothing_open_and_names_its_date(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+
+    assert "[offen" not in page
+    assert re.search(r"Stand: \d{1,2}\. \w+ \d{4}", page)
+
+
+def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+    draft_hours = int(DRAFT_MAX_AGE.total_seconds()) // 3600
+    session_hours = int(SESSION_LIFETIME.total_seconds()) // 3600
+
+    assert f"rund {draft_hours} Stunden nach Erzeugung" in page
+    assert f"{session_hours} Stunden" in page
+    assert f"{session_hours} Stunden im Browser" in page
+
+
+@pytest.mark.parametrize(
+    "cookie_name", ["__Host-session_id", "__Host-csrf_token", "slidev-"]
+)
+def test_the_datenschutz_names_every_cookie_and_storage_key(
+    lobby: Lobby,
+    cookie_name: str,
+) -> None:
+    assert cookie_name in lobby.client.get("/datenschutz").text
 
 
 @pytest.mark.parametrize("path", ["/login", "/datenschutz"])

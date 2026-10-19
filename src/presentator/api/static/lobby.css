@@ -984,9 +984,3 @@ td form {
   border-top: none;
   padding-top: 0;
 }
-
-/* A fact the code does not settle stays visibly open until the operator
- * approves the wording. */
-.legal-page .offen {
-  color: var(--busy);
-}

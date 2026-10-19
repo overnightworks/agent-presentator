@@ -138,10 +138,8 @@ from projector view.
 Impressum and Datenschutz, reachable without a session (the signed-out boards
 carry the same links), and the same footer links carried onto a page after
 login. The Datenschutz artboards show the
-page's layout with shortened text. The words are owned by
-`src/presentator/api/legal.py`; [`legal-datenschutz-draft.md`](legal-datenschutz-draft.md)
-is their copy for the operator's approval before they go online (issue #196,
-line 3).
+page's layout with the words of `src/presentator/api/legal.py`, which owns
+them; the operator approves them before they go online (issue #196, line 3).
 
 | PNG | Caption | Lines |
 |---|---|---|
