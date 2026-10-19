@@ -108,10 +108,12 @@ def test_a_listing_error_is_not_quiet() -> None:
 
 
 def test_a_kill_error_other_than_no_target_ends_the_sweep_with_its_error() -> None:
-    table = FakeProcessTable(kill_error=PermissionError(errno.EPERM, "refused"))
+    effects = FakeProcessTable(
+        kill_error=PermissionError(errno.EPERM, "refused")
+    ).effects()
 
     with pytest.raises(PermissionError):
-        sweep(table.effects(), DEADLINE)
+        sweep(effects, DEADLINE)
 
 
 def test_the_listing_yields_only_numeric_entries(tmp_path: Path) -> None:

@@ -46,11 +46,10 @@ def sweep(effects: SweepEffects, deadline: float) -> bool:
 
 def reap_children() -> None:
     """Collect every exited child without waiting."""
-    try:
-        while os.waitpid(-1, os.WNOHANG)[0] != 0:
-            pass
-    except ChildProcessError:
-        return
+    with suppress(ChildProcessError):
+        reaped = True
+        while reaped:
+            reaped = os.waitpid(-1, os.WNOHANG)[0] != 0
 
 
 def list_process_ids(proc_root: Path) -> list[str]:

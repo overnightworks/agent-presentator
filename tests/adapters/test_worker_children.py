@@ -293,12 +293,10 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
     child.close_gate()
     child.close_gate()
     child.wait()
+    foreign = ChildIdentity(OWN_UID + 100_000, OWN_GID, extra_groups=None)
     with pytest.raises(PermissionError):
         spawn_gated(
-            ["/bin/true"],
-            identity=ChildIdentity(OWN_UID + 100_000, OWN_GID, extra_groups=None),
-            environment={"PATH": PATH},
-            pass_fds=(),
+            ["/bin/true"], identity=foreign, environment={"PATH": PATH}, pass_fds=()
         )
 
     assert open_descriptor_count() == before

@@ -507,7 +507,7 @@ def test_a_foreign_peer_is_reset_unread_and_never_spawns_a_child(
         client = connect(volume)
         client.send(b"x")
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, FOREIGN_UID, life.serving())
+            accept_from(life, listener, FOREIGN_UID)
         with pytest.raises(ConnectionResetError):
             client.recv(1)
 
@@ -522,7 +522,7 @@ def test_a_connection_without_readable_credentials_is_closed_and_the_error_surfa
     with listening_with(volume, 1, UnidentifiableListener) as listener:
         connect(volume)
         with pytest.raises(OSError, match="no peer credentials"):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
 
     assert life.spawned == []
     assert "cancel" not in life.events
@@ -538,7 +538,7 @@ def test_uid_zero_is_closed_at_the_accept_loop_even_when_it_is_the_runtime_uid(
     with listening_with(volume, 1, RootListener) as listener:
         client = connect(volume)
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, 0, life.serving())
+            accept_from(life, listener, 0)
         assert client.recv(1) == b""
 
     assert life.spawned == []
@@ -552,7 +552,7 @@ def test_a_refused_peer_is_swept_and_the_watchdog_cancelled_before_the_next_acce
         connect(volume)
         connect(volume)
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, FOREIGN_UID, life.serving())
+            accept_from(life, listener, FOREIGN_UID)
 
     assert life.events == 2 * ["arm 7.0", "sweep 104.0", "cancel"]
 
@@ -565,7 +565,7 @@ def test_a_kept_life_connection_is_handed_to_a_gated_child_then_swept(
     with listening_with(volume, accepts=2) as listener:
         clients = [connect(volume), connect(volume)]
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
         assert [client.recv(1) for client in clients] == [b"", b""]
 
     assert life.events == 2 * [
@@ -590,7 +590,7 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
     with listening_with(volume, accepts=1) as listener:
         connect(volume)
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
 
     [spawned] = life.spawned
     assert spawned.command[1:] == [
@@ -601,6 +601,12 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         str(spawned.pass_fds[0]),
     ]
     assert len(spawned.pass_fds) == 1
+
+
+def accept_from(
+    life: ScriptedLife, listener: socket.socket, runtime_uid: int
+) -> LifeEnd:
+    return worker.accept_connections(listener, runtime_uid, life.serving())
 
 
 LIFE_ENDS = {
@@ -662,7 +668,7 @@ def test_a_failing_step_ends_the_life_and_leaves_the_watchdog_armed(
     life = make_life()
     with listening_with(volume, accepts=1) as listener:
         client = connect(volume)
-        outcome = worker.accept_connections(listener, OWN_UID, life.serving())
+        outcome = accept_from(life, listener, OWN_UID)
         assert client.recv(1) == b""
 
     assert outcome == life_end
@@ -708,7 +714,7 @@ def test_a_sweep_that_fails_for_another_reason_surfaces_with_its_error(
     with listening_with(volume, accepts=1) as listener:
         connect(volume)
         with pytest.raises(PermissionError, match="kill refused"):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
 
     assert "cancel" not in life.events
 
@@ -720,7 +726,7 @@ def test_the_watchdog_is_armed_before_the_peer_check_and_left_armed_when_it_fail
     with listening_with(volume, 1, UnidentifiableListener) as listener:
         connect(volume)
         with pytest.raises(OSError, match="no peer credentials"):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
 
     assert life.events == ["arm 7.0"]
 
@@ -730,7 +736,7 @@ def test_the_runtime_uid_gets_one_gated_child_per_connection(volume: Path) -> No
     with listening_with(volume, accepts=CONNECTIONS) as listener:
         clients = [connect(volume), connect(volume)]
         with pytest.raises(StopServingError):
-            worker.accept_connections(listener, OWN_UID, life.serving())
+            accept_from(life, listener, OWN_UID)
 
     assert len(life.spawned) == len(clients)
 
