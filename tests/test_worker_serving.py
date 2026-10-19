@@ -141,10 +141,8 @@ def test_refuses_a_volume_root_of_another_uid_and_leaves_its_mode(volume: Path) 
     assert stat.S_IMODE(volume.stat().st_mode) == PRIVATE_MODE
 
 
-def test_refuses_a_volume_root_that_is_a_symlink_or_a_file(
-    tmp_path_factory: pytest.TempPathFactory, volume: Path
-) -> None:
-    link = tmp_path_factory.mktemp("l") / "link"
+def test_refuses_a_volume_root_that_is_a_symlink_or_a_file(volume: Path) -> None:
+    link = volume.with_name("link")
     link.symlink_to(volume)
     plain_file = volume / "file"
     plain_file.write_text("")
@@ -290,10 +288,10 @@ def listening_with(volume: Path, accepts: int) -> BoundedListener:
 
 
 def test_a_foreign_peer_is_closed_unread_and_never_reaches_the_handler(
-    volume: Path,
+    volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     handled: list[socket.socket] = []
-    UnreadableConnection.reads = 0
+    monkeypatch.setattr(UnreadableConnection, "reads", 0)
     with listening_with(volume, accepts=1) as listener:
         client = connect(volume)
         with pytest.raises(StopServingError):
