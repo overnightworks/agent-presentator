@@ -1,0 +1,7 @@
+claim_id = "bfb7ddc02e5a4b01b61366c75283864d"
+agent = "claude"
+role = "builder"
+base = "a1c8ba092885d3a19875398387862f9dff323a25"
+branch = "claude/issue-244-quality-v0-2-1-bernehmen-sonar-zuerst-au"
+scope = [".github/workflows/ci.yml"]
+opened_commit = "2a2d4c4973aa340e29eefa8e76b7c2d53280c316"
