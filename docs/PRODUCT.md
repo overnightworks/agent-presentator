@@ -358,10 +358,12 @@ A sibling process under [`speech/`](../speech/README.md) holds a local speaking
 model and a local hearing model and offers them to the host co-presenter. The
 co-presenter remains a host process but is private to Presentator through a
 same-UID Unix socket. The repository overlay calls relative
-`/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Both
-roles use them through the existing active session; `/ask` requires its CSRF
-token and hearing requires the configured browser Origin. Presentator rechecks
-an answer and hearing lease every second, so session loss stops generation,
+`/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Only
+the admin role may use them, through the existing active session: a signed-in
+person without it gets 403 on `/who` and `/ask` and a 1008 close before accept
+on `/hear`. `/ask` requires its CSRF token and hearing requires the configured
+browser Origin. Presentator rechecks an answer and hearing lease every half second,
+so session loss or loss of the admin role stops generation,
 capture and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
 and credentials do not. Which speech models run and what they cost on the card
