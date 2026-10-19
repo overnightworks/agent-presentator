@@ -1,0 +1,8 @@
+claim_id = "54ea2f76cf894054a9bc7ee4b497edde"
+agent = "claude"
+role = "builder"
+base = "6557dc18b2825c5c128736b7cba65a0fe46f02aa"
+branch = "claude/issue-296-build-worker-a4a2-gegatetes-wire-kind"
+scope = ["pyproject.toml", "src/presentator/adapters/worker_children.py", "src/presentator/host/worker.py", "src/presentator/host/worker_termination.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_worker_children.py", "tests/test_worker_serving.py", "tests/test_worker_termination.py", "tests/test_worker_wire.py"]
+opened_commit = "696d61b6799c6a6f117636ac4dd04840ae052771"
+whole_reason = "One handover: the gated spawn has no caller without the wire entry, and a spawn without the sweep and the watchdog lets a child outlive its connection or a stalled controller run on."
