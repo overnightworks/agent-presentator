@@ -295,9 +295,12 @@ async function installMediaFakes(page: Page) {
         report('track-stopped')
       },
     }
+    const microphones = window as unknown as { __microphonesRequested: number }
+    microphones.__microphonesRequested = 0
     Object.defineProperty(navigator, 'mediaDevices', {
       value: {
         getUserMedia: async () => {
+          microphones.__microphonesRequested += 1
           report('microphone-opened')
           return { getTracks: () => [track] }
         },
@@ -501,7 +504,14 @@ describe('presenter controls', () => {
       await ai.waitFor({ state: 'visible', timeout: 2_000 })
       await ai.click({ timeout: 2_000 })
       if (mode === 'socket-error') {
-        await expect.poll(() => media.microphoneOpened).toBe(true)
+        // The error must land after activation finished: an error during
+        // `addModule` is released by activation's own cleanup and would not
+        // prove the error path releases the microphone.
+        await expect.poll(() => page.evaluate(
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { workletLive: boolean } }
+          }).__copresenter.snapshot().workletLive,
+        )).toBe(true)
         sendHearingError()
       }
       await page.getByText(message).waitFor({ state: 'visible', timeout: 5_000 })
@@ -511,7 +521,11 @@ describe('presenter controls', () => {
       )).toBe(0)
       await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
       if (mode === 'socket-error') await expect.poll(() => media.trackStopped).toBe(true)
-      else expect(media.microphoneOpened).toBe(false)
+      else {
+        expect(await page.evaluate(
+          () => (window as unknown as { __microphonesRequested: number }).__microphonesRequested,
+        )).toBe(0)
+      }
     } finally {
       hearingMode = 'ready'
       await browser.close()
