@@ -160,6 +160,7 @@ class Server(Protocol):
 
     def __call__(self, *, controller_gid: int, runtime_uid: int) -> int:
         """Run until a refusal and return its exit status."""
+        ...
 
 
 @dataclass(frozen=True)

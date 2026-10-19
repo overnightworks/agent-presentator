@@ -6,9 +6,10 @@ import socket
 import stat
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import ClassVar, NoReturn
 
 import pytest
 
@@ -41,7 +42,7 @@ def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 @contextmanager
 def serving(
     volume: Path, runtime_uid: int, admitted: int
-) -> Iterator[tuple[threading.Thread, list[socket.socket], list[object]]]:
+) -> Generator[tuple[threading.Thread, list[socket.socket], list[object]]]:
     handled: list[socket.socket] = []
     outcome: list[object] = []
 
@@ -324,19 +325,19 @@ class BoundedListener(socket.socket):
 class UnidentifiableConnection(socket.socket):
     """A connection whose peer credentials cannot be read."""
 
-    def getsockopt(self, *_arguments: object) -> int:
+    accepted: ClassVar[list[socket.socket]] = []
+
+    def getsockopt(self, *_arguments: int) -> NoReturn:
         raise OSError(errno.ENOTSOCK, "no peer credentials")
 
 
 class UnidentifiableListener(BoundedListener):
     """A listener whose accepted connections have no readable peer credentials."""
 
-    accepted: list[socket.socket]
-
     def accept(self) -> tuple[socket.socket, object]:
         connection, address = super().accept()
         unidentifiable = UnidentifiableConnection(fileno=connection.detach())
-        self.accepted.append(unidentifiable)
+        UnidentifiableConnection.accepted.append(unidentifiable)
         return unidentifiable, address
 
 
@@ -367,17 +368,19 @@ def test_a_foreign_peer_is_reset_unread_and_never_reaches_the_handler(
 
 
 def test_a_connection_without_readable_credentials_is_closed_and_the_error_surfaces(
-    volume: Path,
+    volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     handled: list[socket.socket] = []
+    monkeypatch.setattr(UnidentifiableConnection, "accepted", [])
     with listening_with(volume, 1, UnidentifiableListener) as listener:
-        listener.accepted = []
         connect(volume)
         with pytest.raises(OSError, match="no peer credentials"):
             worker.accept_connections(listener, OWN_UID, handled.append)
 
     assert handled == []
-    assert [connection.fileno() for connection in listener.accepted] == [-1]
+    assert [
+        connection.fileno() for connection in UnidentifiableConnection.accepted
+    ] == [-1]
 
 
 def test_the_runtime_uid_is_handed_to_the_handler_once_per_connection(
