@@ -65,9 +65,14 @@ _UNSAFE_LINE_VALUE: Final = "a source's {what} cannot be sent to git as one line
 # URL: they read the user up to the first `@` of the authority, so any shape
 # this pattern and `split_user_name` do not recognise stays git's to judge.
 _HTTP_AUTHORITY: Final = re.compile(
-    r"(?P<scheme>https?://)(?P<authority>[^/?#]*)", re.IGNORECASE
+    r"(?P<scheme>https?://)(?P<authority>[^/?#]*)", re.IGNORECASE | re.ASCII
 )
-_CONTROL_CHARACTER: Final = re.compile(r"[\x00-\x1f\x7f]")
+# RFC 3986 userinfo without `:`: unreserved, sub-delims and well-formed
+# percent escapes. Anything else, a space or a raw non-ASCII character
+# included, may be rejected or read differently by libcurl, so git judges it.
+_PLAIN_USER_NAME: Final = re.compile(
+    r"(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+"
+)
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
@@ -333,30 +338,24 @@ def split_user_name(url: str) -> tuple[str, str | None]:
     """That URL without a user name it names alone, and the user name decoded.
 
     Only a plain http(s) URL whose authority holds exactly one `@`, a user
-    name and no password is split; every other shape, an ssh remote or a
-    doubtful one included, is returned unchanged for git to judge. The user
-    name is cut out of the original text, so nothing else in it moves. A user
-    name git's line protocol cannot carry is refused.
+    name of plain userinfo characters and no password is split; every other
+    shape, an ssh remote or a doubtful one included, is returned unchanged for
+    git to judge. The user name is cut out of the original text, so nothing
+    else in it moves. A user name git's line protocol cannot carry is refused.
     """
     match = _HTTP_AUTHORITY.match(url)
-    if match is None or _CONTROL_CHARACTER.search(url):
+    if match is None or not url.isprintable():
         return url, None
     authority = match["authority"]
     userinfo, _, host = authority.partition("@")
     if (
         authority.count("@") != 1
-        or not userinfo
-        or ":" in userinfo
+        or _PLAIN_USER_NAME.fullmatch(userinfo) is None
         or "\\" in authority
         or authority.count("[") != authority.count("]")
     ):
         return url, None
-    try:
-        user_name = unquote(userinfo, errors="strict")
-    except UnicodeDecodeError as undecodable:
-        raise InvalidCredentialError(
-            _UNSAFE_LINE_VALUE.format(what="URL's user name")
-        ) from undecodable
+    user_name = unquote(userinfo, errors="surrogateescape")
     _reject_unsafe_line_value(user_name, what="URL's user name")
     without_user = (
         url[: match.start("authority")] + host + url[match.end("authority") :]

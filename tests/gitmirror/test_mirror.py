@@ -560,6 +560,10 @@ def test_the_helper_answers_with_the_user_name_git_puts_in_the_request() -> None
                 "https://alice@host.example/r.git\n",
                 "https://alice@host.example/r\r.git",
                 "http://alice@[::1/r.git",
+                "https://al ice@host.example/r.git",
+                "https://al\u00e9ice@host.example/r.git",
+                "https://al%zzice@host.example/r.git",
+                "http\u017f://alice@host.example/r.git",
             )
         ],
     ],
