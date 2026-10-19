@@ -398,8 +398,17 @@ def make_socket_unreadable(_root: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(worker.os, "lstat", denied)
 
 
-def write_status(content: str) -> Callable[[Path, pytest.MonkeyPatch], None]:
-    return lambda root, _monkeypatch: (root / "proc/self/status").write_text(content)
+def break_capability_bounding_set(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    status = SEALED_STATUS.replace("CapBnd:\t00000000000000e0", "CapBnd:\tzz")
+    (root / "proc/self/status").write_text(status)
+
+
+def remove_status(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "proc/self/status").unlink()
+
+
+def remove_network_table(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "proc/net/dev").unlink()
 
 
 def break_mountinfo(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
@@ -422,19 +431,13 @@ REFUSED_FACTS = {
     "docker socket dangling symlink": (make_socket_dangling, Predicate.MOUNTS),
     "docker socket unreadable": (make_socket_unreadable, Predicate.MOUNTS),
     "capability bounding set not hexadecimal": (
-        write_status(SEALED_STATUS.replace("CapBnd:\t00000000000000e0", "CapBnd:\tzz")),
+        break_capability_bounding_set,
         Predicate.CAPABILITIES,
     ),
-    "status file missing": (
-        lambda root, _monkeypatch: (root / "proc/self/status").unlink(),
-        Predicate.CAPABILITIES,
-    ),
+    "status file missing": (remove_status, Predicate.CAPABILITIES),
     "mountinfo malformed": (break_mountinfo, Predicate.MOUNTS),
     "work directory missing": (remove_work, Predicate.MOUNTS),
-    "network table missing": (
-        lambda root, _monkeypatch: (root / "proc/net/dev").unlink(),
-        Predicate.MOUNTS,
-    ),
+    "network table missing": (remove_network_table, Predicate.MOUNTS),
     "dumpable unreadable": (fail_dumpable_read, Predicate.NON_DUMPABLE),
 }
 
