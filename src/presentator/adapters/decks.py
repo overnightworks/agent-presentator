@@ -231,7 +231,7 @@ _TITLE_KEY: Final = "title"
 _UNREADABLE_SOURCE: Final = "source %s cannot be read: %s"
 _UNREADABLE_MANIFEST: Final = "folder %s has no readable title, keeps its listing: %s"
 _OUTSIDE_MOUNT: Final = (
-    "source %s no longer resolves under the local mount, treated as unreadable"
+    "source %s no longer resolves to a readable repository, treated as unreadable"
 )
 _MIRROR_STAYED: Final = "the mirror of source %s could not be taken away"
 _RECORD_SOURCE_RUN: Final = """

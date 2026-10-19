@@ -1407,6 +1407,22 @@ def test_a_refresh_sweeps_drafts_a_day_old() -> None:
             SourceRefusal.ACCESS_MISMATCH,
             id="tab in the URL",
         ),
+        pytest.param(
+            "talks",
+            "https://[::1/r.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="unclosed bracket in an https URL",
+        ),
+        pytest.param(
+            "talks",
+            "ssh://git@[dead.beef]/r.git",
+            "ssh",
+            "",
+            SourceRefusal.ACCESS_MISMATCH,
+            id="bracket holding a name in an ssh URL",
+        ),
     ],
 )
 def test_a_draft_that_cannot_be_a_source_is_refused(
@@ -1928,6 +1944,10 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
         ("git@git.example.invalid:talks.git", AccessKind.SSH),
         ("git@github.com:org/repo.git", AccessKind.SSH),
         ("git@[::1]:r.git", AccessKind.SSH),
+        ("https://[2001:db8::1]/r.git", AccessKind.HTTPS),
+        ("https://[2001:db8::1]:8443/r.git", AccessKind.HTTPS),
+        ("ssh://git@[2001:db8::1]/r.git", AccessKind.SSH),
+        ("git@[2001:db8::1]:r.git", AccessKind.SSH),
         ("file:///srv/r.git", AccessKind.FILE),
         ("/srv/r.git", AccessKind.FILE),
         ("http://git.example.invalid/talks.git", None),
@@ -1950,6 +1970,10 @@ _HTTPS_TWO_HOSTS = (
     "https://good.example@[evil.example]/r.git",
     "https://[::1/r.git",
     "https://good.example\uff20evil.example/r.git",
+    "https://[abc]/r.git",
+    "https://[dead.beef]/r.git",
+    "https://host/r.git\x7f",
+    "https://host/r.git\x9b",
 )
 _SSH_TWO_HOSTS = (
     "ssh://git@a@b/r.git",
@@ -1963,6 +1987,22 @@ _SSH_TWO_HOSTS = (
     "a\\@b:c",
     "git@[good.example:x@evil.example]:r.git",
     "git@[::1@evil.example]:r.git",
+    "ssh://git@good.example/x@[evil.example]/r.git",
+    "ssh://good.example/x@[evil.example]/r.git",
+    "ssh://[::1]/x@[evil.example]/r.git",
+    "ssh://git@good.example:2222/x@[evil.example]/r.git",
+    "ssh://git@good.example/x@[evil.example]:2200/r.git",
+    "git@good.example:x@[evil.example]:r.git",
+    "git@good.example:x]@[evil.example]:r.git",
+    "ssh://git@good.example/x@%5Bevil.example%5D/r.git",
+    "ssh://git@[abc]/r.git",
+    "ssh://git@[dead.beef]/r.git",
+    "git@[abc]:r.git",
+    "git@[dead.beef]:r.git",
+    "ssh://git@good.example/r.git\x7f",
+    "ssh://git@good.example/r.git\x9b",
+    "git@good.example:r.git\x7f",
+    "git@good.example:r.git\x9b",
 )
 
 

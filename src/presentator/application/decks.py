@@ -203,7 +203,10 @@ def _refusal_for(
             access in (_FILE_ACCESS, _SSH_ACCESS) and bool(secret.strip()),
             SourceRefusal.CREDENTIAL_NOT_ALLOWED,
         ),
-        (urlparse(url).password is not None, SourceRefusal.USERINFO),
+        (
+            access_kind_of(url) is not None and urlparse(url).password is not None,
+            SourceRefusal.USERINFO,
+        ),
         (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),

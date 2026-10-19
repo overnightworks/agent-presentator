@@ -2,9 +2,11 @@
 
 import posixpath
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from ipaddress import IPv6Address
 from pathlib import Path, PurePosixPath
 from typing import Final
 from urllib.parse import unquote, urlparse
@@ -115,24 +117,49 @@ def local_mount_path_of(url: str) -> PurePosixPath | None:
 
 # Only these spellings of a remote address are an access. Every other
 # spelling, however git or curl would read it, could name a different host than
-# the one a person sees, so none of them may carry a secret. The path after the
-# authority is free text; the authority is checked character by character,
-# because curl, git and ssh each end it at a different place.
-_HOST: Final = r"(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])"
+# the one a person sees, so none of them may carry a secret. The authority is
+# checked character by character, because curl, git and ssh each end it at a
+# different place. The path of an ssh address holds no bracket, because git
+# reads an `@[` anywhere in the address as the start of the host ssh contacts;
+# an https path is only ever sent to the one host the authority names.
+_HOST: Final = r"(?:[A-Za-z0-9.-]+|\[(?P<ipv6>[0-9A-Fa-f:.]+)\])"
 _PORT: Final = r"(?::[0-9]+)?"
-_REST: Final = r"[^\s\\]*"
+_HTTPS_PATH: Final = r"[^\s\\]*"
+_SCP_PATH: Final = r"[^\s\\\[\]]*"
+_SSH_URL_PATH: Final = r"[^\s\\\[\]%?#]*"
 _URL_USER: Final = r"[A-Za-z0-9._~!$&'()*+,;=:-]"
 _HTTPS_URL: Final = re.compile(
-    rf"https://(?:(?:{_URL_USER}|%[0-9A-Fa-f]{{2}})+@)?{_HOST}{_PORT}/{_REST}"
+    rf"https://(?:(?:{_URL_USER}|%[0-9A-Fa-f]{{2}})+@)?{_HOST}{_PORT}/{_HTTPS_PATH}"
 )
-_SSH_URL: Final = re.compile(rf"ssh://(?:{_URL_USER}+@)?{_HOST}{_PORT}/[^\s\\%?#]*")
-_SCP_ADDRESS: Final = re.compile(rf"[A-Za-z0-9._~-]+@{_HOST}:{_REST}")
+_SSH_URL: Final = re.compile(rf"ssh://(?:{_URL_USER}+@)?{_HOST}{_PORT}/{_SSH_URL_PATH}")
+_SCP_ADDRESS: Final = re.compile(rf"[A-Za-z0-9._~-]+@{_HOST}:{_SCP_PATH}")
+
+
+def _names_a_host(address: re.Match[str] | None) -> bool:
+    """Whether the match is an address whose bracketed host, if any, is IPv6.
+
+    git strips the brackets from `[name]` and ssh then resolves `name`, so a
+    bracket that does not hold an IPv6 literal names a host the person cannot
+    read off the address.
+    """
+    if address is None:
+        return False
+    literal = address.group("ipv6")
+    if literal is None:
+        return True
+    try:
+        IPv6Address(literal)
+    except ValueError:
+        return False
+    return True
 
 
 def _remote_access_kind_of(url: str) -> AccessKind | None:
-    if _HTTPS_URL.fullmatch(url):
+    if _names_a_host(_HTTPS_URL.fullmatch(url)):
         return AccessKind.HTTPS
-    if _SSH_URL.fullmatch(url) or _SCP_ADDRESS.fullmatch(url):
+    if _names_a_host(_SSH_URL.fullmatch(url)) or _names_a_host(
+        _SCP_ADDRESS.fullmatch(url)
+    ):
         return AccessKind.SSH
     return None
 
@@ -143,9 +170,10 @@ def access_kind_of(url: str) -> AccessKind | None:
     HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy
     key; `file://` or a bare absolute path is this box's own mount. Anything
     else is not an access this product has, and that includes a remote
-    address whose host could be read two ways.
+    address whose host could be read two ways and any address holding a
+    control character.
     """
-    if any(character < " " for character in url):
+    if any(unicodedata.category(character) == "Cc" for character in url):
         return None
     if (kind := _remote_access_kind_of(url)) is not None:
         return kind
