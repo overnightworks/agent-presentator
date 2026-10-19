@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Final
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from gitmirror.model import (
     Change,
@@ -35,12 +36,12 @@ from gitmirror.model import (
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
 # GitHub, GitLab, and every other host that hands out a read-only token accept
 # any user name beside it, so an operator whose URL names none still reaches a
-# host that insists on one. A URL that does name one keeps it: a helper's
-# `username=` answer always wins over the request's own, so the helper reads
-# the request on stdin and only fills the gap. git's request carries a user
-# name from `credential.username` reliably, but from a user-only URL not after
-# the host's 401 (verified with git 2.43 and 2.56), so `split_user_name` moves
-# it out of the URL into that setting.
+# host that insists on one. A user name the source names is kept: the helper
+# reads the request on stdin and only fills the gap, because a `username=` it
+# answers would override the request's own. git drops the user name of a
+# user-only URL after the host's 401 (verified with git 2.43 and 2.56) but
+# keeps `credential.username` in every request, so `split_user_name` moves the
+# name out of the URL into that setting.
 CREDENTIAL_USER_NAME: Final = "token"
 # git asks a helper for the credentials of an https remote, and answering out
 # of the child's environment keeps the secret off the command line and off
@@ -62,6 +63,10 @@ _CREDENTIAL_HELPER: Final = (
 _UNSAFE_CREDENTIAL: Final = (
     "a source's credential carries a control character and cannot be sent to git"
 )
+_UNSAFE_USER_NAME: Final = (
+    "a source URL's user name carries a control character and cannot be sent to git"
+)
+_USER_NAME_SCHEMES: Final = ("http", "https")
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
@@ -127,7 +132,6 @@ _UNREACHABLE_WORDS: Final = (
 # git reflects a redirect target or the remote's own reply verbatim, so this
 # runs over the whole diagnostic, not only the source's own URL.
 _USERINFO: Final = re.compile(r"://[^/@]*@")
-_USER_ONLY_HTTP_URL: Final = re.compile(r"^(?P<scheme>https?://)(?P<user>[^/@:]+)@")
 
 _log = logging.getLogger(__name__)
 
@@ -197,8 +201,8 @@ class GitMirror:
         self.directory.parent.mkdir(parents=True, exist_ok=True)
         self._run("init", "--bare", "--quiet")
         ref = self.source.ref
-        # The URL is the one argument that may carry a user name, so this is the
-        # only call that never turns its command line into an error message.
+        # The URL may carry a user name, so this is the only call that never
+        # turns its command line into an error message.
         url, user_name = split_user_name(self.source.url)
         try:
             with _credentials(url, secret) as (credential, ssh_key):
@@ -272,12 +276,12 @@ def check_connection(
     repository before Add source stores anything, through the same
     credential helper, environment, and classifier `_pull` uses.
     """
-    if secret is not None and not is_ssh_remote(url):
-        try:
+    try:
+        if secret is not None and not is_ssh_remote(url):
             _reject_unsafe_secret(secret)
-        except InvalidCredentialError:
-            return _REFUSED_CHECK
-    url, user_name = split_user_name(url)
+        url, user_name = split_user_name(url)
+    except InvalidCredentialError:
+        return _REFUSED_CHECK
     try:
         with _credentials(url, secret) as (credential, ssh_key):
             probed = subprocess.run(
@@ -325,14 +329,23 @@ def _git_executable() -> str:
 
 
 def split_user_name(url: str) -> tuple[str, str | None]:
-    """That URL without a user name it names alone, and the user name.
+    """That URL without a user name it names alone, and the user name decoded.
 
-    A URL that also names a password, or an ssh remote, stays as it is.
+    A URL that also names a password, or an ssh remote, stays as it is. Only
+    the URL's authority is read, so an `@` in its query or fragment never
+    names a user. A user name git's line protocol cannot carry is refused.
     """
-    named = _USER_ONLY_HTTP_URL.match(url)
-    if named is None:
+    parts = urlsplit(url)
+    userinfo, _, host = parts.netloc.rpartition("@")
+    if parts.scheme not in _USER_NAME_SCHEMES or not userinfo or ":" in userinfo:
         return url, None
-    return named["scheme"] + url[named.end() :], named["user"]
+    try:
+        user_name = unquote(userinfo, errors="strict")
+    except UnicodeDecodeError as undecodable:
+        raise InvalidCredentialError(_UNSAFE_USER_NAME) from undecodable
+    if not user_name.isprintable():
+        raise InvalidCredentialError(_UNSAFE_USER_NAME)
+    return urlunsplit(parts._replace(netloc=host)), user_name
 
 
 def credential_arguments(
@@ -342,12 +355,9 @@ def credential_arguments(
     # An empty helper clears whatever a config file or the environment set, so
     # only the helper named here can ever answer.
     cleared = ("-c", "credential.helper=")
-    if secret is None:
-        return cleared
-    helper = ("-c", f"credential.helper={_CREDENTIAL_HELPER}")
-    if user_name is None:
-        return (*cleared, *helper)
-    return (*cleared, *helper, "-c", f"credential.username={user_name}")
+    helper = () if secret is None else ("-c", f"credential.helper={_CREDENTIAL_HELPER}")
+    named = () if user_name is None else ("-c", f"credential.username={user_name}")
+    return (*cleared, *helper, *named)
 
 
 def unattended_environment(
