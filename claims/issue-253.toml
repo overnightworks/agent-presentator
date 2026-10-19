@@ -1,0 +1,7 @@
+claim_id = "9ec1f53683d74aef98f23b84cd295b66"
+agent = "claude"
+role = "builder"
+base = "c04c4db95c567b5b3e79f56a8f92780e2accba40"
+branch = "claude/issue-253-codeql-quality-workflow"
+scope = [".github/workflows/code-scanning.yml"]
+opened_commit = "372d73eab8717be455b9c58b3871e931c420da5a"
