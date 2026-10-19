@@ -1,0 +1,7 @@
+claim_id = "9c59d643e44446ba84d15bfb71dedef9"
+agent = "claude"
+role = "builder"
+base = "4f1f82646a41ca0a16486661ca4a1e5fd963ecbe"
+branch = "claude/issue-289-k13-s2b-die-spalten-upgrades-f-r-decks-u"
+scope = ["src/presentator/adapters/decks.py", "tests/adapters/test_decks.py"]
+opened_commit = "c4885728b5ef7d4e7c74859de6f76a9034ec2e0b"
