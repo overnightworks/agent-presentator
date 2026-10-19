@@ -1,7 +1,0 @@
-claim_id = "d991a7f0fe65490b8f0f3b66c5fb8256"
-agent = "claude"
-role = "builder"
-base = "123ca75db810692685a5944619f6c7865c568f1f"
-branch = "claude/issue-268-a3-worker-self-check"
-scope = ["pyproject.toml", "src/presentator/host/worker.py", "tests/test_worker.py"]
-opened_commit = "0a97e9af852a5bcce3c4da857df9c2c0c6c185ac"
