@@ -381,23 +381,6 @@ def test_reads_a_missing_toolchain_as_absent(sealed_root: Path) -> None:
     assert toolchain.slidev_mode is None
 
 
-def make_socket_dangling(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
-    (root / "run").mkdir()
-    (root / "run/docker.sock").symlink_to(root / "nowhere")
-
-
-def make_socket_present(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
-    (root / "run").mkdir()
-    (root / "run/docker.sock").touch()
-
-
-def make_socket_unreadable(_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def denied(path: Path) -> os.stat_result:
-        raise PermissionError(path)
-
-    monkeypatch.setattr(worker.os, "lstat", denied)
-
-
 def break_capability_bounding_set(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     status = SEALED_STATUS.replace("CapBnd:\t00000000000000e0", "CapBnd:\tzz")
     (root / "proc/self/status").write_text(status)
@@ -415,6 +398,37 @@ def break_mountinfo(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     (root / "proc/self/mountinfo").write_text("garbage\n")
 
 
+def break_mountinfo_encoding(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "proc/self/mountinfo").write_bytes(b"\xff\n")
+
+
+def loop_slidev_package(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    link = root / "app/frontend/node_modules/@slidev/cli"
+    link.unlink()
+    link.symlink_to(link)
+
+
+def grant_extra_capability(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    status = SEALED_STATUS.replace(
+        "CapEff:\t00000000000000e0", "CapEff:\t00000000002000e0"
+    )
+    (root / "proc/self/status").write_text(status)
+
+
+def grant_capability_and_break_mountinfo_encoding(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant_extra_capability(root, monkeypatch)
+    break_mountinfo_encoding(root, monkeypatch)
+
+
+def grant_capability_and_loop_slidev_package(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant_extra_capability(root, monkeypatch)
+    loop_slidev_package(root, monkeypatch)
+
+
 def remove_work(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     (root / "work").rmdir()
 
@@ -427,9 +441,6 @@ def fail_dumpable_read(_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 REFUSED_FACTS = {
-    "docker socket present": (make_socket_present, Predicate.MOUNTS),
-    "docker socket dangling symlink": (make_socket_dangling, Predicate.MOUNTS),
-    "docker socket unreadable": (make_socket_unreadable, Predicate.MOUNTS),
     "capability bounding set not hexadecimal": (
         break_capability_bounding_set,
         Predicate.CAPABILITIES,
@@ -438,6 +449,15 @@ REFUSED_FACTS = {
     "mountinfo malformed": (break_mountinfo, Predicate.MOUNTS),
     "work directory missing": (remove_work, Predicate.MOUNTS),
     "network table missing": (remove_network_table, Predicate.MOUNTS),
+    "mountinfo not UTF-8": (break_mountinfo_encoding, Predicate.MOUNTS),
+    "extra capability before non-UTF-8 mountinfo": (
+        grant_capability_and_break_mountinfo_encoding,
+        Predicate.CAPABILITIES,
+    ),
+    "extra capability before slidev package symlink loop": (
+        grant_capability_and_loop_slidev_package,
+        Predicate.CAPABILITIES,
+    ),
     "dumpable unreadable": (fail_dumpable_read, Predicate.NON_DUMPABLE),
 }
 
@@ -461,6 +481,40 @@ def test_unreadable_or_unparsable_fact_refuses_through_main_naming_its_predicate
 
     assert worker.main(["--check"], boundary) == worker.REFUSAL_EXIT_STATUS
     assert f"self-check refused: {refused}" in caplog.text
+
+
+def make_socket_dangling(root: Path) -> None:
+    (root / "run").mkdir()
+    (root / "run/docker.sock").symlink_to(root / "nowhere")
+
+
+def make_socket_present(root: Path) -> None:
+    (root / "run").mkdir()
+    (root / "run/docker.sock").touch()
+
+
+@pytest.mark.parametrize(
+    "make_socket",
+    [make_socket_present, make_socket_dangling],
+    ids=["present", "dangling symlink"],
+)
+def test_reads_a_docker_socket_as_present(
+    sealed_root: Path, make_socket: Callable[[Path], None]
+) -> None:
+    make_socket(sealed_root)
+
+    assert worker.read_snapshot(sealed_root).docker_socket_present is True
+
+
+def test_denied_socket_lookup_marks_mounts_unreadable(
+    sealed_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def denied(path: Path) -> os.stat_result:
+        raise PermissionError(path)
+
+    monkeypatch.setattr(worker.os, "lstat", denied)
+
+    assert worker.read_snapshot(sealed_root).unreadable == {Predicate.MOUNTS}
 
 
 def unknown_user(monkeypatch: pytest.MonkeyPatch) -> None:

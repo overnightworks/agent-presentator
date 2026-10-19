@@ -301,7 +301,7 @@ def _mode_if_file_or_directory(path: Path) -> int | None:
 
 
 def _vite_link_target(root: Path) -> str | None:
-    vite = (root / SLIDEV_PACKAGE).resolve() / "node_modules" / ".vite"
+    vite = Path(os.path.realpath(root / SLIDEV_PACKAGE)) / "node_modules" / ".vite"
     return str(vite.readlink()) if vite.is_symlink() else None
 
 
@@ -369,8 +369,9 @@ UNREAD_TOOLCHAIN = Toolchain(None, None, (), None)
 def read_snapshot(root: Path) -> Snapshot:
     """Read the facts the predicates judge, from the filesystem under `root`.
 
-    A fact that cannot be read marks its predicate unreadable, so the self-check
-    judges every predicate in order instead of stopping at the first read.
+    A fact that cannot be read or decoded marks its predicate unreadable, so the
+    self-check judges every predicate in order instead of stopping at the first
+    read.
     """
     unreadable: set[Predicate] = set()
 
@@ -379,7 +380,7 @@ def read_snapshot(root: Path) -> Snapshot:
     ) -> Fact:
         try:
             return reading()
-        except (OSError, KeyError):
+        except (OSError, KeyError, UnicodeDecodeError):
             unreadable.add(predicate)
             return placeholder
 
