@@ -711,6 +711,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
         clock.advance(after_the_check)
         deadline.release_first()
         if closed:
+            socket.send_text("force an observable close if the session stood")
             with pytest.raises(WebSocketDisconnect) as ended:
                 socket.receive_json()
             assert ended.value.code == POLICY_VIOLATION

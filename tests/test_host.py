@@ -774,7 +774,7 @@ def test_two_sources_each_list_their_own_decks_and_reconcile_alone(
     assert after_the_delete == [_ANOTHER_SLUG]
 
 
-def test_an_instance_refuses_a_password_hash_database_before_changing_it(
+def test_an_instance_refuses_a_database_with_login_attempts_before_changing_it(
     environment: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
