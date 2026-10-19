@@ -21,7 +21,7 @@ from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
 from presentator.application.identity import (
-    IDLE_WINDOW,
+    SESSION_LIFETIME,
 )
 from presentator.contracts.decks import Build, Deck, talk_address
 from tests.api.lobby import (
@@ -164,7 +164,7 @@ def test_the_session_cookie_travels_locked_down(signed_in_lobby: Lobby) -> None:
 
     assert "HttpOnly" in cookie
     assert "SameSite=lax" in cookie
-    assert f"Max-Age={int(IDLE_WINDOW.total_seconds())}" in cookie
+    assert f"Max-Age={int(SESSION_LIFETIME.total_seconds())}" in cookie
     assert "Secure" in cookie
 
 
@@ -234,9 +234,35 @@ def test_a_login_survives_a_ninety_minute_talk(signed_in_lobby: Lobby) -> None:
 def test_a_session_left_alone_for_twelve_hours_leads_back_to_the_login(
     signed_in_lobby: Lobby,
 ) -> None:
-    signed_in_lobby.clock.advance(IDLE_WINDOW + timedelta(seconds=1))
+    signed_in_lobby.clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
 
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
+
+
+def use_every_quarter_hour_until(lobby: Lobby, lifetime: timedelta) -> None:
+    for _ in range(lifetime // timedelta(minutes=15)):
+        lobby.clock.advance(timedelta(minutes=15))
+        assert lobby.client.get("/").status_code == HTTPStatus.OK
+
+
+def test_a_session_in_use_all_day_still_stands_at_the_cap(
+    signed_in_lobby: Lobby,
+) -> None:
+    use_every_quarter_hour_until(signed_in_lobby, SESSION_LIFETIME)
+
+    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
+
+
+def test_a_session_in_use_all_day_is_refused_and_deleted_just_past_the_cap(
+    signed_in_lobby: Lobby,
+) -> None:
+    use_every_quarter_hour_until(
+        signed_in_lobby, SESSION_LIFETIME - timedelta(minutes=15)
+    )
+    signed_in_lobby.clock.advance(timedelta(minutes=15, seconds=1))
+
+    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
+    assert signed_in_lobby.people.sessions.rows == {}
 
 
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(

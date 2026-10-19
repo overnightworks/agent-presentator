@@ -48,12 +48,13 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     IdleWindow,
-    PasswordDatabaseError,
+    OldDatabaseError,
     SqliteSessionRecordStore,
     SqliteUserStore,
     SystemClock,
     TokenIdentifierFactory,
     create_identity_tables,
+    lifetime_policy,
 )
 from presentator.adapters.preferences import (
     SqliteInstanceSettingsStore,
@@ -71,7 +72,7 @@ from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import SESSION_LIFETIME, Identity
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
@@ -115,14 +116,14 @@ def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
     try:
         create_identity_tables(settings.database)
-    except PasswordDatabaseError as refused:
+    except OldDatabaseError as refused:
         raise cannot_start(str(refused)) from None
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
     accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
-    liveness = IdleWindowLiveness(int(IDLE_WINDOW.total_seconds()))
+    liveness = lifetime_policy(SESSION_LIFETIME)
     web_auth = lobby_web_auth_config(
         settings.secret_key,
         liveness=liveness,
@@ -276,7 +277,7 @@ def lobby_web_auth_config(
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset(),
         allowed_hosts_patterns=(),
-        cookie_max_age_seconds=int(IDLE_WINDOW.total_seconds()),
+        cookie_max_age_seconds=int(SESSION_LIFETIME.total_seconds()),
         session_liveness=liveness,
         cookie_samesite="lax",
         cookie_secure=urlsplit(public_origin).scheme == "https",

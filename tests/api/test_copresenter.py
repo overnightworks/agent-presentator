@@ -22,7 +22,7 @@ from presentator.api.copresenter import (
     add_copresenter_routes,
 )
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
-from presentator.application.identity import IDLE_WINDOW
+from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.copresenter import (
     AnswerEvent,
     AnswerText,
@@ -654,11 +654,83 @@ def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
     assert private.questions == []
 
 
+def test_a_session_in_use_is_refused_a_page_past_the_cap() -> None:
+    lobby, private, clock = a_copresenter_lobby()
+    lobby.sign_in()
+    for _ in range(2):
+        clock.advance(SESSION_LIFETIME / 2)
+        assert lobby.client.get("/copresenter/who").status_code == HTTPStatus.OK
+    clock.advance(timedelta(seconds=1))
+    calls_before = private.readiness_calls
+
+    assert lobby.client.get("/copresenter/who").status_code == HTTPStatus.FOUND
+    assert private.readiness_calls == calls_before
+
+
+def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
+    lobby, private, clock = a_copresenter_lobby()
+    lobby.sign_in()
+    for _ in range(2):
+        clock.advance(SESSION_LIFETIME / 2)
+        assert lobby.client.get("/").status_code == HTTPStatus.OK
+    clock.advance(timedelta(seconds=1))
+
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        lobby.client.websocket_connect(HEARING, headers={"origin": PUBLIC_ORIGIN}),
+    ):
+        pass
+
+    assert refused.value.code == POLICY_VIOLATION
+    assert private.hearing_opens == 0
+    assert lobby.people.sessions.rows == {}
+
+
+@pytest.mark.parametrize(
+    ("after_the_check", "closed"),
+    [
+        pytest.param(timedelta(seconds=30), False, id="recheck-exactly-at-the-cap"),
+        pytest.param(timedelta(seconds=31), True, id="recheck-one-second-past-the-cap"),
+    ],
+)
+def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
+    after_the_check: timedelta,
+    *,
+    closed: bool,
+) -> None:
+    deadline = ManualDeadline()
+    lobby, private, clock = a_copresenter_lobby(delay=deadline.wait)
+    lobby.sign_in()
+    clock.advance(SESSION_LIFETIME - timedelta(seconds=30))
+
+    with lobby.client.websocket_connect(
+        HEARING,
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        clock.advance(after_the_check)
+        deadline.release_first()
+        if closed:
+            socket.send_text("force an observable close if the session stood")
+            with pytest.raises(WebSocketDisconnect) as ended:
+                socket.receive_json()
+            assert ended.value.code == POLICY_VIOLATION
+        else:
+            socket.send_bytes(b"pcm after the check")
+            assert socket.receive_json() == {"text": "gehört", "final": True}
+
+    if closed:
+        assert private.hearing_opens == 0
+        assert lobby.people.sessions.rows == {}
+    else:
+        assert private.hearing.frames == [b"pcm after the check"]
+
+
 def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> None:
     expired_lobby, expired_private, clock = a_copresenter_lobby()
     expired = expired_lobby.client
     expired_lobby.sign_in()
-    clock.advance(IDLE_WINDOW + timedelta(seconds=1))
+    clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
 
     assert expired.get("/copresenter/who").status_code == HTTPStatus.FOUND
     assert expired_private.readiness_calls == 0

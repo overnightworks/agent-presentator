@@ -1,7 +1,7 @@
 """The live session and logout.
 
-The window length is the operator's ruling of 06.09.2026 on issue #8: a login
-survives a talk.
+A sign-in lasts at most `SESSION_LIFETIME` from the moment it opened, however
+often it is used.
 """
 
 from dataclasses import dataclass
@@ -16,7 +16,7 @@ from presentator.ports.identity import (
     UserStore,
 )
 
-IDLE_WINDOW: Final = timedelta(hours=12)
+SESSION_LIFETIME: Final = timedelta(hours=12)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
