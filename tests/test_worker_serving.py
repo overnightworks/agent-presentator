@@ -46,6 +46,7 @@ def serving(
     handled: list[socket.socket] = []
     outcome: list[object] = []
     cancelled = threading.Event()
+    unexpected: list[BaseException] = []
 
     def handle(connection: socket.socket) -> None:
         if cancelled.is_set():
@@ -71,26 +72,40 @@ def serving(
             outcome.append("stopped")
 
     thread = threading.Thread(target=run, daemon=True)
+    previous_hook = threading.excepthook
+
+    def record_serving_error(failure: threading.ExceptHookArgs) -> None:
+        if failure.thread is thread and failure.exc_value is not None:
+            unexpected.append(failure.exc_value)
+        else:
+            previous_hook(failure)
+
+    threading.excepthook = record_serving_error
     thread.start()
     try:
         yield thread, handled, outcome
     finally:
         cancelled.set()
-        wake_until_ended(volume, thread)
-        assert not thread.is_alive()
+        try:
+            wake_until_ended(volume, thread)
+            assert not thread.is_alive()
+        finally:
+            threading.excepthook = previous_hook
+    if unexpected:
+        raise unexpected[0]
 
 
 def wake_until_ended(volume: Path, thread: threading.Thread) -> None:
     deadline = time.monotonic() + WAIT_SECONDS
-    while thread.is_alive() and time.monotonic() < deadline:
+    while thread.is_alive() and (time_left := deadline - time.monotonic()) > 0:
         with suppress(OSError):
-            connect(volume).close()
+            connect(volume, timeout=time_left).close()
         thread.join(0.05)
 
 
-def connect(volume: Path) -> socket.socket:
+def connect(volume: Path, timeout: float = WAIT_SECONDS) -> socket.socket:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(WAIT_SECONDS)
+    client.settimeout(timeout)
     client.connect(str(volume / worker.SOCKET_NAME))
     return client
 
@@ -479,6 +494,25 @@ def test_a_failure_inside_serving_still_ends_the_serving_thread(volume: Path) ->
         fail_before_any_connection()
 
     assert not threads[0].is_alive()
+
+
+def test_an_unexpected_serving_error_surfaces_to_the_caller(
+    volume: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failure = RuntimeError("serving broke")
+
+    def broken(*_arguments: object, **_keywords: object) -> NoReturn:
+        raise failure
+
+    monkeypatch.setattr(worker, "serve", broken)
+
+    with (
+        pytest.raises(RuntimeError) as surfaced,
+        serving(volume, OWN_UID, admitted=CONNECTIONS),
+    ):
+        pass
+
+    assert surfaced.value is failure
 
 
 def test_refuses_a_stale_socket_it_cannot_remove(volume: Path) -> None:
