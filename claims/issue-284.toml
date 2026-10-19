@@ -3,5 +3,5 @@ agent = "claude"
 role = "builder"
 base = "4f1f82646a41ca0a16486661ca4a1e5fd963ecbe"
 branch = "claude/issue-284-mirror-der-credential-helper-liest-gits"
-scope = ["src/gitmirror/mirror.py", "tests/gitmirror/test_mirror.py"]
+scope = ["src/gitmirror/mirror.py", "src/gitmirror/model.py", "tests/gitmirror/test_mirror.py"]
 opened_commit = "64813092a76d67436c277fe230e25683b742253c"
