@@ -46,7 +46,6 @@ def serving(
     handled: list[socket.socket] = []
     outcome: list[object] = []
     cancelled = threading.Event()
-    unexpected: list[BaseException] = []
 
     def handle(connection: socket.socket) -> None:
         if cancelled.is_set():
@@ -71,28 +70,37 @@ def serving(
         except StopServingError:
             outcome.append("stopped")
 
-    thread = threading.Thread(target=run, daemon=True)
-    previous_hook = threading.excepthook
+    thread = ServingThread(target=run, daemon=True)
 
-    def record_serving_error(failure: threading.ExceptHookArgs) -> None:
-        if failure.thread is thread and failure.exc_value is not None:
-            unexpected.append(failure.exc_value)
-        else:
-            previous_hook(failure)
-
-    threading.excepthook = record_serving_error
-    thread.start()
-    try:
-        yield thread, handled, outcome
-    finally:
+    def finish() -> None:
         cancelled.set()
+        wake_until_ended(volume, thread)
+        assert not thread.is_alive()
+
+    try:
+        thread.start()
+        yield thread, handled, outcome
+    except BaseException as body_error:
+        finish()
+        if thread.failure is not None:
+            body_error.add_note(f"the serving thread also failed: {thread.failure!r}")
+        raise
+    finish()
+    if thread.failure is not None:
+        raise thread.failure
+
+
+class ServingThread(threading.Thread):
+    """Keeps the error that ended the thread while pytest still sees it."""
+
+    failure: BaseException | None = None
+
+    def run(self) -> None:
         try:
-            wake_until_ended(volume, thread)
-            assert not thread.is_alive()
-        finally:
-            threading.excepthook = previous_hook
-    if unexpected:
-        raise unexpected[0]
+            super().run()
+        except BaseException as error:
+            self.failure = error
+            raise
 
 
 def wake_until_ended(volume: Path, thread: threading.Thread) -> None:
@@ -100,7 +108,8 @@ def wake_until_ended(volume: Path, thread: threading.Thread) -> None:
     while thread.is_alive() and (time_left := deadline - time.monotonic()) > 0:
         with suppress(OSError):
             connect(volume, timeout=time_left).close()
-        thread.join(0.05)
+        if (time_left := deadline - time.monotonic()) > 0:
+            thread.join(min(0.05, time_left))
 
 
 def connect(volume: Path, timeout: float = WAIT_SECONDS) -> socket.socket:
@@ -513,6 +522,27 @@ def test_an_unexpected_serving_error_surfaces_to_the_caller(
         pass
 
     assert surfaced.value is failure
+
+
+def test_a_body_failure_carries_the_serving_error_as_a_note(
+    volume: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serving_failure = RuntimeError("serving broke")
+    body_failure = AssertionError("body broke")
+
+    def broken(*_arguments: object, **_keywords: object) -> NoReturn:
+        raise serving_failure
+
+    monkeypatch.setattr(worker, "serve", broken)
+
+    with (
+        pytest.raises(AssertionError) as surfaced,
+        serving(volume, OWN_UID, admitted=CONNECTIONS),
+    ):
+        raise body_failure
+
+    assert surfaced.value is body_failure
+    assert any("serving broke" in note for note in body_failure.__notes__)
 
 
 def test_refuses_a_stale_socket_it_cannot_remove(volume: Path) -> None:
