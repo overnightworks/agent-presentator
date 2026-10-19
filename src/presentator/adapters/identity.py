@@ -33,11 +33,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 """
 _IDENTIFIER_BYTES: Final = 32
-_BLANK_TEXT_COLUMN: Final = "TEXT NOT NULL DEFAULT ''"
-_SESSION_COLUMNS: Final = (
-    ("ip_address", _BLANK_TEXT_COLUMN),
-    ("user_agent", _BLANK_TEXT_COLUMN),
-)
 
 
 class PasswordDatabaseError(RuntimeError):
@@ -56,7 +51,6 @@ def create_identity_tables(database: Path) -> None:
     """Make the accounts and sessions tables exist in a file no password ever filled."""
     _refuse_a_password_database(database)
     apply_schema(database, _SCHEMA)
-    _ensure_columns(database, "sessions", _SESSION_COLUMNS)
 
 
 def _refuse_a_password_database(database: Path) -> None:
@@ -86,18 +80,6 @@ def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:
         str(column[1])
         for column in cursor.execute(f"PRAGMA table_info({table})").fetchall()
     }
-
-
-def _ensure_columns(
-    database: Path,
-    table: str,
-    columns: tuple[tuple[str, str], ...],
-) -> None:
-    with rows(database) as cursor:
-        named = _column_names(cursor, table)
-        for name, declaration in columns:
-            if name not in named:
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 @dataclass(frozen=True, slots=True)
