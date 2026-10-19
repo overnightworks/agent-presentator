@@ -1,8 +1,0 @@
-claim_id = "f7314350fd12464d8fe3afabf5a65c36"
-agent = "claude"
-role = "builder"
-base = "4f1f82646a41ca0a16486661ca4a1e5fd963ecbe"
-branch = "claude/issue-288-k13-s2-sitzungen-tragen-ihre-anmeldezeit"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "src/presentator/adapters/identity.py", "src/presentator/api/legal.py", "src/presentator/application/identity.py", "src/presentator/contracts/models.py", "src/presentator/host/main.py", "src/presentator/ports/identity.py", "tests/adapters/test_identity.py", "tests/api/lobby.py", "tests/api/test_auth.py", "tests/api/test_copresenter.py", "tests/application/fakes.py", "tests/application/test_identity.py", "tests/people.py", "tests/test_host.py"]
-opened_commit = "31de76d9aae26c2eea2ea3ffe4556b278b1e689e"
-whole_reason = "One decision, a 12 h cap measured from a new created_at column, touches the contract, the store and its start probe, the port wording, the composition root, the Datenschutz and operations texts it would otherwise make false, and their tests."
