@@ -1,0 +1,7 @@
+claim_id = "fe54a30341274b80a336679609f0f82c"
+agent = "claude"
+role = "builder"
+base = "8bc61c0e8f062ae6a3f1474453d0dde901390d56"
+branch = "claude/issue-278-chatterbox-provider-sicherheitswarnungen"
+scope = ["speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/uv.lock"]
+opened_commit = "52cdaf6b6a4313fcccc10166be7bdd4028e6c860"
