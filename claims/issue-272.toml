@@ -1,0 +1,7 @@
+claim_id = "0d78c05a553f41408ab037eef9bd0ca1"
+agent = "claude"
+role = "builder"
+base = "a1c8ba092885d3a19875398387862f9dff323a25"
+branch = "claude/issue-272-speech-dienst-starlette-1-6-0-v1-aus-271"
+scope = ["speech/uv.lock"]
+opened_commit = "042e9c6546478d9a94b16cc3c8217b376fcefbfa"
