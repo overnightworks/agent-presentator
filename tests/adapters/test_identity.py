@@ -19,7 +19,7 @@ from presentator.adapters.identity import (
 from presentator.application.identity import IDLE_WINDOW
 from presentator.contracts.models import Role, Session, User
 from tests.application.fakes import FrozenClock
-from tests.people import seed_user
+from tests.people import copy_of_a_crashed_password_database, seed_user
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _ADDRESS = "203.0.113.7"
@@ -269,3 +269,22 @@ def test_a_file_from_the_password_version_is_refused_and_left_untouched(
 
     assert database.read_bytes() == before
     assert sorted(tmp_path.iterdir()) == folder_before
+
+
+def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untouched(
+    tmp_path: Path,
+) -> None:
+    database = copy_of_a_crashed_password_database(
+        tmp_path / "crashed" / "identity.sqlite3"
+    )
+    companions = [database.with_name(database.name + "-wal"), database]
+    bytes_before = [path.read_bytes() for path in companions]
+    folder_before = set(database.parent.iterdir())
+
+    with pytest.raises(PasswordDatabaseError, match=r"OPERATIONS\.md"):
+        create_identity_tables(database)
+
+    assert [path.read_bytes() for path in companions] == bytes_before
+    assert set(database.parent.iterdir()) - folder_before <= {
+        database.with_name(database.name + "-shm")
+    }

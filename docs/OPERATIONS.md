@@ -73,13 +73,19 @@ and no first admin: accounts arrive with the Keycloak sign-in of
 
 A database file that still holds the password sign-in's tables
 (`login_attempts`, or `users.password_hash`) is refused at start, before
-anything is written to it. Stop presentator, take the backup as the backup
-section describes, then move the complete database state aside: the file and
-its `-wal` and `-shm` companions (after an unclean shutdown committed
-transactions can still sit in `-wal`), or the whole database volume. The next
-start creates a fresh database. The backup is what lets you return to the
-password version. Decks and sources are re-added in the fresh database, and the
-fresh start gets fresh builds and mirrors volumes
+the file or its `-wal` is written to; a `-shm` may appear. The order matters:
+
+1. Stop presentator.
+2. Take the backup as the backup section describes, but leave out the script's
+   final `docker compose start`: the service must stay stopped.
+3. Move the complete database state aside: the file and its `-wal` and `-shm`
+   companions (after an unclean shutdown committed transactions can still sit
+   in `-wal`), or the whole database volume.
+4. Start the new version. It creates a fresh database.
+
+The backup is what lets you return to the password version. Decks and sources
+are re-added in the fresh database, and the fresh start gets fresh builds and
+mirrors volumes
 ([#242](https://github.com/overnightworks/agent-presentator/issues/242) S9).
 
 The client address is the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`

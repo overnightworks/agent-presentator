@@ -54,12 +54,19 @@ def create_identity_tables(database: Path) -> None:
 
 
 def _refuse_a_password_database(database: Path) -> None:
-    """Look read-only and immutable, so a refused WAL database gains no -shm or -wal."""
+    """Look without writing: the main file and its -wal never change.
+
+    A -wal without frames is looked at immutable, so no side file appears. A
+    -wal with frames is looked at read-only only, because an immutable look
+    would miss a password schema committed solely there; SQLite may then create
+    -shm.
+    """
     if not database.exists():
         return
-    connection = sqlite3.connect(
-        f"{database.absolute().as_uri()}?mode=ro&immutable=1", uri=True
-    )
+    write_ahead_log = database.with_name(database.name + "-wal")
+    has_logged_frames = write_ahead_log.exists() and write_ahead_log.stat().st_size > 0
+    options = "mode=ro" if has_logged_frames else "mode=ro&immutable=1"
+    connection = sqlite3.connect(f"{database.absolute().as_uri()}?{options}", uri=True)
     try:
         cursor = connection.cursor()
         tables = {

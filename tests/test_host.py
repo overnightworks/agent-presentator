@@ -55,7 +55,7 @@ from tests.conftest import (
     GitRemote,
     with_the_program,
 )
-from tests.people import seed_user
+from tests.people import copy_of_a_crashed_password_database, seed_user
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
@@ -799,3 +799,20 @@ def test_an_instance_on_a_relative_database_path_starts_again_after_its_first_st
     a_real_instance()
 
     assert (tmp_path / "presentator.sqlite3").is_file()
+
+
+def test_an_instance_refuses_a_password_schema_only_in_the_write_ahead_log(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = copy_of_a_crashed_password_database(
+        tmp_path / "crashed" / "presentator.sqlite3"
+    )
+    environment.setenv("PRESENTATOR_DATABASE", str(database))
+    log = database.with_name(database.name + "-wal")
+    bytes_before = (database.read_bytes(), log.read_bytes())
+
+    with pytest.raises(ConfigurationError, match="move the database"):
+        a_real_instance()
+
+    assert (database.read_bytes(), log.read_bytes()) == bytes_before
