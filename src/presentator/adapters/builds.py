@@ -281,11 +281,11 @@ def slidev_arguments(
     """The arguments Slidev is given for one step of a deck's build."""
     entry = str(place.here / _DECK_IN / SLIDES_FILE)
     written = place.here / _OUT
-    match kind:
-        case StepKind.BUILD:
-            return (entry, "--base", talk_address(slug), "--out", str(written / _TALK))
-        case StepKind.EXPORT:
-            return (entry, "--output", str(written / _PDF_FILE))
+    flags = {
+        StepKind.BUILD: ("--base", talk_address(slug), "--out", str(written / _TALK)),
+        StepKind.EXPORT: ("--output", str(written / _PDF_FILE)),
+    }
+    return (entry, *flags[kind])
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
