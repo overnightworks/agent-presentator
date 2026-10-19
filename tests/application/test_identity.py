@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import SESSION_LIFETIME, Identity
 from presentator.contracts.models import Role, Session, User
 from tests.application.fakes import (
     FakePeople,
@@ -82,42 +82,17 @@ def test_a_login_survives_a_ninety_minute_talk(
         assert identity.signed_in_user(session_id) is not None
 
 
-def test_a_session_expires_after_twelve_idle_hours(
+def test_a_session_the_liveness_rule_refuses_is_signed_out_and_removed(
     identity: Identity,
     people: FakePeople,
     clock: FrozenClock,
 ) -> None:
     session_id = sign_in_the_admin(people)
 
-    clock.advance(IDLE_WINDOW + timedelta(seconds=1))
+    clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
 
     assert identity.signed_in_user(session_id) is None
-
-
-def test_the_idle_window_starts_again_at_every_request(
-    identity: Identity,
-    people: FakePeople,
-    clock: FrozenClock,
-) -> None:
-    session_id = sign_in_the_admin(people)
-
-    clock.advance(IDLE_WINDOW - timedelta(minutes=1))
-    assert identity.signed_in_user(session_id) is not None
-    clock.advance(IDLE_WINDOW - timedelta(minutes=1))
-
-    assert identity.signed_in_user(session_id) is not None
-
-
-def test_a_session_at_the_idle_boundary_is_still_alive(
-    identity: Identity,
-    people: FakePeople,
-    clock: FrozenClock,
-) -> None:
-    session_id = sign_in_the_admin(people)
-
-    clock.advance(IDLE_WINDOW)
-
-    assert identity.signed_in_user(session_id) is not None
+    assert people.sessions.rows == {}
 
 
 def test_a_logout_during_the_request_is_not_undone_by_its_renewal(

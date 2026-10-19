@@ -17,7 +17,6 @@ from httpx2 import Response as BrowserResponse
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig, installed_web_auth_config
 from webauth.cookies import issue_session_cookies
-from webauth.liveness import IdleWindowLiveness
 
 from gitmirror.model import CredentialReference
 from presentator.adapters.builds import (
@@ -32,6 +31,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import SourceMirrors
+from presentator.adapters.identity import IdleWindow, lifetime_policy
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -40,7 +40,7 @@ from presentator.api.auth import (
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
-from presentator.application.identity import IDLE_WINDOW, Identity
+from presentator.application.identity import SESSION_LIFETIME, Identity
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
@@ -82,7 +82,6 @@ from tests.application.fakes import (
     FakeToolchainThemes,
     FakeUserStore,
     FrozenClock,
-    MatchingLiveness,
 )
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -203,7 +202,7 @@ def a_web_auth(*, cookie_secure: bool = True) -> WebAuthConfig:
     """
     host_config = lobby_web_auth_config(
         SecretStr("t" * 32),
-        liveness=IdleWindowLiveness(int(IDLE_WINDOW.total_seconds())),
+        liveness=lifetime_policy(SESSION_LIFETIME),
         trusted_proxies="",
         public_origin=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
     )
@@ -274,7 +273,7 @@ def a_lobby_app(
         users=crowd.users,
         sessions=crowd.sessions,
         clock=clock,
-        liveness=MatchingLiveness(),
+        liveness=IdleWindow(lifetime_policy(SESSION_LIFETIME)),
     )
     stored = (
         list(given.sources)

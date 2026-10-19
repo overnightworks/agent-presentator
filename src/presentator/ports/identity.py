@@ -31,7 +31,7 @@ class SessionRecordStore(Protocol):
         ip_address: str,
         user_agent: str,
     ) -> Session:
-        """Open a session; last_seen is this store's, from the clock it holds."""
+        """Open a session; the store stamps created_at and last_seen from its clock."""
 
     @abstractmethod
     def load(self, session_id: str) -> Session | None:
@@ -78,4 +78,4 @@ class SessionLiveness(Protocol):
 
     @abstractmethod
     def admits(self, session: Session, *, at: datetime) -> bool:
-        """Alive inside the idle window, including the boundary itself."""
+        """Alive inside the idle window and the cap, boundaries included."""
