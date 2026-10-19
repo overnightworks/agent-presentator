@@ -29,6 +29,7 @@ from gitmirror.mirror import (
     connection_state_for_failure,
     credential_arguments,
     is_ssh_remote,
+    split_user_name,
     unattended_environment,
 )
 from gitmirror.model import (
@@ -504,6 +505,29 @@ def test_the_helper_keeps_a_user_name_the_url_already_carries() -> None:
         "username=token-user",
         f"password={_WHAT_THE_RESOLVER_ANSWERS}",
     ]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://alice@host.example/r.git", ("https://host.example/r.git", "alice")),
+        ("http://alice@host.example/r.git", ("http://host.example/r.git", "alice")),
+        ("https://host.example/r.git", ("https://host.example/r.git", None)),
+        (
+            "https://alice:pw@host.example/r.git",
+            ("https://alice:pw@host.example/r.git", None),
+        ),
+        (
+            "ssh://git@host.example/r.git",
+            ("ssh://git@host.example/r.git", None),
+        ),
+        ("git@host.example:r.git", ("git@host.example:r.git", None)),
+    ],
+)
+def test_only_an_http_url_naming_a_user_alone_gives_that_user_up(
+    url: str, expected: tuple[str, str | None]
+) -> None:
+    assert split_user_name(url) == expected
 
 
 def test_the_helper_answers_a_user_name_when_the_url_carries_none() -> None:
@@ -1094,6 +1118,23 @@ def test_a_reachable_check_answers_with_the_heads_full_commit(
     assert checked.state is ConnectionState.READY
     assert checked.commit == remote.head
     assert checked.detail is None
+    assert served.authorization == expected
+
+
+def test_a_check_of_a_url_with_its_own_user_name_authenticates_as_that_user(
+    remote: GitRemote,
+) -> None:
+    bare = _prepared_bare_repo(remote)
+    expected = _basic_auth("alice", _WHAT_THE_RESOLVER_ANSWERS)
+    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
+        checked = check_connection(
+            url=url.replace("://", "://alice@"),
+            ref=MAIN_BRANCH,
+            secret=_WHAT_THE_RESOLVER_ANSWERS,
+            timeout=_A_GENEROUS_BOUND,
+        )
+
+    assert checked.state is ConnectionState.READY
     assert served.authorization == expected
 
 

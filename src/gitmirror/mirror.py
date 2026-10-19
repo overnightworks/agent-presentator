@@ -35,9 +35,12 @@ from gitmirror.model import (
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
 # GitHub, GitLab, and every other host that hands out a read-only token accept
 # any user name beside it, so an operator whose URL names none still reaches a
-# host that insists on one. A URL that does name one keeps it: verified with a
-# real git that a helper's `username=` answer always wins over the request's
-# own, so the helper reads the request on stdin and only fills the gap.
+# host that insists on one. A URL that does name one keeps it: a helper's
+# `username=` answer always wins over the request's own, so the helper reads
+# the request on stdin and only fills the gap. git's request carries a user
+# name from `credential.username` reliably, but from a user-only URL not after
+# the host's 401 (verified with git 2.43 and 2.56), so `split_user_name` moves
+# it out of the URL into that setting.
 CREDENTIAL_USER_NAME: Final = "token"
 # git asks a helper for the credentials of an https remote, and answering out
 # of the child's environment keeps the secret off the command line and off
@@ -124,6 +127,7 @@ _UNREACHABLE_WORDS: Final = (
 # git reflects a redirect target or the remote's own reply verbatim, so this
 # runs over the whole diagnostic, not only the source's own URL.
 _USERINFO: Final = re.compile(r"://[^/@]*@")
+_USER_ONLY_HTTP_URL: Final = re.compile(r"^(?P<scheme>https?://)(?P<user>[^/@:]+)@")
 
 _log = logging.getLogger(__name__)
 
@@ -195,18 +199,19 @@ class GitMirror:
         ref = self.source.ref
         # The URL is the one argument that may carry a user name, so this is the
         # only call that never turns its command line into an error message.
+        url, user_name = split_user_name(self.source.url)
         try:
-            with _credentials(self.source.url, secret) as (credential, ssh_key):
+            with _credentials(url, secret) as (credential, ssh_key):
                 pulled = subprocess.run(
                     [
                         _git_executable(),
-                        *credential_arguments(credential),
+                        *credential_arguments(credential, user_name=user_name),
                         "--git-dir",
                         str(self.directory),
                         "fetch",
                         "--no-tags",
                         "--",
-                        self.source.url,
+                        url,
                         f"+refs/heads/{ref}:refs/heads/{ref}",
                     ],
                     capture_output=True,
@@ -272,12 +277,13 @@ def check_connection(
             _reject_unsafe_secret(secret)
         except InvalidCredentialError:
             return _REFUSED_CHECK
+    url, user_name = split_user_name(url)
     try:
         with _credentials(url, secret) as (credential, ssh_key):
             probed = subprocess.run(
                 [
                     _git_executable(),
-                    *credential_arguments(credential),
+                    *credential_arguments(credential, user_name=user_name),
                     "ls-remote",
                     "--exit-code",
                     "--",
@@ -318,14 +324,30 @@ def _git_executable() -> str:
     return git
 
 
-def credential_arguments(secret: str | None) -> tuple[str, ...]:
+def split_user_name(url: str) -> tuple[str, str | None]:
+    """That URL without a user name it names alone, and the user name.
+
+    A URL that also names a password, or an ssh remote, stays as it is.
+    """
+    named = _USER_ONLY_HTTP_URL.match(url)
+    if named is None:
+        return url, None
+    return named["scheme"] + url[named.end() :], named["user"]
+
+
+def credential_arguments(
+    secret: str | None, *, user_name: str | None = None
+) -> tuple[str, ...]:
     """The `-c` options git is run with, carrying no secret value itself."""
     # An empty helper clears whatever a config file or the environment set, so
     # only the helper named here can ever answer.
     cleared = ("-c", "credential.helper=")
     if secret is None:
         return cleared
-    return (*cleared, "-c", f"credential.helper={_CREDENTIAL_HELPER}")
+    helper = ("-c", f"credential.helper={_CREDENTIAL_HELPER}")
+    if user_name is None:
+        return (*cleared, *helper)
+    return (*cleared, *helper, "-c", f"credential.username={user_name}")
 
 
 def unattended_environment(
