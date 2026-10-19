@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -59,7 +58,6 @@ if TYPE_CHECKING:
     )
 
     from starlette.requests import HTTPConnection
-    from starlette.testclient import WebSocketTestSession
     from starlette.types import Message, Scope
 
     from presentator.ports.copresenter import PrivateHearing
@@ -70,7 +68,6 @@ HEARING = f"{A_BROWSERS_SOCKET_ADDRESS}/copresenter/hear?language=de"
 POLICY_VIOLATION = 1008
 UNSUPPORTED_DATA = 1003
 INTERNAL_ERROR = 1011
-RECEIVE_TIMEOUT_SECONDS = 5
 
 
 @dataclass
@@ -339,14 +336,6 @@ def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
     assert private.hearing_opens == 0
 
 
-def _receive_json_within_timeout(socket: WebSocketTestSession) -> object:
-    """Fail a stalled browser socket instead of hanging the suite."""
-    with ThreadPoolExecutor(max_workers=1) as waiter:
-        return waiter.submit(socket.receive_json).result(
-            timeout=RECEIVE_TIMEOUT_SECONDS
-        )
-
-
 def _demote(users: FakeUserStore) -> None:
     (admin,) = users.users.values()
     users.users[admin.id] = replace(admin, role=Role.USER)
@@ -366,12 +355,12 @@ def test_a_running_hearing_with_audio_ends_when_its_session_loses_the_admin_role
     ) as socket:
         assert deadline.started.wait(timeout=1)
         socket.send_bytes(b"before demotion")
-        assert _receive_json_within_timeout(socket) == {"text": "gehört", "final": True}
+        assert socket.receive_json() == {"text": "gehört", "final": True}
         _demote(users)
         deadline.release_first()
         socket.send_text("force an observable close if the hearing stood")
         with pytest.raises(WebSocketDisconnect) as ended:
-            _receive_json_within_timeout(socket)
+            socket.receive_json()
 
     assert ended.value.code == POLICY_VIOLATION
     assert private.hearing.frames == [b"before demotion"]
