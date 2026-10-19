@@ -301,8 +301,11 @@ def _mode_if_file_or_directory(path: Path) -> int | None:
 
 
 def _vite_link_target(root: Path) -> str | None:
-    vite = Path(os.path.realpath(root / SLIDEV_PACKAGE)) / "node_modules" / ".vite"
-    return str(vite.readlink()) if vite.is_symlink() else None
+    vite = root / SLIDEV_PACKAGE / "node_modules" / ".vite"
+    try:
+        return str(vite.readlink())
+    except OSError:
+        return None
 
 
 def _read_toolchain(root: Path) -> Toolchain:

@@ -2,6 +2,7 @@
 
 import os
 import stat
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -408,6 +409,26 @@ def loop_slidev_package(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     link.symlink_to(link)
 
 
+def deepen_slidev_package_chain(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    link = root / "app/frontend/node_modules/@slidev/cli"
+    chain_length = sys.getrecursionlimit() + 100
+    package = link.resolve()
+    link.unlink()
+    previous = package
+    for hop in range(chain_length):
+        hop_link = link.parent / f"hop-{hop}"
+        hop_link.symlink_to(previous)
+        previous = hop_link
+    link.symlink_to(previous)
+
+
+def break_slidev_package_link(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    link = root / "app/frontend/node_modules/@slidev/cli"
+    package = link.resolve()
+    link.unlink()
+    link.symlink_to(root / "missing" / ".." / package.relative_to(root))
+
+
 def grant_extra_capability(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     status = SEALED_STATUS.replace(
         "CapEff:\t00000000000000e0", "CapEff:\t00000000002000e0"
@@ -427,6 +448,20 @@ def grant_capability_and_loop_slidev_package(
 ) -> None:
     grant_extra_capability(root, monkeypatch)
     loop_slidev_package(root, monkeypatch)
+
+
+def grant_capability_and_deepen_slidev_package_chain(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant_extra_capability(root, monkeypatch)
+    deepen_slidev_package_chain(root, monkeypatch)
+
+
+def grant_capability_and_break_slidev_package_link(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant_extra_capability(root, monkeypatch)
+    break_slidev_package_link(root, monkeypatch)
 
 
 def remove_work(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
@@ -458,6 +493,14 @@ REFUSED_FACTS = {
         grant_capability_and_loop_slidev_package,
         Predicate.CAPABILITIES,
     ),
+    "extra capability before an over-deep slidev package chain": (
+        grant_capability_and_deepen_slidev_package_chain,
+        Predicate.CAPABILITIES,
+    ),
+    "extra capability before a broken slidev package link": (
+        grant_capability_and_break_slidev_package_link,
+        Predicate.CAPABILITIES,
+    ),
     "dumpable unreadable": (fail_dumpable_read, Predicate.NON_DUMPABLE),
 }
 
@@ -483,14 +526,19 @@ def test_unreadable_or_unparsable_fact_refuses_through_main_naming_its_predicate
     assert f"self-check refused: {refused}" in caplog.text
 
 
-def make_socket_dangling(root: Path) -> None:
-    (root / "run").mkdir()
-    (root / "run/docker.sock").symlink_to(root / "nowhere")
+@pytest.fixture(params=["/run/docker.sock", "/var/run/docker.sock"])
+def socket_path(request: pytest.FixtureRequest, sealed_root: Path) -> Path:
+    path = sealed_root / request.param.lstrip("/")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def make_socket_present(root: Path) -> None:
-    (root / "run").mkdir()
-    (root / "run/docker.sock").touch()
+def make_socket_dangling(path: Path) -> None:
+    path.symlink_to(path.parent / "nowhere")
+
+
+def make_socket_present(path: Path) -> None:
+    path.touch()
 
 
 @pytest.mark.parametrize(
@@ -499,9 +547,9 @@ def make_socket_present(root: Path) -> None:
     ids=["present", "dangling symlink"],
 )
 def test_reads_a_docker_socket_as_present(
-    sealed_root: Path, make_socket: Callable[[Path], None]
+    sealed_root: Path, socket_path: Path, make_socket: Callable[[Path], None]
 ) -> None:
-    make_socket(sealed_root)
+    make_socket(socket_path)
 
     assert worker.read_snapshot(sealed_root).docker_socket_present is True
 
@@ -515,6 +563,21 @@ def test_denied_socket_lookup_marks_mounts_unreadable(
     monkeypatch.setattr(worker.os, "lstat", denied)
 
     assert worker.read_snapshot(sealed_root).unreadable == {Predicate.MOUNTS}
+
+
+@pytest.mark.parametrize(
+    "arrange",
+    [loop_slidev_package, break_slidev_package_link, deepen_slidev_package_chain],
+    ids=["loop", "broken link", "over-deep chain"],
+)
+def test_unresolvable_slidev_package_gives_no_vite_target(
+    sealed_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    arrange: Callable[[Path, pytest.MonkeyPatch], None],
+) -> None:
+    arrange(sealed_root, monkeypatch)
+
+    assert worker.read_snapshot(sealed_root).toolchain.vite_link_target is None
 
 
 def unknown_user(monkeypatch: pytest.MonkeyPatch) -> None:
