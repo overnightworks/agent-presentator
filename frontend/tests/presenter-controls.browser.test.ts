@@ -45,6 +45,7 @@ let cspViolations: CspViolation[] = []
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
+  microphoneOpened: boolean
   trackStopped: boolean
   playbackStarted: boolean
   playbackPaused: boolean
@@ -219,6 +220,7 @@ async function startServer() {
       return
     }
     if (request.method === 'POST' && url.pathname.startsWith('/observations/')) {
+      if (url.pathname === '/observations/microphone-opened') media.microphoneOpened = true
       if (url.pathname === '/observations/track-stopped') media.trackStopped = true
       if (url.pathname === '/observations/playback-started') media.playbackStarted = true
       if (url.pathname === '/observations/playback-paused') media.playbackPaused = true
@@ -243,10 +245,9 @@ async function startServer() {
       'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
       + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
     )
-    const heard = hearingMode === 'socket-error'
-      ? { error: 'hearing failed' }
-      : { text: 'Where does the handoff slow down?', final: true }
-    socket.write(frame(JSON.stringify(heard)))
+    if (hearingMode === 'ready') {
+      socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
+    }
     hearingSockets.add(socket)
     let closed = false
     const closeHearing = () => {
@@ -269,8 +270,13 @@ async function startServer() {
   origin = `http://127.0.0.1:${address.port}`
 }
 
+function sendHearingError() {
+  for (const socket of hearingSockets) socket.write(frame(JSON.stringify({ error: 'hearing failed' })))
+}
+
 function createMediaObservation(): MediaObservation {
   return {
+    microphoneOpened: false,
     trackStopped: false,
     playbackStarted: false,
     playbackPaused: false,
@@ -290,7 +296,12 @@ async function installMediaFakes(page: Page) {
       },
     }
     Object.defineProperty(navigator, 'mediaDevices', {
-      value: { getUserMedia: async () => ({ getTracks: () => [track] }) },
+      value: {
+        getUserMedia: async () => {
+          report('microphone-opened')
+          return { getTracks: () => [track] }
+        },
+      },
       configurable: true,
     })
     const RealAudioContext = window.AudioContext
@@ -489,18 +500,18 @@ describe('presenter controls', () => {
       const ai = page.getByRole('switch', { name: 'AI' })
       await ai.waitFor({ state: 'visible', timeout: 2_000 })
       await ai.click({ timeout: 2_000 })
+      if (mode === 'socket-error') {
+        await expect.poll(() => media.microphoneOpened).toBe(true)
+        sendHearingError()
+      }
       await page.getByText(message).waitFor({ state: 'visible', timeout: 5_000 })
       expect(await page.locator('.copresenter').getAttribute('data-hearing')).toBe('off')
       expect(await page.evaluate(
         () => (window as unknown as { __speechRecognitionsBuilt: number }).__speechRecognitionsBuilt,
       )).toBe(0)
       await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
-      const { micLive, hearOpen } = await page.evaluate(
-        () => (window as unknown as {
-          __copresenter: { snapshot: () => { micLive: boolean; hearOpen: boolean } }
-        }).__copresenter.snapshot(),
-      )
-      expect({ micLive, hearOpen }).toEqual({ micLive: false, hearOpen: false })
+      if (mode === 'socket-error') await expect.poll(() => media.trackStopped).toBe(true)
+      else expect(media.microphoneOpened).toBe(false)
     } finally {
       hearingMode = 'ready'
       await browser.close()

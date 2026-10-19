@@ -7,16 +7,19 @@ from typing import Final
 import pytest
 
 from presentator.api.auth import CONTENT_SECURITY_POLICY
+from presentator.contracts.decks import talk_address
 from tests.api.lobby import A_BUILT_DECK_SLUG, a_signed_in_lobby_with_a_built_deck
 
-# Outside `form-action`, a source names no host when it is a quoted keyword,
-# hash or nonce, or the data: or blob: scheme; every other spelling can admit one.
-_A_SOURCE_WITHOUT_A_HOST: Final = re.compile(r"'[^']+'|data:|blob:")
+# Outside `form-action`, a source names no host when it is 'self', 'none',
+# 'unsafe-inline', a hash or nonce, or the data: or blob: scheme; every other
+# spelling can admit one ('strict-dynamic' makes the browser ignore host sources).
+_A_SOURCE_WITHOUT_A_HOST: Final = re.compile(
+    r"'(?:self|none|unsafe-inline|(?:sha(?:256|384|512)|nonce)-[^']+)'|data:|blob:"
+)
 _ADDRESS_ATTRIBUTE: Final = re.compile(r"""\b(?:href|src)\s*=\s*["']([^"']*)["']""")
 _AN_ADDRESS_ON_ANOTHER_HOST: Final = re.compile(
     r"(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE
 )
-_THE_TALK: Final = f"/deck/{A_BUILT_DECK_SLUG}/"
 
 
 def _sources_that_may_admit_a_host(policy: str) -> list[tuple[str, str]]:
@@ -38,6 +41,10 @@ def _sources_that_may_admit_a_host(policy: str) -> list[tuple[str, str]]:
         ("default-src 'self'; script-src https:", ("script-src", "https:")),
         ("default-src 'self'; font-src localhost:8000", ("font-src", "localhost:8000")),
         ("default-src 'self'; img-src CDN.Example.COM", ("img-src", "CDN.Example.COM")),
+        (
+            "default-src 'self'; script-src 'self' 'strict-dynamic'",
+            ("script-src", "'strict-dynamic'"),
+        ),
     ],
 )
 def test_a_policy_source_that_may_admit_a_host_is_found(
@@ -55,7 +62,7 @@ def test_the_content_security_policy_admits_no_host_but_this_origin() -> None:
 def test_a_built_talk_page_points_only_at_its_own_origin(page_name: str) -> None:
     lobby = a_signed_in_lobby_with_a_built_deck()
 
-    page = lobby.get(_THE_TALK + page_name)
+    page = lobby.get(talk_address(A_BUILT_DECK_SLUG) + page_name)
 
     assert page.status_code == HTTPStatus.OK
     foreign_addresses = [
