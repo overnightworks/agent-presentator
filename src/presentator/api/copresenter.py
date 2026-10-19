@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final, Protocol, TypeGuard
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -87,11 +87,7 @@ class _SessionGuard:
 
     def same_session(self, connection: HTTPConnection, session_id: str) -> bool:
         admitted = self.admission(connection)
-        return (
-            admitted is not None
-            and admitted.is_admin
-            and admitted.session_id == session_id
-        )
+        return _may_use(admitted) and admitted.session_id == session_id
 
     async def wait(self) -> None:
         await self.delay(_CHECK_INTERVAL_SECONDS)
@@ -124,7 +120,7 @@ def add_copresenter_routes(
 
     async def _who(request: Request) -> JSONResponse:
         connection = admission(request)
-        if connection is None or not connection.is_admin:
+        if not _may_use(connection):
             return _refusal(connection)
         try:
             ready = await use.readiness()
@@ -144,7 +140,7 @@ def add_copresenter_routes(
 
     def _ask(request: Request, question: AskRequest) -> Response:
         connection = admission(request)
-        if connection is None or not connection.is_admin:
+        if not _may_use(connection):
             return _refusal(connection)
         ticket = surface.limiter.admit(connection.session_id)
         if isinstance(ticket, RetryAfter):
@@ -179,7 +175,7 @@ def add_copresenter_routes(
             await socket.close(code=_POLICY_VIOLATION)
             return
         connection = admission(socket)
-        if connection is None or not connection.is_admin:
+        if not _may_use(connection):
             await socket.close(code=_POLICY_VIOLATION)
             return
         await socket.accept()
@@ -195,6 +191,10 @@ def add_copresenter_routes(
     router.add_api_route("/ask", _ask, methods=["POST"])
     router.add_api_websocket_route("/hear", _hear)
     app.include_router(router)
+
+
+def _may_use(admitted: SignedIn | None) -> TypeGuard[SignedIn]:
+    return admitted is not None and admitted.is_admin
 
 
 def _refusal(connection: SignedIn | None) -> JSONResponse:

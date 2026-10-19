@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -21,7 +22,7 @@ from presentator.api.copresenter import (
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, CoPresenterUse
+from presentator.application.copresenter import AskLimiter, AskLimits, CoPresenterUse
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
     )
 
     from starlette.requests import HTTPConnection
+    from starlette.testclient import WebSocketTestSession
     from starlette.types import Message, Scope
 
     from presentator.ports.copresenter import PrivateHearing
@@ -68,6 +70,7 @@ HEARING = f"{A_BROWSERS_SOCKET_ADDRESS}/copresenter/hear?language=de"
 POLICY_VIOLATION = 1008
 UNSUPPORTED_DATA = 1003
 INTERNAL_ERROR = 1011
+RECEIVE_TIMEOUT_SECONDS = 5
 
 
 @dataclass
@@ -334,6 +337,92 @@ def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
 
     assert ended.value.code == POLICY_VIOLATION
     assert private.hearing_opens == 0
+
+
+def _receive_json_within_timeout(socket: WebSocketTestSession) -> object:
+    """Fail a stalled browser socket instead of hanging the suite."""
+    with ThreadPoolExecutor(max_workers=1) as waiter:
+        return waiter.submit(socket.receive_json).result(
+            timeout=RECEIVE_TIMEOUT_SECONDS
+        )
+
+
+def _demote(users: FakeUserStore) -> None:
+    (admin,) = users.users.values()
+    users.users[admin.id] = replace(admin, role=Role.USER)
+
+
+def test_a_running_hearing_with_audio_ends_when_its_session_loses_the_admin_role() -> (
+    None
+):
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby.sign_in(role=Role.ADMIN)
+
+    with lobby.client.websocket_connect(
+        HEARING,
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        socket.send_bytes(b"before demotion")
+        assert _receive_json_within_timeout(socket) == {"text": "gehört", "final": True}
+        _demote(users)
+        deadline.release_first()
+        socket.send_text("force an observable close if the hearing stood")
+        with pytest.raises(WebSocketDisconnect) as ended:
+            _receive_json_within_timeout(socket)
+
+    assert ended.value.code == POLICY_VIOLATION
+    assert private.hearing.frames == [b"before demotion"]
+    assert private.hearing.closed == 1
+
+
+def test_an_answer_in_flight_stops_when_its_session_loses_the_admin_role() -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    event_count = 40
+    demote_after = 2
+
+    def demote_mid_answer(index: int) -> None:
+        if index == demote_after:
+            _demote(users)
+            deadline.release_first()
+
+    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    private.busy_answer_events = event_count
+    private.answer_event_hook = demote_mid_answer
+    lobby.sign_in(role=Role.ADMIN)
+    client = lobby.client
+
+    response = client.post(
+        "/copresenter/ask",
+        json=QUESTION,
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.text.count("event: text") < event_count
+    assert private.generated_answer_events < event_count
+    assert private.answer_exits == 1
+
+
+def test_a_refused_non_admin_question_keeps_the_sessions_ask_capacity() -> None:
+    users = RefusingUserStore()
+    limiter = AskLimiter(clock=FrozenClock(instant=NOW), limits=AskLimits(per_window=1))
+    lobby, private, _clock = a_copresenter_lobby(users=users, limiter=limiter)
+    lobby.sign_in(role=Role.USER)
+    client = lobby.client
+    headers = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
+
+    refused = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+    (person,) = users.users.values()
+    users.users[person.id] = replace(person, role=Role.ADMIN)
+    answered = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert answered.status_code == HTTPStatus.OK
+    assert len(private.questions) == 1
 
 
 def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() -> None:

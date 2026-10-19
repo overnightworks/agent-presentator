@@ -362,7 +362,7 @@ same-UID Unix socket. The repository overlay calls relative
 the admin role may use them, through the existing active session: a signed-in
 person without it gets 403 on `/who` and `/ask` and a 1008 close before accept
 on `/hear`. `/ask` requires its CSRF token and hearing requires the configured
-browser Origin. Presentator rechecks an answer and hearing lease every second,
+browser Origin. Presentator rechecks an answer and hearing lease every half second,
 so session loss or loss of the admin role stops generation,
 capture, browser fallback and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
