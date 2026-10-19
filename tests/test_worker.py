@@ -4,6 +4,7 @@ import os
 import stat
 from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,13 +28,12 @@ CapAmb:\t0000000000000000
 NoNewPrivs:\t1
 Seccomp:\t2
 """
-SEALED_MOUNTINFO = """\
-20 1 0:20 / / ro,relatime - overlay overlay rw
-21 20 0:21 / /work rw,nosuid,nodev,noexec - tmpfs tmpfs rw
-22 20 0:22 / /tmp rw,nosuid,nodev,noexec - tmpfs tmpfs rw
-23 20 0:23 / /dev/shm rw,nosuid,nodev,noexec - tmpfs shm rw
-24 20 0:24 / /run/presentator-build rw,nosuid,nodev,noexec - tmpfs tmpfs rw
-"""
+WORK_MOUNT, TEMPORARY_MOUNT, SHARED_MEMORY_MOUNT, *_ = worker.TMPFS_MOUNTS
+HARDENED = "rw,nosuid,nodev,noexec"
+SEALED_MOUNTINFO = "20 1 0:20 / / ro,relatime - overlay overlay rw\n" + "".join(
+    f"{21 + index} 20 0:{21 + index} / {mount} {HARDENED} - tmpfs tmpfs rw\n"
+    for index, mount in enumerate(worker.TMPFS_MOUNTS)
+)
 NETWORK_HEADER = "Inter-|   Receive\n face |bytes\n"
 LOOPBACK_ONLY = NETWORK_HEADER + "    lo: 0 0\n"
 WORLD_READABLE_EXECUTABLE = 0o755
@@ -139,18 +139,23 @@ FAILURES = {
     "no seccomp filter": (with_status(Seccomp="0"), Predicate.CAPABILITIES),
     "writable root": (with_fields(root_read_only=False), Predicate.MOUNTS),
     "work not tmpfs": (
-        with_mountinfo("- tmpfs tmpfs rw\n22", "- ext4 tmpfs rw\n22"),
+        with_mountinfo(
+            f"{WORK_MOUNT} {HARDENED} - tmpfs", f"{WORK_MOUNT} {HARDENED} - ext4"
+        ),
         Predicate.MOUNTS,
     ),
     "tmp without nosuid": (
-        with_mountinfo("/tmp rw,nosuid,", "/tmp rw,"),
+        with_mountinfo(f"{TEMPORARY_MOUNT} rw,nosuid,", f"{TEMPORARY_MOUNT} rw,"),
         Predicate.MOUNTS,
     ),
     "work without noexec": (
-        with_mountinfo("/work rw,nosuid,nodev,noexec", "/work rw,nosuid,nodev"),
+        with_mountinfo(f"{WORK_MOUNT} {HARDENED}", f"{WORK_MOUNT} rw,nosuid,nodev"),
         Predicate.MOUNTS,
     ),
-    "dev shm missing": (with_mountinfo("/dev/shm", "/dev/other"), Predicate.MOUNTS),
+    "dev shm missing": (
+        with_mountinfo(SHARED_MEMORY_MOUNT, "/dev/other"),
+        Predicate.MOUNTS,
+    ),
     "work sticky world-writable": (with_fields(work_mode=0o1777), Predicate.MOUNTS),
     "work not root": (with_fields(work_owner_uid=1000), Predicate.MOUNTS),
     "second interface": (
@@ -212,7 +217,7 @@ FAILURES = {
         Predicate.TOOLCHAIN,
     ),
     "vite cache linked elsewhere": (
-        with_toolchain(vite_link_target="/tmp/vite"),
+        with_toolchain(vite_link_target="/elsewhere/vite"),
         Predicate.TOOLCHAIN,
     ),
 }
@@ -289,20 +294,6 @@ def test_failing_prctl_refuses_before_reading_anything() -> None:
     assert events == []
 
 
-def test_unreadable_fact_refuses_naming_its_predicate(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    def unreadable_snapshot() -> Snapshot:
-        raise worker.UnreadableFactError(Predicate.RESOURCE_BOUNDS)
-
-    boundary = replace(
-        boundary_over(sealed_snapshot(), []), read_snapshot=unreadable_snapshot
-    )
-
-    assert worker.main(["--check"], boundary) == worker.REFUSAL_EXIT_STATUS
-    assert Predicate.RESOURCE_BOUNDS in caplog.text
-
-
 def stand_in_users(monkeypatch: pytest.MonkeyPatch) -> None:
     users = {
         "presentator": (1000, 1000),
@@ -325,6 +316,15 @@ def stand_in_users(monkeypatch: pytest.MonkeyPatch) -> None:
 def sealed_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     stand_in_users(monkeypatch)
 
+    def read_only_root(_root: Path) -> SimpleNamespace:
+        return SimpleNamespace(f_flag=os.ST_RDONLY)
+
+    def dumpable_zero(_option: int, _value: int) -> int:
+        return 0
+
+    monkeypatch.setattr(worker.os, "statvfs", read_only_root)
+    monkeypatch.setattr(worker, "libc_prctl", dumpable_zero)
+
     def file_at(relative: str, content: str = "", mode: int = 0o644) -> Path:
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -341,9 +341,13 @@ def sealed_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "work").chmod(0o755)
     (tmp_path / "opt/corepack").mkdir(parents=True)
     (tmp_path / "opt/corepack").chmod(0o755)
+    modules = tmp_path / "app/frontend/node_modules"
     file_at("app/frontend/node_modules/.bin/slidev", mode=0o755)
-    (tmp_path / "app/frontend/node_modules/node_modules").mkdir()
-    (tmp_path / "app/frontend/node_modules/node_modules/.vite").symlink_to("/work/vite")
+    package = modules / ".pnpm/@slidev+cli@1/node_modules/@slidev/cli"
+    (package / "node_modules").mkdir(parents=True)
+    (package / "node_modules/.vite").symlink_to(WORK_MOUNT + "/vite")
+    (modules / "@slidev").mkdir()
+    (modules / "@slidev/cli").symlink_to(package)
     shell = (
         "opt/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64"
     )
@@ -366,13 +370,7 @@ def test_reads_the_sealed_facts_from_the_filesystem(sealed_root: Path) -> None:
     assert snapshot.toolchain.vite_link_target == "/work/vite"
     assert len(snapshot.toolchain.headless_shell_modes) == 1
     assert snapshot.toolchain.corepack_mode is not None
-
-
-def test_reads_a_present_docker_socket(sealed_root: Path) -> None:
-    (sealed_root / "run").mkdir()
-    (sealed_root / "run/docker.sock").touch()
-
-    assert worker.read_snapshot(sealed_root).docker_socket_present
+    assert snapshot.unreadable == frozenset()
 
 
 def test_reads_a_missing_toolchain_as_absent(sealed_root: Path) -> None:
@@ -383,48 +381,135 @@ def test_reads_a_missing_toolchain_as_absent(sealed_root: Path) -> None:
     assert toolchain.slidev_mode is None
 
 
+def make_socket_dangling(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "run").mkdir()
+    (root / "run/docker.sock").symlink_to(root / "nowhere")
+
+
+def make_socket_present(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "run").mkdir()
+    (root / "run/docker.sock").touch()
+
+
+def make_socket_unreadable(_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def denied(path: Path) -> os.stat_result:
+        raise PermissionError(path)
+
+    monkeypatch.setattr(worker.os, "lstat", denied)
+
+
+def write_status(content: str) -> Callable[[Path, pytest.MonkeyPatch], None]:
+    return lambda root, _monkeypatch: (root / "proc/self/status").write_text(content)
+
+
+def break_mountinfo(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "proc/self/mountinfo").write_text("garbage\n")
+
+
+def remove_work(root: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "work").rmdir()
+
+
+def fail_dumpable_read(_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing(_option: int, _value: int) -> int:
+        raise OSError
+
+    monkeypatch.setattr(worker, "libc_prctl", failing)
+
+
+REFUSED_FACTS = {
+    "docker socket present": (make_socket_present, Predicate.MOUNTS),
+    "docker socket dangling symlink": (make_socket_dangling, Predicate.MOUNTS),
+    "docker socket unreadable": (make_socket_unreadable, Predicate.MOUNTS),
+    "capability bounding set not hexadecimal": (
+        write_status(SEALED_STATUS.replace("CapBnd:\t00000000000000e0", "CapBnd:\tzz")),
+        Predicate.CAPABILITIES,
+    ),
+    "status file missing": (
+        lambda root, _monkeypatch: (root / "proc/self/status").unlink(),
+        Predicate.CAPABILITIES,
+    ),
+    "mountinfo malformed": (break_mountinfo, Predicate.MOUNTS),
+    "work directory missing": (remove_work, Predicate.MOUNTS),
+    "network table missing": (
+        lambda root, _monkeypatch: (root / "proc/net/dev").unlink(),
+        Predicate.MOUNTS,
+    ),
+    "dumpable unreadable": (fail_dumpable_read, Predicate.NON_DUMPABLE),
+}
+
+
 @pytest.mark.parametrize(
-    ("missing", "refused"),
-    [
-        ("proc/self/status", Predicate.CAPABILITIES),
-        ("proc/net/dev", Predicate.MOUNTS),
-        ("sys/fs/cgroup/memory.max", Predicate.RESOURCE_BOUNDS),
-    ],
+    ("arrange", "refused"), REFUSED_FACTS.values(), ids=REFUSED_FACTS.keys()
 )
-def test_unreadable_file_names_its_predicate(
-    sealed_root: Path, missing: str, refused: Predicate
+def test_unreadable_or_unparsable_fact_refuses_through_main_naming_its_predicate(
+    sealed_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    arrange: Callable[[Path, pytest.MonkeyPatch], None],
+    refused: Predicate,
 ) -> None:
-    (sealed_root / missing).unlink()
+    arrange(sealed_root, monkeypatch)
+    boundary = Boundary(
+        set_non_dumpable=lambda: None,
+        set_umask=lambda: None,
+        read_snapshot=partial(worker.read_snapshot, sealed_root),
+    )
 
-    with pytest.raises(worker.UnreadableFactError) as raised:
-        worker.read_snapshot(sealed_root)
-
-    assert raised.value.predicate == refused
+    assert worker.main(["--check"], boundary) == worker.REFUSAL_EXIT_STATUS
+    assert f"self-check refused: {refused}" in caplog.text
 
 
-def test_unknown_user_makes_identities_unreadable(
-    sealed_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def unknown_user(name: str) -> None:
+def unknown_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(name: str) -> None:
         raise KeyError(name)
 
-    monkeypatch.setattr(worker.pwd, "getpwnam", unknown_user)
+    monkeypatch.setattr(worker.pwd, "getpwnam", refuse)
 
-    with pytest.raises(worker.UnreadableFactError) as raised:
-        worker.read_snapshot(sealed_root)
 
-    assert raised.value.predicate == Predicate.IDENTITIES
+def test_unreadable_resource_bound_marks_its_predicate_unreadable(
+    sealed_root: Path,
+) -> None:
+    (sealed_root / "sys/fs/cgroup/memory.max").unlink()
+
+    unreadable = worker.read_snapshot(sealed_root).unreadable
+
+    assert unreadable == {Predicate.RESOURCE_BOUNDS}
+
+
+def test_unknown_user_marks_identities_unreadable(
+    sealed_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unknown_user(monkeypatch)
+
+    assert worker.read_snapshot(sealed_root).unreadable == {Predicate.IDENTITIES}
+
+
+def test_unreadable_later_fact_does_not_mask_an_earlier_failing_predicate(
+    sealed_root: Path,
+) -> None:
+    (sealed_root / "proc/self/status").write_text(
+        SEALED_STATUS.replace("00000000000000e0", "00000000002000e0", 1)
+    )
+    (sealed_root / "work").rmdir()
+
+    snapshot = worker.read_snapshot(sealed_root)
+
+    assert worker.first_failing_predicate(snapshot) == Predicate.CAPABILITIES
+    assert snapshot.unreadable == {Predicate.MOUNTS}
 
 
 def test_real_process_effects_make_it_non_dumpable_and_set_the_umask() -> None:
     previous_umask = os.umask(0)
+    original_dumpable = worker.libc_prctl(worker.PR_GET_DUMPABLE, 0)
     try:
         worker.REAL_BOUNDARY.set_non_dumpable()
         worker.REAL_BOUNDARY.set_umask()
+        assert worker.libc_prctl(worker.PR_GET_DUMPABLE, 0) == 0
         assert os.umask(previous_umask) == worker.ONLY_THE_OWNER
     finally:
         os.umask(previous_umask)
-        worker.libc_prctl(worker.PR_SET_DUMPABLE, 1)
+        worker.libc_prctl(worker.PR_SET_DUMPABLE, original_dumpable)
 
 
 def test_prctl_failure_raises() -> None:

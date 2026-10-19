@@ -36,6 +36,7 @@ ONLY_THE_OWNER = 0o077
 HARDENED_MOUNT_OPTIONS = frozenset({"nosuid", "nodev", "noexec"})
 DOCKER_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock")
 SLIDEV_BINARY = "app/frontend/node_modules/.bin/slidev"
+SLIDEV_PACKAGE = "app/frontend/node_modules/@slidev/cli"
 COREPACK_DIRECTORY = "opt/corepack"
 HEADLESS_SHELL_PATTERN = (
     "opt/ms-playwright/chromium_headless_shell-*/"
@@ -123,6 +124,7 @@ class Snapshot:
     environment_keys: frozenset[str]
     pid: int
     toolchain: Toolchain
+    unreadable: frozenset[Predicate] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -249,14 +251,33 @@ SELF_CHECK: tuple[tuple[Predicate, Callable[[Snapshot], bool]], ...] = (
 )
 
 
+def _holds(
+    predicate: Predicate, judge: Callable[[Snapshot], bool], snapshot: Snapshot
+) -> bool:
+    if predicate in snapshot.unreadable:
+        return False
+    try:
+        return judge(snapshot)
+    except (ValueError, IndexError):
+        return False
+
+
 def first_failing_predicate(snapshot: Snapshot) -> Predicate | None:
-    """The first predicate, in refusal order, that the snapshot fails."""
-    return next((name for name, holds in SELF_CHECK if not holds(snapshot)), None)
+    """The first predicate, in refusal order, that the snapshot fails.
+
+    A predicate whose facts could not be read or parsed fails.
+    """
+    return next(
+        (name for name, judge in SELF_CHECK if not _holds(name, judge, snapshot)),
+        None,
+    )
 
 
 def libc_prctl(option: int, value: int) -> int:
     """Call prctl, raising the errno it sets on failure."""
     libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [ctypes.c_int, *[ctypes.c_ulong] * 4]
+    libc.prctl.restype = ctypes.c_int
     result = libc.prctl(option, value, 0, 0, 0)
     if result < 0:
         raise OSError(ctypes.get_errno(), "prctl failed")
@@ -279,8 +300,8 @@ def _mode_if_file_or_directory(path: Path) -> int | None:
     return mode if stat.S_ISREG(mode) or stat.S_ISDIR(mode) else None
 
 
-def _vite_link_target(slidev_binary: Path) -> str | None:
-    vite = slidev_binary.resolve().parent.parent / "node_modules" / ".vite"
+def _vite_link_target(root: Path) -> str | None:
+    vite = (root / SLIDEV_PACKAGE).resolve() / "node_modules" / ".vite"
     return str(vite.readlink()) if vite.is_symlink() else None
 
 
@@ -292,7 +313,7 @@ def _read_toolchain(root: Path) -> Toolchain:
         headless_shell_modes=tuple(
             map(_mode_if_file_or_directory, root.glob(HEADLESS_SHELL_PATTERN))
         ),
-        vite_link_target=_vite_link_target(slidev_binary),
+        vite_link_target=_vite_link_target(root),
     )
 
 
@@ -313,28 +334,23 @@ def _read_identity() -> Identity:
     )
 
 
-class UnreadableFactError(Exception):
-    """A fact a predicate needs cannot be read, so that predicate cannot hold."""
-
-    def __init__(self, predicate: Predicate) -> None:
-        """Remember the predicate that cannot be proven."""
-        super().__init__(predicate)
-        self.predicate = predicate
-
-
-def _read[Fact](predicate: Predicate, reading: Callable[[], Fact]) -> Fact:
+def _socket_present(path: Path) -> bool:
     try:
-        return reading()
-    except (OSError, KeyError) as error:
-        raise UnreadableFactError(predicate) from error
+        os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return True
 
 
-def _read_mount_facts(root: Path) -> tuple[bool, str, os.stat_result, str]:
+def _read_mount_facts(root: Path) -> tuple[bool, str, int, int, str, bool]:
+    work = (root / WORK_MOUNT.lstrip("/")).stat()
     return (
         bool(os.statvfs(root).f_flag & os.ST_RDONLY),
         (root / "proc/self/mountinfo").read_text(),
-        (root / WORK_MOUNT.lstrip("/")).stat(),
+        stat.S_IMODE(work.st_mode),
+        work.st_uid,
         (root / "proc/net/dev").read_text(),
+        any(_socket_present(root / socket.lstrip("/")) for socket in DOCKER_SOCKETS),
     )
 
 
@@ -346,34 +362,64 @@ def _read_resource_bounds(root: Path) -> tuple[str, str]:
     )
 
 
+UNREAD_IDENTITY = Identity(-1, -1, -1, (), -1, -1, {})
+UNREAD_TOOLCHAIN = Toolchain(None, None, (), None)
+
+
 def read_snapshot(root: Path) -> Snapshot:
-    """Read the facts the predicates judge, from the filesystem under `root`."""
-    process_status = _read(
-        Predicate.CAPABILITIES, (root / "proc/self/status").read_text
+    """Read the facts the predicates judge, from the filesystem under `root`.
+
+    A fact that cannot be read marks its predicate unreadable, so the self-check
+    judges every predicate in order instead of stopping at the first read.
+    """
+    unreadable: set[Predicate] = set()
+
+    def read[Fact](
+        predicate: Predicate, reading: Callable[[], Fact], placeholder: Fact
+    ) -> Fact:
+        try:
+            return reading()
+        except (OSError, KeyError):
+            unreadable.add(predicate)
+            return placeholder
+
+    dumpable = read(Predicate.NON_DUMPABLE, partial(libc_prctl, PR_GET_DUMPABLE, 0), -1)
+    process_status = read(
+        Predicate.CAPABILITIES, (root / "proc/self/status").read_text, ""
     )
-    root_read_only, mountinfo, work, network_devices = _read(
-        Predicate.MOUNTS, partial(_read_mount_facts, root)
+    (
+        root_read_only,
+        mountinfo,
+        work_mode,
+        work_owner_uid,
+        network_devices,
+        socket_present,
+    ) = read(
+        Predicate.MOUNTS,
+        partial(_read_mount_facts, root),
+        (False, "", 0, -1, "", True),
     )
-    pids_max, memory_max = _read(
-        Predicate.RESOURCE_BOUNDS, partial(_read_resource_bounds, root)
+    pids_max, memory_max = read(
+        Predicate.RESOURCE_BOUNDS, partial(_read_resource_bounds, root), ("", "")
     )
     return Snapshot(
-        dumpable=libc_prctl(PR_GET_DUMPABLE, 0),
+        dumpable=dumpable,
         process_status=process_status,
         root_read_only=root_read_only,
         mountinfo=mountinfo,
-        work_mode=stat.S_IMODE(work.st_mode),
-        work_owner_uid=work.st_uid,
+        work_mode=work_mode,
+        work_owner_uid=work_owner_uid,
         network_devices=network_devices,
-        docker_socket_present=any(
-            (root / socket.lstrip("/")).exists() for socket in DOCKER_SOCKETS
-        ),
+        docker_socket_present=socket_present,
         pids_max=pids_max,
         memory_max=memory_max,
-        identity=_read(Predicate.IDENTITIES, _read_identity),
+        identity=read(Predicate.IDENTITIES, _read_identity, UNREAD_IDENTITY),
         environment_keys=frozenset(os.environ),
         pid=os.getpid(),
-        toolchain=_read_toolchain(root),
+        toolchain=read(
+            Predicate.TOOLCHAIN, partial(_read_toolchain, root), UNREAD_TOOLCHAIN
+        ),
+        unreadable=frozenset(unreadable),
     )
 
 
@@ -399,8 +445,5 @@ def main(argv: Sequence[str] | None = None, boundary: Boundary = REAL_BOUNDARY) 
     except OSError:
         return _refuse(Predicate.NON_DUMPABLE)
     boundary.set_umask()
-    try:
-        failing = first_failing_predicate(boundary.read_snapshot())
-    except UnreadableFactError as unreadable:
-        return _refuse(unreadable.predicate)
+    failing = first_failing_predicate(boundary.read_snapshot())
     return _refuse(failing) if failing else 0
