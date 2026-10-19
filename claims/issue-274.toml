@@ -1,0 +1,7 @@
+claim_id = "7e37ccd770a249b6a5554d190fdcdb53"
+agent = "claude"
+role = "builder"
+base = "a1c8ba092885d3a19875398387862f9dff323a25"
+branch = "claude/issue-274-frontend-lock-sicherheitswarnungen-schli"
+scope = ["frontend/package.json", "frontend/pnpm-lock.yaml"]
+opened_commit = "9466b726fc810f21e33b8d25fa15816f065b8889"
