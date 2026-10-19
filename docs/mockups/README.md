@@ -12,6 +12,10 @@ artifact link to see the picture. Blessed by the operator on 06.09.2026
 surface starts here: extend this sheet, get the blessing on the owning item,
 re-render, then rule.
 
+The Keycloak sign-in picture (signed out, No access, Login failed, person menu,
+Account; no first-start page, local login form, Users, password change, or
+session list) was blessed by the operator on 19.10.2026 (K13, issue #242).
+
 The Settings · Voice picture was blessed by the operator on 10.09.2026 (issue
 #123, parent #108). Its adopted V1–V9 behavior contract is owned by
 [`docs/requirements/0001-voice-models.md`](../requirements/0001-voice-models.md);
@@ -27,18 +31,17 @@ none, the group's line range from the sheet's section header is given instead
 (marked "group"). The Voice table's "Ruling" column links the adopted V1–V9
 requirements that its caption or rendered state demonstrates.
 
-### Login (lines 12, 14)
+### Sign-in · Keycloak (K13, #242)
 
 | PNG | Caption | Lines |
 |---|---|---|
-| `m0-lobby/login.png` | Resting state | group 12, 14 |
-| `m0-lobby/login-error.png` | After failed attempts | group 12, 14 |
-
-### First start (line 14)
-
-| PNG | Caption | Lines |
-|---|---|---|
-| `m0-lobby/setup.png` | First start | 14 |
+| `m0-lobby/login-redirect.png` | Not signed in: straight to the central sign-in | K13 |
+| `m0-lobby/login.png` | Signed out, 1024 px | K13 |
+| `m0-lobby/login-narrow.png` | Signed out, 390 px | K13 |
+| `m0-lobby/no-access.png` | No access, 1024 px | K13 |
+| `m0-lobby/no-access-narrow.png` | No access, 390 px | K13 |
+| `m0-lobby/login-failed.png` | Login failed, 1024 px | K13 |
+| `m0-lobby/login-failed-narrow.png` | Login failed, 390 px | K13 |
 
 ### Deck list (lines 1, 3, 4, 8, 9, 18)
 
@@ -46,7 +49,7 @@ requirements that its caption or rendered state demonstrates.
 |---|---|---|
 | `m0-lobby/deck-list-empty.png` | First day, empty | group 1, 3, 4, 8, 9, 18 |
 | `m0-lobby/deck-list.png` | Five decks | group 1, 3, 4, 8, 9, 18 |
-| `m0-lobby/person-menu.png` | Person menu open | 15, 22 |
+| `m0-lobby/person-menu.png` | Person menu open | 15, 22, K13 |
 | `m0-lobby/deck-list-narrow.png` | Split screen, 390 px | group 1, 3, 4, 8, 9, 18 |
 
 ### Settings · General (lines 21, 22, 23)
@@ -71,15 +74,6 @@ requirements that its caption or rendered state demonstrates.
 | `m0-lobby/sources-detail-ssh.png` | Source — SSH deploy key, 1024 px | 1, 7, 14a, 4a |
 | `m0-lobby/sources-detail-ssh-narrow.png` | Source — SSH deploy key, 390 px | 1, 7, 14a, 4a |
 
-### Settings · Users (lines 14, 14b)
-
-| PNG | Caption | Lines |
-|---|---|---|
-| `m0-lobby/users.png` | Users | 14b |
-| `m0-lobby/users-narrow.png` | Split screen, 390 px | group 14, 14b |
-| `m0-lobby/users-create.png` | Create user | 14 |
-| `m0-lobby/users-deactivate.png` | Deactivate — confirm | 14b |
-
 ### Settings · Voice (picture blessed 10.09.2026, V1–V9 adopted)
 
 | PNG | Caption | Ruling |
@@ -101,11 +95,11 @@ integrated. Their not-downloaded state depicts intended future behaviour, not
 a working download. No benchmark, percentage, size, or cost is shown for any
 candidate — none is measured yet.
 
-### Account (lines 14b, 21, 22)
+### Account (lines 21, 22 · K13)
 
 | PNG | Caption | Lines |
 |---|---|---|
-| `m0-lobby/account.png` | Account | 14b, 21, 22 |
+| `m0-lobby/account.png` | Account | 21, 22, K13 |
 
 ### Deck page (lines 7, 9, 10, 16)
 
@@ -141,8 +135,9 @@ from projector view.
 
 ### Rechtliches (#196)
 
-Impressum and Datenschutz, reachable without a session, and the same footer
-links carried onto a page after login. The Datenschutz artboards show the
+Impressum and Datenschutz, reachable without a session (the signed-out boards
+carry the same links), and the same footer links carried onto a page after
+login. The Datenschutz artboards show the
 page's layout with shortened text. The words are owned by
 `src/presentator/api/legal.py`; [`legal-datenschutz-draft.md`](legal-datenschutz-draft.md)
 is their copy for the operator's approval before they go online (issue #196,
@@ -150,8 +145,6 @@ line 3).
 
 | PNG | Caption | Lines |
 |---|---|---|
-| `m0-lobby/legal-login.png` | Login with legal links, 1024 px | 1 |
-| `m0-lobby/legal-login-narrow.png` | Login with legal links, 390 px | 1 |
 | `m0-lobby/legal-deck-list.png` | Deck list with legal links, 1024 px | 4 |
 | `m0-lobby/legal-datenschutz.png` | Datenschutz, reachable without login, 1024 px | 3 |
 | `m0-lobby/legal-datenschutz-narrow.png` | Datenschutz, reachable without login, 390 px | 3 |

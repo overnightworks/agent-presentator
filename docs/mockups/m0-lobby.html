@@ -734,7 +734,7 @@
     font-weight: 600;
   }
 
-  .btn--wide { width: 100%; }
+  .btn--wide { width: 100%; box-sizing: border-box; }
 
   .btn--off {
     opacity: .42;
@@ -758,6 +758,16 @@
   .source-detail-ssh .actions .btn {
     box-sizing: border-box;
   }
+
+  /* ---------- redirect flow ---------- */
+
+  .flow { display: flex; align-items: stretch; gap: 14px; flex-wrap: wrap; }
+  .flow-step { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 2px; background: var(--screen); }
+  .flow-step--central { border-color: var(--accent); background: var(--accent-soft); }
+  .flow-host { font-family: var(--mono); font-size: 12.5px; color: var(--ink); overflow-wrap: anywhere; }
+  .flow-what { font-size: 13px; color: var(--ink-soft); }
+  .flow-arrow { align-self: center; font-family: var(--mono); font-size: 18px; color: var(--ink-faint); }
+  @container (max-width: 700px) { .flow { flex-direction: column; } .flow-arrow { transform: rotate(90deg); } }
 
   /* ---------- state markers: shape + colour ---------- */
 
@@ -908,7 +918,7 @@
     .row--head { display: none; }
     .row--user .stand .lbl { display: inline; }
     .actions { flex-direction: column; align-items: stretch; }
-    .actions .btn { width: 100%; }
+    .actions .btn { width: 100%; box-sizing: border-box; }
   }
 
   /* ---------- empty state ---------- */
@@ -1676,7 +1686,7 @@
   <header class="sheet-head">
     <div class="eyebrow">Mockup for ruling · Issue #8 · M0</div>
     <h1>Presentator Lobby</h1>
-    <p class="lead">Login, the deck list, the deck page, Settings (admin), and Account. An admin creates every account and sets instance language, theme, sources, and users under Settings. Decks arrive exclusively via Git — from a repository on any host, which the server only mirrors. Once blessed, this mockup is frozen; after that the expectation lines are ruled and cut.</p>
+    <p class="lead">Sign-in through Keycloak, the deck list, the deck page, Settings (admin), and Account. Accounts, passwords, and roles live in Keycloak; an admin sets instance language, theme, and sources under Settings. Decks arrive exclusively via Git — from a repository on any host, which the server only mirrors. Once blessed, this mockup is frozen; after that the expectation lines are ruled and cut.</p>
 
     <div class="head-panels">
       <section class="panel">
@@ -1694,15 +1704,6 @@
           <div class="key-row"><span class="state state--ok"><span class="glyph"></span>reachable</span><span>filled circle, green — last read</span></div>
           <div class="key-row"><span class="state state--fail"><span class="glyph"></span>Error</span><span>triangle, red — access or host</span></div>
           <div class="key-row"><span class="state state--never"><span class="glyph"></span>never fetched</span><span>dashed square, grey</span></div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>Account state: shape and color</h2>
-        <div class="key">
-          <div class="key-row"><span class="state state--ok"><span class="glyph"></span>active</span><span>filled circle, green — can log in</span></div>
-          <div class="key-row"><span class="state state--off"><span class="glyph"></span>deactivated</span><span>split circle, grey — switched off, not broken</span></div>
-          <div class="key-row"><span class="tag">Admin</span><span>role is a label, never a color</span></div>
         </div>
       </section>
 
@@ -1728,10 +1729,7 @@
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</span>
-          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</span>
           <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</span>
-          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
-          <span class="nav-sample"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
         </div>
       </section>
 
@@ -1744,7 +1742,7 @@
           <li><span><b>Showing the secret again</b> — after entry it can only be renewed (line 12)</span></li>
           <li><span><b>New deck / upload</b> — decks are created in Git (line 4)</span></li>
           <li><span><b>Name filter</b> — twenty decks don't need one (line 18)</span></li>
-          <li><span><b>Sign up, forgot password</b> — an admin creates the account and resets the password (lines 14, 14b)</span></li>
+          <li><span><b>Sign up, forgot password, local accounts</b> — Keycloak owns sign-in and accounts; presentator has no first-start page, login form, Users tab, password change, or session list (K13, #242)</span></li>
           <li><span><b>Start in M0</b> — the two views are the way into the talk; the co-presenter run arrives with M1 (line 10)</span></li>
           <li><span><b>Build progress bar</b> — the server doesn't know percentages</span></li>
           <li><span><b>Marketplace, arbitrary Hugging Face IDs, cloud voices, voice cloning</b> — five fixed candidates only, admin-picked (picture blessed 10.09.2026; V1–V9 adopted; candidates remain unintegrated)</span></li>
@@ -1753,36 +1751,30 @@
     </div>
   </header>
 
-  <!-- ================= LOGIN ================= -->
+  <!-- ================= SIGN-IN (KEYCLOAK) ================= -->
   <section class="group">
     <div class="group-head">
-      <h2>Login</h2>
-      <span class="lines">lines 12, 14</span>
+      <h2>Sign-in · Keycloak</h2>
+      <span class="lines">K13 · #242</span>
     </div>
 
     <div class="boards">
 
       <figure class="board">
         <figcaption class="board-cap">
-          <div class="board-title">Resting state <span class="w">1024 px</span></div>
-          <p class="board-note">Username, password, one button. No sign-up link, no “forgot password”.</p>
+          <div class="board-title">Not signed in: straight to the central sign-in <span class="w">Flow</span></div>
+          <p class="board-note">A protected page redirects to the central sign-in without an intermediate page; afterwards it returns to the page that was asked for. Presentator has no login page of its own. How the Keycloak page looks is edge's theme and is not drawn here. <span class="path">/datenschutz</span> stays public and is not redirected. API calls without a sign-in get 401.</p>
         </figcaption>
-        <div class="frame" style="--w: 520px">
-          <div class="route">presentator.local/login</div>
+        <div class="frame" style="--w: 960px">
+          <div class="route">presentator.hallucinai.de/</div>
           <div class="app">
-            <div class="login">
-              <div class="login-card">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <h1>Login</h1>
-                <div class="field">
-                  <label for="u1">Username</label>
-                  <div class="input placeholder" id="u1">felix</div>
-                </div>
-                <div class="field">
-                  <label for="p1">Password</label>
-                  <div class="input dots" id="p1">••••••••••</div>
-                </div>
-                <div class="btn btn--primary btn--wide">Log in</div>
+            <div class="body">
+              <div class="flow">
+                <div class="flow-step"><span class="flow-host">presentator.hallucinai.de/</span><span class="flow-what">Seite aufgerufen, nicht angemeldet</span></div>
+                <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+                <div class="flow-step flow-step--central"><span class="flow-host">auth.hallucinai.de</span><span class="flow-what">hallucinai sign-in</span></div>
+                <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+                <div class="flow-step"><span class="flow-host">back to the page you asked for</span><span class="flow-what">angemeldet, weiter wie gewollt</span></div>
               </div>
             </div>
           </div>
@@ -1791,83 +1783,176 @@
 
       <figure class="board">
         <figcaption class="board-cap">
-          <div class="board-title">After failed attempts <span class="w">1024 px</span></div>
-          <p class="board-note">One sentence covers wrong username, wrong password, and rate limiting — it doesn't reveal which one applied.</p>
+          <div class="board-title">Signed out <span class="w">1024 px</span></div>
+          <p class="board-note">Where you land after logging out. One sentence, one button “Log in” (no product name, no key). The page never redirects by itself; only the button starts the sign-in. Same structure and words in every app, only the colours are presentator's.</p>
         </figcaption>
-        <div class="frame" style="--w: 520px">
-          <div class="route">presentator.local/login</div>
+        <div class="frame" style="--w: 640px">
+          <div class="route">presentator.hallucinai.de/login</div>
           <div class="app">
             <div class="login">
               <div class="login-card">
                 <div class="wordmark">Presen<span>tator</span></div>
-                <h1>Login</h1>
+                <h1>You are logged out.</h1>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Signed out <span class="w">390 px</span></div>
+          <p class="board-note">Same page, narrow: everything stacked, nothing cut off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.hallucinai.de/login</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>You are logged out.</h1>
+                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">No access <span class="w">1024 px</span></div>
+          <p class="board-note">Signed in, but not a member of /apps/presentator. No name, no group details: a refusal deliberately carries no identity. Two ways out: log out (for example to use another account) or go back.</p>
+        </figcaption>
+        <div class="frame" style="--w: 640px">
+          <div class="route">presentator.hallucinai.de/no-access</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>No access</h1>
                 <div class="banner banner--fail">
                   <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
                   <div class="banner-body">
-                    <p>Login incorrect, please wait a moment</p>
+                    <p>You are signed in, but this account has no access to presentator.</p>
                   </div>
                 </div>
-                <div class="field">
-                  <label for="u2">Username</label>
-                  <div class="input filled" id="u2">felix</div>
+                <div class="actions">
+                  <div class="btn btn--primary"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</div>
+                  <div class="btn">Back</div>
                 </div>
-                <div class="field">
-                  <label for="p2">Password</label>
-                  <div class="input placeholder" id="p2">&nbsp;</div>
-                </div>
-                <div class="btn btn--primary btn--wide">Log in</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
               </div>
             </div>
           </div>
         </div>
       </figure>
 
-    </div>
-  </section>
-
-  <!-- ================= FIRST START ================= -->
-  <section class="group">
-    <div class="group-head">
-      <h2>First start</h2>
-      <span class="lines">line 14</span>
-    </div>
-
-    <div class="boards">
-
       <figure class="board">
         <figcaption class="board-cap">
-          <div class="board-title">First start <span class="w">1024 px</span></div>
-          <p class="board-note">The only page that ever creates an account without being logged in — and it is gone the moment it succeeds. The badge says so at a glance; the ⓘ carries the sentence: “This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.” No self-registration, here or anywhere (line 14).</p>
+          <div class="board-title">No access <span class="w">390 px</span></div>
+          <p class="board-note">Same page, narrow: everything stacked, nothing cut off.</p>
         </figcaption>
-        <div class="frame" style="--w: 520px">
-          <div class="route">presentator.local/setup</div>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.hallucinai.de/no-access</div>
           <div class="app">
             <div class="login">
               <div class="login-card">
                 <div class="wordmark">Presen<span>tator</span></div>
-                <div class="pair">
-                  <h1>Set up admin</h1>
-                  <span class="once">shown once</span>
-                  <span class="info" tabindex="0">i<span class="pop">This page exists only until the first account. After that /setup is closed and an admin creates further accounts under Users.</span></span>
+                <h1>No access</h1>
+                <div class="banner banner--fail">
+                  <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                  <div class="banner-body">
+                    <p>You are signed in, but this account has no access to presentator.</p>
+                  </div>
                 </div>
-                <div class="field">
-                  <label for="su">Username</label>
-                  <div class="input filled" id="su">felix</div>
+                <div class="actions">
+                  <div class="btn btn--primary"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-log-out"></use></svg> Log out</div>
+                  <div class="btn">Back</div>
                 </div>
-                <div class="field">
-                  <label for="sp">Password</label>
-                  <div class="input dots" id="sp">••••••••••••</div>
-                </div>
-                <div class="field">
-                  <label for="sr">Repeat password</label>
-                  <div class="input dots" id="sr">••••••••••••</div>
-                </div>
-                <div class="btn btn--primary btn--wide">Create admin</div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
               </div>
             </div>
           </div>
         </div>
       </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Login failed <span class="w">1024 px</span></div>
+          <p class="board-note">Keycloak reported an error or the way back failed (for example an expired state). One way on: try again. If Keycloak is down altogether, the browser shows its own error page; nothing is drawn for that here.</p>
+        </figcaption>
+        <div class="frame" style="--w: 640px">
+          <div class="route">presentator.hallucinai.de/auth/callback</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login failed</h1>
+                <div class="banner banner--fail">
+                  <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                  <div class="banner-body">
+                    <p>Sign-in did not work. Please try again.</p>
+                  </div>
+                </div>
+                <div class="actions">
+                  <div class="btn btn--primary">Try again</div>
+                </div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="board">
+        <figcaption class="board-cap">
+          <div class="board-title">Login failed <span class="w">390 px</span></div>
+          <p class="board-note">Same page, narrow: everything stacked, nothing cut off.</p>
+        </figcaption>
+        <div class="frame" style="--w: 390px">
+          <div class="route">presentator.hallucinai.de/auth/callback</div>
+          <div class="app">
+            <div class="login">
+              <div class="login-card">
+                <div class="wordmark">Presen<span>tator</span></div>
+                <h1>Login failed</h1>
+                <div class="banner banner--fail">
+                  <span class="glyph" style="background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+                  <div class="banner-body">
+                    <p>Sign-in did not work. Please try again.</p>
+                  </div>
+                </div>
+                <div class="actions">
+                  <div class="btn btn--primary">Try again</div>
+                </div>
+              </div>
+              <div class="legal-links">
+                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
+                <a class="linkish" href="#datenschutz">Datenschutz</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
     </div>
   </section>
 
@@ -2003,7 +2088,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Person menu open <span class="w">1024 px</span></div>
-          <p class="board-note">The person control is the only place for Account, theme, and log out (lines 15, 22). Theme opens as radio rows — Follow system is on, marked by a filled dot, never by colour alone.</p>
+          <p class="board-note">The person control is the only place for Account, theme, and log out (lines 15, 22). Theme opens as radio rows — Follow system is on, marked by a filled dot, never by colour alone. The name comes from Keycloak, the role from its group; there is never a password, user, or admin entry. Settings in the bar only for /apps/presentator/admin.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/</div>
@@ -2210,7 +2295,6 @@
               <nav class="tabs">
                 <a class="tab tab--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2286,7 +2370,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2367,7 +2450,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2414,7 +2496,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2495,7 +2576,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2656,7 +2736,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2724,7 +2803,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2835,7 +2913,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -2922,7 +2999,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3012,7 +3088,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab tab--now" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3121,280 +3196,6 @@
     </div>
   </section>
 
-  <!-- ================= SETTINGS · USERS ================= -->
-  <section class="group">
-    <div class="group-head">
-      <h2>Settings · Users</h2>
-      <span class="lines">lines 14, 14b</span>
-    </div>
-
-    <div class="boards">
-
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Users <span class="w">1024 px</span> <span class="open-mark">open</span></div>
-          <p class="board-note">Admins only, as a tab under Settings (line 23). State carries shape and color, the role carries a word — a deactivated account is grey and split, never red, because nothing is broken (line 14b). Your own row offers no reset and no deactivate; your password lives on Account. Open to rule: whether a deactivated account can be switched back on, as drawn, or only removed.</p>
-        </figcaption>
-        <div class="frame" style="--w: 960px">
-          <div class="route">presentator.local/settings/users</div>
-          <div class="app">
-            <div class="app-bar">
-              <div class="brand">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <nav class="nav">
-                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
-                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
-                </nav>
-              </div>
-            <div class="person">
-              <span class="person-btn" tabindex="0">
-                <span class="avatar">FH</span>
-                <span class="person-name">felix</span>
-                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
-              </span>
-            </div>
-            </div>
-            <div class="body">
-              <div class="list-head">
-                <h1>Users</h1>
-                <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
-              </div>
-              <nav class="tabs">
-                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
-                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
-                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
-              </nav>
-
-              <div class="rows">
-                <div class="row row--head row--user">
-                  <span>State</span>
-                  <span>User</span>
-                  <span>Role</span>
-                  <span>Last login</span>
-                  <span></span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--ok"><span class="glyph"></span>active</span>
-                  <span class="src-name">
-                    <span class="row-title">felix</span>
-                    <span class="mini">your account</span>
-                  </span>
-                  <span class="tag">Admin</span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 minutes ago</span></span>
-                  <span class="row-act pair"><a class="btn btn--s" href="#account">Account</a></span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--ok"><span class="glyph"></span>active</span>
-                  <span class="src-name">
-                    <span class="row-title">anna</span>
-                  </span>
-                  <span class="tag">User</span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
-                  <span class="row-act pair">
-                    <span class="btn btn--s">Reset password</span>
-                    <span class="btn btn--s">Deactivate</span>
-                  </span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
-                  <span class="src-name">
-                    <span class="row-title">jonas</span>
-                  </span>
-                  <span class="tag">User</span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
-                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Split screen <span class="w">390 px</span></div>
-          <p class="board-note">State and role stay in the first row, name and last login wrap below, the row's actions go to the bottom. Nothing state-bearing is cut off — you can still see who is switched off.</p>
-        </figcaption>
-        <div class="frame" style="--w: 390px">
-          <div class="route">presentator.local/settings/users</div>
-          <div class="app">
-            <div class="app-bar">
-              <div class="brand">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <nav class="nav">
-                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
-                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
-                </nav>
-              </div>
-            <div class="person">
-              <span class="person-btn" tabindex="0">
-                <span class="avatar">FH</span>
-                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
-              </span>
-            </div>
-            </div>
-            <div class="body">
-              <div class="list-head">
-                <h1>Users</h1>
-                <a class="btn btn--primary btn--s" href="#users-new">Create user</a>
-              </div>
-              <nav class="tabs">
-                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
-                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
-                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
-              </nav>
-
-              <div class="rows">
-                <div class="row row--head row--user">
-                  <span>State</span>
-                  <span>User</span>
-                  <span>Role</span>
-                  <span>Last login</span>
-                  <span></span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--ok"><span class="glyph"></span>active</span>
-                  <span class="tag">Admin</span>
-                  <span class="src-name">
-                    <span class="row-title">felix</span>
-                    <span class="mini">your account</span>
-                  </span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">2 min. ago</span></span>
-                  <span class="row-act pair"><a class="btn btn--s" href="#account">Account</a></span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--ok"><span class="glyph"></span>active</span>
-                  <span class="tag">User</span>
-                  <span class="src-name">
-                    <span class="row-title">anna</span>
-                  </span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">yesterday</span></span>
-                  <span class="row-act pair">
-                    <span class="btn btn--s">Reset password</span>
-                    <span class="btn btn--s">Deactivate</span>
-                  </span>
-                </div>
-                <div class="row row--user">
-                  <span class="state state--off"><span class="glyph"></span>deactivated</span>
-                  <span class="tag">User</span>
-                  <span class="src-name">
-                    <span class="row-title">jonas</span>
-                  </span>
-                  <span class="stand"><span class="lbl">Last login</span><span class="age">6 days ago</span></span>
-                  <span class="row-act pair"><span class="btn btn--s">Activate</span></span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Create user <span class="w">1024 px</span></div>
-          <p class="board-note">Its own small page, not a dialog over the list — a created account is a thing, not a setting. Username, role, first password; no mail address and no invitation link, because nobody registers themselves (line 14). What happens to that first password sits behind the ⓘ — expanded here for viewing.</p>
-        </figcaption>
-        <div class="frame" style="--w: 620px">
-          <div class="route">presentator.local/settings/users/new</div>
-          <div class="app">
-            <div class="app-bar">
-              <div class="brand">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <nav class="nav">
-                  <a class="nav-link" href="#decks"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-layout-grid"></use></svg> Decks</a>
-                  <a class="nav-link nav-link--now" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg> Settings</a>
-                </nav>
-              </div>
-            <div class="person">
-              <span class="person-btn" tabindex="0">
-                <span class="avatar">FH</span>
-                <span class="person-name">felix</span>
-                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
-              </span>
-            </div>
-            </div>
-            <div class="body">
-              <a class="crumb" href="#users">← Users</a>
-              <div class="deck-head">
-                <h1>Create user</h1>
-              </div>
-              <nav class="tabs">
-                <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
-                <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab tab--now" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
-                <a class="tab" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
-              </nav>
-
-              <div class="form">
-                <div class="field">
-                  <label for="bn">Username</label>
-                  <div class="input filled" id="bn">anna</div>
-                </div>
-
-                <div class="form-part">
-                  <span class="sub">Role</span>
-                  <div class="radios">
-                    <span class="radio"><span class="dot"></span>Admin — may create, reset, and deactivate accounts</span>
-                    <span class="radio"><span class="dot dot--on"></span>User — own decks and sources</span>
-                  </div>
-                </div>
-
-                <div class="form-part">
-                  <span class="sub">First password</span>
-                  <div class="field">
-                    <div class="lbl-row">
-                      <label for="bp">Password</label>
-                      <span class="info info--open" tabindex="0">i<span class="pop">You set it and hand it over yourself. Anna changes it under Account; there is no invitation mail and no signup link.</span></span>
-                    </div>
-                    <div class="input dots" id="bp">••••••••••••</div>
-                  </div>
-                  <div class="field">
-                    <label for="br">Repeat password</label>
-                    <div class="input dots" id="br">••••••••••••</div>
-                  </div>
-                </div>
-
-                <div class="actions">
-                  <span class="btn btn--primary">Create</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Deactivate — confirm <span class="w">Excerpt</span></div>
-          <p class="board-note">One verb, one consequence line, and the glyph of the state it will produce. Grey, not red: the account is switched off, not destroyed — and it can be switched back on (line 14b).</p>
-        </figcaption>
-        <div class="frame" style="--w: 420px">
-          <div class="route">presentator.local/settings/users</div>
-          <div class="app">
-            <div class="body">
-              <div class="banner">
-                <span class="glyph" style="border-radius: 50%; background: var(--ink-faint); clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 62%, 100% 62%, 100% 100%, 0 100%);"></span>
-                <div class="banner-body">
-                  <h2>Deactivate anna</h2>
-                  <p>Ends their open sessions now.</p>
-                  <div class="pair">
-                    <span class="btn">Cancel</span>
-                    <span class="btn btn--primary">Deactivate</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-
-    </div>
-  </section>
-
   <!-- ================= SETTINGS · VOICE ================= -->
   <section class="group">
     <div class="group-head">
@@ -3436,7 +3237,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3528,7 +3328,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3615,7 +3414,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3707,7 +3505,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3799,7 +3596,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -3902,7 +3698,6 @@
               <nav class="tabs">
                 <a class="tab" href="#settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg> General</a>
                 <a class="tab" href="#sources"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-git-branch"></use></svg> Sources</a>
-                <a class="tab" href="#users"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-users"></use></svg> Users</a>
                 <a class="tab tab--now" href="#voice"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-mic"></use></svg> Voice</a>
               </nav>
 
@@ -4090,7 +3885,7 @@
   <section class="group">
     <div class="group-head">
       <h2>Account</h2>
-      <span class="lines">lines 14b, 21, 22</span>
+      <span class="lines">lines 21, 22 · K13</span>
     </div>
 
     <div class="boards">
@@ -4098,7 +3893,7 @@
       <figure class="board">
         <figcaption class="board-cap">
           <div class="board-title">Account <span class="w">1024 px</span></div>
-          <p class="board-note">Everyone has this page — one question: what is mine. Password and sessions (line 14b); language and theme override the instance default for you only (lines 21, 22). The current device is marked, so “End others” needs no explanation of what it spares. Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
+          <p class="board-note">Everyone has this page — one question: what is mine. Name and role (Admin) come from Keycloak, the role from the group /apps/presentator/admin: no password form and no state, because there is nothing local to change or switch off. Language and theme override the instance default for you only (lines 21, 22). Account is reached from the person menu. A user without the admin role sees the same page, minus Settings in the bar.</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/account</div>
@@ -4125,7 +3920,6 @@
                 <div class="meta">
                   <span class="slug">felix</span>
                   <span class="tag">Admin</span>
-                  <span class="state state--ok"><span class="glyph"></span>active</span>
                 </div>
               </div>
 
@@ -4147,49 +3941,7 @@
                 </div>
               </div>
 
-              <div class="form-part">
-                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-key-round"></use></svg> Password</span>
-                <div class="field">
-                  <label for="kc">Current password</label>
-                  <div class="input dots" id="kc">••••••••••••</div>
-                </div>
-                <div class="field">
-                  <label for="kn">New password</label>
-                  <div class="input dots" id="kn">••••••••••••••</div>
-                </div>
-                <div class="field">
-                  <label for="kw">Repeat new password</label>
-                  <div class="input dots" id="kw">••••••••••••••</div>
-                </div>
-                <div class="actions">
-                  <span class="btn btn--primary btn--s">Change password</span>
-                </div>
-              </div>
 
-              <div class="form-part">
-                <span class="sub"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-monitor"></use></svg> Sessions</span>
-                <div class="log">
-                  <div class="log-row">
-                    <span>Firefox · Linux</span>
-                    <span class="age">active now</span>
-                    <span><span class="tag">this device</span></span>
-                  </div>
-                  <div class="log-row">
-                    <span>Chrome · Windows</span>
-                    <span class="age">2 hours ago</span>
-                    <span></span>
-                  </div>
-                  <div class="log-row">
-                    <span>Safari · iPhone</span>
-                    <span class="age">yesterday</span>
-                    <span></span>
-                  </div>
-                </div>
-                <div class="pair">
-                  <span class="btn btn--s">End others</span>
-                  <span class="info" tabindex="0">i<span class="pop">Ends every session except this one. On the other devices you log in again — this device keeps running.</span></span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -4489,72 +4241,10 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
   <section class="group">
     <div class="group-head">
       <h2>Rechtliches (#196)</h2>
-      <span class="lines">lines 1, 3, 4</span>
+      <span class="lines">lines 3, 4</span>
     </div>
 
     <div class="boards">
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Login with legal links <span class="w">1024 px</span></div>
-          <p class="board-note">The same two links as every page after login: "Impressum" (links straight to hallucinai.de, no copy here) and "Datenschutz" (Presentator's own page). Both reachable without a session (line 1).</p>
-        </figcaption>
-        <div class="frame" style="--w: 520px">
-          <div class="route">presentator.local/login</div>
-          <div class="app">
-            <div class="login">
-              <div class="login-card">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <h1>Login</h1>
-                <div class="field">
-                  <label for="lu1">Username</label>
-                  <div class="input placeholder" id="lu1">felix</div>
-                </div>
-                <div class="field">
-                  <label for="lp1">Password</label>
-                  <div class="input dots" id="lp1">••••••••••</div>
-                </div>
-                <div class="btn btn--primary btn--wide">Log in</div>
-              </div>
-              <div class="legal-links">
-                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
-                <a class="linkish" href="#datenschutz">Datenschutz</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-      <figure class="board">
-        <figcaption class="board-cap">
-          <div class="board-title">Login with legal links <span class="w">390 px</span></div>
-          <p class="board-note">Narrow phone width: the two links stay below the card, reachable without logging in (line 1).</p>
-        </figcaption>
-        <div class="frame" style="--w: 390px">
-          <div class="route">presentator.local/login</div>
-          <div class="app">
-            <div class="login">
-              <div class="login-card">
-                <div class="wordmark">Presen<span>tator</span></div>
-                <h1>Login</h1>
-                <div class="field">
-                  <label for="lu2">Username</label>
-                  <div class="input placeholder" id="lu2">felix</div>
-                </div>
-                <div class="field">
-                  <label for="lp2">Password</label>
-                  <div class="input dots" id="lp2">••••••••••</div>
-                </div>
-                <div class="btn btn--primary btn--wide">Log in</div>
-              </div>
-              <div class="legal-links">
-                <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>
-                <a class="linkish" href="#datenschutz">Datenschutz</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </figure>
 
       <figure class="board">
         <figcaption class="board-cap">
@@ -4631,7 +4321,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <div class="brand">
                 <div class="wordmark">Presen<span>tator</span></div>
               </div>
-              <a class="crumb" href="#login">&larr; Login</a>
+              <a class="crumb" href="#login">&larr; Log in</a>
             </div>
             <div class="body legal-page">
               <section>
@@ -4645,9 +4335,8 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
-                  <li><b>Benutzerkonto:</b> Benutzername, Rolle (Admin/Nutzer) und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an; es gibt keine Selbstregistrierung.</li>
+                  <li><b>Benutzerkonto:</b> Benutzername und Rolle (Admin/Nutzer) aus der zentralen Anmeldung. Die Anmeldung selbst verarbeitet Keycloak unter auth.hallucinai.de als Auftragsverarbeiter; Presentator speichert kein Passwort.</li>
                   <li><b>Sitzungen und Cookies:</b> ein serverseitig signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, nur über HTTPS) sowie ein zweites, von JavaScript lesbares Cookie ausschließlich zum Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach 12 Stunden Inaktivität als beendet; die Zeile wird beim Abmelden gelöscht.</li>
-                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse und Zeitpunkt, zum Schutz vor automatisiertem Ausprobieren (nach 5 Fehlversuchen wird gedrosselt).</li>
                   <li><b>Decks und Quellen:</b> der Inhalt Ihrer verbundenen Git-Quellen (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt und zu Vorträgen gebaut. Ein Lesezugriffsschlüssel pro Quelle wird verschlüsselt gespeichert und kann nach der Eingabe nur erneuert, nie wieder angezeigt werden.</li>
                   <li><b>CoPresenter (Sprachfunktion):</b> Ihre gesprochene Frage wird lokal in Text umgewandelt; die Audio-Rohdaten werden dabei nicht gespeichert. Der erkannte Text, die aktuelle Folie und der vollständige Deckinhalt werden an den in Abschnitt 3 genannten KI-Anbieter gesendet. Die gesprochene Antwort wird lokal erzeugt und nur für die Wiedergabe gestreamt, nicht dauerhaft gespeichert.</li>
                   <li><b>Server-Protokolle:</b> die Anwendung schreibt Betriebsprotokolle. <span class="offen">[offen: Aufbewahrungsdauer und Speicherort liegen an der Server-Konfiguration des Betreibers, nicht im Anwendungscode.]</span></li>
@@ -4656,6 +4345,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> aktuell der einzige aktiv genutzte Antwort-Anbieter des CoPresenter-Features, über den eigenen Claude-Zugang des Betreibers, nicht über einen pro Anfrage übertragenen API-Schlüssel. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und der gesamte Deckinhalt. <span class="offen">[offen: Anthropics eigene Aufbewahrungs- und Verarbeitungspraxis liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> die Technik ist vorbereitet, wird vom Code aktuell aber nicht aufgerufen — nur Claude beantwortet Fragen. <span class="offen">[offen: ob/wann sich das ändert, legt der Betreiber fest.]</span></li>
                   <li><b>Sprachausgabe und Spracherkennung:</b> laufen lokal auf dem Server des Betreibers (Piper und Chatterbox für die Sprachausgabe; lokale Spracherkennung). Keine Übertragung an einen externen Sprachanbieter.</li>
@@ -4664,14 +4354,13 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               </section>
               <section>
                 <h2>4. Speicherort</h2>
-                <p>Benutzerkonten, Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
+                <p>Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
               </section>
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Benutzerkonten:</b> bei Keycloak, bis zur Löschung durch einen Administrator.</li>
                   <li><b>Sitzungen:</b> Zeile gelöscht beim Abmelden. <span class="offen">[offen: eine nie abgemeldete Sitzung wird im Code nicht automatisch gelöscht.]</span></li>
-                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> <span class="offen">[offen: keine automatische Löschung im Code hinterlegt.]</span></li>
                   <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel:</b> spätestens nach 24 Stunden automatisch entfernt.</li>
                   <li><b>Decks und Builds:</b> bis die Quelle entfernt wird oder der Ordner aus Git verschwindet.</li>
                   <li><b>CoPresenter-Audio:</b> nicht gespeichert, nur für die Antwortdauer gestreamt.</li>
@@ -4709,7 +4398,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <div class="brand">
                 <div class="wordmark">Presen<span>tator</span></div>
               </div>
-              <a class="crumb" href="#login">&larr; Login</a>
+              <a class="crumb" href="#login">&larr; Log in</a>
             </div>
             <div class="body legal-page">
               <section>
@@ -4723,9 +4412,8 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
-                  <li><b>Benutzerkonto:</b> Benutzername, Rolle und ein mit Argon2id gehashtes Passwort. Konten legt ausschließlich ein Administrator an.</li>
+                  <li><b>Benutzerkonto:</b> Benutzername und Rolle aus der Anmeldung über Keycloak (auth.hallucinai.de, Auftragsverarbeiter). Kein Passwort in Presentator.</li>
                   <li><b>Sitzungen und Cookies:</b> ein signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, HTTPS) plus ein CSRF-Cookie ohne Tracking. Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, letzte Aktivität. Gültig 12 Stunden; Zeile gelöscht beim Abmelden.</li>
-                  <li><b>Fehlgeschlagene Anmeldeversuche:</b> Benutzername, IP-Adresse, Zeitpunkt — Schutz vor Ausprobieren.</li>
                   <li><b>Decks und Quellen:</b> gespiegelter Git-Inhalt (Folien, Notizen); ein verschlüsselter Lesezugriffsschlüssel pro Quelle.</li>
                   <li><b>CoPresenter:</b> gesprochene Frage lokal in Text umgewandelt (Audio nicht gespeichert); Text, aktuelle Folie und Deckinhalt gehen an den KI-Anbieter unten. Antwort-Audio nur gestreamt.</li>
                   <li><b>Server-Protokolle:</b> <span class="offen">[offen: Aufbewahrungsdauer liegt an der Server-Konfiguration.]</span></li>
@@ -4734,6 +4422,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
+                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator erhält von dort Name und Gruppe, kein Passwort.</li>
                   <li><b>Anthropic (Claude):</b> einziger aktiv genutzter Anbieter, über den eigenen Claude-Zugang des Betreibers. <span class="offen">[offen: Anthropics eigene Aufbewahrung liegt außerhalb dieses Codes.]</span></li>
                   <li><b>Grok, Codex:</b> vorbereitet, aber vom Code aktuell nicht aufgerufen.</li>
                   <li><b>Sprachausgabe/-erkennung:</b> lokal (Piper, Chatterbox) — keine externe Übertragung.</li>
@@ -4747,9 +4436,8 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> bis zur Löschung durch einen Administrator.</li>
+                  <li><b>Benutzerkonten:</b> bei Keycloak, bis zur Löschung durch einen Administrator.</li>
                   <li><b>Sitzungen:</b> gelöscht beim Abmelden. <span class="offen">[offen: keine automatische Löschung einer nie abgemeldeten Sitzung.]</span></li>
-                  <li><b>Anmeldeversuche:</b> <span class="offen">[offen: keine automatische Löschung im Code.]</span></li>
                   <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> nach spätestens 24 Stunden entfernt.</li>
                   <li><b>Decks/Builds:</b> bis die Quelle entfernt wird.</li>
                   <li><b>CoPresenter-Audio:</b> nicht gespeichert.</li>
