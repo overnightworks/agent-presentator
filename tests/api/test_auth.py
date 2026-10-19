@@ -566,12 +566,13 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
 
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
+    assert f"{session_hours} Stunden im Browser" in page
 
 
 @pytest.mark.parametrize(
     "cookie_name", ["__Host-session_id", "__Host-csrf_token", "slidev-"]
 )
-def test_the_datenschutz_names_every_cookie_it_sets(
+def test_the_datenschutz_names_every_cookie_and_storage_key(
     lobby: Lobby,
     cookie_name: str,
 ) -> None:

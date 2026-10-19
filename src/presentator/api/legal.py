@@ -107,23 +107,29 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Sitzungs-Cookie (HttpOnly, SameSite=Lax, nur über HTTPS, "
                     f"{_SESSION_HOURS} Stunden gültig). __Host-csrf_token ist "
                     "von JavaScript lesbar und dient nur dem Fälschungsschutz "
-                    "(CSRF), nicht dem Tracking. Gespeichert werden "
+                    "(CSRF), nicht dem Tracking; er bleibt wie das Sitzungs-Cookie "
+                    f"{_SESSION_HOURS} Stunden im Browser und wird mit jeder "
+                    "angemeldeten Antwort erneuert. Gespeichert werden "
                     "Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der "
-                    "Zeitpunkt der Anmeldung und der letzten Aktivität. Eine "
+                    "Zeitpunkt der Anmeldung und der letzten Aktivität. IP-Adresse "
+                    "und User-Agent der letzten Anfrage werden mit jeder Anfrage "
+                    "gespeichert und derzeit von nichts ausgewertet. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
                     "Zweck · Rechtsgrundlage: angemeldet bleiben, "
-                    f"{_BASIS_CONTRACT}; IP-Adresse und User-Agent dienen der "
-                    f"Sicherheit der Sitzung, {_BASIS_INTEREST}; die Cookies "
+                    f"{_BASIS_CONTRACT}; die Cookies "
                     "selbst sind nach § 25 Abs. 2 Nr. 2 TDDDG ohne Einwilligung "
                     "zulässig.",
                 ),
                 _point(
                     "Lokaler Speicher des Browsers:",
-                    "Die Vortragsansicht (Slidev) legt ihre Einstellungen unter "
-                    "Schlüsseln mit dem Anfang slidev- im lokalen Speicher Ihres "
-                    "Browsers ab, ohne Kennung. Zweck · Rechtsgrundlage: die "
-                    "Ansicht so darstellen, wie Sie sie eingestellt haben, "
-                    "§ 25 Abs. 2 Nr. 2 TDDDG.",
+                    "Die Vortragsansicht (Slidev) legt Einstellungen wie Kamera, "
+                    "Mikrofon und Export-Hinweise unter Schlüsseln mit dem "
+                    "Anfang slidev- im lokalen Speicher Ihres Browsers ab. "
+                    "Einige davon werden beim Öffnen mit Standardwerten "
+                    "angelegt. Sie tragen keine Kennung und werden nie an den "
+                    "Server gesendet. Zweck · Rechtsgrundlage: Einstellungen, "
+                    "die Sie selbst wählen, so darstellen, wie Sie sie "
+                    "eingestellt haben, § 25 Abs. 2 Nr. 2 TDDDG.",
                 ),
                 _point(
                     "Decks und Quellen:",
@@ -142,12 +148,16 @@ DATENSCHUTZ: Final = LegalDocument(
                     "CoPresenter (Sprachfunktion):",
                     "Ihre gesprochene Frage wird auf dem Server in Text "
                     "umgewandelt; die Audio-Rohdaten werden nicht gespeichert. "
-                    "Der erkannte Text, die aktuelle Folie und das Deck, mit "
-                    "dem der CoPresenter gestartet wurde, jede Folie mit ihren "
-                    "Notizen, werden an Anthropic gesendet, um eine Antwort zu "
-                    "erzeugen. Solange der CoPresenter eingeschaltet ist, wird "
-                    "alles, was im Raum gesagt wird, in Fragen umgewandelt und "
-                    "als Text an Anthropic gesendet. Jede angemeldete Person "
+                    "Der Browser sendet nur die Nummer der Folie, die er zeigt. "
+                    "Der erkannte Text, der Inhalt dieser Folie und das Deck, "
+                    "mit dem der CoPresenter gestartet wurde, jede Folie mit "
+                    "ihren Notizen, werden an Anthropic gesendet, um eine "
+                    "Antwort zu erzeugen; dieses Deck kann vom Deck im Browser "
+                    "abweichen. Solange der CoPresenter zuhört, wird Sprache im "
+                    "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
+                    "als Frage an Anthropic gesendet, außer während der "
+                    "CoPresenter spricht oder wenn ein Echo erkannt wird; "
+                    "niemand wählt die Fragen aus. Jede angemeldete Person "
                     "darf den CoPresenter nutzen. Die gesprochene Antwort wird "
                     "auf dem Server erzeugt und nur für die Wiedergabe "
                     "gestreamt. Wenn die Spracherkennung auf dem Server nicht "
@@ -193,7 +203,8 @@ DATENSCHUTZ: Final = LegalDocument(
                     "den eigenen Claude-Zugang des Betreibers (die installierte "
                     "claude-Kommandozeile). Anthropic ist dafür ein eigener "
                     "Verantwortlicher. Übertragen werden die gesprochene Frage "
-                    "als Text, die aktuelle Folie und das gesamte Deck.",
+                    "als Text, der Inhalt der Folie, deren Nummer der Browser meldet, und "
+                    "das Deck, mit dem der CoPresenter gestartet wurde.",
                 ),
                 _point(
                     "Browser-Hersteller:",
@@ -247,12 +258,16 @@ DATENSCHUTZ: Final = LegalDocument(
                 _point(
                     "Decks und Builds:",
                     "Die Decks eines entfernten Ordners werden nur markiert; "
-                    "ein neuer Build lässt den alten bestehen.",
+                    "ein neuer Build lässt den alten bestehen. Das Entfernen "
+                    "einer Quelle löscht ihren Spiegel, ihre Decks und deren "
+                    "aktive Builds.",
                 ),
                 _point(
                     "Kopien der Claude-Software:",
-                    "Frage, Deck und Antwort bleiben bis zu 30 Tage im Klartext "
-                    "bei der Claude-Software auf dem Server des Betreibers.",
+                    "Frage, Deck und Antwort bleiben im Klartext bei der "
+                    "Claude-Software auf dem Server des Betreibers; deren "
+                    "Standardeinstellung sind 30 Tage, eine Obergrenze ist "
+                    "nicht belegt.",
                 ),
                 _point(
                     "CoPresenter-Audio:",
