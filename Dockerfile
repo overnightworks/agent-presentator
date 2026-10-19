@@ -10,31 +10,54 @@
 # move.
 FROM node:24.20.0-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0 AS runtime-user
 
+# The two identities a build worker runs steps as: one builds, one only reads
+# what the build wrote. They are made before the runtime user so that a runtime
+# uid equal to either is refused rather than shared.
+RUN groupadd --gid 10001 presentator-build \
+    && useradd --uid 10001 --gid 10001 --home-dir /work/home --no-create-home \
+        --shell /usr/sbin/nologin presentator-build \
+    && groupadd --gid 10002 presentator-wire \
+    && useradd --uid 10002 --gid 10002 --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin presentator-wire
+
 ARG PRESENTATOR_RUNTIME_UID=1001
 RUN case "$PRESENTATOR_RUNTIME_UID" in \
-        ''|*[!0-9]*|0) exit 1 ;; \
+        ''|*[!0-9]*|0|10001|10002) exit 1 ;; \
     esac \
     && test "$PRESENTATOR_RUNTIME_UID" -gt 0 \
     && useradd --create-home --non-unique --uid "$PRESENTATOR_RUNTIME_UID" presentator
-ENV HOME=/home/presentator
+# The browser and corepack's package managers are root's and live outside the
+# runtime HOME, so every one of the three users can run them.
+ENV HOME=/home/presentator \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    COREPACK_HOME=/opt/corepack
 
 FROM runtime-user AS toolchain
 
 # The toolchain runs as the named unprivileged runtime user in both images.
 RUN corepack enable pnpm
 
-# The toolchain is installed as that user, because a build writes its caches
-# beside the project and Playwright keeps its browser under that user's home.
+# The project's dependencies are installed as that user, because a build writes
+# its caches beside the project; pnpm and the browser are installed as root.
 WORKDIR /app
 COPY --chown=presentator frontend/package.json frontend/pnpm-lock.yaml ./frontend/
-USER presentator
 WORKDIR /app/frontend
-RUN corepack install && pnpm install --frozen-lockfile
+RUN corepack install
+USER presentator
+RUN pnpm install --frozen-lockfile
 USER root
 RUN pnpm exec playwright install-deps chromium \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pnpm exec playwright install chromium
+# The export's dev server keeps its dependency cache beside Slidev's own
+# package, which a read-only root cannot hold, so it points into the step's
+# scratch directory.
+RUN slidev="$(realpath node_modules/@slidev/cli)" \
+    && mkdir -p "$slidev/node_modules" \
+    && ln -s /work/vite "$slidev/node_modules/.vite" \
+    && mkdir -p /work/vite \
+    && chmod 1777 /work/vite
 USER presentator
-RUN pnpm exec playwright install chromium
 COPY --chown=presentator frontend ./
 # A build's container is started with the deck's own command line and nothing
 # else, so the project the toolchain resolves from is this image's own place of

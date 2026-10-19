@@ -417,6 +417,33 @@ jobs:
           test "$(docker inspect --format '{{.Config.User}}' agent-presentator:uid-1000)" = presentator
           docker run --rm agent-presentator:uid-1000 sh -c 'test "$(id -u)" = 1000 && test "$HOME" = /home/presentator'
 
+      - name: Prove the build and wire users exist (cell 1)
+        run: |
+          image=agent-presentator:${{ github.sha }}
+          test "$(docker run --rm "$image" getent passwd presentator-build)" = \
+            'presentator-build:x:10001:10001::/work/home:/usr/sbin/nologin'
+          test "$(docker run --rm "$image" getent passwd presentator-wire)" = \
+            'presentator-wire:x:10002:10002::/nonexistent:/usr/sbin/nologin'
+          for uid in 10001 10002; do
+            if docker build --build-arg PRESENTATOR_RUNTIME_UID=$uid --tag agent-presentator:uid-$uid .; then
+              echo "a runtime uid of $uid was accepted" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          version: "0.10.9"
+
+      - name: Prove the image builds and exports a deck, as its users (cell 2)
+        run: |
+          docker build --target toolchain --tag agent-presentator-build:${{ github.sha }} .
+          uv sync --locked
+          uv run --locked python scripts/prove_container_build.py \
+            agent-presentator-build:${{ github.sha }} agent-presentator:${{ github.sha }}
+
       # An image without CA certificates builds cleanly and only fails once a
       # real HTTPS source is added, so the proof has to be an actual TLS
       # fetch, not a package-list check. The target is a public repository
