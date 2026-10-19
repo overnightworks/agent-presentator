@@ -1,0 +1,8 @@
+claim_id = "e7d57989617d4089af10f8ea9c4d7e70"
+agent = "claude"
+role = "builder"
+base = "37fa4caa683c45fae108769232804498bdf59dbb"
+branch = "claude/issue-261-a1-step-arguments"
+scope = ["src/presentator/adapters/builds.py", "src/presentator/application/decks.py", "src/presentator/contracts/decks.py", "tests/application/test_decks.py", "tests/contracts"]
+opened_commit = "1819d8dde3474f1b8b8480d1a6108d091f25581e"
+whole_reason = "One refactor seam (step arguments and the plain-folder rule) with its two Sonar findings in the same module; net production lines ≤0."
