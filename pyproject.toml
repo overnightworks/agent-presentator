@@ -13,7 +13,7 @@ dependencies = [
     "fastapi==0.141.1",
     "httpx2[ws]==2.12.0",
     "jinja2==3.1.6",
-    "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.11.0/overnightworks_webauth-0.11.0-py3-none-any.whl",
+    "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.17.0/overnightworks_webauth-0.17.0-py3-none-any.whl",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
     "uvicorn==0.52.4",
@@ -69,9 +69,6 @@ ignore = [
     # This repository carries no per-file copyright header.
     "CPY001",
 ]
-
-[tool.ruff.lint.flake8-tidy-imports.banned-api]
-"webauth.passwords".msg = "Only the host names the hasher; it composes WebAuthConfig."
 
 [tool.ruff.lint.flake8-type-checking]
 # A pydantic field's annotation is read at runtime, so its import is not type-only.
@@ -250,13 +247,10 @@ name = "Only adapters and the host import webauth"
 type = "forbidden"
 # ADR 0003: the library owns the login mechanism. Adapters fill its ports;
 # the host composes WebAuthConfig. The api is not in this list because the
-# routes call judge_credentials, login_attempt_budget, and CsrfOriginMiddleware,
-# and must read the installed config, sign and clear cookies, answer an
-# unauthenticated request, and read client identity those helpers need
-# (webauth.login, webauth.config, webauth.cookies, webauth.dependencies,
-# webauth.proxies, webauth.middleware). The host alone names the library's
-# Argon2id hasher (webauth.passwords): ruff's banned-api keeps it out of every
-# production module but host/main.py, which carries a rule-specific marker.
+# routes must read the installed config, sign and clear cookies, answer an
+# unauthenticated request, and read client identity, and install
+# CsrfOriginMiddleware (webauth.config, webauth.cookies, webauth.dependencies,
+# webauth.proxies, webauth.middleware).
 source_modules = [
     "presentator.application",
     "presentator.ports",

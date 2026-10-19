@@ -27,7 +27,6 @@ from presentator.adapters.decks import (
     create_deck_tables,
 )
 from presentator.adapters.identity import (
-    SqliteUserStore,
     TokenIdentifierFactory,
     create_identity_tables,
 )
@@ -50,8 +49,9 @@ from presentator.contracts.decks import (
     SourceRunOutcome,
     SourceWrite,
 )
-from presentator.contracts.models import Account, Role, User
+from presentator.contracts.models import Role, User
 from tests.conftest import EXAMPLE_SLUG, EXAMPLE_TITLE, MAIN_BRANCH, GitRemote
+from tests.people import seed_user
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _NOTICED_GONE_AT = datetime(2026, 1, 20, 9, tzinfo=UTC)
@@ -68,7 +68,6 @@ _ANOTHER_INSTANCE_KEY = "the key another instance carries"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _A_GENEROUS_BOUND = timedelta(seconds=30)
 _NO_BUDGET_AT_ALL = timedelta(0)
-_A_STORED_HASH = "the hash first start stored"
 _BUILT_AT = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
 _TRIED_AT = datetime(2026, 1, 15, 10, tzinfo=UTC)
 _WHAT_THE_TOOLCHAIN_SAID = "slides.md:41:3 Unexpected token in frontmatter"
@@ -341,14 +340,7 @@ def a_database_written_before_sources(tmp_path: Path) -> Path:
     """A file this product wrote before sources were rows, carrying one deck."""
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
-    SqliteUserStore(database).add_first_account(
-        Account(
-            id=_OWNER.id,
-            username=_OWNER.username,
-            role=_OWNER.role,
-            password_hash=_A_STORED_HASH,
-        ),
-    )
+    seed_user(database, _OWNER)
     apply_schema(database, _DECKS_BEFORE_SOURCES)
     kept = a_deck()
     with rows(database) as cursor:
@@ -370,14 +362,7 @@ def an_instance_that_was_set_up(tmp_path: Path) -> Path:
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
     create_deck_tables(database)
-    SqliteUserStore(database).add_first_account(
-        Account(
-            id=_OWNER.id,
-            username=_OWNER.username,
-            role=_OWNER.role,
-            password_hash=_A_STORED_HASH,
-        ),
-    )
+    seed_user(database, _OWNER)
     return database
 
 
@@ -846,14 +831,7 @@ def test_a_sources_table_written_before_this_column_gains_it_and_keeps_its_row(
 ) -> None:
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
-    SqliteUserStore(database).add_first_account(
-        Account(
-            id=_OWNER.id,
-            username=_OWNER.username,
-            role=_OWNER.role,
-            password_hash=_A_STORED_HASH,
-        ),
-    )
+    seed_user(database, _OWNER)
     apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
     with rows(database) as cursor:
         cursor.execute(
@@ -1745,14 +1723,7 @@ def test_a_pre_change_file_whose_row_only_names_an_environment_variable_stays(
     monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
     database = tmp_path / "presentator.sqlite3"
     create_identity_tables(database)
-    SqliteUserStore(database).add_first_account(
-        Account(
-            id=_OWNER.id,
-            username=_OWNER.username,
-            role=_OWNER.role,
-            password_hash=_A_STORED_HASH,
-        ),
-    )
+    seed_user(database, _OWNER)
     apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
     with rows(database) as cursor:
         cursor.execute(

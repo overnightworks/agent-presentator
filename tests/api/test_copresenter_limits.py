@@ -19,15 +19,12 @@ from presentator.api.copresenter import (
     add_copresenter_routes,
 )
 from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
-from tests.api.lobby import TYPED_WORDS, USERNAME
 from tests.api.test_copresenter import (
     NOW,
     PUBLIC_ORIGIN,
     QUESTION,
     RecordingPrivateCoPresenter,
     a_copresenter_lobby,
-    another_browser,
-    sign_in,
 )
 from tests.application.fakes import FrozenClock
 
@@ -59,8 +56,9 @@ def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
 def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     invalid: dict[str, object],
 ) -> None:
-    client, private, _clock = a_copresenter_lobby()
-    sign_in(client)
+    lobby, private, _clock = a_copresenter_lobby()
+    client = lobby.client
+    lobby.sign_in()
 
     response = ask(client, {**QUESTION, **invalid})
 
@@ -86,8 +84,9 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
 def test_ask_accepts_the_limit_and_the_offered_languages(
     allowed: dict[str, object], language_handed_on: str | None
 ) -> None:
-    client, private, _clock = a_copresenter_lobby()
-    sign_in(client)
+    lobby, private, _clock = a_copresenter_lobby()
+    client = lobby.client
+    lobby.sign_in()
 
     response = ask(client, {**QUESTION, **allowed})
 
@@ -97,10 +96,11 @@ def test_ask_accepts_the_limit_and_the_offered_languages(
 
 def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> None:
     limiter_clock = FrozenClock(instant=NOW)
-    client, private, _clock = a_copresenter_lobby(
+    lobby, private, _clock = a_copresenter_lobby(
         limiter=AskLimiter(clock=limiter_clock)
     )
-    sign_in(client)
+    client = lobby.client
+    lobby.sign_in()
     for _ in range(20):
         assert ask(client).status_code == HTTPStatus.OK
         limiter_clock.advance(timedelta(seconds=10))
@@ -116,8 +116,9 @@ def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> 
 
 
 def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> None:
-    client, private, _clock = a_copresenter_lobby()
-    sign_in(client)
+    lobby, private, _clock = a_copresenter_lobby()
+    client = lobby.client
+    lobby.sign_in()
     second: list[Response] = []
 
     def ask_again_mid_answer(index: int) -> None:
@@ -141,12 +142,14 @@ def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> Non
 
 def test_each_session_has_its_own_question_budget() -> None:
     limiter_clock = FrozenClock(instant=NOW)
-    first, _private, _clock = a_copresenter_lobby(
+    first_lobby, _private, _clock = a_copresenter_lobby(
         limiter=AskLimiter(clock=limiter_clock)
     )
-    sign_in(first)
-    other = another_browser(first.app)
-    other.post("/login", data={"username": USERNAME, "password": TYPED_WORDS})
+    first = first_lobby.client
+    first_lobby.sign_in()
+    other_lobby = first_lobby.another_browser()
+    other_lobby.sign_in()
+    other = other_lobby.client
     for _ in range(20):
         ask(first)
 

@@ -1,22 +1,18 @@
-"""First start, the sliding session, and logout."""
+"""The sliding session and logout."""
 
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from presentator.application.identity import IDLE_WINDOW, Identity
-from presentator.contracts.models import FirstStartClosedError, Role, Session
+from presentator.contracts.models import Role, Session, User
 from tests.application.fakes import (
-    CountingIdentifierFactory,
-    FakeLoginAttemptStore,
+    FakePeople,
     FakeSessionRecordStore,
     FakeUserStore,
     FrozenClock,
     MatchingLiveness,
-    ReversibleHasher,
 )
-
-_TYPED_WORDS = "the words only this test types"
 
 
 @pytest.fixture
@@ -34,38 +30,38 @@ class LoggedOutDuringTheRequest(FakeSessionRecordStore):
 
 
 @pytest.fixture
-def identity(clock: FrozenClock) -> Identity:
-    return identity_over(FakeSessionRecordStore(clock=clock), clock)
-
-
-def identity_over(sessions: FakeSessionRecordStore, clock: FrozenClock) -> Identity:
-    return Identity(
+def people(clock: FrozenClock) -> FakePeople:
+    return FakePeople(
         users=FakeUserStore(),
-        sessions=sessions,
-        attempts=FakeLoginAttemptStore(clock=clock),
-        hasher=ReversibleHasher(),
-        clock=clock,
-        identifiers=CountingIdentifierFactory(),
+        sessions=FakeSessionRecordStore(clock=clock),
+    )
+
+
+@pytest.fixture
+def identity(people: FakePeople) -> Identity:
+    return identity_over(people)
+
+
+def identity_over(people: FakePeople) -> Identity:
+    return Identity(
+        users=people.users,
+        sessions=people.sessions,
+        clock=people.clock,
         liveness=MatchingLiveness(),
     )
 
 
-def sign_up_the_admin(identity: Identity, *, username: str = "felix") -> str:
-    return identity.create_first_admin(username=username, password=_TYPED_WORDS)
+def sign_in_the_admin(people: FakePeople) -> str:
+    return people.open_session_for(
+        User(id="id-of-felix", username="felix", role=Role.ADMIN),
+    )
 
 
-def test_first_start_is_offered_while_the_instance_has_no_account(
+def test_a_seeded_session_names_its_person(
     identity: Identity,
+    people: FakePeople,
 ) -> None:
-    assert identity.first_start_is_open() is True
-
-    sign_up_the_admin(identity)
-
-    assert identity.first_start_is_open() is False
-
-
-def test_first_start_creates_an_admin_and_signs_them_in(identity: Identity) -> None:
-    session_id = sign_up_the_admin(identity)
+    session_id = sign_in_the_admin(people)
 
     signed_in = identity.signed_in_user(session_id)
 
@@ -74,20 +70,12 @@ def test_first_start_creates_an_admin_and_signs_them_in(identity: Identity) -> N
     assert signed_in.role is Role.ADMIN
 
 
-def test_first_start_refuses_a_second_account(identity: Identity) -> None:
-    sign_up_the_admin(identity)
-
-    with pytest.raises(FirstStartClosedError):
-        identity.create_first_admin(username="stranger", password=_TYPED_WORDS)
-
-    assert identity.account_named("stranger") is None
-
-
 def test_a_login_survives_a_ninety_minute_talk(
     identity: Identity,
+    people: FakePeople,
     clock: FrozenClock,
 ) -> None:
-    session_id = sign_up_the_admin(identity)
+    session_id = sign_in_the_admin(people)
 
     for _ in range(6):
         clock.advance(timedelta(minutes=15))
@@ -96,9 +84,10 @@ def test_a_login_survives_a_ninety_minute_talk(
 
 def test_a_session_expires_after_twelve_idle_hours(
     identity: Identity,
+    people: FakePeople,
     clock: FrozenClock,
 ) -> None:
-    session_id = sign_up_the_admin(identity)
+    session_id = sign_in_the_admin(people)
 
     clock.advance(IDLE_WINDOW + timedelta(seconds=1))
 
@@ -107,9 +96,10 @@ def test_a_session_expires_after_twelve_idle_hours(
 
 def test_the_idle_window_starts_again_at_every_request(
     identity: Identity,
+    people: FakePeople,
     clock: FrozenClock,
 ) -> None:
-    session_id = sign_up_the_admin(identity)
+    session_id = sign_in_the_admin(people)
 
     clock.advance(IDLE_WINDOW - timedelta(minutes=1))
     assert identity.signed_in_user(session_id) is not None
@@ -120,9 +110,10 @@ def test_the_idle_window_starts_again_at_every_request(
 
 def test_a_session_at_the_idle_boundary_is_still_alive(
     identity: Identity,
+    people: FakePeople,
     clock: FrozenClock,
 ) -> None:
-    session_id = sign_up_the_admin(identity)
+    session_id = sign_in_the_admin(people)
 
     clock.advance(IDLE_WINDOW)
 
@@ -133,8 +124,9 @@ def test_a_logout_during_the_request_is_not_undone_by_its_renewal(
     clock: FrozenClock,
 ) -> None:
     sessions = LoggedOutDuringTheRequest(clock=clock)
-    identity = identity_over(sessions, clock)
-    session_id = sign_up_the_admin(identity)
+    people = FakePeople(users=FakeUserStore(), sessions=sessions)
+    identity = identity_over(people)
+    session_id = sign_in_the_admin(people)
 
     assert identity.signed_in_user(session_id) is None
     assert sessions.rows == {}
@@ -149,15 +141,19 @@ def test_a_logout_during_the_request_is_not_undone_by_its_renewal(
 )
 def test_only_a_known_live_session_names_a_person(
     identity: Identity,
+    people: FakePeople,
     session_id: str,
 ) -> None:
-    sign_up_the_admin(identity)
+    sign_in_the_admin(people)
 
     assert identity.signed_in_user(session_id) is None
 
 
-def test_logging_out_ends_the_session_the_id_stands_for(identity: Identity) -> None:
-    session_id = sign_up_the_admin(identity)
+def test_logging_out_ends_the_session_the_id_stands_for(
+    identity: Identity,
+    people: FakePeople,
+) -> None:
+    session_id = sign_in_the_admin(people)
 
     identity.log_out(session_id)
 
@@ -173,9 +169,10 @@ def test_logging_out_ends_the_session_the_id_stands_for(identity: Identity) -> N
 )
 def test_logging_out_an_unknown_session_leaves_the_live_one_alone(
     identity: Identity,
+    people: FakePeople,
     session_id: str,
 ) -> None:
-    signed_in_session = sign_up_the_admin(identity)
+    signed_in_session = sign_in_the_admin(people)
 
     identity.log_out(session_id)
 

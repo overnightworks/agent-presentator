@@ -1,36 +1,28 @@
 """The pages that sign a person in and out, and the guard on everything else.
 
-Every address but signing in, first start, signing out, and the
-Datenschutzerklärung answers the login redirect while nobody is signed in, a
-form another site submitted is refused, and no answer may be replayed from the
-browser cache (issue #8, lines 11 to 15).
+Every address but signing in, signing out, and the Datenschutzerklärung answers
+the login redirect while nobody is signed in, a form another site submitted is
+refused, and no answer may be replayed from the browser cache (issue #8, lines
+11 to 15).
 """
 
-import logging
 import posixpath
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Annotated, Final, cast
+from typing import Final
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import HTTPConnection
-from starlette.responses import PlainTextResponse, RedirectResponse
+from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
+from webauth.cookies import clear_session_cookies, issue_session_cookies
 from webauth.dependencies import (
     LoginRedirect,
     session_id_from_request,
     unauthenticated_response,
-)
-from webauth.login import (
-    LoginOutcome,
-    clear_session_cookies,
-    issue_session_cookies,
-    judge_credentials,
-    login_attempt_budget,
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
@@ -53,32 +45,8 @@ from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.identity import Identity
 from presentator.application.voice import VoiceStatusUse
-from presentator.contracts.models import Account, FirstStartClosedError, User
+from presentator.contracts.models import User
 from presentator.contracts.text import LobbyText
-
-
-@dataclass
-class _Credentials:
-    """A writable account view `judge_credentials` can read."""
-
-    id: str
-    username: str
-    role: str
-    is_active: bool
-    password_hash: str
-
-
-def _credentials(account: Account) -> _Credentials:
-    return _Credentials(
-        id=account.id,
-        username=account.username,
-        role=account.role.value,
-        is_active=account.is_active,
-        password_hash=account.password_hash,
-    )
-
-
-_log = logging.getLogger(__name__)
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
@@ -86,12 +54,11 @@ _INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
 _LOGIN: Final = "/login"
 _LOGOUT: Final = "/logout"
-_SETUP: Final = "/setup"
 _DATENSCHUTZ: Final = "/datenschutz"
-# Signing in, first start, and signing out are the addresses the guard leaves
+# Signing in and signing out are the addresses the guard leaves
 # alone; logging out ends a session rather than using one. The theme
 # stylesheet has to render the open pages themselves, so it is public too.
-_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
+_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT})
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header and the sliding window
 # there like on every other page.
@@ -132,8 +99,7 @@ def _session_id_from_cookie(connection: HTTPConnection) -> str:
     A forged, oversized, or doubled cookie names none either: the library
     refuses to pick between two same-named cookies.
     """
-    request = cast("Request", connection)
-    return session_id_from_request(request, web_auth_config(request)) or ""
+    return session_id_from_request(connection, web_auth_config(connection)) or ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -152,8 +118,8 @@ def signed_in_connection(
     session_id = _session_id_from_cookie(request)
     person = identity.signed_in_user(
         session_id,
-        ip_address=resolve_client_ip(cast("Request", request)),
-        user_agent=client_user_agent(cast("Request", request)),
+        ip_address=resolve_client_ip(request),
+        user_agent=client_user_agent(request),
     )
     if person is None:
         return None
@@ -261,45 +227,8 @@ class _Surfaces:
         )
 
     def login_page(self, request: Request) -> Response:
-        """Ask for a username and a password, and offer nothing else."""
-        return self._login(request, refused=False)
-
-    def log_in(
-        self,
-        request: Request,
-        username: Annotated[str, Form()],
-        password: Annotated[str, Form()],
-    ) -> Response:
-        """Open a session, or say the one sentence that tells nothing apart."""
-        config = web_auth_config(request)
-        ip_address = resolve_client_ip(request)
-        if (
-            login_attempt_budget(
-                self.identity.attempts,
-                ip_address=ip_address,
-                username=username,
-                config=config,
-            )
-            is not None
-        ):
-            return self._login(request, refused=True)
-        account = self.identity.account_named(username)
-        outcome = judge_credentials(
-            password,
-            None if account is None else _credentials(account),
-            hasher=config.password_hasher,
-        )
-        if outcome is not LoginOutcome.ADMITTED or account is None:
-            self.identity.note_failed_login(ip_address=ip_address, username=username)
-            return self._login(request, refused=True)
-        return self._signed_in(
-            request,
-            self.identity.open_session(
-                account.as_user(),
-                ip_address=ip_address,
-                user_agent=client_user_agent(request),
-            ),
-        )
+        """Show the sign-in page, which offers no way in yet."""
+        return self.pages.page(request, "login.html")
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
@@ -307,36 +236,6 @@ class _Surfaces:
         answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
         clear_session_cookies(answer, web_auth_config(request))
         return answer
-
-    def setup_page(self, request: Request) -> Response:
-        """Offer the first admin while the instance has no account."""
-        if not self.identity.first_start_is_open():
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._setup(request, mismatch=False)
-
-    def set_up_admin(
-        self,
-        request: Request,
-        username: Annotated[str, Form()],
-        password: Annotated[str, Form()],
-        repeated_password: Annotated[str, Form()],
-    ) -> Response:
-        """Create the admin the instance starts with, once."""
-        if not self.identity.first_start_is_open():
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        if password != repeated_password:
-            return self._setup(request, mismatch=True)
-        try:
-            session_id = self.identity.create_first_admin(
-                username=username,
-                password=password,
-                ip_address=resolve_client_ip(request),
-                user_agent=client_user_agent(request),
-            )
-        except FirstStartClosedError:
-            # Another first start won the race between the count and the write.
-            return RedirectResponse(_LOGIN, status_code=HTTPStatus.FOUND)
-        return self._signed_in(request, session_id)
 
     def datenschutz_page(self, request: Request) -> Response:
         """Show the Datenschutzerklärung to anyone, signed in or not."""
@@ -346,51 +245,6 @@ class _Surfaces:
             document=DATENSCHUTZ,
             emphasis=Emphasis,
         )
-
-    def _login(self, request: Request, *, refused: bool) -> Response:
-        return self.pages.page(request, "login.html", refused=refused)
-
-    def _setup(self, request: Request, *, mismatch: bool) -> Response:
-        return self.pages.page(request, "setup.html", mismatch=mismatch)
-
-    def _signed_in(self, request: Request, session_id: str) -> Response:
-        answer = RedirectResponse(_LOBBY, status_code=HTTPStatus.SEE_OTHER)
-        issue_session_cookies(answer, session_id, web_auth_config(request))
-        return answer
-
-
-def _unhandled_error_handler(
-    lobby: FastAPI,
-) -> Callable[[Request, Exception], Awaitable[Response]]:
-    """Carry the shared policy onto what no route or dependency named.
-
-    `ServerErrorMiddleware` is Starlette's own outermost layer, standing
-    outside every middleware `create_lobby` adds, `SecurityHeadersMiddleware`
-    among them: its default answer to an exception nothing else caught would
-    otherwise leave the browser with none of this deployment's headers at
-    all. Registering this as the app's `Exception` handler keeps
-    that answer inside `ServerErrorMiddleware` rather than past it, so the
-    same policy's own dispatch still runs once against it, and the body
-    stays generic rather than echoing what broke.
-    """
-    headers = SecurityHeadersMiddleware(lobby, policy=_SECURITY_HEADERS)
-
-    async def _generic_failure(_: Request) -> Response:
-        return PlainTextResponse(
-            "Internal Server Error",
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-        )
-
-    async def answer(request: Request, exc: Exception) -> Response:
-        _log.exception(
-            "unhandled error answering %s %s",
-            request.method,
-            request.url.path,
-            exc_info=exc,
-        )
-        return await headers.dispatch(request, _generic_failure)
-
-    return answer
 
 
 def create_lobby(
@@ -416,13 +270,9 @@ def create_lobby(
     lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
     lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
-    lobby.add_exception_handler(Exception, _unhandled_error_handler(lobby))
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
-    lobby.add_api_route(_LOGIN, surfaces.log_in, methods=["POST"])
     lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
-    lobby.add_api_route(_SETUP, surfaces.setup_page, methods=["GET"])
-    lobby.add_api_route(_SETUP, surfaces.set_up_admin, methods=["POST"])
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))

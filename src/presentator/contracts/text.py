@@ -25,21 +25,9 @@ class LobbyText:
     role_admin: str
     role_user: str
     login_title: str
-    login_username: str
-    login_password: str
-    login_submit: str
-    login_refused: str
     footer_impressum: str
     footer_datenschutz: str
     legal_back_to_login: str
-    setup_title: str
-    setup_once: str
-    setup_explanation: str
-    setup_username: str
-    setup_password: str
-    setup_repeat_password: str
-    setup_submit: str
-    setup_passwords_differ: str
     decks_title: str
     decks_column_state: str
     decks_column_deck: str

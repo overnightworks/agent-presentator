@@ -1,6 +1,5 @@
 """The lobby's real routes, driven the way a browser drives them."""
 
-import logging
 import re
 from datetime import timedelta
 from http import HTTPStatus
@@ -9,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
+from httpx2 import Response as BrowserAnswer
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 from webauth.middleware.security_headers import (
     CONTENT_TYPE_OPTIONS,
@@ -21,12 +21,9 @@ from webauth.policies import default_content_security_policy
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
 from presentator.application.identity import (
-    FAILURE_WINDOW,
-    FAILURES_BEFORE_THROTTLE,
     IDLE_WINDOW,
 )
 from presentator.contracts.decks import Build, Deck, talk_address
-from presentator.contracts.models import Account, Role
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
@@ -34,7 +31,6 @@ from tests.api.lobby import (
     ENGLISH,
     NOW,
     SOURCE_ID,
-    TYPED_WORDS,
     USERNAME,
     GivenDecks,
     Lobby,
@@ -43,17 +39,12 @@ from tests.api.lobby import (
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
     a_signed_in_lobby,
-    a_user_store,
 )
 from tests.application.fakes import (
     FakeDeckStore,
-    ReversibleHasher,
-    UserStoreThatLostTheRace,
 )
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-_WINNERS_HASH = "the hash the winning first start stored"
-_WRONG_WORDS = "guessed"
 _DECK_SLUG = "hello-deck"
 _DECK_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 # What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
@@ -75,19 +66,6 @@ _EVERY_SECURITY_HEADER = {
     "referrer-policy": REFERRER_POLICY,
     "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
 }
-
-
-def a_store_that_lost_the_race() -> UserStoreThatLostTheRace:
-    store = UserStoreThatLostTheRace()
-    store.add_first_account(
-        Account(
-            id="winner",
-            username="someone-else",
-            role=Role.ADMIN,
-            password_hash=_WINNERS_HASH,
-        ),
-    )
-    return store
 
 
 def a_signed_in_lobby_with_a_built_deck() -> TestClient:
@@ -164,16 +142,28 @@ def test_an_unlisted_mutating_route_refuses_a_foreign_form() -> None:
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
-def test_first_start_creates_the_admin_and_opens_the_lobby(lobby: Lobby) -> None:
-    created = lobby.set_up_admin()
+def submit_the_logout_form(
+    lobby: Lobby,
+    headers: dict[str, str],
+) -> BrowserAnswer:
+    """The one form every signed-in page carries, with the claims a test names."""
+    return lobby.client.post(
+        "/logout",
+        headers={"content-type": "application/x-www-form-urlencoded", **headers},
+    )
 
-    assert created.status_code == HTTPStatus.SEE_OTHER
-    assert created.headers["location"] == "/"
-    assert USERNAME in lobby.client.get("/").text
+
+def test_a_seeded_session_opens_the_lobby(lobby: Lobby) -> None:
+    lobby.sign_in()
+
+    opened = lobby.client.get("/")
+
+    assert opened.status_code == HTTPStatus.OK
+    assert USERNAME in opened.text
 
 
-def test_the_session_cookie_travels_locked_down(lobby: Lobby) -> None:
-    cookie = lobby.set_up_admin().headers["set-cookie"]
+def test_the_session_cookie_travels_locked_down(signed_in_lobby: Lobby) -> None:
+    cookie = signed_in_lobby.client.get("/").headers["set-cookie"]
 
     assert "HttpOnly" in cookie
     assert "SameSite=lax" in cookie
@@ -199,97 +189,43 @@ def test_a_doubled_session_cookie_leads_to_the_login(signed_in_lobby: Lobby) -> 
     assert answer.headers["location"] == "/login?next=%2F"
 
 
-def test_a_repeated_password_that_differs_creates_no_account(lobby: Lobby) -> None:
-    refused = lobby.set_up_admin(repeated="something else")
-
-    assert refused.status_code == HTTPStatus.OK
-    assert ENGLISH.setup_passwords_differ in refused.text
-    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
-
-
 @pytest.mark.parametrize("method", ["get", "post"])
-def test_first_start_is_gone_once_an_account_exists(
+def test_there_is_no_first_start_page_to_set_up_an_admin(
     signed_in_lobby: Lobby,
     method: str,
 ) -> None:
-    answer = (
-        signed_in_lobby.client.get("/setup")
-        if method == "get"
-        else signed_in_lobby.set_up_admin()
-    )
+    answer = signed_in_lobby.client.request(method, "/setup")
+
+    assert answer.status_code == HTTPStatus.NOT_FOUND
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_nobody_reaches_a_first_start_page_while_signed_out(
+    lobby: Lobby,
+    method: str,
+) -> None:
+    answer = lobby.client.request(method, "/setup")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
+    assert answer.headers["location"] == "/login?next=%2Fsetup"
 
 
-def test_the_login_page_offers_no_action_but_signing_in(lobby: Lobby) -> None:
+def test_the_login_page_offers_no_form_and_no_password_field(lobby: Lobby) -> None:
     page = lobby.client.get("/login").text
 
-    offered = {
-        word
-        for word in (ENGLISH.login_submit, ENGLISH.setup_submit, ENGLISH.log_out)
-        if word in page
-    }
-    assert offered == {ENGLISH.login_submit}
+    assert ENGLISH.login_title in page
+    assert "<form" not in page
+    assert 'type="password"' not in page
 
 
-def test_the_right_password_opens_the_lobby(signed_in_lobby: Lobby) -> None:
-    signed_in_lobby.client.post("/logout")
-
-    signed_in = signed_in_lobby.log_in()
-
-    assert signed_in.status_code == HTTPStatus.SEE_OTHER
-    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
-
-
-def test_a_deactivated_account_hears_the_same_sentence() -> None:
-    lobby = a_lobby(
-        users=a_user_store(
-            Account(
-                id="id-of-felix",
-                username=USERNAME,
-                role=Role.ADMIN,
-                password_hash=ReversibleHasher().hash(TYPED_WORDS),
-                is_active=False,
-            ),
-        ),
+def test_a_password_posted_to_the_login_signs_nobody_in(lobby: Lobby) -> None:
+    refused = lobby.client.post(
+        "/login",
+        data={"username": USERNAME, "password": "the words only this test types"},
     )
 
-    refused = lobby.log_in()
-
-    assert refused.status_code == HTTPStatus.OK
-    assert ENGLISH.login_refused in refused.text
+    assert refused.status_code == HTTPStatus.METHOD_NOT_ALLOWED
     assert DEFAULT_SESSION_COOKIE_NAME not in lobby.client.cookies
-
-
-@pytest.mark.parametrize(
-    ("username", "password"),
-    [
-        pytest.param("nobody", TYPED_WORDS, id="unknown-name"),
-        pytest.param(USERNAME, _WRONG_WORDS, id="wrong-password"),
-    ],
-)
-def test_a_refused_login_says_one_sentence_that_tells_nothing_apart(
-    signed_in_lobby: Lobby,
-    username: str,
-    password: str,
-) -> None:
-    refused = signed_in_lobby.log_in(username=username, password=password)
-
-    assert refused.status_code == HTTPStatus.OK
-    assert ENGLISH.login_refused in refused.text
-
-
-def test_repeated_failures_throttle_the_right_password_with_the_same_sentence(
-    signed_in_lobby: Lobby,
-) -> None:
-    for _ in range(FAILURES_BEFORE_THROTTLE):
-        signed_in_lobby.log_in(password=_WRONG_WORDS)
-
-    throttled = signed_in_lobby.log_in()
-
-    assert throttled.status_code == HTTPStatus.OK
-    assert ENGLISH.login_refused in throttled.text
 
 
 def test_a_login_survives_a_ninety_minute_talk(signed_in_lobby: Lobby) -> None:
@@ -307,25 +243,11 @@ def test_a_session_left_alone_for_twelve_hours_leads_back_to_the_login(
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
 
 
-def test_the_throttle_lets_go_once_the_failures_age_out(
-    signed_in_lobby: Lobby,
-) -> None:
-    for _ in range(FAILURES_BEFORE_THROTTLE):
-        signed_in_lobby.log_in(password=_WRONG_WORDS)
-
-    signed_in_lobby.clock.advance(FAILURE_WINDOW + timedelta(seconds=1))
-
-    assert signed_in_lobby.log_in().status_code == HTTPStatus.SEE_OTHER
-
-
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(
     signed_in_lobby: Lobby,
 ) -> None:
-    refusal = signed_in_lobby.log_in(password=_WRONG_WORDS)
-
     assert signed_in_lobby.client.get("/").headers["cache-control"] == "no-store"
     assert signed_in_lobby.client.get("/login").headers["cache-control"] == "no-store"
-    assert refusal.headers["cache-control"] == "no-store"
 
 
 def test_a_lobby_reached_over_https_sends_strict_transport_security(
@@ -338,7 +260,7 @@ def test_a_lobby_reached_over_https_sends_strict_transport_security(
 
 def test_a_lobby_reached_over_plain_http_sends_no_hsts() -> None:
     lobby = a_lobby(cookie_secure=False)
-    lobby.set_up_admin()
+    lobby.sign_in()
 
     answer = lobby.client.get("/")
 
@@ -379,37 +301,22 @@ def test_every_real_answer_carries_the_full_set_of_security_headers(
         assert answer.headers[name] == value
 
 
-def test_an_uncaught_error_still_carries_the_full_set_of_security_headers() -> None:
-    """Prove the gap a direct ASGI probe once found: every header, still.
-
-    `ServerErrorMiddleware` stands outside every middleware this app added,
-    `SecurityHeadersMiddleware` among them: only `auth.py`'s own `Exception`
-    handler keeps an unhandled 500 inside that boundary. A direct ASGI probe
-    before that handler existed returned a 500 with every one of these
-    headers absent.
-    """
-    lobby, _clock = a_lobby_app()
-
+def test_an_uncaught_error_still_carries_the_full_set_of_security_headers(
+    signed_in_lobby: Lobby,
+) -> None:
     def it_breaks() -> Response:
         message = "an error nothing in this route catches"
         raise RuntimeError(message)
 
-    lobby.add_api_route("/it-breaks", it_breaks, methods=["GET"])
+    signed_in_lobby.app.add_api_route("/it-breaks", it_breaks, methods=["GET"])
     client = TestClient(
-        lobby,
+        signed_in_lobby.app,
         base_url=A_BROWSERS_ADDRESS,
         follow_redirects=False,
         headers=A_BROWSERS_HEADERS,
         raise_server_exceptions=False,
     )
-    client.post(
-        "/setup",
-        data={
-            "username": USERNAME,
-            "password": TYPED_WORDS,
-            "repeated_password": TYPED_WORDS,
-        },
-    )
+    client.cookies.update(signed_in_lobby.client.cookies)
 
     answer = client.get("/it-breaks")
 
@@ -439,19 +346,6 @@ def test_logging_out_without_a_session_still_lands_at_the_login(lobby: Lobby) ->
     assert logged_out.headers["location"] == "/login"
 
 
-def test_the_password_never_reaches_the_log(
-    lobby: Lobby,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level(logging.DEBUG):
-        lobby.set_up_admin()
-        lobby.log_in(password=_WRONG_WORDS)
-        lobby.log_in()
-        lobby.client.get("/")
-
-    assert TYPED_WORDS not in caplog.text
-
-
 def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     lobby: Lobby,
 ) -> None:
@@ -461,16 +355,6 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     assert answer.headers["location"] == "/login?next=%2Fdeck%2Fknowledge-fabric"
 
 
-def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
-    lobby = a_lobby(users=a_store_that_lost_the_race())
-
-    answer = lobby.set_up_admin()
-
-    assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login"
-    assert DEFAULT_SESSION_COOKIE_NAME not in lobby.client.cookies
-
-
 @pytest.mark.parametrize(
     "headers",
     [
@@ -478,24 +362,14 @@ def test_a_first_start_that_lost_the_race_leads_to_the_login() -> None:
         pytest.param({"sec-fetch-site": "cross-site"}, id="cross-site-fetch"),
     ],
 )
-def test_a_first_start_another_site_submitted_is_refused(
-    headers: dict[str, str],
-) -> None:
+def test_a_form_another_site_submitted_is_refused(headers: dict[str, str]) -> None:
     lobby = a_lobby_that_claims_no_origin_of_its_own()
+    lobby.sign_in()
 
-    refused = lobby.set_up_admin(headers=headers)
+    refused = submit_the_logout_form(lobby, headers)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
-
-
-def test_a_login_another_site_submitted_is_refused() -> None:
-    lobby = a_lobby_that_claims_no_origin_of_its_own()
-    lobby.set_up_admin()
-
-    refused = lobby.log_in(headers={"origin": "https://another.example"})
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert lobby.client.get("/").status_code == HTTPStatus.OK
 
 
 def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
@@ -506,34 +380,37 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
-    created = lobby.set_up_admin(headers={"origin": lobby.own_origin()})
+    accepted = submit_the_logout_form(lobby, {"origin": lobby.own_origin()})
 
-    assert created.status_code == HTTPStatus.SEE_OTHER
+    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
     lobby: Lobby,
 ) -> None:
-    created = lobby.set_up_admin(headers={"sec-fetch-site": "same-origin"})
+    accepted = submit_the_logout_form(lobby, {"sec-fetch-site": "same-origin"})
 
-    assert created.status_code == HTTPStatus.SEE_OTHER
+    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 @pytest.mark.parametrize("fetch_site", ["same-site", "none"])
 def test_a_same_site_or_schemeless_form_post_is_refused(
-    lobby: Lobby,
+    signed_in_lobby: Lobby,
     fetch_site: str,
 ) -> None:
-    refused = lobby.set_up_admin(headers={"sec-fetch-site": fetch_site})
+    refused = submit_the_logout_form(
+        signed_in_lobby,
+        {"sec-fetch-site": fetch_site},
+    )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert lobby.client.get("/setup").status_code == HTTPStatus.OK
+    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
 
 
 def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
     lobby = a_lobby_that_claims_no_origin_of_its_own()
 
-    refused = lobby.set_up_admin()
+    refused = submit_the_logout_form(lobby, {})
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
@@ -545,15 +422,14 @@ def test_logging_out_expires_the_cookie_at_once(signed_in_lobby: Lobby) -> None:
     assert "Max-Age=0" in cleared
 
 
-def test_the_three_stylesheets_are_linked_on_the_open_setup_and_login_pages(
+def test_the_three_stylesheets_are_linked_on_the_open_login_page(
     lobby: Lobby,
 ) -> None:
-    for path in ("/setup", "/login"):
-        page = lobby.client.get(path).text
+    page = lobby.client.get("/login").text
 
-        assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
-        assert '<link rel="stylesheet" href="/static/ui-console.css">' in page
-        assert '<link rel="stylesheet" href="/static/lobby.css">' in page
+    assert '<link rel="stylesheet" href="/static/pico.classless.min.css">' in page
+    assert '<link rel="stylesheet" href="/static/ui-console.css">' in page
+    assert '<link rel="stylesheet" href="/static/lobby.css">' in page
 
 
 def test_the_three_stylesheets_are_linked_on_the_signed_in_home_page(
@@ -600,15 +476,6 @@ def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
 
         assert not _HEX_COLOUR.search(page)
         assert "style=" not in page
-
-
-def test_the_open_setup_page_carries_no_hex_colour_or_inline_style(
-    lobby: Lobby,
-) -> None:
-    page = lobby.client.get("/setup").text
-
-    assert not _HEX_COLOUR.search(page)
-    assert "style=" not in page
 
 
 def test_the_signed_in_header_offers_the_person_and_log_out(
@@ -658,7 +525,7 @@ def test_the_datenschutz_renders_every_section_and_links_the_impressum(
     assert f"die im {impressum_link} genannte Kontaktadresse" in page
 
 
-@pytest.mark.parametrize("path", ["/login", "/setup", "/datenschutz"])
+@pytest.mark.parametrize("path", ["/login", "/datenschutz"])
 def test_a_signed_out_page_links_the_impressum_and_the_datenschutz(
     lobby: Lobby,
     path: str,

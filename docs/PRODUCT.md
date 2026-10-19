@@ -44,19 +44,18 @@ given, is [OPERATIONS.md](OPERATIONS.md).
 
 ### Signing in
 
-The first start of an empty instance creates the admin at `/setup`, and that
-page is gone as soon as an account exists; there is no other way to an account
-yet. `/login` opens a session that SQLite holds, carried by a signed cookie
-that expires after twelve idle hours and slides forward on every request.
-`webauth` v0.11.0 judges credentials, counts the throttle, owns the cookie and
-CSRF-origin mechanism, and formats the refusal for a missing session. The
+Nobody can sign in yet: the password login and `/setup` are gone, and the
+Keycloak sign-in arrives with K13
+([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+`/login` shows the heading and the legal links only. A session that SQLite
+holds is carried by a signed cookie that expires after twelve idle hours and
+slides forward on every request. `webauth` v0.17.0 owns the cookie and
+CSRF-origin mechanism and formats the refusal for a missing session. The
 host's `Identity` still decides which SQLite session names a signed-in person.
 A signed-out browser navigation goes to `/login` with the requested path and
 query in `next`; a JSON request receives 401. Every mutating route is
 cross-origin protected by default; the sessionless `POST /sources/<name>/fetch`
-is the only exemption. Wrong name, wrong password, and too many attempts
-answer with one sentence — never a per-outcome status or message. Logging out
-is a POST that deletes the session row. No answer may be replayed from the
+is the only exemption. Logging out is a POST that deletes the session row. No answer may be replayed from the
 browser cache.
 
 Every lobby page, signed in or out, ends with two links: Impressum goes to the
@@ -67,11 +66,9 @@ the operator's approval before Presentator goes online
 ([#197](https://github.com/overnightworks/agent-presentator/issues/197),
 [ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
 
-The SQLite stores and first start stay this repository's
+The SQLite stores stay this repository's
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),
-[ADR 0011](decisions/0011-instance-users.md)); passwords are hashed by
-webauth's `Argon2idPasswordHasher`
-([ADR 0003 amendment](decisions/0003-libraries-for-models-and-auth.md#amendment-2026-10-04--webauths-argon2id-hashes-passwords)). User management, including
+[ADR 0011](decisions/0011-instance-users.md)); no password is stored. User management, including
 deactivation, belongs to [#61](https://github.com/overnightworks/agent-presentator/issues/61).
 How an instance is started is [OPERATIONS.md](OPERATIONS.md).
 
@@ -182,8 +179,7 @@ about another's. The folder name is one address for the whole instance: a
 folder whose name another source already carries is skipped with a line in the
 log, and the source that carried it first keeps it. Only a refresh
 reconciles, so a page view never does. The most recently changed deck stands
-first, and a deck belongs to the account that owns the source it came from — for
-a configured source, the admin that first start created. While no deck exists,
+first, and a deck belongs to the account that owns the source it came from. While no deck exists,
 the list says so and names the Git address instead of showing an empty table,
 as long as one source is all there is to name;
 there is no upload and no editing

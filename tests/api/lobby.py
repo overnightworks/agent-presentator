@@ -6,17 +6,18 @@ stands here once, with the doubles and the accounts a test hands in.
 
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from pathlib import Path
-from typing import Final
+from typing import Final, Self
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
-from httpx2 import Response
+from httpx2 import Request as BrowserRequest
+from httpx2 import Response as BrowserResponse
 from pydantic import SecretStr
-from webauth.config import WebAuthConfig
+from webauth.config import WebAuthConfig, installed_web_auth_config
+from webauth.cookies import issue_session_cookies
 from webauth.liveness import IdleWindowLiveness
-from webauth.proxies import TrustedProxies
-from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from gitmirror.model import CredentialReference
 from presentator.adapters.builds import (
@@ -39,12 +40,7 @@ from presentator.api.auth import (
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
-from presentator.application.identity import (
-    FAILURE_WINDOW,
-    FAILURES_BEFORE_THROTTLE,
-    IDLE_WINDOW,
-    Identity,
-)
+from presentator.application.identity import IDLE_WINDOW, Identity
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
@@ -56,7 +52,7 @@ from presentator.contracts.decks import (
     SourceRun,
     SourceRunFailure,
 )
-from presentator.contracts.models import Account, Role
+from presentator.contracts.models import Role, User
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG, Catalogs
 from presentator.contracts.voice import (
     SampleLanguage,
@@ -66,11 +62,11 @@ from presentator.contracts.voice import (
     VoiceSnapshot,
     VoiceUnavailableError,
 )
+from presentator.host.main import web_auth_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
     DEFAULT_THEME_SET,
-    CountingIdentifierFactory,
     FakeBuildRunner,
     FakeConnectionChecker,
     FakeDeckFolders,
@@ -78,7 +74,7 @@ from tests.application.fakes import (
     FakeDeployKeyDrafts,
     FakeInstanceSettingsStore,
     FakeLocalMount,
-    FakeLoginAttemptStore,
+    FakePeople,
     FakePersonPreferencesStore,
     FakeSessionRecordStore,
     FakeSourceRunStore,
@@ -87,7 +83,6 @@ from tests.application.fakes import (
     FakeUserStore,
     FrozenClock,
     MatchingLiveness,
-    ReversibleHasher,
 )
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -104,7 +99,6 @@ NEIGHBOUR: Final = "anna"
 ADMIN: Final = "the-admin"
 SOURCE_ID: Final = "the-source-the-instance-carries"
 _A_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
-TYPED_WORDS: Final = "the words only this test types"
 # A real browser always sends both: navigation prefers text/html, and a
 # same-site request carries Sec-Fetch-Site since Chrome 76 and Firefox 90. A
 # test proving what an absent or a foreign claim does overrides these
@@ -144,94 +138,76 @@ class UnavailableSpeech:
         raise VoiceUnavailableError
 
 
+def hand_over_session_cookies(
+    client: TestClient,
+    session_id: str,
+    config: WebAuthConfig,
+) -> None:
+    """Put the cookies the library issues for this session into the browser."""
+    issued = Response()
+    issue_session_cookies(issued, session_id, config)
+    client.cookies.extract_cookies(
+        BrowserResponse(
+            HTTPStatus.OK,
+            headers=issued.raw_headers,
+            request=BrowserRequest("GET", client.base_url),
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Lobby:
-    """A running lobby and the clock its session hangs on."""
+    """A running lobby, the clock its session hangs on, and the people it knows."""
 
+    app: FastAPI
     client: TestClient
     clock: FrozenClock
+    people: FakePeople
+    config: WebAuthConfig
 
-    def set_up_admin(
-        self,
-        *,
-        password: str = TYPED_WORDS,
-        repeated: str = TYPED_WORDS,
-        headers: dict[str, str] | None = None,
-    ) -> Response:
-        return self.client.post(
-            "/setup",
-            data={
-                "username": USERNAME,
-                "password": password,
-                "repeated_password": repeated,
-            },
-            headers=headers,
+    def sign_in(self, *, username: str = USERNAME, role: Role | None = None) -> None:
+        """Seed the person and a live session, and give the client its cookies.
+
+        `USERNAME` is the instance's admin; anyone else is an ordinary user
+        unless the test names the role.
+        """
+        person = User(
+            id=f"id-of-{username}",
+            username=username,
+            role=role or (Role.ADMIN if username == USERNAME else Role.USER),
         )
+        session_id = self.people.open_session_for(person)
+        hand_over_session_cookies(self.client, session_id, self.config)
 
-    def log_in(
-        self,
-        *,
-        username: str = USERNAME,
-        password: str = TYPED_WORDS,
-        headers: dict[str, str] | None = None,
-    ) -> Response:
-        return self.client.post(
-            "/login",
-            data={"username": username, "password": password},
-            headers=headers,
+    def another_browser(self) -> Self:
+        """A second browser with its own cookie jar over the same instance."""
+        return replace(
+            self,
+            client=TestClient(
+                self.app,
+                base_url=str(self.client.base_url),
+                follow_redirects=False,
+                headers=dict(self.client.headers),
+            ),
         )
 
     def own_origin(self) -> str:
         return str(self.client.base_url).rstrip("/")
 
 
-def an_account(username: str, *, role: Role = Role.USER) -> Account:
-    """One account a test can log into, hashed the way the fake hasher hashes."""
-    return Account(
-        id=f"id-of-{username}",
-        username=username,
-        role=role,
-        password_hash=ReversibleHasher().hash(TYPED_WORDS),
-    )
-
-
-def a_user_store(*people: Account) -> FakeUserStore:
-    """The accounts an instance already has, without going through first start."""
-    return FakeUserStore(
-        accounts={person.username: person for person in people},
-    )
-
-
-def a_web_auth(
-    *,
-    hasher: ReversibleHasher,
-    cookie_secure: bool = True,
-) -> WebAuthConfig:
-    """The library configuration a route test runs, over the fake hasher.
+def a_web_auth(*, cookie_secure: bool = True) -> WebAuthConfig:
+    """The host's library configuration, as the test origin reaches it.
 
     `cookie_secure` stands in for the production derivation from
-    `public_origin`'s scheme (`host/main.py`): a route test names the origin
-    it wants driven, rather than driving a real https-or-not split.
+    `public_origin`'s scheme: a route test names the origin it wants driven.
     """
-    idle_seconds = int(IDLE_WINDOW.total_seconds())
-    failure_seconds = int(FAILURE_WINDOW.total_seconds())
-    return WebAuthConfig(
-        session_secret=SecretStr("t" * 32),
-        trusted_proxies=TrustedProxies(),
-        password_hasher=hasher,
-        rate_limits=SingleProcessRateLimitBackend(),
-        allowed_hosts_exact=frozenset({"testserver"}),
-        allowed_hosts_patterns=(),
-        session_max_age_seconds=idle_seconds,
-        session_liveness=IdleWindowLiveness(idle_seconds),
-        login_rate_limit=FAILURES_BEFORE_THROTTLE,
-        login_lockout_threshold=FAILURES_BEFORE_THROTTLE,
-        login_lockout_window_seconds=failure_seconds,
-        login_rate_window_seconds=failure_seconds,
-        cookie_samesite="lax",
-        cookie_secure=cookie_secure,
-        session_cache=None,
+    host_config = web_auth_config(
+        SecretStr("t" * 32),
+        liveness=IdleWindowLiveness(int(IDLE_WINDOW.total_seconds())),
+        trusted_proxies="",
+        public_origin=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
     )
+    return replace(host_config, allowed_hosts_exact=frozenset({"testserver"}))
 
 
 def a_configured_source(url: str) -> Source:
@@ -275,24 +251,29 @@ class GivenDecks:
 NO_DECKS: Final = GivenDecks()
 
 
+def a_crowd(users: FakeUserStore | None = None) -> FakePeople:
+    """Nobody signed in yet, on a clock only the test moves."""
+    return FakePeople(
+        users=FakeUserStore() if users is None else users,
+        sessions=FakeSessionRecordStore(clock=FrozenClock(instant=NOW)),
+    )
+
+
 def a_lobby_app(
     *,
-    users: FakeUserStore | None = None,
+    people: FakePeople | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     copresenter: CoPresenterSurface | None = None,
     cookie_secure: bool = True,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
-    clock = FrozenClock(instant=NOW)
-    hasher = ReversibleHasher()
+    crowd = a_crowd() if people is None else people
+    clock = crowd.clock
     identity = Identity(
-        users=FakeUserStore() if users is None else users,
-        sessions=FakeSessionRecordStore(clock=clock),
-        attempts=FakeLoginAttemptStore(clock=clock),
-        hasher=hasher,
+        users=crowd.users,
+        sessions=crowd.sessions,
         clock=clock,
-        identifiers=CountingIdentifierFactory(),
         liveness=MatchingLiveness(),
     )
     stored = (
@@ -365,7 +346,7 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(hasher=hasher, cookie_secure=cookie_secure),
+            config=a_web_auth(cookie_secure=cookie_secure),
         ),
         private=LobbyPrivate(
             copresenter=copresenter,
@@ -379,6 +360,28 @@ def a_lobby_app(
     return lobby, clock
 
 
+def a_browser_at(
+    app: FastAPI,
+    *,
+    people: FakePeople,
+    base_url: str,
+    headers: dict[str, str],
+) -> Lobby:
+    """A browser at an app built over `people`, with nobody signed in yet."""
+    return Lobby(
+        app=app,
+        client=TestClient(
+            app,
+            base_url=base_url,
+            follow_redirects=False,
+            headers=headers,
+        ),
+        clock=people.clock,
+        people=people,
+        config=installed_web_auth_config(app),
+    )
+
+
 def a_lobby(
     *,
     users: FakeUserStore | None = None,
@@ -388,39 +391,36 @@ def a_lobby(
     cookie_secure: bool = True,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
-    lobby, clock = a_lobby_app(
-        users=users,
+    people = a_crowd(users)
+    app, _ = a_lobby_app(
+        people=people,
         catalogs=catalogs,
         given=replace(given, voice=voice),
         cookie_secure=cookie_secure,
     )
-    client = TestClient(
-        lobby,
+    return a_browser_at(
+        app,
+        people=people,
         base_url=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
-        follow_redirects=False,
         headers=A_BROWSERS_HEADERS,
     )
-    return Lobby(client=client, clock=clock)
 
 
-def a_lobby_that_claims_no_origin_of_its_own(
-    *,
-    users: FakeUserStore | None = None,
-) -> Lobby:
+def a_lobby_that_claims_no_origin_of_its_own() -> Lobby:
     """A browser old enough to omit Sec-Fetch-Site, for a test that names its own.
 
     `a_lobby`'s client already claims `Sec-Fetch-Site: same-origin` so most
     tests never have to; a test proving what an absent or a foreign claim
     does needs a client that makes no claim of its own to be overridden.
     """
-    lobby, clock = a_lobby_app(users=users)
-    client = TestClient(
-        lobby,
+    people = a_crowd()
+    app, _ = a_lobby_app(people=people)
+    return a_browser_at(
+        app,
+        people=people,
         base_url=A_BROWSERS_ADDRESS,
-        follow_redirects=False,
         headers={"accept": "text/html"},
     )
-    return Lobby(client=client, clock=clock)
 
 
 class _NoCredentials:
@@ -490,7 +490,7 @@ def a_swapped_build(tmp_path: Path, *, slug: str) -> tuple[TestClient, Path]:
 
 
 def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:
-    """The same lobby with its first admin created and their session open."""
+    """The same lobby with its admin's session open."""
     lobby = a_lobby(given=given)
-    lobby.set_up_admin()
+    lobby.sign_in()
     return lobby.client

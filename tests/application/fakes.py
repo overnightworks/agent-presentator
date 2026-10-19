@@ -30,13 +30,7 @@ from presentator.contracts.decks import (
     SourceWrite,
     local_mount_path_of,
 )
-from presentator.contracts.models import (
-    Account,
-    FirstStartClosedError,
-    Role,
-    Session,
-    User,
-)
+from presentator.contracts.models import Session, User
 from presentator.contracts.preferences import InstanceSettings, PersonPreferences
 from presentator.contracts.text import LobbyText
 
@@ -57,49 +51,12 @@ A_REACHABLE_CHECK: Final = ConnectionCheckResult(
 
 @dataclass
 class FakeUserStore:
-    """Accounts in a dictionary, keyed the way the real table is."""
+    """The people who may sign in, keyed by id the way the real table is."""
 
-    accounts: dict[str, Account] = field(default_factory=dict[str, Account])
-    minted: int = 0
+    users: dict[str, User] = field(default_factory=dict[str, User])
 
     def get(self, user_id: str) -> User | None:
-        found = [
-            account.as_user()
-            for account in self.accounts.values()
-            if account.id == user_id
-        ]
-        return found[0] if found else None
-
-    def get_by_username(self, username: str) -> Account | None:
-        return self.accounts.get(username)
-
-    def add_first_account(self, account: Account) -> None:
-        if self.accounts:
-            message = "this instance already has an account"
-            raise FirstStartClosedError(message)
-        self.accounts[account.username] = account
-
-    def create(self, username: str, password_hash: str, role: str) -> Account:
-        self.minted += 1
-        account = Account(
-            id=f"created-{self.minted}",
-            username=username,
-            role=Role(role),
-            password_hash=password_hash,
-        )
-        self.accounts[username] = account
-        return account
-
-    def count(self) -> int:
-        return len(self.accounts)
-
-    def first_admin(self) -> User | None:
-        admins = [
-            account.as_user()
-            for account in self.accounts.values()
-            if account.role is Role.ADMIN
-        ]
-        return admins[0] if admins else None
+        return self.users.get(user_id)
 
 
 @dataclass
@@ -179,37 +136,28 @@ class FakeSessionRecordStore:
         return dropped
 
 
-@dataclass
-class FakeLoginAttemptStore:
-    """Failures as a list of moments per name and address."""
+@dataclass(frozen=True)
+class FakePeople:
+    """Who may sign in and the sessions they hold, over one clock."""
 
-    clock: FrozenClock
-    failures: list[tuple[str, str, datetime]] = field(
-        default_factory=list[tuple[str, str, datetime]],
-    )
+    users: FakeUserStore
+    sessions: FakeSessionRecordStore
 
-    def record(self, *, ip_address: str, username: str, success: bool) -> None:
-        if success:
-            return
-        self.failures.append((username, ip_address, self.clock.now()))
+    @property
+    def clock(self) -> FrozenClock:
+        assert self.sessions.clock is not None
+        return self.sessions.clock
 
-    def count_recent_failures(
-        self,
-        *,
-        ip_address: str,
-        window_seconds: int,
-        username: str | None = None,
-    ) -> int:
-        since = self.clock.now() - timedelta(seconds=window_seconds)
-        if username is not None:
-            return sum(
-                1 for name, _, at in self.failures if name == username and at >= since
-            )
-        return sum(
-            1
-            for _, address, at in self.failures
-            if address == ip_address and at >= since
+    def open_session_for(self, person: User) -> str:
+        """Seed the person and one live session of theirs, and return its id."""
+        self.users.users[person.id] = person
+        opened = self.sessions.create(
+            person.id,
+            self.clock.now() + IDLE_WINDOW,
+            ip_address="",
+            user_agent="",
         )
+        return opened.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,19 +171,6 @@ class MatchingLiveness:
 
 
 @dataclass
-class ReversibleHasher:
-    """A hash a test can read, so no test ever needs the real cost of Argon2id."""
-
-    marker: str = "hashed:"
-
-    def hash(self, password: str) -> str:
-        return f"{self.marker}{password}"
-
-    def verify(self, password: str, stored_hash: str | None) -> bool:
-        return stored_hash == self.hash(password)
-
-
-@dataclass
 class FrozenClock:
     """A clock only a test moves."""
 
@@ -246,25 +181,6 @@ class FrozenClock:
 
     def advance(self, by: timedelta) -> None:
         self.instant += by
-
-
-@dataclass
-class CountingIdentifierFactory:
-    """Ids a test can predict."""
-
-    minted: int = 0
-
-    def new_id(self) -> str:
-        self.minted += 1
-        return f"id-{self.minted}"
-
-
-@dataclass
-class UserStoreThatLostTheRace(FakeUserStore):
-    """Another first start has written; this one still sees the count it read."""
-
-    def count(self) -> int:
-        return 0
 
 
 @dataclass
