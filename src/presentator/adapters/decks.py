@@ -49,16 +49,12 @@ from presentator.contracts.decks import (
 from presentator.ports.decks import LocalMount
 from presentator.ports.identity import IdentifierFactory
 
-# A deck's source is nullable because a file written before sources were rows
-# gains the column with nothing in it; every deck taken in since names the
-# source that carried it.
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     url TEXT NOT NULL UNIQUE,
     ref TEXT NOT NULL,
-    credential_reference TEXT,
     encrypted_secret BLOB,
     hook_secret_hash BLOB,
     owner_id TEXT NOT NULL REFERENCES users(id),
@@ -78,7 +74,7 @@ CREATE TABLE IF NOT EXISTS decks (
     title TEXT NOT NULL,
     changed_at TEXT NOT NULL,
     owner_id TEXT NOT NULL REFERENCES users(id),
-    source_id TEXT REFERENCES sources(id),
+    source_id TEXT NOT NULL REFERENCES sources(id),
     commit_sha TEXT NOT NULL,
     active_build TEXT,
     pdf_export TEXT,
@@ -99,31 +95,6 @@ CREATE TABLE IF NOT EXISTS source_runs (
     reason TEXT
 );
 """
-# The row shape without a row: a table this product wrote before a column
-# existed gains it in place rather than by a new file, in the order the columns
-# arrived.
-_DECK_COLUMNS: Final = "SELECT * FROM decks LIMIT 0"
-_ADD_COLUMN: Final = "ALTER TABLE decks ADD COLUMN {column} {definition}"
-_COLUMNS_ADDED_LATER: Final = (
-    ("source_id", "TEXT REFERENCES sources(id)"),
-    ("attempt_commit", "TEXT"),
-    ("attempt_started_at", "TEXT"),
-    ("attempt_outcome", "TEXT"),
-    ("attempt_failure", "TEXT"),
-)
-_SOURCE_COLUMNS: Final = "SELECT * FROM sources LIMIT 0"
-_ENCRYPTED_COLUMN: Final = "encrypted_secret"
-_ADD_ENCRYPTED_TO_SOURCES: Final = (
-    f"ALTER TABLE sources ADD COLUMN {_ENCRYPTED_COLUMN} BLOB"
-)
-_HOOK_HASH_COLUMN: Final = "hook_secret_hash"
-_ADD_HOOK_HASH_TO_SOURCES: Final = (
-    f"ALTER TABLE sources ADD COLUMN {_HOOK_HASH_COLUMN} BLOB"
-)
-_PUBLIC_KEY_COLUMN: Final = "ssh_public_key"
-_ADD_PUBLIC_KEY_TO_SOURCES: Final = (
-    f"ALTER TABLE sources ADD COLUMN {_PUBLIC_KEY_COLUMN} TEXT"
-)
 _ADD_SOURCE: Final = """
 INSERT INTO sources
     (id, name, url, ref, encrypted_secret, hook_secret_hash, owner_id, ssh_public_key)
@@ -131,8 +102,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 _HOOK_HASH_BY_NAME: Final = "SELECT hook_secret_hash FROM sources WHERE name = ?"
 _ALL_SOURCES: Final = """
-SELECT id, name, url, ref, credential_reference, encrypted_secret, owner_id,
-       ssh_public_key
+SELECT id, name, url, ref, encrypted_secret, owner_id, ssh_public_key
 FROM sources
 """
 _REMOVE_SOURCE: Final = "DELETE FROM sources WHERE id = ?"
@@ -160,23 +130,21 @@ _SWEEP_DRAFTS: Final = "DELETE FROM source_key_drafts WHERE created_at < ?"
 _DraftRow = tuple[str, str, str, bytes, str]
 # The ciphertext is written on its own: everything else about a source is what
 # the operator typed, while this is the one value the instance key can open.
-# A leftover environment reference is cleared so the row no longer names a
-# place this instance does not read.
 _PUT_ENCRYPTED_VALUE: Final = """
 UPDATE sources
-SET encrypted_secret = ?, credential_reference = NULL
+SET encrypted_secret = ?
 WHERE id = ?
 """
 _PUT_DEPLOY_KEY: Final = """
 UPDATE sources
-SET encrypted_secret = ?, ssh_public_key = ?, credential_reference = NULL
+SET encrypted_secret = ?, ssh_public_key = ?
 WHERE id = ?
 """
 _PUT_HOOK_HASH: Final = "UPDATE sources SET hook_secret_hash = ? WHERE name = ?"
 _ONE_ROW: Final = 1
 # What a pull needs and nothing else: the ciphertext this instance can open.
 _SOURCE_ANCHOR: Final = "SELECT encrypted_secret FROM sources WHERE id = ?"
-_SourceRow = tuple[str, str, str, str, str | None, bytes | None, str, str | None]
+_SourceRow = tuple[str, str, str, str, bytes | None, str, str | None]
 # Nothing a build wrote is touched by this statement, on purpose: taking a deck
 # in again must not unpresent the talk that already stands, nor take away the
 # PDF that is already downloadable (line 16). Whether the row is marked removed
@@ -317,56 +285,8 @@ class MalformedManifestError(ValueError):
 
 
 def create_deck_tables(database: Path) -> None:
-    """Make the source and deck tables exist, keeping what an older file holds.
-
-    A file written before sources were rows keeps its decks and gains the
-    column naming theirs, one written before a build kept what it attempted
-    gains those columns, one written before a source could hold its own
-    secret gains that column, one written before a source carried a
-    webhook-secret hash gains that column, and one written before a source
-    could carry a deploy key's public half gains that column too, rather than
-    being replaced by an empty file.
-    """
+    """Make the source and deck tables exist."""
     apply_schema(database, _SCHEMA)
-    with rows(database) as cursor:
-        for column, definition in _COLUMNS_ADDED_LATER:
-            _add_missing(
-                cursor,
-                shape=_DECK_COLUMNS,
-                column=column,
-                add=_ADD_COLUMN.format(column=column, definition=definition),
-            )
-        _add_missing(
-            cursor,
-            shape=_SOURCE_COLUMNS,
-            column=_ENCRYPTED_COLUMN,
-            add=_ADD_ENCRYPTED_TO_SOURCES,
-        )
-        _add_missing(
-            cursor,
-            shape=_SOURCE_COLUMNS,
-            column=_HOOK_HASH_COLUMN,
-            add=_ADD_HOOK_HASH_TO_SOURCES,
-        )
-        _add_missing(
-            cursor,
-            shape=_SOURCE_COLUMNS,
-            column=_PUBLIC_KEY_COLUMN,
-            add=_ADD_PUBLIC_KEY_TO_SOURCES,
-        )
-
-
-def _add_missing(
-    cursor: sqlite3.Cursor,
-    *,
-    shape: str,
-    column: str,
-    add: str,
-) -> None:
-    """Add that column where the table this instance found does not carry it."""
-    cursor.execute(shape)
-    if column not in {named[0] for named in cursor.description}:
-        cursor.execute(add)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1010,7 +930,7 @@ class SqliteSourceRunStore:
 
 
 def _source(row: _SourceRow) -> Source:
-    identifier, name, url, ref, _, encrypted, owner_id, public_key = row
+    identifier, name, url, ref, encrypted, owner_id, public_key = row
     return Source(
         id=identifier,
         name=name,

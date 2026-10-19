@@ -31,7 +31,7 @@ from presentator.adapters.identity import (
     create_identity_tables,
 )
 from presentator.adapters.secrets import DeployKeyPair, SecretBox, secret_box
-from presentator.adapters.sqlite import apply_schema, rows
+from presentator.adapters.sqlite import rows
 from presentator.contracts.decks import (
     MANIFEST_FILE,
     RECENT_SOURCE_RUNS,
@@ -268,93 +268,35 @@ def a_key_drafts_store(
     )
 
 
-_A_LEFTOVER_ENVIRONMENT_SOURCE: Final = """
-INSERT INTO sources (id, name, url, ref, credential_reference, owner_id)
-VALUES (?, ?, ?, ?, ?, ?)
+_ADD_SOURCE_ROW_ALONE: Final = """
+INSERT INTO sources (id, name, url, ref, owner_id)
+VALUES (?, ?, ?, ?, ?)
 """
 
 
-def a_leftover_environment_source(
+def a_source_without_a_secret(
     database: Path,
     *,
     source_id: str = _SOURCE_ID,
     name: str = _SOURCE_NAME,
     url: str = _ADDRESS,
 ) -> Source:
-    """A row written when a source still named an environment variable."""
+    """A source row no secret was ever stored for."""
     with rows(database) as cursor:
         cursor.execute(
-            _A_LEFTOVER_ENVIRONMENT_SOURCE,
+            _ADD_SOURCE_ROW_ALONE,
             (
                 source_id,
                 name,
                 url,
                 MAIN_BRANCH,
-                _CREDENTIAL_VARIABLE,
                 _OWNER.id,
             ),
         )
     return a_source_store(database).all()[0]
 
 
-# The deck table as this product wrote it before a source was a row of its own,
-# so what an upgrade finds is a file and not a description of one.
-_DECKS_BEFORE_SOURCES = """
-CREATE TABLE decks (
-    slug TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    changed_at TEXT NOT NULL,
-    owner_id TEXT NOT NULL REFERENCES users(id),
-    commit_sha TEXT NOT NULL,
-    active_build TEXT,
-    pdf_export TEXT,
-    built_commit TEXT,
-    built_at TEXT,
-    removed_at TEXT
-);
-"""
-_A_DECK_BEFORE_SOURCES = """
-INSERT INTO decks (slug, title, changed_at, owner_id, commit_sha)
-VALUES (?, ?, ?, ?, ?)
-"""
-# The sources table as this product wrote it while a source's only credential
-# was the name of an environment variable.
-_SOURCES_BEFORE_ENCRYPTION = """
-CREATE TABLE sources (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    url TEXT NOT NULL UNIQUE,
-    ref TEXT NOT NULL,
-    credential_reference TEXT,
-    owner_id TEXT NOT NULL REFERENCES users(id)
-);
-"""
-_A_SOURCE_BEFORE_ENCRYPTION = """
-INSERT INTO sources (id, name, url, ref, credential_reference, owner_id)
-VALUES (?, ?, ?, ?, ?, ?)
-"""
 _THE_RAW_COLUMN = "SELECT encrypted_secret FROM sources WHERE id = ?"
-
-
-def a_database_written_before_sources(tmp_path: Path) -> Path:
-    """A file this product wrote before sources were rows, carrying one deck."""
-    database = tmp_path / "presentator.sqlite3"
-    create_identity_tables(database)
-    seed_user(database, _OWNER)
-    apply_schema(database, _DECKS_BEFORE_SOURCES)
-    kept = a_deck()
-    with rows(database) as cursor:
-        cursor.execute(
-            _A_DECK_BEFORE_SOURCES,
-            (
-                kept.slug,
-                kept.title,
-                kept.changed_at.isoformat(),
-                kept.owner_id,
-                kept.commit,
-            ),
-        )
-    return database
 
 
 def an_instance_that_was_set_up(tmp_path: Path) -> Path:
@@ -796,7 +738,7 @@ def test_a_source_carrying_no_secret_and_one_nobody_stored_answer_with_nothing(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_leftover_environment_source(database)
+    leftover = a_source_without_a_secret(database)
     resolver = a_resolver(database)
 
     assert leftover.secret_location is None
@@ -826,35 +768,8 @@ def test_a_stored_secret_reaches_git_without_riding_on_its_command_line(
     assert not any(_WHAT_THE_GIT_HOST_EXPECTS in argument for argument in arguments)
 
 
-def test_a_sources_table_written_before_this_column_gains_it_and_keeps_its_row(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "presentator.sqlite3"
-    create_identity_tables(database)
-    seed_user(database, _OWNER)
-    apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
-    with rows(database) as cursor:
-        cursor.execute(
-            _A_SOURCE_BEFORE_ENCRYPTION,
-            (_SOURCE_ID, _SOURCE_NAME, _ADDRESS, MAIN_BRANCH, None, _OWNER.id),
-        )
-
-    create_deck_tables(database)
-    sources = a_source_store(database)
-    seeded = sources.all()[0]
-    sources.put_credential(seeded.id, _WHAT_THE_GIT_HOST_EXPECTS)
-
-    assert seeded.url == _ADDRESS
-    assert (
-        a_resolver(database).resolve(CredentialReference(name=seeded.id))
-        == _WHAT_THE_GIT_HOST_EXPECTS
-    )
-    assert sources.hook_secret_hash(seeded.name) is None
-
-
 _A_WEBHOOK_HASH = b"\x11" * 32
 _HTTPS_URL = "https://git.example.invalid/talks.git"
-_THE_CREDENTIAL_COLUMN = "SELECT credential_reference FROM sources WHERE id = ?"
 _THE_ENCRYPTED_OF = "SELECT encrypted_secret FROM sources WHERE id = ?"
 
 
@@ -935,13 +850,11 @@ def test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair(
     monkeypatch.setattr("presentator.adapters.decks.generate_deploy_key", lambda: pair)
     with rows(database) as cursor:
         target_before = cursor.execute(
-            "SELECT credential_reference, encrypted_secret, ssh_public_key "
-            "FROM sources WHERE id = ?",
+            "SELECT encrypted_secret, ssh_public_key FROM sources WHERE id = ?",
             (target.id,),
         ).fetchone()
         neighbour_before = cursor.execute(
-            "SELECT credential_reference, encrypted_secret, ssh_public_key "
-            "FROM sources WHERE id = ?",
+            "SELECT encrypted_secret, ssh_public_key FROM sources WHERE id = ?",
             (neighbour.id,),
         ).fetchone()
         draft_before = cursor.execute(
@@ -954,13 +867,11 @@ def test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair(
 
     with rows(database) as cursor:
         target_after = cursor.execute(
-            "SELECT credential_reference, encrypted_secret, ssh_public_key "
-            "FROM sources WHERE id = ?",
+            "SELECT encrypted_secret, ssh_public_key FROM sources WHERE id = ?",
             (target.id,),
         ).fetchone()
         neighbour_after = cursor.execute(
-            "SELECT credential_reference, encrypted_secret, ssh_public_key "
-            "FROM sources WHERE id = ?",
+            "SELECT encrypted_secret, ssh_public_key FROM sources WHERE id = ?",
             (neighbour.id,),
         ).fetchone()
         draft_after = cursor.execute(
@@ -971,10 +882,9 @@ def test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair(
 
     assert target_before is not None
     assert target_after is not None
-    assert target_after[0] is None
-    assert target_after[1] != target_before[1]
-    assert pair.private_key.encode() not in target_after[1]
-    assert target_after[2] == pair.public_key
+    assert target_after[0] != target_before[0]
+    assert pair.private_key.encode() not in target_after[0]
+    assert target_after[1] == pair.public_key
     assert (
         a_resolver(database).resolve(CredentialReference(name=target.id))
         == pair.private_key
@@ -1005,9 +915,7 @@ def test_a_deploy_key_preparation_failure_keeps_every_source_and_draft(
     with rows(database) as cursor:
         before = (
             cursor.execute(
-                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
-                "FROM sources "
-                "ORDER BY id",
+                "SELECT id, encrypted_secret, ssh_public_key FROM sources ORDER BY id",
             ).fetchall(),
             cursor.execute(
                 "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
@@ -1024,9 +932,7 @@ def test_a_deploy_key_preparation_failure_keeps_every_source_and_draft(
     with rows(database) as cursor:
         after = (
             cursor.execute(
-                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
-                "FROM sources "
-                "ORDER BY id",
+                "SELECT id, encrypted_secret, ssh_public_key FROM sources ORDER BY id",
             ).fetchall(),
             cursor.execute(
                 "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
@@ -1057,9 +963,7 @@ def test_a_deploy_key_update_failure_keeps_every_source_and_draft(
     with rows(database) as cursor:
         before = (
             cursor.execute(
-                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
-                "FROM sources "
-                "ORDER BY id",
+                "SELECT id, encrypted_secret, ssh_public_key FROM sources ORDER BY id",
             ).fetchall(),
             cursor.execute(
                 "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
@@ -1078,9 +982,7 @@ def test_a_deploy_key_update_failure_keeps_every_source_and_draft(
     with rows(database) as cursor:
         after = (
             cursor.execute(
-                "SELECT id, credential_reference, encrypted_secret, ssh_public_key "
-                "FROM sources "
-                "ORDER BY id",
+                "SELECT id, encrypted_secret, ssh_public_key FROM sources ORDER BY id",
             ).fetchall(),
             cursor.execute(
                 "SELECT id, public_key, encrypted_private_key FROM source_key_drafts",
@@ -1267,31 +1169,6 @@ def test_sweeping_deletes_only_drafts_older_than_the_given_moment(
     assert drafts.bind(fresh.id, owner_id="another-admin-entirely") == fresh
 
 
-def test_adding_a_source_does_not_rewrite_a_leftover_environment_row(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
-    database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_leftover_environment_source(database)
-    sources = a_source_store(database)
-
-    added = sources.add(a_write())
-
-    assert added is not None
-    with rows(database) as cursor:
-        credential = cursor.execute(
-            _THE_CREDENTIAL_COLUMN,
-            (leftover.id,),
-        ).fetchone()[0]
-        encrypted = cursor.execute(_THE_ENCRYPTED_OF, (leftover.id,)).fetchone()[0]
-    kept = next(source for source in sources.all() if source.id == leftover.id)
-    assert credential == _CREDENTIAL_VARIABLE
-    assert encrypted is None
-    assert kept.secret_location is None
-    assert a_resolver(database).resolve(CredentialReference(name=leftover.id)) is None
-
-
 def test_adding_a_source_with_a_name_or_url_already_stored_writes_nothing(
     tmp_path: Path,
 ) -> None:
@@ -1447,23 +1324,6 @@ def test_a_build_that_switched_over_clears_the_attempt_that_led_to_it(
     assert kept.build == a_build(tmp_path, commit=_A_LATER_COMMIT)
 
 
-def test_a_database_written_before_attempts_records_one(tmp_path: Path) -> None:
-    database = a_database_written_before_sources(tmp_path)
-
-    create_deck_tables(database)
-    with rows(database) as cursor:
-        cursor.execute(
-            "UPDATE decks SET source_id = ? WHERE slug = ?",
-            (_SOURCE_ID, "kundenfeedback"),
-        )
-    store = SqliteDeckStore(database=database)
-    store.put_attempt("kundenfeedback", an_attempt())
-
-    kept = store.get("kundenfeedback")
-    assert kept is not None
-    assert kept.attempt == an_attempt()
-
-
 def test_taking_a_deck_in_again_leaves_what_it_delivers_standing(
     tmp_path: Path,
 ) -> None:
@@ -1486,22 +1346,6 @@ def test_an_instance_with_no_source_row_stores_none(tmp_path: Path) -> None:
     database = an_instance_that_was_set_up(tmp_path)
 
     assert a_source_store(database).all() == ()
-
-
-def test_a_database_written_before_sources_keeps_its_deck_row(
-    tmp_path: Path,
-) -> None:
-    database = a_database_written_before_sources(tmp_path)
-
-    create_deck_tables(database)
-
-    with rows(database) as cursor:
-        found = cursor.execute(
-            "SELECT slug, title FROM decks WHERE slug = ?",
-            ("kundenfeedback",),
-        ).fetchone()
-    assert found == ("kundenfeedback", "Kundenfeedback")
-    assert SqliteDeckStore(database=database).all() == ()
 
 
 def test_a_folder_name_another_source_carries_is_not_taken_over(
@@ -1664,7 +1508,7 @@ def test_removing_a_sources_runs_deletes_every_one_it_recorded(
     assert store.recent(_ANOTHER_SOURCE_ID) != ()
 
 
-def test_a_leftover_environment_row_does_not_read_the_environment(
+def test_a_source_row_without_a_secret_does_not_read_the_environment(
     monkeypatch: pytest.MonkeyPatch,
     remote: GitRemote,
     tmp_path: Path,
@@ -1672,7 +1516,7 @@ def test_a_leftover_environment_row_does_not_read_the_environment(
     monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
     remote.commit_example_deck(at=_PUSHED_AT)
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_leftover_environment_source(database, url=remote.url)
+    leftover = a_source_without_a_secret(database, url=remote.url)
 
     poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(leftover)
 
@@ -1681,11 +1525,11 @@ def test_a_leftover_environment_row_does_not_read_the_environment(
     assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
 
 
-def test_renewing_the_access_secret_on_a_leftover_row_stores_ciphertext(
+def test_renewing_the_access_secret_on_a_row_without_one_stores_ciphertext(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_leftover_environment_source(database)
+    leftover = a_source_without_a_secret(database)
     sources = a_source_store(database)
 
     sources.put_credential(leftover.id, _WHAT_THE_GIT_HOST_EXPECTS)
@@ -1704,46 +1548,14 @@ def test_renewing_the_access_secret_on_a_leftover_row_stores_ciphertext(
             _THE_ENCRYPTED_OF,
             (leftover.id,),
         ).fetchone()[0]
-        named = cursor.execute(_THE_CREDENTIAL_COLUMN, (leftover.id,)).fetchone()[0]
     assert old_ciphertext is not None
     assert new_ciphertext != old_ciphertext
     assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in new_ciphertext
     assert replacement.encode() not in new_ciphertext
-    assert named is None
     assert (
         a_resolver(database).resolve(CredentialReference(name=leftover.id))
         == replacement
     )
-
-
-def test_a_pre_change_file_whose_row_only_names_an_environment_variable_stays(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
-    database = tmp_path / "presentator.sqlite3"
-    create_identity_tables(database)
-    seed_user(database, _OWNER)
-    apply_schema(database, _SOURCES_BEFORE_ENCRYPTION)
-    with rows(database) as cursor:
-        cursor.execute(
-            _A_SOURCE_BEFORE_ENCRYPTION,
-            (
-                _SOURCE_ID,
-                _SOURCE_NAME,
-                _ADDRESS,
-                MAIN_BRANCH,
-                _CREDENTIAL_VARIABLE,
-                _OWNER.id,
-            ),
-        )
-
-    create_deck_tables(database)
-    leftover = a_source_store(database).all()[0]
-
-    assert leftover.id == _SOURCE_ID
-    assert leftover.secret_location is None
-    assert a_resolver(database).resolve(CredentialReference(name=leftover.id)) is None
 
 
 def test_replacing_the_webhook_hash_leaves_the_previous_digest_behind(
