@@ -1,8 +1,11 @@
 """The build worker refuses to start unless the container is sealed as designed."""
 
+import os
 import stat
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -298,3 +301,132 @@ def test_unreadable_fact_refuses_naming_its_predicate(
 
     assert worker.main(["--check"], boundary) == worker.REFUSAL_EXIT_STATUS
     assert Predicate.RESOURCE_BOUNDS in caplog.text
+
+
+def stand_in_users(monkeypatch: pytest.MonkeyPatch) -> None:
+    users = {
+        "presentator": (1000, 1000),
+        "presentator-build": (10001, 10001),
+        "presentator-wire": (10002, 10002),
+    }
+
+    def password_entry(name: str) -> SimpleNamespace:
+        uid, gid = users[name]
+        return SimpleNamespace(pw_name=name, pw_uid=uid, pw_gid=gid)
+
+    def group_entry(name: str) -> SimpleNamespace:
+        return SimpleNamespace(gr_gid=users[name][1])
+
+    monkeypatch.setattr(worker.pwd, "getpwnam", password_entry)
+    monkeypatch.setattr(worker.grp, "getgrnam", group_entry)
+
+
+@pytest.fixture
+def sealed_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    stand_in_users(monkeypatch)
+
+    def file_at(relative: str, content: str = "", mode: int = 0o644) -> Path:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        path.chmod(mode)
+        return path
+
+    file_at("proc/self/status", SEALED_STATUS)
+    file_at("proc/self/mountinfo", SEALED_MOUNTINFO)
+    file_at("proc/net/dev", LOOPBACK_ONLY)
+    file_at("sys/fs/cgroup/pids.max", "512\n")
+    file_at("sys/fs/cgroup/memory.max", "1073741824\n")
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work").chmod(0o755)
+    (tmp_path / "opt/corepack").mkdir(parents=True)
+    (tmp_path / "opt/corepack").chmod(0o755)
+    file_at("app/frontend/node_modules/.bin/slidev", mode=0o755)
+    (tmp_path / "app/frontend/node_modules/node_modules").mkdir()
+    (tmp_path / "app/frontend/node_modules/node_modules/.vite").symlink_to("/work/vite")
+    shell = (
+        "opt/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64"
+    )
+    file_at(f"{shell}/chrome-headless-shell", mode=0o755)
+    return tmp_path
+
+
+def test_reads_the_sealed_facts_from_the_filesystem(sealed_root: Path) -> None:
+    snapshot = worker.read_snapshot(sealed_root)
+
+    assert snapshot.process_status == SEALED_STATUS
+    assert snapshot.network_devices == LOOPBACK_ONLY
+    assert (snapshot.pids_max, snapshot.memory_max) == ("512", "1073741824")
+    assert (snapshot.work_mode, snapshot.work_owner_uid) == (
+        0o755,
+        sealed_root.stat().st_uid,
+    )
+    assert not snapshot.docker_socket_present
+    assert snapshot.identity.users["presentator-wire"] == (10002, 10002)
+    assert snapshot.toolchain.vite_link_target == "/work/vite"
+    assert len(snapshot.toolchain.headless_shell_modes) == 1
+    assert snapshot.toolchain.corepack_mode is not None
+
+
+def test_reads_a_present_docker_socket(sealed_root: Path) -> None:
+    (sealed_root / "run").mkdir()
+    (sealed_root / "run/docker.sock").touch()
+
+    assert worker.read_snapshot(sealed_root).docker_socket_present
+
+
+def test_reads_a_missing_toolchain_as_absent(sealed_root: Path) -> None:
+    (sealed_root / "app/frontend/node_modules/.bin/slidev").unlink()
+
+    toolchain = worker.read_snapshot(sealed_root).toolchain
+
+    assert toolchain.slidev_mode is None
+
+
+@pytest.mark.parametrize(
+    ("missing", "refused"),
+    [
+        ("proc/self/status", Predicate.CAPABILITIES),
+        ("proc/net/dev", Predicate.MOUNTS),
+        ("sys/fs/cgroup/memory.max", Predicate.RESOURCE_BOUNDS),
+    ],
+)
+def test_unreadable_file_names_its_predicate(
+    sealed_root: Path, missing: str, refused: Predicate
+) -> None:
+    (sealed_root / missing).unlink()
+
+    with pytest.raises(worker.UnreadableFactError) as raised:
+        worker.read_snapshot(sealed_root)
+
+    assert raised.value.predicate == refused
+
+
+def test_unknown_user_makes_identities_unreadable(
+    sealed_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unknown_user(name: str) -> None:
+        raise KeyError(name)
+
+    monkeypatch.setattr(worker.pwd, "getpwnam", unknown_user)
+
+    with pytest.raises(worker.UnreadableFactError) as raised:
+        worker.read_snapshot(sealed_root)
+
+    assert raised.value.predicate == Predicate.IDENTITIES
+
+
+def test_real_process_effects_make_it_non_dumpable_and_set_the_umask() -> None:
+    previous_umask = os.umask(0)
+    try:
+        worker.REAL_BOUNDARY.set_non_dumpable()
+        worker.REAL_BOUNDARY.set_umask()
+        assert os.umask(previous_umask) == worker.GROUP_AND_OTHERS_WRITE
+    finally:
+        os.umask(previous_umask)
+        worker.libc_prctl(worker.PR_SET_DUMPABLE, 1)
+
+
+def test_prctl_failure_raises() -> None:
+    with pytest.raises(OSError, match="prctl"):
+        worker.libc_prctl(0x7FFFFFFF, 0)

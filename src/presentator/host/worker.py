@@ -7,10 +7,10 @@ import logging
 import os
 import pwd
 import stat
-import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,8 +34,8 @@ NO_EXECUTION_MOUNTS = TMPFS_MOUNTS[:2]
 GROUP_AND_OTHERS_WRITE = stat.S_IWGRP | stat.S_IWOTH
 HARDENED_MOUNT_OPTIONS = frozenset({"nosuid", "nodev", "noexec"})
 DOCKER_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock")
-SLIDEV_BINARY = "/app/frontend/node_modules/.bin/slidev"
-COREPACK_DIRECTORY = "/opt/corepack"
+SLIDEV_BINARY = "app/frontend/node_modules/.bin/slidev"
+COREPACK_DIRECTORY = "opt/corepack"
 HEADLESS_SHELL_PATTERN = (
     "opt/ms-playwright/chromium_headless_shell-*/"
     "chrome-headless-shell-linux64/chrome-headless-shell"
@@ -253,7 +253,8 @@ def first_failing_predicate(snapshot: Snapshot) -> Predicate | None:
     return next((name for name, holds in SELF_CHECK if not holds(snapshot)), None)
 
 
-def _libc_prctl(option: int, value: int) -> int:
+def libc_prctl(option: int, value: int) -> int:
+    """Call prctl, raising the errno it sets on failure."""
     libc = ctypes.CDLL(None, use_errno=True)
     result = libc.prctl(option, value, 0, 0, 0)
     if result < 0:
@@ -262,36 +263,35 @@ def _libc_prctl(option: int, value: int) -> int:
 
 
 def _set_non_dumpable() -> None:
-    _libc_prctl(PR_SET_DUMPABLE, 0)
+    libc_prctl(PR_SET_DUMPABLE, 0)
 
 
 def _set_umask() -> None:
     os.umask(GROUP_AND_OTHERS_WRITE)
 
 
-def _mode_if_file_or_directory(path: str) -> int | None:
+def _mode_if_file_or_directory(path: Path) -> int | None:
     try:
-        mode = Path(path).stat().st_mode
+        mode = path.stat().st_mode
     except OSError:
         return None
     return mode if stat.S_ISREG(mode) or stat.S_ISDIR(mode) else None
 
 
-def _vite_link_target(slidev_binary: str) -> str | None:
-    package = Path(slidev_binary).resolve().parent.parent
-    vite = package / "node_modules" / ".vite"
+def _vite_link_target(slidev_binary: Path) -> str | None:
+    vite = slidev_binary.resolve().parent.parent / "node_modules" / ".vite"
     return str(vite.readlink()) if vite.is_symlink() else None
 
 
-def _read_toolchain() -> Toolchain:
+def _read_toolchain(root: Path) -> Toolchain:
+    slidev_binary = root / SLIDEV_BINARY
     return Toolchain(
-        slidev_mode=_mode_if_file_or_directory(SLIDEV_BINARY),
-        corepack_mode=_mode_if_file_or_directory(COREPACK_DIRECTORY),
+        slidev_mode=_mode_if_file_or_directory(slidev_binary),
+        corepack_mode=_mode_if_file_or_directory(root / COREPACK_DIRECTORY),
         headless_shell_modes=tuple(
-            _mode_if_file_or_directory(str(match))
-            for match in Path("/").glob(HEADLESS_SHELL_PATTERN)
+            map(_mode_if_file_or_directory, root.glob(HEADLESS_SHELL_PATTERN))
         ),
-        vite_link_target=_vite_link_target(SLIDEV_BINARY),
+        vite_link_target=_vite_link_target(slidev_binary),
     )
 
 
@@ -328,47 +328,57 @@ def _read[Fact](predicate: Predicate, reading: Callable[[], Fact]) -> Fact:
         raise UnreadableFactError(predicate) from error
 
 
-def _read_mount_facts() -> tuple[bool, str, os.stat_result, str]:
+def _read_mount_facts(root: Path) -> tuple[bool, str, os.stat_result, str]:
     return (
-        bool(os.statvfs("/").f_flag & os.ST_RDONLY),
-        Path("/proc/self/mountinfo").read_text(),
-        Path(WORK_MOUNT).stat(),
-        Path("/proc/net/dev").read_text(),
+        bool(os.statvfs(root).f_flag & os.ST_RDONLY),
+        (root / "proc/self/mountinfo").read_text(),
+        (root / WORK_MOUNT.lstrip("/")).stat(),
+        (root / "proc/net/dev").read_text(),
     )
 
 
-def _read_resource_bounds() -> tuple[str, str]:
+def _read_resource_bounds(root: Path) -> tuple[str, str]:
+    cgroup = root / "sys/fs/cgroup"
     return (
-        Path("/sys/fs/cgroup/pids.max").read_text().strip(),
-        Path("/sys/fs/cgroup/memory.max").read_text().strip(),
+        (cgroup / "pids.max").read_text().strip(),
+        (cgroup / "memory.max").read_text().strip(),
     )
 
 
-def _read_snapshot() -> Snapshot:
-    process_status = _read(Predicate.CAPABILITIES, Path("/proc/self/status").read_text)
+def read_snapshot(root: Path) -> Snapshot:
+    """Read the facts the predicates judge, from the filesystem under `root`."""
+    process_status = _read(
+        Predicate.CAPABILITIES, (root / "proc/self/status").read_text
+    )
     root_read_only, mountinfo, work, network_devices = _read(
-        Predicate.MOUNTS, _read_mount_facts
+        Predicate.MOUNTS, partial(_read_mount_facts, root)
     )
-    pids_max, memory_max = _read(Predicate.RESOURCE_BOUNDS, _read_resource_bounds)
+    pids_max, memory_max = _read(
+        Predicate.RESOURCE_BOUNDS, partial(_read_resource_bounds, root)
+    )
     return Snapshot(
-        dumpable=_libc_prctl(PR_GET_DUMPABLE, 0),
+        dumpable=libc_prctl(PR_GET_DUMPABLE, 0),
         process_status=process_status,
         root_read_only=root_read_only,
         mountinfo=mountinfo,
         work_mode=stat.S_IMODE(work.st_mode),
         work_owner_uid=work.st_uid,
         network_devices=network_devices,
-        docker_socket_present=any(Path(socket).exists() for socket in DOCKER_SOCKETS),
+        docker_socket_present=any(
+            (root / socket.lstrip("/")).exists() for socket in DOCKER_SOCKETS
+        ),
         pids_max=pids_max,
         memory_max=memory_max,
         identity=_read(Predicate.IDENTITIES, _read_identity),
         environment_keys=frozenset(os.environ),
         pid=os.getpid(),
-        toolchain=_read_toolchain(),
+        toolchain=_read_toolchain(root),
     )
 
 
-REAL_BOUNDARY = Boundary(_set_non_dumpable, _set_umask, _read_snapshot)
+REAL_BOUNDARY = Boundary(
+    _set_non_dumpable, _set_umask, partial(read_snapshot, Path("/"))
+)
 
 
 def _refuse(predicate: Predicate) -> int:
@@ -393,7 +403,3 @@ def main(argv: Sequence[str] | None = None, boundary: Boundary = REAL_BOUNDARY) 
     except UnreadableFactError as unreadable:
         return _refuse(unreadable.predicate)
     return _refuse(failing) if failing else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
