@@ -1,8 +1,0 @@
-claim_id = "cdee8732a35f4f7688dc14e98e042d11"
-agent = "claude"
-role = "builder"
-base = "2d470d3f3d6458b44bac2aadae390bb158c7a88c"
-branch = "claude/issue-299-v3-routine-bumps"
-scope = [".github/workflows/ci.yml", ".github/workflows/pr-check.yml", "copresenter/pyproject.toml", "copresenter/uv.lock", "pyproject.toml", "speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/uv.lock", "speech/providers/magpie/pyproject.toml", "speech/providers/magpie/uv.lock", "speech/providers/provider-contract/pyproject.toml", "speech/providers/qwen/pyproject.toml", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/pyproject.toml", "speech/providers/voxcpm/uv.lock", "speech/pyproject.toml", "speech/uv.lock", "uv.lock"]
-opened_commit = "af8b2d04ea109a5d54d234b804560c52076cd3e7"
-whole_reason = "One version per tool must hold in every project and workflow at once; a partial bump leaves the tools differing again."
