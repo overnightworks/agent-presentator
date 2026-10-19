@@ -361,7 +361,14 @@ Each step of a build is bounded by `PRESENTATOR_BUILD_TIMEOUT_SECONDS`
 (`300`). The PDF export drives a browser: `playwright-chromium` is one of that
 project's dependencies, and the browser itself is fetched once with `pnpm exec
 playwright install chromium`, which keeps it under the home directory of the
-user the server runs as — the two things the container image does for itself.
+user the server runs as. The container image does both for itself, differently:
+the browser stands in `/opt/ms-playwright` and corepack's package managers in
+`/opt/corepack`, root's and readable by every user. The image also carries two
+users for a build worker, made before the runtime user: `presentator-build`
+(10001, home `/work/home`) and `presentator-wire` (10002, home `/nonexistent`),
+both without a login shell, and its build refuses a runtime user of either uid.
+Slidev's export keeps its dependency cache in `/work/vite`, a world-writable
+directory the image links to from beside `@slidev/cli`.
 Without that browser a deck builds and its export fails, which leaves the
 previously delivered talk standing.
 
