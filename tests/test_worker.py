@@ -421,7 +421,7 @@ def test_real_process_effects_make_it_non_dumpable_and_set_the_umask() -> None:
     try:
         worker.REAL_BOUNDARY.set_non_dumpable()
         worker.REAL_BOUNDARY.set_umask()
-        assert os.umask(previous_umask) == worker.GROUP_AND_OTHERS_WRITE
+        assert os.umask(previous_umask) == worker.ONLY_THE_OWNER
     finally:
         os.umask(previous_umask)
         worker.libc_prctl(worker.PR_SET_DUMPABLE, 1)

@@ -32,6 +32,7 @@ TMPFS_MOUNTS = tuple(
 )
 NO_EXECUTION_MOUNTS = TMPFS_MOUNTS[:2]
 GROUP_AND_OTHERS_WRITE = stat.S_IWGRP | stat.S_IWOTH
+ONLY_THE_OWNER = 0o077
 HARDENED_MOUNT_OPTIONS = frozenset({"nosuid", "nodev", "noexec"})
 DOCKER_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock")
 SLIDEV_BINARY = "app/frontend/node_modules/.bin/slidev"
@@ -267,7 +268,7 @@ def _set_non_dumpable() -> None:
 
 
 def _set_umask() -> None:
-    os.umask(GROUP_AND_OTHERS_WRITE)
+    os.umask(ONLY_THE_OWNER)
 
 
 def _mode_if_file_or_directory(path: Path) -> int | None:
