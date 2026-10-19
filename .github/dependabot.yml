@@ -16,6 +16,10 @@ updates:
     directory: /speech/providers/chatterbox
     schedule:
       interval: daily
+    ignore:
+      # resemble-perth 1.0.1 imports pkg_resources, which setuptools removed in 82 (speech/README.md)
+      - dependency-name: setuptools
+        versions: [">=82"]
   - package-ecosystem: uv
     directory: /speech/providers/magpie
     schedule:
