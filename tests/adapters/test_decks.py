@@ -62,7 +62,6 @@ _SOURCE_NAME = "decks"
 _ANOTHER_SOURCE_NAME = "talks"
 _ADDRESS = "git@example.invalid:decks.git"
 _ANOTHER_ADDRESS = "git@example.invalid:talks.git"
-_CREDENTIAL_VARIABLE = "A_READ_ONLY_TOKEN"
 _INSTANCE_KEY = "an instance key of thirty-two ch"
 _ANOTHER_INSTANCE_KEY = "the key another instance carries"
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
@@ -296,7 +295,7 @@ def a_source_without_a_secret(
     return a_source_store(database).all()[0]
 
 
-_THE_RAW_COLUMN = "SELECT encrypted_secret FROM sources WHERE id = ?"
+_THE_ENCRYPTED_OF = "SELECT encrypted_secret FROM sources WHERE id = ?"
 
 
 def an_instance_that_was_set_up(tmp_path: Path) -> Path:
@@ -712,7 +711,7 @@ def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
     stored = add_a_source(database)
 
     with rows(database) as cursor:
-        written = cursor.execute(_THE_RAW_COLUMN, (stored.id,)).fetchone()[0]
+        written = cursor.execute(_THE_ENCRYPTED_OF, (stored.id,)).fetchone()[0]
     assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in written
     assert stored.secret_location is SecretLocation.STORED
     assert (
@@ -738,11 +737,11 @@ def test_a_source_carrying_no_secret_and_one_nobody_stored_answer_with_nothing(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_source_without_a_secret(database)
+    secretless = a_source_without_a_secret(database)
     resolver = a_resolver(database)
 
-    assert leftover.secret_location is None
-    assert resolver.resolve(CredentialReference(name=leftover.id)) is None
+    assert secretless.secret_location is None
+    assert resolver.resolve(CredentialReference(name=secretless.id)) is None
     assert resolver.resolve(CredentialReference(name="no source of this name")) is None
 
 
@@ -770,7 +769,6 @@ def test_a_stored_secret_reaches_git_without_riding_on_its_command_line(
 
 _A_WEBHOOK_HASH = b"\x11" * 32
 _HTTPS_URL = "https://git.example.invalid/talks.git"
-_THE_ENCRYPTED_OF = "SELECT encrypted_secret FROM sources WHERE id = ?"
 
 
 def a_write(
@@ -1508,19 +1506,17 @@ def test_removing_a_sources_runs_deletes_every_one_it_recorded(
     assert store.recent(_ANOTHER_SOURCE_ID) != ()
 
 
-def test_a_source_row_without_a_secret_does_not_read_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_source_row_without_ciphertext_fails_its_pull_as_unresolvable(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(_CREDENTIAL_VARIABLE, _WHAT_THE_GIT_HOST_EXPECTS)
     remote.commit_example_deck(at=_PUSHED_AT)
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_source_without_a_secret(database, url=remote.url)
+    secretless = a_source_without_a_secret(database, url=remote.url)
 
-    poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(leftover)
+    poll = folders_under(tmp_path, credentials=a_resolver(database)).folders(secretless)
 
-    assert leftover.secret_location is None
+    assert secretless.secret_location is None
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.CREDENTIAL_UNRESOLVABLE
 
@@ -1529,31 +1525,31 @@ def test_renewing_the_access_secret_on_a_row_without_one_stores_ciphertext(
     tmp_path: Path,
 ) -> None:
     database = an_instance_that_was_set_up(tmp_path)
-    leftover = a_source_without_a_secret(database)
+    secretless = a_source_without_a_secret(database)
     sources = a_source_store(database)
 
-    sources.put_credential(leftover.id, _WHAT_THE_GIT_HOST_EXPECTS)
+    sources.put_credential(secretless.id, _WHAT_THE_GIT_HOST_EXPECTS)
     with rows(database) as cursor:
         old_ciphertext = cursor.execute(
             _THE_ENCRYPTED_OF,
-            (leftover.id,),
+            (secretless.id,),
         ).fetchone()[0]
 
     replacement = "another read-only secret"
-    sources.put_credential(leftover.id, replacement)
+    sources.put_credential(secretless.id, replacement)
 
     assert sources.all()[0].secret_location is SecretLocation.STORED
     with rows(database) as cursor:
         new_ciphertext = cursor.execute(
             _THE_ENCRYPTED_OF,
-            (leftover.id,),
+            (secretless.id,),
         ).fetchone()[0]
     assert old_ciphertext is not None
     assert new_ciphertext != old_ciphertext
     assert _WHAT_THE_GIT_HOST_EXPECTS.encode() not in new_ciphertext
     assert replacement.encode() not in new_ciphertext
     assert (
-        a_resolver(database).resolve(CredentialReference(name=leftover.id))
+        a_resolver(database).resolve(CredentialReference(name=secretless.id))
         == replacement
     )
 

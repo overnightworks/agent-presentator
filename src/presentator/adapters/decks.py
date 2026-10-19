@@ -180,14 +180,12 @@ SET attempt_commit = ?, attempt_started_at = ?,
     attempt_outcome = ?, attempt_failure = ?
 WHERE slug = ?
 """
-# A deck the seed has not attached to its source yet is no deck any source
-# could refresh, so it is answered for once it names one.
 _ALL_DECKS: Final = """
 SELECT slug, title, changed_at, owner_id, source_id, commit_sha,
        active_build, pdf_export, built_commit, built_at,
        attempt_commit, attempt_started_at, attempt_outcome, attempt_failure
 FROM decks
-WHERE removed_at IS NULL AND source_id IS NOT NULL
+WHERE removed_at IS NULL
 """
 _ONE_DECK: Final = f"{_ALL_DECKS} AND slug = ?"
 # Every row this source ever carried, marked removed or not: a source going
@@ -389,8 +387,7 @@ class SqliteSourceStore:
 
         The value is written down in the one form this instance can open
         again, so what stands in the file is of no use to whoever reads the
-        file without the instance key. A leftover environment-variable name
-        on the row is cleared: this instance no longer reads one.
+        file without the instance key.
         """
         with rows(self.database) as cursor:
             cursor.execute(_PUT_ENCRYPTED_VALUE, (self.box.encrypt(secret), source_id))
@@ -525,9 +522,8 @@ class SqliteSourceKeyDrafts:
 class SourceCredentials:
     """Answers with the secret the source's own row stores, at the pull.
 
-    The one place a secret stands is the ciphertext column. A row that still
-    names an environment variable, and a row that names none, both answer
-    with nothing until a secret is written into that column.
+    The one place a secret stands is the ciphertext column. A row without
+    ciphertext answers with nothing until a secret is written into it.
     """
 
     database: Path
@@ -612,8 +608,7 @@ class SourceMirrors:
                 ref=source.ref,
                 # The source's own id is the anchor, because the row is what
                 # knows whether a secret stands; the resolver reads it there.
-                # A leftover environment row has no ciphertext, so the
-                # resolver answers with nothing and the pull is unresolvable
+                # A row without ciphertext leaves the pull unresolvable
                 # rather than an anonymous fetch that would look like success.
                 credential=CredentialReference(name=source.id),
             ),
@@ -957,11 +952,7 @@ def _draft(row: _DraftRow, *, box: SecretBox) -> DeployKeyDraft | None:
 
 
 def _where_the_secret_stands(encrypted: bytes | None) -> SecretLocation | None:
-    """Stored when the row carries ciphertext; nothing while it does not.
-
-    A leftover environment-variable name is not a secret this instance can
-    hand to git, so it does not count as a place the secret stands.
-    """
+    """Stored when the row carries ciphertext; nothing while it does not."""
     if encrypted is not None:
         return SecretLocation.STORED
     return None
