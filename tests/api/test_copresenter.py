@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from http import HTTPStatus
 from typing import TYPE_CHECKING
@@ -21,7 +21,7 @@ from presentator.api.copresenter import (
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, CoPresenterUse
+from presentator.application.copresenter import AskLimiter, AskLimits, CoPresenterUse
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.copresenter import (
     AnswerEvent,
@@ -274,11 +274,10 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
     assert private.questions == []
 
 
-@pytest.mark.parametrize("role", [Role.ADMIN, Role.USER])
-def test_both_roles_receive_only_the_three_readiness_values(role: Role) -> None:
+def test_the_admin_receives_only_the_three_readiness_values() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
-    lobby.sign_in(role=role)
+    lobby.sign_in(role=Role.ADMIN)
 
     response = client.get("/copresenter/who")
 
@@ -288,6 +287,131 @@ def test_both_roles_receive_only_the_three_readiness_values(role: Role) -> None:
         "speech": {"sample_rate": 16_000, "hearing": {"ready": True}},
     }
     assert private.readiness_calls == 1
+
+
+def test_a_signed_in_non_admin_is_refused_every_copresenter_route() -> None:
+    lobby, private, _clock = a_copresenter_lobby()
+    client = lobby.client
+    lobby.sign_in(role=Role.USER)
+
+    who = client.get("/copresenter/who")
+    answer = client.post(
+        "/copresenter/ask",
+        json=QUESTION,
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
+    )
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        client.websocket_connect(HEARING, headers={"origin": PUBLIC_ORIGIN}),
+    ):
+        pass
+
+    assert who.status_code == HTTPStatus.FORBIDDEN
+    assert answer.status_code == HTTPStatus.FORBIDDEN
+    assert refused.value.code == POLICY_VIOLATION
+    assert private.readiness_calls == 0
+    assert private.questions == []
+    assert private.hearing_opens == 0
+
+
+def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby.sign_in(role=Role.ADMIN)
+
+    with lobby.client.websocket_connect(
+        HEARING,
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        (admin,) = users.users.values()
+        users.users[admin.id] = replace(admin, role=Role.USER)
+        deadline.release_first()
+        socket.send_text("force an observable close if the hearing stood")
+        with pytest.raises(WebSocketDisconnect) as ended:
+            socket.receive_json()
+
+    assert ended.value.code == POLICY_VIOLATION
+    assert private.hearing_opens == 0
+
+
+def _demote(users: FakeUserStore) -> None:
+    (admin,) = users.users.values()
+    users.users[admin.id] = replace(admin, role=Role.USER)
+
+
+def test_a_running_hearing_with_audio_ends_when_its_session_loses_the_admin_role() -> (
+    None
+):
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby.sign_in(role=Role.ADMIN)
+
+    with lobby.client.websocket_connect(
+        HEARING,
+        headers={"origin": PUBLIC_ORIGIN},
+    ) as socket:
+        assert deadline.started.wait(timeout=1)
+        socket.send_bytes(b"before demotion")
+        assert socket.receive_json() == {"text": "gehört", "final": True}
+        _demote(users)
+        deadline.release_first()
+        socket.send_text("force an observable close if the hearing stood")
+        with pytest.raises(WebSocketDisconnect) as ended:
+            socket.receive_json()
+
+    assert ended.value.code == POLICY_VIOLATION
+    assert private.hearing.frames == [b"before demotion"]
+    assert private.hearing.closed == 1
+
+
+def test_an_answer_in_flight_stops_when_its_session_loses_the_admin_role() -> None:
+    users = RefusingUserStore()
+    deadline = ManualDeadline()
+    event_count = 40
+    demote_after = 2
+
+    def demote_mid_answer(index: int) -> None:
+        if index == demote_after:
+            _demote(users)
+            deadline.release_first()
+
+    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    private.busy_answer_events = event_count
+    private.answer_event_hook = demote_mid_answer
+    lobby.sign_in(role=Role.ADMIN)
+    client = lobby.client
+
+    response = client.post(
+        "/copresenter/ask",
+        json=QUESTION,
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.text.count("event: text") < event_count
+    assert private.generated_answer_events < event_count
+    assert private.answer_exits == 1
+
+
+def test_a_refused_non_admin_question_keeps_the_sessions_ask_capacity() -> None:
+    users = RefusingUserStore()
+    limiter = AskLimiter(clock=FrozenClock(instant=NOW), limits=AskLimits(per_window=1))
+    lobby, private, _clock = a_copresenter_lobby(users=users, limiter=limiter)
+    lobby.sign_in(role=Role.USER)
+    client = lobby.client
+    headers = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
+
+    refused = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+    (person,) = users.users.values()
+    users.users[person.id] = replace(person, role=Role.ADMIN)
+    answered = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert answered.status_code == HTTPStatus.OK
+    assert len(private.questions) == 1
 
 
 def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() -> None:
@@ -794,7 +918,7 @@ def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
     users = RefusingUserStore()
     lobby, private, _clock = a_copresenter_lobby(users=users)
     client = lobby.client
-    lobby.sign_in(role=Role.USER)
+    lobby.sign_in(role=Role.ADMIN)
 
     users.refuse_reads = failure == "deactivated"
     users.fail_reads = failure == "store-error"

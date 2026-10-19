@@ -122,6 +122,11 @@ class SignedInConnection:
     person: User
     session_id: str
 
+    @property
+    def is_admin(self) -> bool:
+        """Whether the signed-in person holds the admin role."""
+        return self.person.is_admin
+
 
 def signed_in_connection(
     request: HTTPConnection,

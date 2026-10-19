@@ -65,7 +65,7 @@ def _point(label: str, *rest: str | Phrase) -> Paragraph:
 _IMPRESSUM: Final = Phrase("Impressum", Emphasis.IMPRESSUM)
 _SESSION_HOURS: Final = int(SESSION_LIFETIME.total_seconds()) // _SECONDS_PER_HOUR
 _DRAFT_HOURS: Final = int(DRAFT_MAX_AGE.total_seconds()) // _SECONDS_PER_HOUR
-_STAND: Final = "19. Oktober 2026"
+_STAND: Final = "20. Oktober 2026"
 _BASIS_CONTRACT: Final = "Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f)"
 _BASIS_INTEREST: Final = "Art. 6 Abs. 1 lit. f DSGVO"
 
@@ -160,9 +160,10 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
                     "als Frage an Anthropic gesendet, außer während der "
                     "CoPresenter spricht oder wenn ein Echo erkannt wird; "
-                    "niemand wählt die Fragen aus. Jede angemeldete Person "
-                    "darf den CoPresenter nutzen. Die gesprochene Antwort wird "
-                    "auf dem Server erzeugt und nur für die Wiedergabe "
+                    "niemand wählt die Fragen aus. Der CoPresenter "
+                    "steht derzeit nur dem Betreiber zur Verfügung. Die "
+                    "gesprochene Antwort wird auf dem Server erzeugt und nur für die "
+                    "Wiedergabe "
                     "gestreamt. Wenn die Spracherkennung auf dem Server nicht "
                     "bereit ist, kann der Browser seine eigene Spracherkennung "
                     "nutzen; Chrome sendet dann das Audio an den "
