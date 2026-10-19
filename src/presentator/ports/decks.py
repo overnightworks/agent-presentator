@@ -50,8 +50,7 @@ class SourceStore(Protocol):
     def put_credential(self, source_id: str, secret: str) -> None:
         """Replace that source's read-only secret with this value, encrypted.
 
-        Nothing of the value is returned. A row that still named an
-        environment variable keeps its identity and gains a stored secret.
+        Nothing of the value is returned.
         """
 
     @abstractmethod
