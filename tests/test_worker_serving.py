@@ -7,9 +7,9 @@ import stat
 import threading
 import time
 from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import ClassVar, NoReturn
+from typing import ClassVar, NoReturn, overload
 
 import pytest
 
@@ -45,8 +45,12 @@ def serving(
 ) -> Generator[tuple[threading.Thread, list[socket.socket], list[object]]]:
     handled: list[socket.socket] = []
     outcome: list[object] = []
+    cancelled = threading.Event()
 
     def handle(connection: socket.socket) -> None:
+        if cancelled.is_set():
+            connection.close()
+            raise StopServingError
         handled.append(connection)
         worker.close_unread(connection)
         if len(handled) == admitted:
@@ -71,7 +75,17 @@ def serving(
     try:
         yield thread, handled, outcome
     finally:
-        thread.join(WAIT_SECONDS)
+        cancelled.set()
+        wake_until_ended(volume, thread)
+        assert not thread.is_alive()
+
+
+def wake_until_ended(volume: Path, thread: threading.Thread) -> None:
+    deadline = time.monotonic() + WAIT_SECONDS
+    while thread.is_alive() and time.monotonic() < deadline:
+        with suppress(OSError):
+            connect(volume).close()
+        thread.join(0.05)
 
 
 def connect(volume: Path) -> socket.socket:
@@ -186,13 +200,22 @@ def test_binds_a_group_socket_in_a_group_directory(volume: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("controller_uid", "controller_gid"),
-    [(FOREIGN_UID, OWN_GID), (OWN_UID, OWN_GID + 1)],
-    ids=["foreign-uid", "foreign-gid"],
+    ("controller_uid", "controller_gid", "bind_umask"),
+    [
+        (FOREIGN_UID, OWN_GID, worker.BIND_UMASK),
+        (OWN_UID, OWN_GID + 1, worker.BIND_UMASK),
+        (OWN_UID, OWN_GID, 0o077),
+    ],
+    ids=["foreign-uid", "foreign-gid", "wrong-mode"],
 )
 def test_refuses_a_socket_the_controller_does_not_own_after_bind(
-    volume: Path, controller_uid: int, controller_gid: int
+    volume: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    controller_uid: int,
+    controller_gid: int,
+    bind_umask: int,
 ) -> None:
+    monkeypatch.setattr(worker, "BIND_UMASK", bind_umask)
     with pytest.raises(worker.StartRefusedError) as refused:
         worker.bind_socket(volume, controller_uid, controller_gid)
 
@@ -331,6 +354,27 @@ class UnidentifiableConnection(socket.socket):
         raise OSError(errno.ENOTSOCK, "no peer credentials")
 
 
+class RootConnection(socket.socket):
+    """A connection whose peer is uid 0."""
+
+    @overload
+    def getsockopt(self, level: int, optname: int, /) -> int: ...
+    @overload
+    def getsockopt(self, level: int, optname: int, buflen: int, /) -> bytes: ...
+    def getsockopt(
+        self, level: int, optname: int, buflen: int | None = None, /
+    ) -> int | bytes:
+        return worker.PEER_CREDENTIALS.pack(1, 0, 0)
+
+
+class RootListener(BoundedListener):
+    """A listener whose accepted connections come from uid 0."""
+
+    def accept(self) -> tuple[socket.socket, object]:
+        connection, address = super().accept()
+        return RootConnection(fileno=connection.detach()), address
+
+
 class UnidentifiableListener(BoundedListener):
     """A listener whose accepted connections have no readable peer credentials."""
 
@@ -383,6 +427,19 @@ def test_a_connection_without_readable_credentials_is_closed_and_the_error_surfa
     ] == [-1]
 
 
+def test_uid_zero_is_closed_at_the_accept_loop_even_when_it_is_the_runtime_uid(
+    volume: Path,
+) -> None:
+    handled: list[socket.socket] = []
+    with listening_with(volume, 1, RootListener) as listener:
+        client = connect(volume)
+        with pytest.raises(StopServingError):
+            worker.accept_connections(listener, 0, handled.append)
+        assert client.recv(1) == b""
+
+    assert handled == []
+
+
 def test_the_runtime_uid_is_handed_to_the_handler_once_per_connection(
     volume: Path,
 ) -> None:
@@ -408,6 +465,20 @@ def test_serve_binds_listens_and_hands_over_connections_until_stopped(
         assert not thread.is_alive()
         assert len(handled) == CONNECTIONS
         assert outcome == ["stopped"]
+
+
+def test_a_failure_inside_serving_still_ends_the_serving_thread(volume: Path) -> None:
+    threads: list[threading.Thread] = []
+
+    def fail_before_any_connection() -> None:
+        with serving(volume, OWN_UID, admitted=CONNECTIONS) as (thread, _, _):
+            threads.append(thread)
+            raise StopServingError
+
+    with pytest.raises(StopServingError):
+        fail_before_any_connection()
+
+    assert not threads[0].is_alive()
 
 
 def test_refuses_a_stale_socket_it_cannot_remove(volume: Path) -> None:
