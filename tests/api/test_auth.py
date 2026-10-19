@@ -3,7 +3,6 @@
 import re
 from datetime import timedelta
 from http import HTTPStatus
-from pathlib import Path
 
 import pytest
 from fastapi import Response
@@ -24,33 +23,21 @@ from presentator.application.decks import DRAFT_MAX_AGE
 from presentator.application.identity import (
     SESSION_LIFETIME,
 )
-from presentator.contracts.decks import Build, Deck, talk_address
+from presentator.contracts.decks import talk_address
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
-    ADMIN,
+    A_BUILT_DECK_SLUG,
     ENGLISH,
-    NOW,
-    SOURCE_ID,
     USERNAME,
-    GivenDecks,
     Lobby,
-    a_configured_source,
     a_lobby,
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
-    a_signed_in_lobby,
-)
-from tests.application.fakes import (
-    FakeDeckStore,
+    a_signed_in_lobby_with_a_built_deck,
 )
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-_DECK_SLUG = "hello-deck"
-_DECK_COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
-# What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
-_BUILT_TALK = Path(__file__).parent / "built_talk"
-_EXPORTED_PDF = Path(__file__).parent / "exported_deck.pdf"
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
 # page's own location, only the co-presenter's microphone.
 _MIC_ONLY_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=()"
@@ -64,35 +51,6 @@ _EVERY_SECURITY_HEADER = {
     "referrer-policy": REFERRER_POLICY,
     "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
 }
-
-
-def a_signed_in_lobby_with_a_built_deck() -> TestClient:
-    """A signed-in lobby whose one deck already has a built talk to serve."""
-    store = FakeDeckStore()
-    store.put(
-        Deck(
-            slug=_DECK_SLUG,
-            title="Hello Co-Presenter",
-            changed_at=NOW,
-            owner_id=ADMIN,
-            source_id=SOURCE_ID,
-            commit=_DECK_COMMIT,
-            build=None,
-            attempt=None,
-        ),
-    )
-    store.put_build(
-        _DECK_SLUG,
-        Build(
-            directory=_BUILT_TALK,
-            pdf=_EXPORTED_PDF,
-            commit=_DECK_COMMIT,
-            built_at=NOW,
-        ),
-    )
-    return a_signed_in_lobby(
-        GivenDecks(store=store, source=a_configured_source("git@heimserver:decks.git")),
-    )
 
 
 def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
@@ -301,7 +259,7 @@ def test_the_permissions_policy_admits_only_the_copresenters_own_microphone(
 def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
     lobby = a_signed_in_lobby_with_a_built_deck()
 
-    talk = lobby.get(talk_address(_DECK_SLUG))
+    talk = lobby.get(talk_address(A_BUILT_DECK_SLUG))
 
     assert talk.status_code == HTTPStatus.OK
     assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY

@@ -7,7 +7,6 @@ folder, because `CoPresenter.vue` loads it as a same-origin AudioWorklet
 module at a URL Vite only resolves there. The presenter toolbar uses the
 signed-in Presentator origin's relative `/copresenter` routes.
 Presentator checks the existing session before readiness, answers, or microphone
-capture and keeps the hearing lease open while either local or browser
-recognition is active.
+capture and keeps the hearing lease open only while local hearing is active.
 How to run the private service is
 [`copresenter/README.md`](../../copresenter/README.md).

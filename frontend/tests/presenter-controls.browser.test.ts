@@ -38,12 +38,14 @@ let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
 let answerMode: 'audio' | 'speech-refused' = 'audio'
+let hearingMode: 'ready' | 'not-ready' | 'socket-error' = 'ready'
 let productionSecurityHeaders: Record<string, string> = {}
 type CspViolation = { directive: string; blockedUri: string }
 let cspViolations: CspViolation[] = []
 const hearingSockets = new Set<import('node:stream').Duplex>()
 
 type MediaObservation = {
+  microphoneOpened: boolean
   trackStopped: boolean
   playbackStarted: boolean
   playbackPaused: boolean
@@ -117,7 +119,7 @@ async function buildCopiedOverlayDeck(): Promise<string> {
   }
   await writeFile(
     join(deckDirectory, 'slides.md'),
-    '---\ntitle: Copied overlay\n---\n\n# Copied overlay\n',
+    '---\ntitle: Copied overlay\nfonts:\n  provider: none\nfavicon: false\n---\n\n# Copied overlay\n',
   )
   const outDirectory = await mkdtemp(join(tmpdir(), 'presenter-copied-overlay-build-'))
   await run(
@@ -201,7 +203,7 @@ async function startServer() {
     const url = new URL(request.url ?? '/', 'http://presenter.test')
     if (url.pathname === '/copresenter/who') {
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ answerer: { model: 'fake' }, speech: { sample_rate: 16000, hearing: { ready: true } } }))
+      response.end(JSON.stringify({ answerer: { model: 'fake' }, speech: { sample_rate: 16000, hearing: { ready: hearingMode !== 'not-ready' } } }))
       return
     }
     if (url.pathname === '/copresenter/ask') {
@@ -218,6 +220,7 @@ async function startServer() {
       return
     }
     if (request.method === 'POST' && url.pathname.startsWith('/observations/')) {
+      if (url.pathname === '/observations/microphone-opened') media.microphoneOpened = true
       if (url.pathname === '/observations/track-stopped') media.trackStopped = true
       if (url.pathname === '/observations/playback-started') media.playbackStarted = true
       if (url.pathname === '/observations/playback-paused') media.playbackPaused = true
@@ -242,7 +245,9 @@ async function startServer() {
       'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
       + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
     )
-    socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
+    if (hearingMode === 'ready') {
+      socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
+    }
     hearingSockets.add(socket)
     let closed = false
     const closeHearing = () => {
@@ -265,8 +270,13 @@ async function startServer() {
   origin = `http://127.0.0.1:${address.port}`
 }
 
+function sendHearingError() {
+  for (const socket of hearingSockets) socket.write(frame(JSON.stringify({ error: 'hearing failed' })))
+}
+
 function createMediaObservation(): MediaObservation {
   return {
+    microphoneOpened: false,
     trackStopped: false,
     playbackStarted: false,
     playbackPaused: false,
@@ -285,8 +295,16 @@ async function installMediaFakes(page: Page) {
         report('track-stopped')
       },
     }
+    const microphones = window as unknown as { __microphonesRequested: number }
+    microphones.__microphonesRequested = 0
     Object.defineProperty(navigator, 'mediaDevices', {
-      value: { getUserMedia: async () => ({ getTracks: () => [track] }) },
+      value: {
+        getUserMedia: async () => {
+          microphones.__microphonesRequested += 1
+          report('microphone-opened')
+          return { getTracks: () => [track] }
+        },
+      },
       configurable: true,
     })
     const RealAudioContext = window.AudioContext
@@ -309,6 +327,17 @@ async function installMediaFakes(page: Page) {
       port = { onmessage: null }
       disconnect() {}
     } as unknown as typeof AudioWorkletNode
+    const counter = window as unknown as { __speechRecognitionsBuilt: number }
+    counter.__speechRecognitionsBuilt = 0
+    class CountedSpeechRecognition {
+      constructor() { counter.__speechRecognitionsBuilt += 1 }
+      start() {}
+      stop() {}
+    }
+    Object.assign(window, {
+      SpeechRecognition: CountedSpeechRecognition,
+      webkitSpeechRecognition: CountedSpeechRecognition,
+    })
     HTMLMediaElement.prototype.play = async function () {
       Object.defineProperty(this, 'paused', { value: false, configurable: true })
       report('playback-started')
@@ -320,8 +349,8 @@ async function installMediaFakes(page: Page) {
   })
 }
 
-// Records every violation for the shared `afterEach` to judge: it tolerates
-// only the one accepted favicon block (issue #183), so a page this built talk
+// Records every violation for the shared `afterEach` to judge: none is
+// tolerated, so a page this built talk
 // serves never silently drifts from what `script-src 'self'` and the rest of
 // the production policy actually admit.
 async function installCspGuard(page: Page) {
@@ -372,31 +401,8 @@ beforeEach(() => {
   cspViolations = []
 })
 
-// The contract (issue #183) accepts exactly one violation: Slidev's own
-// built-in favicon link is this exact cross-origin URL (from Slidev's own
-// `@slidev/parser` source) that this deployment's CSP never widens `img-src`
-// for. A test that navigates the document more than once (a plain `<a
-// href>`, not client-side routing) reports that same tolerated kind again
-// each time; any other violation — a different directive, a different host,
-// or a different path — still fails the test. Matching the exact hostname
-// and path (not a substring) also rejects a lookalike like
-// `cdn.jsdelivr.net.evil.example` or `evil.example/cdn.jsdelivr.net/...`.
-const ACCEPTED_FAVICON_URL = 'https://cdn.jsdelivr.net/gh/slidevjs/slidev/assets/favicon.png'
-
-function isTheAcceptedFaviconViolation(violation: CspViolation) {
-  if (violation.directive !== 'img-src') return false
-  let blocked: URL
-  try {
-    blocked = new URL(violation.blockedUri)
-  } catch {
-    return false
-  }
-  const accepted = new URL(ACCEPTED_FAVICON_URL)
-  return blocked.hostname === accepted.hostname && blocked.pathname === accepted.pathname
-}
-
 afterEach(() => {
-  expect(cspViolations.every(isTheAcceptedFaviconViolation)).toBe(true)
+  expect(cspViolations).toEqual([])
 })
 
 describe('presenter controls', () => {
@@ -486,6 +492,46 @@ describe('presenter controls', () => {
     }
   })
 
+  it.each([
+    ['local hearing is not ready', 'not-ready', 'Local hearing not ready'],
+    ['the hearing socket sends an error', 'socket-error', 'No hearing'],
+  ] as const)('says so and builds no browser speech recognition when %s', async (_situation, mode, message) => {
+    hearingMode = mode
+    media = createMediaObservation()
+    const { browser, page } = await openPresenter(1024)
+    try {
+      const ai = page.getByRole('switch', { name: 'AI' })
+      await ai.waitFor({ state: 'visible', timeout: 2_000 })
+      await ai.click({ timeout: 2_000 })
+      if (mode === 'socket-error') {
+        // The error must land after activation finished: an error during
+        // `addModule` is released by activation's own cleanup and would not
+        // prove the error path releases the microphone.
+        await expect.poll(() => page.evaluate(
+          () => (window as unknown as {
+            __copresenter: { snapshot: () => { workletLive: boolean } }
+          }).__copresenter.snapshot().workletLive,
+        )).toBe(true)
+        sendHearingError()
+      }
+      await page.getByText(message).waitFor({ state: 'visible', timeout: 5_000 })
+      expect(await page.locator('.copresenter').getAttribute('data-hearing')).toBe('off')
+      expect(await page.evaluate(
+        () => (window as unknown as { __speechRecognitionsBuilt: number }).__speechRecognitionsBuilt,
+      )).toBe(0)
+      await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
+      if (mode === 'socket-error') await expect.poll(() => media.trackStopped).toBe(true)
+      else {
+        expect(await page.evaluate(
+          () => (window as unknown as { __microphonesRequested: number }).__microphonesRequested,
+        )).toBe(0)
+      }
+    } finally {
+      hearingMode = 'ready'
+      await browser.close()
+    }
+  })
+
   it('does not put presenter controls on the projector', async () => {
     const browser = await chromium.launch({ headless: true })
     const page = await browser.newPage({ viewport: { width: 1024, height: 900 } })
@@ -501,7 +547,7 @@ describe('presenter controls', () => {
     }
   })
 
-  it('loads the AudioWorklet from exactly the README\'s copied overlay, never the browser-speech fallback', async () => {
+  it('loads the AudioWorklet from exactly the README\'s copied overlay', async () => {
     const overlayBuildDirectory = await buildCopiedOverlayDeck()
     const { server: overlayServer, origin: overlayOrigin, sockets: overlaySockets }
       = await createOverlayDeckServer(overlayBuildDirectory)
@@ -520,7 +566,7 @@ describe('presenter controls', () => {
         // which happens after `addModule` resolved against the copied
         // overlay's own `public/pcm-capture-processor.js` under the
         // production CSP; a blocked or missing module throws there instead
-        // and the component falls back to 'browser' or 'off'.
+        // and the component says it has no hearing.
         await page.waitForFunction(
           () => (window as unknown as {
             __copresenter: { snapshot: () => { workletLive: boolean } }

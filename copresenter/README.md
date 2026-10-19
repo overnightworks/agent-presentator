@@ -26,10 +26,11 @@ Three things the March tool did not do:
 Speech goes through one boundary in this code (`speak`, `hear`). The default
 implementation is the local service at `COPRESENTER_SPEECH_URL`. This process
 never imports that service and never loads a model. The overlay's hearing
-toggle uses that same local socket first; the browser's own `SpeechRecognition`
-is the fallback so a missing speech service does not leave the demo deaf. The
-fallback sends audio to whatever that browser uses (Chrome: a remote service)
-and must be named on stage.
+toggle hears only through that same local socket; with no ready local hearing
+the overlay says "Local hearing not ready" and the browser's own speech
+recognition is never used. A deck folder holding an older copy of
+`CoPresenter.vue` may still use the browser's speech recognition; copy it
+again.
 
 ## What it sends where
 
@@ -57,10 +58,10 @@ mic --PCM--> overlay --signed-in Presentator--UDS /hear--> copresenter --WS--> s
 The overlay is off until the Presenter switch is turned on. Off, it neither
 listens nor speaks and the microphone is released. Off during activation
 releases anything that activation later obtains. Off during playback stops the
-audio at once. A private hearing failure falls back to the browser's own
-recognition while the authenticated hearing lease stays open. Losing that
-lease turns the overlay off, releases either microphone path, aborts an answer,
-and discards queued or playing audio within the one-second session check.
+audio at once. A private hearing failure turns hearing off and releases the
+microphone and the hearing lease. Losing that lease turns the overlay off,
+releases the microphone, aborts an answer, and discards queued or playing
+audio within the one-second session check.
 
 ## How to run it with the speech service
 

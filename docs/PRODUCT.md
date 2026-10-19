@@ -364,7 +364,7 @@ person without it gets 403 on `/who` and `/ask` and a 1008 close before accept
 on `/hear`. `/ask` requires its CSRF token and hearing requires the configured
 browser Origin. Presentator rechecks an answer and hearing lease every half second,
 so session loss or loss of the admin role stops generation,
-capture, browser fallback and queued or playing audio. Only readiness, question,
+capture and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
 and credentials do not. Which speech models run and what they cost on the card
 remain owned by that README.
