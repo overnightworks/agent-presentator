@@ -76,7 +76,9 @@ _PLAIN_USER_NAME: Final = re.compile(
 # A non-empty reg-name or a bracketed IPv6 literal, then an optional port: the
 # host forms libcurl reads the same as git does. An empty host would make
 # libcurl take the first path segment for it.
-_PLAIN_HOST: Final = re.compile(r"(?:[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?")
+_PLAIN_HOST: Final = re.compile(
+    r"(?:[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:.]+\])(?::\d+)?", re.ASCII
+)
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
 # machine-wide askpass helper can hang a pull and no machine-wide trace setting
