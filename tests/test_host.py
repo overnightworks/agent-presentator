@@ -810,9 +810,11 @@ def test_an_instance_refuses_a_password_schema_only_in_the_write_ahead_log(
     )
     environment.setenv("PRESENTATOR_DATABASE", str(database))
     log = database.with_name(database.name + "-wal")
-    bytes_before = (database.read_bytes(), log.read_bytes())
+    main_file_before = database.read_bytes()
+    log_before = log.read_bytes()
 
     with pytest.raises(ConfigurationError, match="move the database"):
         a_real_instance()
 
-    assert (database.read_bytes(), log.read_bytes()) == bytes_before
+    assert database.read_bytes() == main_file_before
+    assert log.read_bytes() == log_before
