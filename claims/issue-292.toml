@@ -1,8 +1,0 @@
-claim_id = "8b78de40f1f34fb8b2724f910eea3b55"
-agent = "claude"
-role = "builder"
-base = "b269299efefbb81255ee323f982ee69f1179c929"
-branch = "claude/issue-292-quell-url-mit-doppeldeutigem-host-wird-v"
-scope = ["docs/PRODUCT.md", "src/presentator/adapters/builds.py", "src/presentator/adapters/decks.py", "src/presentator/application/decks.py", "src/presentator/contracts/decks.py", "tests/adapters/test_decks.py", "tests/application/test_decks.py"]
-opened_commit = "63c1248579307622870d96e2f1643fc37741c773"
-whole_reason = "The URL rule has one decider and every place that must obey it before a credential is used or the URL is parsed: Check and Create at entry, the stored-source mirror at every poll and export with its log reasons, and the doc that lists the accepted spellings."
