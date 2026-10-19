@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Final
+from urllib.parse import unquote
 
 from gitmirror.model import (
     Change,
@@ -35,9 +36,12 @@ from gitmirror.model import (
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
 # GitHub, GitLab, and every other host that hands out a read-only token accept
 # any user name beside it, so an operator whose URL names none still reaches a
-# host that insists on one. A URL that does name one keeps it: verified with a
-# real git that a helper's `username=` answer always wins over the request's
-# own, so the helper reads the request on stdin and only fills the gap.
+# host that insists on one. A user name the source names is kept: the helper
+# reads the request on stdin and only fills the gap, because a `username=` it
+# answers would override the request's own. git drops the user name of a
+# user-only URL after the host's 401 (verified with git 2.43 and 2.56) but
+# keeps `credential.username` in every request, so `split_user_name` moves the
+# name out of the URL into that setting.
 CREDENTIAL_USER_NAME: Final = "token"
 # git asks a helper for the credentials of an https remote, and answering out
 # of the child's environment keeps the secret off the command line and off
@@ -56,8 +60,24 @@ _CREDENTIAL_HELPER: Final = (
 # or LF inside a secret would forge a second line no `printf` quoting can
 # undo, so the boundary where a resolved secret enters the mirror rejects one
 # outright rather than hand git a broken request.
-_UNSAFE_CREDENTIAL: Final = (
-    "a source's credential carries a control character and cannot be sent to git"
+_UNSAFE_LINE_VALUE: Final = "a source's {what} cannot be sent to git as one line"
+# The URL is handed to git and libcurl unchanged unless it is plainly an http(s)
+# URL: they read the user up to the first `@` of the authority, so any shape
+# this pattern and `split_user_name` do not recognise stays git's to judge.
+_HTTP_AUTHORITY: Final = re.compile(
+    r"(?P<scheme>https?://)(?P<authority>[^/?#]*)", re.IGNORECASE | re.ASCII
+)
+# RFC 3986 userinfo without `:`: unreserved, sub-delims and well-formed
+# percent escapes. Anything else, a space or a raw non-ASCII character
+# included, may be rejected or read differently by libcurl, so git judges it.
+_PLAIN_USER_NAME: Final = re.compile(
+    r"(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+"
+)
+# A non-empty reg-name or a bracketed IPv6 literal, then an optional port: the
+# host forms libcurl reads the same as git does. An empty host would make
+# libcurl take the first path segment for it.
+_PLAIN_HOST: Final = re.compile(
+    r"(?:[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:.]+\])(?::\d+)?", re.ASCII
 )
 _SSH_CONNECT_SECONDS: Final = 10
 # Only what git and ssh need to run; the child inherits nothing else, so no
@@ -145,7 +165,7 @@ class GitMirror:
         if secret is None:
             return _CREDENTIAL_UNRESOLVABLE
         if not is_ssh_remote(self.source.url):
-            _reject_unsafe_secret(secret)
+            _reject_unsafe_line_value(secret, what="credential")
         return self._pull(secret=secret)
 
     def entries(self, revision: Revision, *, inside: str = "") -> tuple[TreeEntry, ...]:
@@ -190,23 +210,24 @@ class GitMirror:
         return Change(commit=commit, at=datetime.fromisoformat(at))
 
     def _pull(self, *, secret: str | None) -> Connection:
+        url, user_name = split_user_name(self.source.url)
         self.directory.parent.mkdir(parents=True, exist_ok=True)
         self._run("init", "--bare", "--quiet")
         ref = self.source.ref
-        # The URL is the one argument that may carry a user name, so this is the
-        # only call that never turns its command line into an error message.
+        # The URL may carry a user name, so this is the only call that never
+        # turns its command line into an error message.
         try:
-            with _credentials(self.source.url, secret) as (credential, ssh_key):
+            with _credentials(url, secret) as (credential, ssh_key):
                 pulled = subprocess.run(
                     [
                         _git_executable(),
-                        *credential_arguments(credential),
+                        *credential_arguments(credential, user_name=user_name),
                         "--git-dir",
                         str(self.directory),
                         "fetch",
                         "--no-tags",
                         "--",
-                        self.source.url,
+                        url,
                         f"+refs/heads/{ref}:refs/heads/{ref}",
                     ],
                     capture_output=True,
@@ -267,17 +288,18 @@ def check_connection(
     repository before Add source stores anything, through the same
     credential helper, environment, and classifier `_pull` uses.
     """
-    if secret is not None and not is_ssh_remote(url):
-        try:
-            _reject_unsafe_secret(secret)
-        except InvalidCredentialError:
-            return _REFUSED_CHECK
+    try:
+        if secret is not None and not is_ssh_remote(url):
+            _reject_unsafe_line_value(secret, what="credential")
+        url, user_name = split_user_name(url)
+    except InvalidCredentialError:
+        return _REFUSED_CHECK
     try:
         with _credentials(url, secret) as (credential, ssh_key):
             probed = subprocess.run(
                 [
                     _git_executable(),
-                    *credential_arguments(credential),
+                    *credential_arguments(credential, user_name=user_name),
                     "ls-remote",
                     "--exit-code",
                     "--",
@@ -318,14 +340,45 @@ def _git_executable() -> str:
     return git
 
 
-def credential_arguments(secret: str | None) -> tuple[str, ...]:
+def split_user_name(url: str) -> tuple[str, str | None]:
+    """That URL without a user name it names alone, and the user name decoded.
+
+    Only a plain http(s) URL whose authority holds exactly one `@`, a user
+    name of plain userinfo characters, no password and a plain host is split;
+    every other shape, an ssh remote or a doubtful one included, is returned
+    unchanged for git to judge. The user name is cut out of the original text,
+    so nothing else in it moves. A user name git's line protocol cannot carry
+    is refused.
+    """
+    match = _HTTP_AUTHORITY.match(url)
+    if match is None or not url.isprintable():
+        return url, None
+    authority = match["authority"]
+    userinfo, _, host = authority.partition("@")
+    if (
+        authority.count("@") != 1
+        or _PLAIN_USER_NAME.fullmatch(userinfo) is None
+        or _PLAIN_HOST.fullmatch(host) is None
+    ):
+        return url, None
+    user_name = unquote(userinfo, errors="surrogateescape")
+    _reject_unsafe_line_value(user_name, what="URL's user name")
+    without_user = (
+        url[: match.start("authority")] + host + url[match.end("authority") :]
+    )
+    return without_user, user_name
+
+
+def credential_arguments(
+    secret: str | None, *, user_name: str | None = None
+) -> tuple[str, ...]:
     """The `-c` options git is run with, carrying no secret value itself."""
     # An empty helper clears whatever a config file or the environment set, so
     # only the helper named here can ever answer.
     cleared = ("-c", "credential.helper=")
-    if secret is None:
-        return cleared
-    return (*cleared, "-c", f"credential.helper={_CREDENTIAL_HELPER}")
+    helper = () if secret is None else ("-c", f"credential.helper={_CREDENTIAL_HELPER}")
+    named = () if user_name is None else ("-c", f"credential.username={user_name}")
+    return (*cleared, *helper, *named)
 
 
 def unattended_environment(
@@ -405,15 +458,15 @@ def _ssh_key_file(secret: str) -> Generator[Path]:
             shutil.rmtree(directory)
 
 
-def _reject_unsafe_secret(secret: str) -> None:
+def _reject_unsafe_line_value(value: str, *, what: str) -> None:
     """Fail loud rather than hand git's line-based protocol a broken line.
 
-    A secret can reach a mirror from any resolver an instance configures, so
-    this is the one place every one of them passes through, whatever a
-    resolver's own input validation does or does not already catch.
+    A secret can reach a mirror from any resolver an instance configures, and
+    a user name from any source URL, so this is the one place both pass
+    through, whatever their own input validation does or does not catch.
     """
-    if not secret.isprintable():
-        raise InvalidCredentialError(_UNSAFE_CREDENTIAL)
+    if not value.isprintable():
+        raise InvalidCredentialError(_UNSAFE_LINE_VALUE.format(what=what))
 
 
 def connection_state_for_failure(stderr: str) -> ConnectionState:
