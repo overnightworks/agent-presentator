@@ -16,11 +16,24 @@ _FILE_SCHEME: Final = "file"
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
 FAILURE_TEXT_LIMIT: Final = 2000
+# A folder's name is one path element: it stays one word of a header value and
+# never reaches past the directory it is joined under.
+_NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
+_NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
 
 
 def bounded_failure(said: str) -> str:
     """The last of what a build said, short enough for a page to carry."""
     return said[-FAILURE_TEXT_LIMIT:]
+
+
+def is_a_plain_folder_name(candidate: str) -> bool:
+    """Whether the candidate is a folder's own name and nothing besides."""
+    return (
+        candidate not in _NAMES_NO_FOLDER
+        and candidate.isprintable()
+        and not _NEVER_IN_A_FOLDER_NAME.intersection(candidate)
+    )
 
 
 def talk_address(slug: str) -> str:

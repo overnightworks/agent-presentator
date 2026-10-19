@@ -62,8 +62,6 @@ _PACKAGE_JSON: Final = "package.json"
 _THEME_PACKAGE_PREFIX: Final = "@slidev/theme-"
 _DEFAULT_THEME: Final = "default"
 _DEPENDENCY_SECTIONS: Final = ("dependencies", "devDependencies")
-_BUILD: Final = "build"
-_EXPORT: Final = "export"
 # The three directories one run of the build owns: the deck's own tree as the
 # toolchain reads it, everything that run writes, and the talk inside that.
 _DECK_IN: Final = "deck"
@@ -227,10 +225,10 @@ class _Added:
     caller refuses the build rather than believing a number nobody counted.
     """
 
-    megabytes: int
     entries: int
-    unreadable: str | None
-    in_time: bool
+    megabytes: int = 0
+    unreadable: str | None = None
+    in_time: bool = True
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -270,6 +268,26 @@ class _HowItWent:
     in_time: bool
 
 
+class StepKind(StrEnum):
+    """The Slidev commands of one build, in the order they are run."""
+
+    BUILD = "build"
+    EXPORT = "export"
+
+
+def slidev_arguments(
+    kind: StepKind, *, place: BuildPlace, slug: str
+) -> tuple[str, ...]:
+    """The arguments Slidev is given for one step of a deck's build."""
+    entry = str(place.here / _DECK_IN / SLIDES_FILE)
+    written = place.here / _OUT
+    match kind:
+        case StepKind.BUILD:
+            return (entry, "--base", talk_address(slug), "--out", str(written / _TALK))
+        case StepKind.EXPORT:
+            return (entry, "--output", str(written / _PDF_FILE))
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BuildStep:
     """One Slidev command of one build, and the deck it is run for.
@@ -281,7 +299,7 @@ class BuildStep:
 
     place: BuildPlace
     slug: str
-    name: str
+    name: StepKind
     arguments: tuple[str, ...]
     # Asked while the step runs: a build that has already written more than it
     # may leave is stopped there, because by the time it ends this machine is
@@ -662,30 +680,15 @@ class SlidevBuilds:
             # A tree this server cannot read out of its own mirror is a fault
             # of this host, not words a deck's author could act on.
             return BuildFailure(text=None)
-        entry = str(place.here / _DECK_IN / SLIDES_FILE)
-        written = place.here / _OUT
-        steps = (
-            (
-                _BUILD,
-                (
-                    entry,
-                    "--base",
-                    talk_address(deck.slug),
-                    "--out",
-                    str(written / _TALK),
-                ),
-            ),
-            (_EXPORT, (entry, "--output", str(written / _PDF_FILE))),
-        )
         # The walk stops at the first step that failed, so a deck that does not
         # build is never exported either.
-        for name, arguments in steps:
+        for kind in StepKind:
             broke = self.toolchain.ran(
                 BuildStep(
                     place=place,
                     slug=deck.slug,
-                    name=name,
-                    arguments=arguments,
+                    name=kind,
+                    arguments=slidev_arguments(kind, place=place, slug=deck.slug),
                     watched=lambda: self._more_than_it_may_leave(deck, place),
                 ),
             )
@@ -901,7 +904,7 @@ def _what_a_step_said(
             # the operating system says about it names paths of this host; the
             # deck's page is told that no words came back, and the log keeps
             # them.
-            _log.error(_TOOLCHAIN_UNAVAILABLE, step.name, step.slug, unavailable)
+            _log.exception(_TOOLCHAIN_UNAVAILABLE, step.name, step.slug, unavailable)
             return BuildFailure(text=None)
         finally:
             # The child holds the writing end now, and only this process
@@ -993,50 +996,46 @@ def _added_up(directory: Path, *, ends_by: float) -> _Added:
     """
     root = _a_directory_of_its_own(directory)
     if root is None:
-        return _Added(megabytes=0, entries=0, unreadable=str(directory), in_time=True)
-    held, entries, still_open = 0, 0, [root]
+        return _Added(entries=0, unreadable=str(directory))
+    still_open = [root]
     try:
-        while still_open:
-            holder = still_open.pop()
-            try:
-                for entry in os.scandir(holder):
-                    entries += 1
-                    if entries > _ENTRIES_AT_MOST:
-                        return _Added(
-                            megabytes=0,
-                            entries=entries,
-                            unreadable=None,
-                            in_time=True,
-                        )
-                    if monotonic() > ends_by:
-                        return _Added(
-                            megabytes=0,
-                            entries=entries,
-                            unreadable=None,
-                            in_time=False,
-                        )
-                    if entry.is_dir(follow_symlinks=False):
-                        still_open.append(_opened_within(entry.name, held_by=holder))
-                    elif not entry.is_symlink():
-                        held += entry.stat(follow_symlinks=False).st_size
-            except OSError as unreadable:
-                return _Added(
-                    megabytes=0,
-                    entries=entries,
-                    unreadable=str(unreadable),
-                    in_time=True,
-                )
-            finally:
-                os.close(holder)
+        return _walked(still_open, ends_by=ends_by)
     finally:
         for holder in still_open:
             os.close(holder)
-    return _Added(
-        megabytes=held // _A_MEGABYTE,
-        entries=entries,
-        unreadable=None,
-        in_time=True,
-    )
+
+
+def _walked(still_open: list[int], *, ends_by: float) -> _Added:
+    held, entries = 0, 0
+    while still_open:
+        holder = still_open.pop()
+        try:
+            for entry in os.scandir(holder):
+                entries += 1
+                stopped = _stopped_at(entries, ends_by=ends_by)
+                if stopped is not None:
+                    return stopped
+                held += _size_of(entry, held_by=holder, still_open=still_open)
+        except OSError as unreadable:
+            return _Added(entries=entries, unreadable=str(unreadable))
+        finally:
+            os.close(holder)
+    return _Added(entries=entries, megabytes=held // _A_MEGABYTE)
+
+
+def _stopped_at(entries: int, *, ends_by: float) -> _Added | None:
+    if entries > _ENTRIES_AT_MOST:
+        return _Added(entries=entries)
+    if monotonic() > ends_by:
+        return _Added(entries=entries, in_time=False)
+    return None
+
+
+def _size_of(entry: os.DirEntry[str], *, held_by: int, still_open: list[int]) -> int:
+    if entry.is_dir(follow_symlinks=False):
+        still_open.append(_opened_within(entry.name, held_by=held_by))
+        return 0
+    return 0 if entry.is_symlink() else entry.stat(follow_symlinks=False).st_size
 
 
 def _opened_within(name: str, *, held_by: int) -> int:

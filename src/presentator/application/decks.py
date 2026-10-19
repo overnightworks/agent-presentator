@@ -47,6 +47,7 @@ from presentator.contracts.decks import (
     SourceState,
     SourceWrite,
     access_kind_of,
+    is_a_plain_folder_name,
 )
 from presentator.ports.clock import Clock
 from presentator.ports.decks import (
@@ -66,10 +67,6 @@ _log = logging.getLogger(__name__)
 # A person compares the commit on the page with the one their push wrote, and
 # reads it off the screen; the first characters are what git itself shows.
 _SHORT_COMMIT: Final = 7
-# A folder's name is one path element: it stays one word of a header value and
-# never reaches past the directory it is joined under.
-_NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
-_NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
 _NOT_A_FOLDERS_OWN_NAME: Final = "folder %r is not a folder's own name, skipped"
 _NAME_BELONGS_TO_ANOTHER_SOURCE: Final = (
     "folder %r is already carried by another source, skipped for source %s"
@@ -249,15 +246,6 @@ def _source_state_of(run: SourceRun) -> SourceState:
     if run.reason is SourceRunFailure.FAILED:
         return SourceState.FAILED
     return SourceState.ERROR
-
-
-def _is_a_plain_folder_name(candidate: str) -> bool:
-    """Whether the candidate is a folder's own name and nothing besides."""
-    return (
-        candidate not in _NAMES_NO_FOLDER
-        and candidate.isprintable()
-        and not _NEVER_IN_A_FOLDER_NAME.intersection(candidate)
-    )
 
 
 def _state_of(deck: Deck) -> DeckState:
@@ -754,7 +742,7 @@ class Decks:
         is offered under that name, so a separator, a quote, or a line break in
         it would otherwise reach the answer's own header.
         """
-        if not _is_a_plain_folder_name(slug):
+        if not is_a_plain_folder_name(slug):
             return None
         deck = self.store.get(slug)
         if deck is None or deck.build is None:
@@ -859,7 +847,7 @@ class Decks:
         if poll.folders is None:
             return
         for folder in poll.folders:
-            if not _is_a_plain_folder_name(folder.name):
+            if not is_a_plain_folder_name(folder.name):
                 _log.warning(_NOT_A_FOLDERS_OWN_NAME, folder.name)
                 continue
             if folder.title is None or SLIDES_FILE not in folder.file_names:
