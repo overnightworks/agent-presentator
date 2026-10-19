@@ -1,8 +1,0 @@
-claim_id = "aabd839aa9e24c75861a2569c919089a"
-agent = "claude"
-role = "builder"
-base = "4f1f82646a41ca0a16486661ca4a1e5fd963ecbe"
-branch = "claude/issue-286-k13-s0-das-abgenommene-keycloak-login-bi"
-scope = ["docs/mockups/README.md", "docs/mockups/m0-lobby", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html"]
-opened_commit = "4d5fc590da4c47f237c2958370d315192a55c200"
-whole_reason = "One picture: the sheet, its renders and its README index change together or the README lies about the sheet."
