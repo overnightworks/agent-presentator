@@ -6,12 +6,15 @@ import grp
 import logging
 import os
 import pwd
+import socket
 import stat
+import struct
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
+from typing import NoReturn
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,14 @@ WIRE_IDENTITY = (10002, 10002)
 ROOT_MODE = 0o755
 WORK_MOUNT = "/work"
 # Mount points below the root, so the self-check names no world-writable path.
-SCRATCH_MOUNT_NAMES = ("tmp", "dev/shm", "run/presentator-build")
+SOCKET_DIRECTORY = "/run/presentator-build"
+SOCKET_NAME = "worker.sock"
+SOCKET_DIRECTORY_MODE = 0o750
+SOCKET_MODE = 0o660
+BIND_UMASK = 0o117
+LISTEN_BACKLOG = 4
+PEER_CREDENTIALS = struct.Struct("3i")
+SCRATCH_MOUNT_NAMES = ("tmp", "dev/shm", SOCKET_DIRECTORY.lstrip("/"))
 TMPFS_MOUNTS = tuple(
     str(Path("/") / name) for name in (WORK_MOUNT.lstrip("/"), *SCRATCH_MOUNT_NAMES)
 )
@@ -83,6 +93,24 @@ class Predicate(StrEnum):
     TOOLCHAIN = "toolchain"
 
 
+class StartRefusal(StrEnum):
+    """A serving step that refused the start."""
+
+    SOCKET_DIRECTORY = "socket-directory"
+    STALE_SOCKET = "stale-socket"
+    BIND = "bind"
+    LISTEN = "listen"
+
+
+class StartRefusedError(Exception):
+    """A serving step refused; it carries the step's name."""
+
+    def __init__(self, refusal: StartRefusal) -> None:
+        """Remember which step refused."""
+        super().__init__(refusal)
+        self.refusal = refusal
+
+
 @dataclass(frozen=True)
 class Identity:
     """The process identity and the users the image created."""
@@ -134,6 +162,7 @@ class Boundary:
     set_non_dumpable: Callable[[], None]
     set_umask: Callable[[], None]
     read_snapshot: Callable[[], Snapshot]
+    serve: Callable[..., int]
 
 
 def _status_fields(process_status: str) -> dict[str, str]:
@@ -427,27 +456,163 @@ def read_snapshot(root: Path) -> Snapshot:
     )
 
 
+def _lstat_if_present(path: Path) -> os.stat_result | None:
+    try:
+        return path.lstat()
+    except FileNotFoundError:
+        return None
+
+
+def _fix_up_socket_directory(
+    directory: Path, controller_uid: int, controller_gid: int
+) -> None:
+    try:
+        status = directory.lstat()
+        if not (stat.S_ISDIR(status.st_mode) and status.st_uid == controller_uid):
+            raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY)
+        os.chown(directory, -1, controller_gid)
+        directory.chmod(SOCKET_DIRECTORY_MODE)
+    except OSError as error:
+        raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY) from error
+
+
+def remove_stale_socket(socket_path: Path, controller_uid: int) -> None:
+    """Unlink a socket the controller owns; refuse any other entry."""
+    try:
+        status = _lstat_if_present(socket_path)
+        if status is None:
+            return
+        if not (stat.S_ISSOCK(status.st_mode) and status.st_uid == controller_uid):
+            raise StartRefusedError(StartRefusal.STALE_SOCKET)
+        socket_path.unlink()
+    except OSError as error:
+        raise StartRefusedError(StartRefusal.STALE_SOCKET) from error
+
+
+def prepare_socket_directory(
+    directory: Path, controller_uid: int, controller_gid: int
+) -> None:
+    """Step 4: fix up the volume root and clear a stale socket."""
+    _fix_up_socket_directory(directory, controller_uid, controller_gid)
+    remove_stale_socket(directory / SOCKET_NAME, controller_uid)
+
+
+def bind_socket(
+    directory: Path, controller_uid: int, controller_gid: int
+) -> socket.socket:
+    """Step 5: bind under a narrow umask and check what the bind created."""
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    socket_path = directory / SOCKET_NAME
+    try:
+        os.umask(BIND_UMASK)
+        try:
+            listener.bind(str(socket_path))
+        finally:
+            os.umask(ONLY_THE_OWNER)
+        status = socket_path.lstat()
+    except OSError as error:
+        listener.close()
+        raise StartRefusedError(StartRefusal.BIND) from error
+    created_as_expected = (
+        stat.S_ISSOCK(status.st_mode)
+        and (status.st_uid, status.st_gid) == (controller_uid, controller_gid)
+        and stat.S_IMODE(status.st_mode) == SOCKET_MODE
+    )
+    if not created_as_expected:
+        listener.close()
+        raise StartRefusedError(StartRefusal.BIND)
+    return listener
+
+
+def start_listening(listener: socket.socket) -> None:
+    """Step 6: from here on a connect is queued rather than refused."""
+    try:
+        listener.listen(LISTEN_BACKLOG)
+    except OSError as error:
+        raise StartRefusedError(StartRefusal.LISTEN) from error
+
+
+def peer_admitted(peer_uid: int, runtime_uid: int) -> bool:
+    """Only the runtime uid may talk to the worker, uid 0 included."""
+    return peer_uid == runtime_uid
+
+
+def _peer_uid(connection: socket.socket) -> int:
+    credentials = connection.getsockopt(
+        socket.SOL_SOCKET, socket.SO_PEERCRED, PEER_CREDENTIALS.size
+    )
+    _pid, uid, _gid = PEER_CREDENTIALS.unpack(credentials)
+    return uid
+
+
+def close_unread(connection: socket.socket) -> None:
+    """Drop an admitted connection without reading it."""
+    connection.close()
+
+
+def accept_connections(
+    listener: socket.socket, runtime_uid: int, handle: Callable[[socket.socket], None]
+) -> NoReturn:
+    """Hand each runtime-uid connection to the handler; close every other at once."""
+    while True:
+        connection, _address = listener.accept()
+        if peer_admitted(_peer_uid(connection), runtime_uid):
+            handle(connection)
+        else:
+            connection.close()
+
+
+def serve(
+    directory: Path,
+    *,
+    controller_uid: int,
+    controller_gid: int,
+    runtime_uid: int,
+    handle: Callable[[socket.socket], None],
+) -> int:
+    """Run start-up steps 4 to 6, then accept; only a refusal returns."""
+    try:
+        prepare_socket_directory(directory, controller_uid, controller_gid)
+        listener = bind_socket(directory, controller_uid, controller_gid)
+        with listener:
+            start_listening(listener)
+            accept_connections(listener, runtime_uid, handle)
+    except StartRefusedError as refused:
+        return _refuse(refused.refusal)
+
+
 REAL_BOUNDARY = Boundary(
-    _set_non_dumpable, _set_umask, partial(read_snapshot, Path("/"))
+    _set_non_dumpable,
+    _set_umask,
+    partial(read_snapshot, Path("/")),
+    partial(serve, Path(SOCKET_DIRECTORY), controller_uid=0, handle=close_unread),
 )
 
 
-def _refuse(predicate: Predicate) -> int:
-    logger.error("self-check refused: %s", predicate)
+def _refuse(refused: Predicate | StartRefusal) -> int:
+    logger.error("start refused: %s", refused)
     return REFUSAL_EXIT_STATUS
 
 
 def main(argv: Sequence[str] | None = None, boundary: Boundary = REAL_BOUNDARY) -> int:
-    """Run start-up steps 1 to 3; exit status 2 names a refusal."""
+    """Run the start-up steps; exit status 2 names a refusal."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check", action="store_true", help="exit after the self-check"
     )
-    parser.parse_args(argv)
+    arguments = parser.parse_args(argv)
     try:
         boundary.set_non_dumpable()
     except OSError:
         return _refuse(Predicate.NON_DUMPABLE)
     boundary.set_umask()
-    failing = first_failing_predicate(boundary.read_snapshot())
-    return _refuse(failing) if failing else 0
+    snapshot = boundary.read_snapshot()
+    failing = first_failing_predicate(snapshot)
+    if failing:
+        return _refuse(failing)
+    if arguments.check:
+        return 0
+    return boundary.serve(
+        controller_gid=snapshot.identity.runtime_gid,
+        runtime_uid=snapshot.identity.runtime_uid,
+    )

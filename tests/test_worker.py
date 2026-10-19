@@ -229,10 +229,15 @@ def boundary_over(snapshot: Snapshot, events: list[str]) -> Boundary:
         events.append("read")
         return snapshot
 
+    def serve(**_served: int) -> int:
+        events.append("serve")
+        return 0
+
     return Boundary(
         set_non_dumpable=lambda: events.append("prctl"),
         set_umask=lambda: events.append("umask"),
         read_snapshot=read_snapshot,
+        serve=serve,
     )
 
 
@@ -253,9 +258,18 @@ def test_double_fault_names_the_first_predicate_in_refusal_order() -> None:
     assert worker.first_failing_predicate(snapshot) == Predicate.CAPABILITIES
 
 
-@pytest.mark.parametrize("arguments", [[], ["--check"]])
-def test_sealed_start_exits_zero(arguments: list[str]) -> None:
-    assert worker.main(arguments, boundary_over(sealed_snapshot(), [])) == 0
+def test_sealed_check_exits_zero_without_serving() -> None:
+    events: list[str] = []
+
+    assert worker.main(["--check"], boundary_over(sealed_snapshot(), events)) == 0
+    assert "serve" not in events
+
+
+def test_sealed_start_serves_and_returns_the_serving_status() -> None:
+    events: list[str] = []
+
+    assert worker.main([], boundary_over(sealed_snapshot(), events)) == 0
+    assert events[-1] == "serve"
 
 
 def test_refusal_exits_two_and_logs_the_predicate_without_environment_values(
@@ -516,14 +530,13 @@ def test_unreadable_or_unparsable_fact_refuses_through_main_naming_its_predicate
     refused: Predicate,
 ) -> None:
     arrange(sealed_root, monkeypatch)
-    boundary = Boundary(
-        set_non_dumpable=lambda: None,
-        set_umask=lambda: None,
+    boundary = replace(
+        boundary_over(sealed_snapshot(), []),
         read_snapshot=partial(worker.read_snapshot, sealed_root),
     )
 
     assert worker.main(["--check"], boundary) == worker.REFUSAL_EXIT_STATUS
-    assert f"self-check refused: {refused}" in caplog.text
+    assert f"start refused: {refused}" in caplog.text
 
 
 @pytest.fixture(params=["/run/docker.sock", "/var/run/docker.sock"])
