@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.29.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -11,12 +11,12 @@ dependencies = [
     "babel==2.18.0",
     "cryptography==50.0.1",
     "fastapi==0.141.1",
-    "httpx2[ws]==2.12.0",
+    "httpx2[ws]==2.13.1",
     "jinja2==3.1.6",
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.17.0/overnightworks_webauth-0.17.0-py3-none-any.whl",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
-    "uvicorn==0.52.4",
+    "uvicorn==0.54.0",
 ]
 
 [project.scripts]
@@ -25,11 +25,11 @@ agent-presentator-worker = "presentator.host.worker:main"
 
 [dependency-groups]
 dev = [
-    "import-linter==2.13",
+    "import-linter==2.15",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "pyright==1.1.411",
-    "ruff==0.16.2",
+    "pyright==1.1.414",
+    "ruff==0.17.1",
     "vulture==2.16",
 ]
 
