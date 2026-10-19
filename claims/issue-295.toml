@@ -1,8 +1,0 @@
-claim_id = "6116cd141dd641638692b9e38f0f1b79"
-agent = "claude"
-role = "builder"
-base = "6557dc18b2825c5c128736b7cba65a0fe46f02aa"
-branch = "claude/issue-295-datenschutz-text-sagt-was-main-tut"
-scope = ["docs/mockups/README.md", "docs/mockups/legal-datenschutz-draft.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "src/presentator/api/legal.py", "src/presentator/api/static/lobby.css", "src/presentator/api/templates/datenschutz.html", "src/presentator/application/decks.py", "tests/api/test_auth.py"]
-opened_commit = "77edaab8ded11895cacbb09165138a46d9b46131"
-whole_reason = "One German declaration, its two picture boards and their derived renders must change together or the copies disagree."
