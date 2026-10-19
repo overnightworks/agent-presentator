@@ -538,6 +538,30 @@ def test_the_helper_answers_with_the_user_name_git_puts_in_the_request() -> None
             "https://me%40mail.com@host.example/r.git",
             ("https://host.example/r.git", "me@mail.com"),
         ),
+        (
+            "https://alice@host.example/r.git?",
+            ("https://host.example/r.git?", "alice"),
+        ),
+        (
+            "https://alice@host.example/r.git#",
+            ("https://host.example/r.git#", "alice"),
+        ),
+        (
+            "HTTPS://alice@Host.Example:8443/r.git",
+            ("HTTPS://Host.Example:8443/r.git", "alice"),
+        ),
+        *[
+            (url, (url, None))
+            for url in (
+                "https://alice@good.example@evil.example/r.git",
+                "https://alice@good.example\\@evil.example/r.git",
+                "https://alice@good.example%2F@evil.example/r.git",
+                "https://al\tice@host.example/r.git",
+                "https://alice@host.example/r.git\n",
+                "https://alice@host.example/r\r.git",
+                "http://alice@[::1/r.git",
+            )
+        ],
     ],
 )
 def test_only_an_http_url_naming_a_user_alone_gives_that_user_up(
@@ -581,6 +605,15 @@ def test_a_check_refuses_a_control_character_user_name_before_it_reaches_git(
     )
 
     assert checked.state is ConnectionState.REFUSED
+
+
+def test_a_refused_user_name_leaves_no_mirror_on_disk(tmp_path: Path) -> None:
+    mirror = a_mirror("https://al%00ice@host.example/r.git", directory=tmp_path)
+
+    with pytest.raises(InvalidCredentialError):
+        mirror.connect()
+
+    assert not mirror.directory.exists()
 
 
 def test_a_user_name_survives_a_missing_secret() -> None:
@@ -1048,6 +1081,24 @@ def test_a_percent_encoded_user_name_authenticates_as_the_decoded_user(
 
     assert connection.state is ConnectionState.READY
     assert served.authorization == expected
+
+
+def test_a_url_with_a_second_at_sends_no_secret_to_the_host_after_it(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    bare = _prepared_bare_repo(remote)
+    with _dumb_http_remote(bare) as (url, served):
+        mirror = a_mirror(
+            url.replace("://", "://alice@other.invalid@"),
+            directory=tmp_path,
+            credential=_TOKEN_REFERENCE,
+            resolver=OneKnownSecret(),
+        )
+        connection = mirror.connect()
+
+    assert connection.state is not ConnectionState.READY
+    assert served.authorization is None
 
 
 def test_a_wrong_secret_is_refused(
