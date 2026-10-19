@@ -171,6 +171,16 @@ def hash_webhook_secret(secret: str) -> bytes:
     return sha256(secret.encode()).digest()
 
 
+def _access_matches_url(access: str, url: str) -> bool:
+    """Whether the posted access names the kind this URL unambiguously is.
+
+    An unknown access or a URL naming no kind never match, so two "nothing"s
+    cannot agree and let an ambiguous address through.
+    """
+    expected = _EXPECTED_ACCESS_KIND.get(access)
+    return expected is not None and expected is access_kind_of(url)
+
+
 def _refusal_for(
     draft: NewSourceDraft,
     *,
@@ -195,7 +205,7 @@ def _refusal_for(
         # the wrong kind reads that, not a sentence about a field its real
         # kind does not even show.
         (
-            _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
+            not _access_matches_url(access, url),
             SourceRefusal.ACCESS_MISMATCH,
         ),
         (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
@@ -467,7 +477,7 @@ class Decks:
         one, so a reachable check and a stored source read alike.
         """
         address = url.strip()
-        if _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(address):
+        if not _access_matches_url(access, address):
             return ConnectionCheckResult(
                 failure=SourceRunFailure.REFUSED,
                 commit=None,

@@ -130,12 +130,14 @@ connection* probes the typed HTTPS token or owned SSH draft before anything is
 stored, and *Create* is refused unless that exact check succeeded. The private
 halves and HTTPS tokens are encrypted and never shown. The name is
 `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a URL carrying a
-password in its userinfo is refused, only `https://[user@]host[:port]/…`,
-`ssh://[user@]host[:port]/…` and `user@host:path` are an access — the host a
-plain name or an IPv6 literal in brackets — and every other spelling,
-`http://` and any control character included, is refused before any secret is
-used, and the access kind is
-derived from the URL scheme — a mismatch with the chosen radio is refused.
+password in its userinfo is refused, of remote addresses only
+`https://[user@]host[:port]/…`, `ssh://[user@]host[:port]/…` and
+`user@host:path` are an access — the host a plain name or an IPv6 literal in
+brackets, an ssh path free of `%`, `?`, `#`, `[` and `]` — and every other
+remote spelling, `http://` and any control character included, is refused
+before any secret is used. The access kind is derived from the URL scheme; an
+unknown radio value, a URL that names no access, or a mismatch with the chosen
+radio is refused.
 A fourth kind reads none at all: a folder made a bare repository under the host
 directory `compose.override.yaml` mounts read-only at `/data/local-sources` is
 added with a `file://` or bare-path address under that mount, "on this box" as

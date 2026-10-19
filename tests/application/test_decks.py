@@ -2030,3 +2030,61 @@ def test_check_connection_refuses_a_two_host_url_before_any_key_or_probe(
     )
 
     assert checked.failure is SourceRunFailure.REFUSED
+
+
+_URLS_NAMING_NO_ACCESS = (
+    "https://u:pw@a@b/r.git",
+    "https://good.example:pw\\@evil.example/r.git",
+    "http://h/r.git",
+)
+_ACCESS_VALUES_NOT_AN_ACCESS = ("", "bogus", "unsupported")
+
+
+@pytest.mark.parametrize("access", _ACCESS_VALUES_NOT_AN_ACCESS)
+@pytest.mark.parametrize("url", _URLS_NAMING_NO_ACCESS)
+def test_an_unknown_access_never_matches_a_url_that_names_no_access(
+    url: str, access: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = having()
+    decks = decks_over(
+        sources=store, fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun())
+    )
+
+    checked = decks.check_connection(
+        url=url, access=access, secret=_READ_ONLY, owner_id=_OWNER, key_draft_id=""
+    )
+
+    def read_as_https(_url: str) -> AccessKind:
+        return AccessKind.HTTPS
+
+    with monkeypatch.context() as earlier_instance:
+        # A fingerprint an earlier instance, which read this URL as https, issued.
+        earlier_instance.setattr(
+            "presentator.application.decks.access_kind_of", read_as_https
+        )
+        earlier_fingerprint = (
+            decks_over(fakes=DecksFakes(checker=FakeConnectionChecker()))
+            .check_connection(
+                url=url,
+                access="https",
+                secret=_READ_ONLY,
+                owner_id=_OWNER,
+                key_draft_id="",
+            )
+            .fingerprint
+        )
+    created = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=url,
+            access=access,
+            secret=_READ_ONLY,
+            fingerprint=earlier_fingerprint or "",
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert earlier_fingerprint is not None
+    assert checked.failure is SourceRunFailure.REFUSED
+    assert created is SourceRefusal.ACCESS_MISMATCH
+    assert store.all() == ()
