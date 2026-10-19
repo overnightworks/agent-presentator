@@ -1,0 +1,442 @@
+"""The gated spawn and the wire entry, run for real as the test user."""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import closing
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
+from typing import ClassVar
+
+import pytest
+
+from presentator.adapters import worker_children
+from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
+from presentator.host import worker
+from presentator.host.worker import LifeEnd, Serving, WireChild
+from presentator.host.worker_wire import WireExit
+
+OWN_UID = os.getuid()
+OWN_GID = os.getgid()
+OWN_IDENTITY = ChildIdentity(OWN_UID, OWN_GID, extra_groups=None)
+WAIT_SECONDS = 10
+WATCHDOG_WINDOW = (6.0, 8.0)
+INHERITED_DESCRIPTORS = {0, 1, 2}
+RELEASED_UMASK = 0o022
+CURRENT_DIRECTORY_KEY = "PWD"
+PATH = "/usr/bin:/bin"
+STALLED_CONTROLLER = """
+import ctypes, os, sys, time
+from pathlib import Path
+from presentator.host import worker
+from presentator.host.worker_termination import FaultHandlerWatchdog
+
+def stall(*_arguments, **_keywords):
+    ctypes.PyDLL(None).pause()
+
+serving = worker.Serving(
+    spawn=stall,
+    gate_admits=lambda _status: True,
+    sweep=lambda _deadline: True,
+    watchdog=FaultHandlerWatchdog(),
+    clock=time.monotonic,
+)
+sys.exit(
+    worker.serve(
+        Path(sys.argv[1]),
+        controller_uid=os.getuid(),
+        controller_gid=os.getgid(),
+        runtime_uid=os.getuid(),
+        serving=serving,
+    )
+)
+"""
+PROBE = """
+import json, os, sys
+descriptor = int(sys.argv[1])
+open_descriptors = sorted(
+    int(name)
+    for name in os.listdir("/proc/self/fd")
+    if os.path.exists("/proc/self/fd/" + name)
+)
+report = {
+    "stdin": os.readlink("/proc/self/fd/0"),
+    "descriptors": open_descriptors,
+    "connection": descriptor,
+    "working_directory": os.getcwd(),
+    "umask": os.umask(0),
+    "session_leader": os.getsid(0) == os.getpid(),
+    "environment": dict(os.environ),
+    "oom_score_adj": open("/proc/self/oom_score_adj").read().strip(),
+}
+os.write(descriptor, json.dumps(report).encode())
+sys.exit(3)
+"""
+MARKER_WRITER = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('ran')"
+
+
+def marker_writer(marker: Path) -> GatedChild:
+    return spawn_gated(
+        [sys.executable, "-I", "-c", MARKER_WRITER, str(marker)],
+        identity=OWN_IDENTITY,
+        environment={"PATH": PATH},
+        pass_fds=(),
+    )
+
+
+def run_program(source: str, command: Sequence[str]) -> list[str]:
+    connection_flag = command.index("--connection-fd")
+    return [sys.executable, "-I", "-c", source, command[connection_flag + 1]]
+
+
+def spawn_probe(source: str) -> Callable[..., WireChild]:
+    def spawn(
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+    ) -> GatedChild:
+        return spawn_gated(
+            run_program(source, command),
+            identity=OWN_IDENTITY,
+            environment=environment,
+            pass_fds=pass_fds,
+        )
+
+    return spawn
+
+
+def serving_with(
+    spawn: Callable[..., WireChild], *, admits: bool = True, quiet: bool = True
+) -> Serving:
+    return Serving(
+        spawn=spawn,
+        gate_admits=lambda _status: admits,
+        sweep=lambda _deadline: quiet,
+        watchdog=NeverArmed(),
+        clock=time.monotonic,
+    )
+
+
+class NeverArmed:
+    """A watchdog that must not arm a real timer inside pytest."""
+
+    def arm(self, remaining: float) -> None:
+        pass
+
+    def cancel(self) -> None:
+        pass
+
+
+def open_descriptor_count() -> int:
+    return len(list(Path("/proc/self/fd").iterdir()))
+
+
+def read_to_end(client: socket.socket) -> bytes:
+    received = b""
+    while chunk := client.recv(4096):
+        received += chunk
+    return received
+
+
+@pytest.fixture
+def connection_pair() -> Iterator[tuple[socket.socket, socket.socket]]:
+    controller_end, client = socket.socketpair()
+    client.settimeout(WAIT_SECONDS)
+    with closing(controller_end), closing(client):
+        yield controller_end, client
+
+
+@dataclass(frozen=True)
+class ProbeReport:
+    """What the released probe saw of itself."""
+
+    stdin: str
+    descriptors: list[int]
+    connection: int
+    working_directory: str
+    umask: int
+    session_leader: bool
+    environment: dict[str, str]
+    oom_score_adj: str
+
+
+def hand_over_probe(
+    connection_pair: tuple[socket.socket, socket.socket],
+    monkeypatch: pytest.MonkeyPatch,
+) -> ProbeReport:
+    monkeypatch.setenv("PATH", PATH)
+    connection, client = connection_pair
+    kept = worker.hand_over(connection, serving_with(spawn_probe(PROBE)))
+    connection.close()
+    assert kept is None
+    return ProbeReport(**json.loads(read_to_end(client)))
+
+
+def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
+    connection_pair: tuple[socket.socket, socket.socket],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = hand_over_probe(connection_pair, monkeypatch)
+
+    assert report.stdin == "/dev/null"
+    assert set(report.descriptors) == INHERITED_DESCRIPTORS | {report.connection}
+    assert report.working_directory == "/"
+    assert report.umask == RELEASED_UMASK
+    assert report.session_leader
+    assert report.oom_score_adj == "1000"
+
+
+def test_a_released_child_holds_nothing_of_the_controllers_environment(
+    connection_pair: tuple[socket.socket, socket.socket],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SECRET_FOR_THE_CONTROLLER", "leak")
+
+    environment = hand_over_probe(connection_pair, monkeypatch).environment
+
+    assert set(environment) <= {"PATH", CURRENT_DIRECTORY_KEY, "LC_CTYPE"}
+    assert environment["PATH"] == PATH
+    assert environment[CURRENT_DIRECTORY_KEY] == "/"
+
+
+def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_reply(
+    connection_pair: tuple[socket.socket, socket.socket],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    connection, client = connection_pair
+
+    refused = worker.hand_over(
+        connection, serving_with(spawn_probe(PROBE), admits=False)
+    )
+    connection.close()
+
+    assert refused == LifeEnd.GATE
+    assert read_to_end(client) == b""
+
+
+@pytest.mark.parametrize(
+    ("release_text", "released"),
+    [(b"go\n", False), (b"go", True)],
+    ids=["a bare end of file", "go before the end of file"],
+)
+def test_a_gate_that_is_not_released_with_a_line_never_runs_the_program(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    release_text: bytes,
+    released: bool,  # noqa: FBT001
+) -> None:
+    marker = tmp_path / "marker"
+    monkeypatch.setattr(worker_children, "RELEASE", release_text)
+    child = marker_writer(marker)
+
+    if released:
+        child.release()
+    child.close_gate()
+
+    assert child.wait() != 0
+    assert not marker.exists()
+
+
+def test_a_line_releases_the_program(tmp_path: Path) -> None:
+    marker = tmp_path / "marker"
+    child = marker_writer(marker)
+
+    child.release()
+    child.close_gate()
+
+    assert child.wait() == 0
+    assert marker.read_text() == "ran"
+
+
+def test_a_dead_child_breaks_the_release_pipe_and_has_no_readable_status() -> None:
+    child = spawn_gated(
+        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
+    )
+    child.kill()
+    child.wait()
+
+    with pytest.raises(BrokenPipeError):
+        child.release()
+    with pytest.raises(FileNotFoundError):
+        child.status_text()
+    child.close_gate()
+
+
+def test_the_status_of_a_waiting_child_names_the_user_it_runs_as() -> None:
+    child = spawn_gated(
+        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
+    )
+    try:
+        status = child.status_text()
+    finally:
+        child.kill()
+        child.wait()
+        child.close_gate()
+
+    assert f"Uid:\t{OWN_UID}\t{OWN_UID}\t{OWN_UID}\t{OWN_UID}" in status
+
+
+def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() -> None:
+    before = open_descriptor_count()
+    child = spawn_gated(
+        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
+    )
+    child.release()
+    child.close_gate()
+    child.close_gate()
+    child.wait()
+    with pytest.raises(PermissionError):
+        spawn_gated(
+            ["/bin/true"],
+            identity=ChildIdentity(OWN_UID + 100_000, OWN_GID, extra_groups=None),
+            environment={"PATH": PATH},
+            pass_fds=(),
+        )
+
+    assert open_descriptor_count() == before
+
+
+def test_a_release_after_the_gate_is_closed_is_a_broken_pipe() -> None:
+    child = spawn_gated(
+        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
+    )
+    child.close_gate()
+    child.wait()
+
+    with pytest.raises(BrokenPipeError):
+        child.release()
+
+
+class RecordedPopen:
+    """Records how the controller spawns and then fails the spawn."""
+
+    calls: ClassVar[list[tuple[object, dict[str, object]]]] = []
+
+    def __init__(self, arguments: object, **keywords: object) -> None:
+        """Record the call and fail."""
+        self.calls.append((arguments, keywords))
+        raise OSError
+
+
+def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(RecordedPopen, "calls", [])
+    monkeypatch.setattr(worker_children.subprocess, "Popen", RecordedPopen)
+
+    with pytest.raises(OSError):  # noqa: PT011
+        worker.REAL_SERVING.spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
+
+    [(_arguments, keywords)] = RecordedPopen.calls
+    wire_id = worker.WIRE_IDENTITY[0]
+    assert (keywords["user"], keywords["group"], keywords["extra_groups"]) == (
+        wire_id,
+        wire_id,
+        [],
+    )
+    assert keywords["env"] == {"PATH": PATH}
+    assert keywords["pass_fds"] == (7,)
+    assert keywords["cwd"] == "/"
+    assert keywords["start_new_session"] is True
+
+
+@pytest.fixture
+def socket_directory(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    before = os.umask(0)
+    os.umask(before)
+    directory = tmp_path_factory.mktemp("w")
+    directory.chmod(0o700)
+    yield directory
+    os.umask(before)
+
+
+def test_the_real_entry_resets_a_client_that_wrote_a_byte_twice_in_one_process(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    sweeps: list[float] = []
+
+    def sweep_then_end_the_second_time(deadline: float) -> bool:
+        sweeps.append(deadline)
+        return len(sweeps) < 2  # noqa: PLR2004
+
+    entry = partial(spawn_gated, identity=OWN_IDENTITY)
+    serving = Serving(
+        spawn=entry,
+        gate_admits=lambda _status: True,
+        sweep=sweep_then_end_the_second_time,
+        watchdog=NeverArmed(),
+        clock=time.monotonic,
+    )
+    outcome: list[int] = []
+    thread = threading.Thread(
+        target=lambda: outcome.append(
+            worker.serve(
+                socket_directory,
+                controller_uid=OWN_UID,
+                controller_gid=OWN_GID,
+                runtime_uid=OWN_UID,
+                serving=serving,
+            )
+        ),
+        daemon=True,
+    )
+    thread.start()
+
+    for _ in range(2):
+        with closing(connect_when_bound(socket_directory, thread.is_alive)) as client:
+            client.send(b"x")
+            with pytest.raises(ConnectionResetError):
+                client.recv(1)
+    thread.join(WAIT_SECONDS)
+
+    assert outcome == [0]
+    assert len(sweeps) == 2  # noqa: PLR2004
+    assert WireExit.CLOSED == 3  # noqa: PLR2004
+
+
+def connect_when_bound(
+    directory: Path, still_serving: Callable[[], bool]
+) -> socket.socket:
+    deadline = time.monotonic() + WAIT_SECONDS
+    while still_serving() and time.monotonic() < deadline:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(WAIT_SECONDS)
+        try:
+            client.connect(str(directory / worker.SOCKET_NAME))
+        except (FileNotFoundError, ConnectionRefusedError):
+            client.close()
+            continue
+        return client
+    pytest.fail("the worker did not start serving")
+
+
+def test_a_stalled_controller_serving_an_idle_connection_exits_one_at_seven_seconds(
+    socket_directory: Path,
+) -> None:
+    controller = subprocess.Popen(
+        [sys.executable, "-I", "-c", STALLED_CONTROLLER, str(socket_directory)],
+        stderr=subprocess.PIPE,
+    )
+    try:
+        client = connect_when_bound(socket_directory, lambda: controller.poll() is None)
+        accepted_at = time.monotonic()
+        with closing(client):
+            exit_status = controller.wait(timeout=WAIT_SECONDS + 5)
+        elapsed = time.monotonic() - accepted_at
+    finally:
+        controller.kill()
+        controller.wait()
+        assert controller.stderr is not None
+        controller.stderr.close()
+
+    assert exit_status == 1
+    assert WATCHDOG_WINDOW[0] <= elapsed <= WATCHDOG_WINDOW[1]
