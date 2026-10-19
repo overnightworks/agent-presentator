@@ -130,7 +130,9 @@ connection* probes the typed HTTPS token or owned SSH draft before anything is
 stored, and *Create* is refused unless that exact check succeeded. The private
 halves and HTTPS tokens are encrypted and never shown. The name is
 `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a URL carrying a
-password in its userinfo is refused, `http://` is refused, and the access kind
+password in its userinfo is refused, a URL whose host could be read two ways
+(a backslash, a second `@`, or an `@` after `?` or `#`) is refused before any
+secret is used, `http://` is refused, and the access kind
 is derived from the URL scheme — a mismatch with the chosen radio is refused.
 A fourth kind reads none at all: a folder made a bare repository under the host
 directory `compose.override.yaml` mounts read-only at `/data/local-sources` is

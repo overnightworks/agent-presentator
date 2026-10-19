@@ -592,12 +592,18 @@ class SourceMirrors:
     def of(self, source: Source) -> GitMirror | None:
         """The mirror of that source, or nothing when it no longer resolves.
 
+        An address that names no access is unresolvable before any credential
+        is looked up.
+
         A file-kind address that no longer resolves under the mount —
         whatever moved it — is unreadable rather than a fetch of wherever it
         now points.
         """
         url = source.url
-        if access_kind_of(url) is AccessKind.FILE:
+        kind = access_kind_of(url)
+        if kind is None:
+            return None
+        if kind is AccessKind.FILE:
             canonical = self.local_mount.canonical_repository(url)
             if canonical is None:
                 return None

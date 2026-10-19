@@ -1914,58 +1914,79 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
     assert store.all() == (_SOURCE,)
 
 
-def test_https_and_ssh_urls_name_their_access_kind() -> None:
-    https = "https://git.example.invalid/talks.git"
-    http = "http://git.example.invalid/talks.git"
-    ssh = "ssh://git@git.example.invalid/talks.git"
-    scp = "git@git.example.invalid:talks.git"
-    assert access_kind_of(https) is AccessKind.HTTPS
-    assert access_kind_of(http) is None
-    assert access_kind_of(ssh) is AccessKind.SSH
-    assert access_kind_of(scp) is AccessKind.SSH
-    assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
-    assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None
+@pytest.mark.parametrize(
+    ("url", "kind"),
+    [
+        ("https://git.example.invalid/talks.git", AccessKind.HTTPS),
+        ("https://user@host/r.git", AccessKind.HTTPS),
+        ("https://user@host:443/r.git", AccessKind.HTTPS),
+        ("https://me%40mail.com@host/r.git", AccessKind.HTTPS),
+        ("https://host/r.git?x=a@b", AccessKind.HTTPS),
+        ("ssh://git@git.example.invalid/talks.git", AccessKind.SSH),
+        ("ssh://git@host:2222/r.git", AccessKind.SSH),
+        ("ssh://git@[::1]:22/r.git", AccessKind.SSH),
+        ("git@git.example.invalid:talks.git", AccessKind.SSH),
+        ("git@github.com:org/repo.git", AccessKind.SSH),
+        ("git@[::1]:r.git", AccessKind.SSH),
+        ("file:///srv/r.git", AccessKind.FILE),
+        ("/srv/r.git", AccessKind.FILE),
+        ("http://git.example.invalid/talks.git", None),
+        ("https://git.example.invalid/talks.git\x00evil", None),
+    ],
+)
+def test_https_and_ssh_urls_name_their_access_kind(
+    url: str, kind: AccessKind | None
+) -> None:
+    assert access_kind_of(url) is kind
 
 
-_AMBIGUOUS_HOST_URLS = (
+_HTTPS_TWO_HOSTS = (
     "https://good.example\\@evil.example/r.git",
+    "https:///good.example\\@evil.example/r.git",
     "https://a@b@c/r.git",
+    "https://evil.example#@good.example/r.git",
+    "https://evil.example?@good.example/r.git",
+    "https://[::1@evil.example]/r.git",
+    "https://good.example@[evil.example]/r.git",
+    "https://[::1/r.git",
+    "https://good.example\uff20evil.example/r.git",
+)
+_SSH_TWO_HOSTS = (
     "ssh://git@a@b/r.git",
+    "ssh://git@good.example%40evil.example/r.git",
+    "ssh://git@good.example#@evil.example/r.git",
+    "ssh://git@good.example?@evil.example/r.git",
+    "ssh://evil.example%2F@good.example/r.git",
     "git@a@b:r.git",
     "git\\@a@b:r.git",
+    "good.example\\@evil.example:r.git",
+    "a\\@b:c",
+    "git@[good.example:x@evil.example]:r.git",
+    "git@[::1@evil.example]:r.git",
 )
 
 
-@pytest.mark.parametrize("url", _AMBIGUOUS_HOST_URLS)
-def test_a_url_whose_authority_reads_as_two_hosts_names_no_access(url: str) -> None:
+@pytest.mark.parametrize("url", _HTTPS_TWO_HOSTS + _SSH_TWO_HOSTS)
+def test_a_url_whose_host_reads_two_ways_names_no_access(url: str) -> None:
     assert access_kind_of(url) is None
 
 
 @pytest.mark.parametrize(
-    ("url", "kind"),
-    [
-        ("https://host/r.git", AccessKind.HTTPS),
-        ("https://user@host/r.git", AccessKind.HTTPS),
-        ("https://host/r.git?x=a@b", AccessKind.HTTPS),
-        ("ssh://git@host:2222/r.git", AccessKind.SSH),
-        ("git@host:r.git", AccessKind.SSH),
-        ("file:///srv/r.git", AccessKind.FILE),
-    ],
+    ("url", "access"),
+    [(_HTTPS_TWO_HOSTS[0], "https"), (_SSH_TWO_HOSTS[1], "ssh")],
 )
-def test_an_unambiguous_url_keeps_its_access_kind(url: str, kind: AccessKind) -> None:
-    assert access_kind_of(url) is kind
-
-
-@pytest.mark.parametrize("url", _AMBIGUOUS_HOST_URLS[:2])
-def test_check_connection_refuses_an_ambiguous_url_before_any_probe(url: str) -> None:
+def test_check_connection_refuses_a_two_host_url_before_any_key_or_probe(
+    url: str, access: str
+) -> None:
     decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
+    draft = decks.source_key_draft(owner_id=_OWNER)
 
     checked = decks.check_connection(
         url=url,
-        access="https",
-        secret=_READ_ONLY,
+        access=access,
+        secret=_READ_ONLY if access == "https" else "",
         owner_id=_OWNER,
-        key_draft_id="",
+        key_draft_id=draft.id,
     )
 
     assert checked.failure is SourceRunFailure.REFUSED

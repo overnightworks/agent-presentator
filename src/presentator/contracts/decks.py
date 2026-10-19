@@ -1,6 +1,7 @@
 """What a deck and its source are, everywhere in this product (ADR 0005)."""
 
 import posixpath
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -97,7 +98,10 @@ def local_mount_path_of(url: str) -> PurePosixPath | None:
     can be caught — is the adapter that resolves it against the mount at
     every use.
     """
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
     if parsed.scheme == _FILE_SCHEME:
         if parsed.netloc not in _LOCAL_AUTHORITIES:
             return None
@@ -109,20 +113,28 @@ def local_mount_path_of(url: str) -> PurePosixPath | None:
     return PurePosixPath(posixpath.normpath(raw))
 
 
-def _authority_is_ambiguous(authority: str) -> bool:
-    return "\\" in authority or authority.count("@") > 1
+# Only these spellings of a remote address are an access. Every other
+# spelling, however git or curl would read it, could name a different host than
+# the one a person sees, so none of them may carry a secret. The path after the
+# authority is free text; the authority is checked character by character,
+# because curl, git and ssh each end it at a different place.
+_HOST: Final = r"(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])"
+_PORT: Final = r"(?::[0-9]+)?"
+_REST: Final = r"[^\s\\]*"
+_URL_USER: Final = r"[A-Za-z0-9._~!$&'()*+,;=:-]"
+_HTTPS_URL: Final = re.compile(
+    rf"https://(?:(?:{_URL_USER}|%[0-9A-Fa-f]{{2}})+@)?{_HOST}{_PORT}/{_REST}"
+)
+_SSH_URL: Final = re.compile(rf"ssh://(?:{_URL_USER}+@)?{_HOST}{_PORT}/[^\s\\%?#]*")
+_SCP_ADDRESS: Final = re.compile(rf"[A-Za-z0-9._~-]+@{_HOST}:{_REST}")
 
 
-def _remote_access_kind_of(url: str, scheme: str, netloc: str) -> AccessKind | None:
-    if scheme == "https":
-        kind, authority = AccessKind.HTTPS, netloc
-    elif scheme == "ssh":
-        kind, authority = AccessKind.SSH, netloc
-    else:
-        kind, authority = AccessKind.SSH, url.split(":", 1)[0]
-        if authority.count("@") != 1:
-            return None
-    return None if _authority_is_ambiguous(authority) else kind
+def _remote_access_kind_of(url: str) -> AccessKind | None:
+    if _HTTPS_URL.fullmatch(url):
+        return AccessKind.HTTPS
+    if _SSH_URL.fullmatch(url) or _SCP_ADDRESS.fullmatch(url):
+        return AccessKind.SSH
+    return None
 
 
 def access_kind_of(url: str) -> AccessKind | None:
@@ -130,18 +142,14 @@ def access_kind_of(url: str) -> AccessKind | None:
 
     HTTPS is a token; SSH and the scp form (`git@host:path`) are a deploy
     key; `file://` or a bare absolute path is this box's own mount. Anything
-    else is not an access this product has. An authority that could be read
-    as two hosts (a backslash, or a second `@`) names none, because curl and
-    a person reading it would send the secret to different ones.
+    else is not an access this product has, and that includes a remote
+    address whose host could be read two ways.
     """
     if any(character < " " for character in url):
         return None
-    parsed = urlparse(url)
-    if parsed.scheme in {"https", "ssh"} or (not parsed.scheme and "@" in url):
-        return _remote_access_kind_of(url, parsed.scheme, parsed.netloc)
-    if local_mount_path_of(url) is not None:
-        return AccessKind.FILE
-    return None
+    if (kind := _remote_access_kind_of(url)) is not None:
+        return kind
+    return AccessKind.FILE if local_mount_path_of(url) is not None else None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
