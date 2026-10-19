@@ -15,9 +15,9 @@ without it the process refuses to start. In development it lives in a gitignored
 environment. A refusal names the setting and what is wrong with it, never the
 value it was given, so a mistyped secret does not land in the startup output.
 Signing in arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242));
-until then nobody can sign in and every page leads to `/login`. A session lasts
-twelve idle hours and slides forward on every request; logging out deletes the
-row.
+until then nobody can sign in and every page leads to `/login`. A session ends
+twelve hours after it opened, however often it is used; the store keeps the
+sign-in time for that. Logging out deletes the row.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
 `webauth` v0.17.0's mechanism (`issue_session_cookies` /
@@ -69,10 +69,11 @@ mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 and no first admin: accounts arrive with the Keycloak sign-in of
 [#242](https://github.com/overnightworks/agent-presentator/issues/242).
 
-### Starting over from the password version
+### Starting over from an old database
 
-A database file that still holds the password sign-in's tables
-(`login_attempts`, or `users.password_hash`) is refused at start, before
+A database file written by an older version (`login_attempts`, or a `users` or
+`sessions` table whose columns differ from the current ones, such as a
+`sessions` table without `created_at`) is refused at start, before
 the file or its `-wal` is written to; a `-shm` may appear. The order matters:
 
 1. Stop presentator.
@@ -83,7 +84,7 @@ the file or its `-wal` is written to; a `-shm` may appear. The order matters:
    in `-wal`), or the whole database volume.
 4. Start the new version. It creates a fresh database.
 
-The backup is what lets you return to the password version. Decks and sources
+The backup is what lets you return to the old version. Decks and sources
 are re-added in the fresh database, and the fresh start gets fresh builds and
 mirrors volumes
 ([#242](https://github.com/overnightworks/agent-presentator/issues/242) S9).
@@ -108,9 +109,8 @@ the tunnel client and the server share one loopback; a container has a network
 of its own and sees that same client as its gateway, which the section after
 this one names.
 
-Starting an instance creates the tables it needs; a file written by the
-password version is refused instead (see "Starting over from the password
-version").
+Starting an instance creates the tables it needs; a file written by an older
+version is refused instead (see "Starting over from an old database").
 
 An instance starts with no source. An admin adds one under Settings · Sources
 with a name and Git URL. HTTPS needs a read-only token; SSH uses the owned
@@ -319,8 +319,8 @@ sources, the decks and the talks that were built, with nothing built again.
 instance.
 
 An upgrade is the new tree, the image again, and the service again; a file
-from the password version is refused at start (see "Starting over from the
-password version"):
+from an older version is refused at start (see "Starting over from an old
+database"):
 
 ```sh
 git pull && docker compose --profile images build && docker compose up -d

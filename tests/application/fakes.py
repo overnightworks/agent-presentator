@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, BinaryIO, Final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from presentator.application.identity import IDLE_WINDOW
+from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.decks import (
     RECENT_SOURCE_RUNS,
     Artefacts,
@@ -78,11 +78,12 @@ class FakeSessionRecordStore:
         del expires_at
         self.minted += 1
         assert self.clock is not None
-        last_seen = self.clock.now()
+        opened_at = self.clock.now()
         session = Session(
             id=f"session-{self.minted}",
             user_id=user_id,
-            last_seen=last_seen,
+            created_at=opened_at,
+            last_seen=opened_at,
             ip_address=ip_address,
             user_agent=user_agent,
         )
@@ -153,7 +154,7 @@ class FakePeople:
         self.users.users[person.id] = person
         opened = self.sessions.create(
             person.id,
-            self.clock.now() + IDLE_WINDOW,
+            self.clock.now() + SESSION_LIFETIME,
             ip_address="",
             user_agent="",
         )
@@ -164,7 +165,7 @@ class FakePeople:
 class MatchingLiveness:
     """The idle-window rule a test can freeze, matching the library's `<=`."""
 
-    window: timedelta = IDLE_WINDOW
+    window: timedelta = SESSION_LIFETIME
 
     def admits(self, session: Session, *, at: datetime) -> bool:
         return (at - session.last_seen).total_seconds() <= self.window.total_seconds()

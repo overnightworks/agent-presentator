@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT ''
@@ -35,31 +36,32 @@ CREATE TABLE IF NOT EXISTS sessions (
 _IDENTIFIER_BYTES: Final = 32
 
 
-class PasswordDatabaseError(RuntimeError):
-    """The file still holds the password version's tables."""
+class OldDatabaseError(RuntimeError):
+    """The file was written before the current identity schema."""
 
 
 _OLD_VERSION_REFUSAL: Final = (
-    "%s still holds the password sign-in's tables (login_attempts or"
-    " users.password_hash). Take the backup, then move the database and its"
-    " -wal and -shm files aside so the instance starts a fresh one (docs/OPERATIONS.md,"
-    " 'Starting over from the password version')."
+    "%s was written by an older version (login_attempts, or a users or"
+    " sessions table with other columns than this version's). Take the backup,"
+    " then move the database and its -wal and -shm files aside so the instance"
+    " starts a fresh one (docs/OPERATIONS.md, 'Starting over from an old"
+    " database')."
 )
+_IDENTITY_TABLES: Final = ("users", "sessions")
 
 
 def create_identity_tables(database: Path) -> None:
-    """Make the accounts and sessions tables exist in a file no password ever filled."""
-    _refuse_a_password_database(database)
+    """Make the accounts and sessions tables exist in a file no older version wrote."""
+    _refuse_an_old_database(database)
     apply_schema(database, _SCHEMA)
 
 
-def _refuse_a_password_database(database: Path) -> None:
+def _refuse_an_old_database(database: Path) -> None:
     """Look without writing: the main file and its -wal never change.
 
     A -wal without frames is looked at immutable, so no side file appears. A
     -wal with frames is looked at read-only only, because an immutable look
-    would miss a password schema committed solely there; SQLite may then create
-    -shm.
+    would miss a schema committed solely there; SQLite may then create -shm.
     """
     if not database.exists():
         return
@@ -75,13 +77,25 @@ def _refuse_a_password_database(database: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'",
             )
         }
-        keeps_passwords = "login_attempts" in tables or (
-            "users" in tables and "password_hash" in _column_names(cursor, "users")
+        is_old = "login_attempts" in tables or any(
+            table in tables and _column_names(cursor, table) != _fresh_columns()[table]
+            for table in _IDENTITY_TABLES
         )
     finally:
         connection.close()
-    if keeps_passwords:
-        raise PasswordDatabaseError(_OLD_VERSION_REFUSAL % database)
+    if is_old:
+        raise OldDatabaseError(_OLD_VERSION_REFUSAL % database)
+
+
+def _fresh_columns() -> dict[str, set[str]]:
+    fresh = sqlite3.connect(":memory:")
+    try:
+        fresh.executescript(_SCHEMA)
+        return {
+            table: _column_names(fresh.cursor(), table) for table in _IDENTITY_TABLES
+        }
+    finally:
+        fresh.close()
 
 
 def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:
@@ -131,23 +145,26 @@ class SqliteSessionRecordStore:
         ip_address: str,
         user_agent: str,
     ) -> Session:
-        """Open a session whose last_seen is now; idle-window has no expiry column."""
+        """Open a session created and last seen now; the policy reads no expiry."""
         del expires_at
+        opened_at = self.clock.now()
         session = Session(
             id=secrets.token_urlsafe(_IDENTIFIER_BYTES),
             user_id=user_id,
-            last_seen=self.clock.now(),
+            created_at=opened_at,
+            last_seen=opened_at,
             ip_address=ip_address,
             user_agent=user_agent,
         )
         with rows(self.database) as cursor:
             cursor.execute(
                 "INSERT INTO sessions"
-                " (id, user_id, last_seen, ip_address, user_agent)"
-                " VALUES (?, ?, ?, ?, ?)",
+                " (id, user_id, created_at, last_seen, ip_address, user_agent)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     session.id,
                     session.user_id,
+                    session.created_at.isoformat(),
                     session.last_seen.isoformat(),
                     session.ip_address,
                     session.user_agent,
@@ -159,16 +176,17 @@ class SqliteSessionRecordStore:
         """Read the row a cookie points at."""
         with rows(self.database) as cursor:
             row = cursor.execute(
-                "SELECT id, user_id, last_seen, ip_address, user_agent"
+                "SELECT id, user_id, created_at, last_seen, ip_address, user_agent"
                 " FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        stored_id, user_id, last_seen, ip_address, user_agent = row
+        stored_id, user_id, created_at, last_seen, ip_address, user_agent = row
         return Session(
             id=stored_id,
             user_id=user_id,
+            created_at=datetime.fromisoformat(created_at),
             last_seen=datetime.fromisoformat(last_seen),
             ip_address=ip_address,
             user_agent=user_agent,
@@ -226,21 +244,30 @@ class TokenIdentifierFactory:
 
 
 @dataclass
-class _LastSeen:
-    """A writable last_seen, which is the field the idle-window policy reads."""
+class _StoredTimes:
+    """The two fields the idle-window policy reads off a stored record."""
 
+    created_at: datetime
     last_seen: datetime
+
+
+def lifetime_policy(lifetime: timedelta) -> IdleWindowLiveness:
+    """A sign-in lasts `lifetime` from the moment it opened, used or not."""
+    seconds = int(lifetime.total_seconds())
+    return IdleWindowLiveness(seconds, absolute_max_age_seconds=seconds)
 
 
 @dataclass(frozen=True, slots=True)
 class IdleWindow:
-    """The library's last_seen window, held so the application never names it."""
+    """The library's idle window and cap, held so the application never names it."""
 
     policy: IdleWindowLiveness
 
     def admits(self, session: Session, *, at: datetime) -> bool:
-        """Alive inside the window, including the boundary itself."""
-        return self.policy.admits_stored_session(_LastSeen(session.last_seen), at)
+        """Alive inside the window and the cap, boundaries included."""
+        return self.policy.admits_stored_session(
+            _StoredTimes(session.created_at, session.last_seen), at
+        )
 
 
 def _user(row: Sequence[str]) -> User:

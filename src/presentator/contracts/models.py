@@ -28,7 +28,7 @@ class User:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Session:
-    """A live row the idle-window policy reads: identity, origin, last_seen.
+    """A live row the idle-window policy reads: identity, origin, created_at, last_seen.
 
     Whether it still stands is the login library's idle-window policy, not a
     method here (ADR 0003).
@@ -36,6 +36,7 @@ class Session:
 
     id: str
     user_id: str
+    created_at: datetime
     last_seen: datetime
     ip_address: str = ""
     user_agent: str = ""

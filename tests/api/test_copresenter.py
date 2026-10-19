@@ -22,7 +22,7 @@ from presentator.api.copresenter import (
     add_copresenter_routes,
 )
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
-from presentator.application.identity import IDLE_WINDOW
+from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.copresenter import (
     AnswerEvent,
     AnswerText,
@@ -654,11 +654,24 @@ def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
     assert private.questions == []
 
 
+def test_a_session_in_use_is_refused_for_the_hearing_past_the_cap() -> None:
+    lobby, private, clock = a_copresenter_lobby()
+    lobby.sign_in()
+    for _ in range(2):
+        clock.advance(SESSION_LIFETIME / 2)
+        assert lobby.client.get("/copresenter/who").status_code == HTTPStatus.OK
+    clock.advance(timedelta(seconds=1))
+    calls_before = private.readiness_calls
+
+    assert lobby.client.get("/copresenter/who").status_code == HTTPStatus.FOUND
+    assert private.readiness_calls == calls_before
+
+
 def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> None:
     expired_lobby, expired_private, clock = a_copresenter_lobby()
     expired = expired_lobby.client
     expired_lobby.sign_in()
-    clock.advance(IDLE_WINDOW + timedelta(seconds=1))
+    clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
 
     assert expired.get("/copresenter/who").status_code == HTTPStatus.FOUND
     assert expired_private.readiness_calls == 0

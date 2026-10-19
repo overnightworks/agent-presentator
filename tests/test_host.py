@@ -28,13 +28,15 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     SqliteSessionRecordStore,
+    SqliteUserStore,
     TokenIdentifierFactory,
+    create_identity_tables,
 )
 from presentator.adapters.secrets import secret_box
 from presentator.adapters.sqlite import rows
 from presentator.api.hooks import hook_address
 from presentator.application.decks import hash_webhook_secret
-from presentator.application.identity import IDLE_WINDOW
+from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.decks import SourceWrite
 from presentator.contracts.models import Role, User
 from presentator.host import main
@@ -55,7 +57,11 @@ from tests.conftest import (
     GitRemote,
     with_the_program,
 )
-from tests.people import copy_of_a_crashed_password_database, seed_user
+from tests.people import (
+    copy_of_a_crashed_database,
+    seed_user,
+    write_password_schema,
+)
 
 _INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
@@ -155,7 +161,7 @@ def signed_in(
     seed_user(database, _ADMIN)
     session = SqliteSessionRecordStore(database).create(
         _ADMIN.id,
-        datetime.now(UTC) + IDLE_WINDOW,
+        datetime.now(UTC) + SESSION_LIFETIME,
         ip_address="",
         user_agent="",
     )
@@ -805,8 +811,8 @@ def test_an_instance_refuses_a_password_schema_only_in_the_write_ahead_log(
     environment: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    database = copy_of_a_crashed_password_database(
-        tmp_path / "crashed" / "presentator.sqlite3"
+    database = copy_of_a_crashed_database(
+        tmp_path / "crashed" / "presentator.sqlite3", write_password_schema
     )
     environment.setenv("PRESENTATOR_DATABASE", str(database))
     log = database.with_name(database.name + "-wal")
@@ -818,3 +824,41 @@ def test_an_instance_refuses_a_password_schema_only_in_the_write_ahead_log(
 
     assert database.read_bytes() == main_file_before
     assert log.read_bytes() == log_before
+
+
+def test_an_instance_restarts_on_a_crash_that_left_only_current_frames_in_the_log(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_ids: list[str] = []
+
+    def commit_a_person_and_a_session(database: Path) -> None:
+        create_identity_tables(database)
+        seed_user(database, _ADMIN)
+        opened = SqliteSessionRecordStore(database).create(
+            _ADMIN.id,
+            datetime.now(UTC) + SESSION_LIFETIME,
+            ip_address="",
+            user_agent="",
+        )
+        session_ids.append(opened.id)
+
+    database = copy_of_a_crashed_database(
+        tmp_path / "crashed" / "presentator.sqlite3", commit_a_person_and_a_session
+    )
+    environment.setenv("PRESENTATOR_DATABASE", str(database))
+
+    instance = a_real_instance()
+
+    assert SqliteUserStore(database).get(_ADMIN.id) == _ADMIN
+    assert SqliteSessionRecordStore(database).load(session_ids[0]) is not None
+    lobby = TestClient(
+        instance.lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+        headers=A_BROWSERS_HEADERS,
+    )
+    hand_over_session_cookies(
+        lobby, session_ids[0], installed_web_auth_config(instance.lobby)
+    )
+    assert lobby.get("/").status_code == HTTPStatus.OK

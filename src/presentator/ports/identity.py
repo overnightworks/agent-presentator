@@ -78,4 +78,4 @@ class SessionLiveness(Protocol):
 
     @abstractmethod
     def admits(self, session: Session, *, at: datetime) -> bool:
-        """Alive inside the idle window, including the boundary itself."""
+        """Alive inside the idle window and the cap, boundaries included."""

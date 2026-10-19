@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from presentator.application.identity import IDLE_WINDOW
+from presentator.application.identity import SESSION_LIFETIME
 
 _SECONDS_PER_HOUR: Final = 3600
 
@@ -67,7 +67,7 @@ def _open(words: str) -> Phrase:
 
 
 _IMPRESSUM: Final = Phrase("Impressum", Emphasis.IMPRESSUM)
-_IDLE_HOURS: Final = int(IDLE_WINDOW.total_seconds()) // _SECONDS_PER_HOUR
+_SESSION_HOURS: Final = int(SESSION_LIFETIME.total_seconds()) // _SECONDS_PER_HOUR
 
 DATENSCHUTZ: Final = LegalDocument(
     language_tag="de",
@@ -107,9 +107,9 @@ DATENSCHUTZ: Final = LegalDocument(
                     "zweites, von JavaScript lesbares Cookie ausschließlich zum "
                     "Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden "
                     "Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der "
-                    "Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach "
-                    f"{_IDLE_HOURS} Stunden Inaktivität als beendet; die Zeile "
-                    "selbst wird beim Abmelden gelöscht.",
+                    "Zeitpunkt der Anmeldung und der letzten Aktivität. Eine "
+                    f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung; "
+                    "die Zeile selbst wird beim Abmelden gelöscht.",
                 ),
                 _point(
                     "Decks und Quellen:",
@@ -214,16 +214,9 @@ DATENSCHUTZ: Final = LegalDocument(
                     _open(
                         "Für eine Sitzung, die nie aktiv abgemeldet wird, "
                         "löscht der Code die Zeile nicht automatisch — sie "
-                        "bleibt bestehen, auch wenn sie nach "
-                        f"{_IDLE_HOURS} Stunden Inaktivität nicht mehr als "
-                        "gültig gilt.",
-                    ),
-                ),
-                _point(
-                    "Fehlgeschlagene Anmeldeversuche:",
-                    _open(
-                        "Der Code löscht diese Zeilen nicht automatisch; es "
-                        "gibt keine im Code hinterlegte Frist.",
+                        "bleibt bestehen, auch wenn sie "
+                        f"{_SESSION_HOURS} Stunden nach der Anmeldung nicht "
+                        "mehr als gültig gilt.",
                     ),
                 ),
                 _point(
