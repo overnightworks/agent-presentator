@@ -1407,6 +1407,22 @@ def test_a_refresh_sweeps_drafts_a_day_old() -> None:
             SourceRefusal.ACCESS_MISMATCH,
             id="tab in the URL",
         ),
+        pytest.param(
+            "talks",
+            "https://[::1/r.git",
+            "https",
+            _READ_ONLY,
+            SourceRefusal.ACCESS_MISMATCH,
+            id="unclosed bracket in an https URL",
+        ),
+        pytest.param(
+            "talks",
+            "ssh://git@[dead.beef]/r.git",
+            "ssh",
+            "",
+            SourceRefusal.ACCESS_MISMATCH,
+            id="bracket holding a name in an ssh URL",
+        ),
     ],
 )
 def test_a_draft_that_cannot_be_a_source_is_refused(
@@ -1914,14 +1930,161 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
     assert store.all() == (_SOURCE,)
 
 
-def test_https_and_ssh_urls_name_their_access_kind() -> None:
-    https = "https://git.example.invalid/talks.git"
-    http = "http://git.example.invalid/talks.git"
-    ssh = "ssh://git@git.example.invalid/talks.git"
-    scp = "git@git.example.invalid:talks.git"
-    assert access_kind_of(https) is AccessKind.HTTPS
-    assert access_kind_of(http) is None
-    assert access_kind_of(ssh) is AccessKind.SSH
-    assert access_kind_of(scp) is AccessKind.SSH
-    assert access_kind_of("file:///tmp/talks.git") is AccessKind.FILE
-    assert access_kind_of("https://git.example.invalid/talks.git\x00evil") is None
+@pytest.mark.parametrize(
+    ("url", "kind"),
+    [
+        ("https://git.example.invalid/talks.git", AccessKind.HTTPS),
+        ("https://user@host/r.git", AccessKind.HTTPS),
+        ("https://user@host:443/r.git", AccessKind.HTTPS),
+        ("https://me%40mail.com@host/r.git", AccessKind.HTTPS),
+        ("https://host/r.git?x=a@b", AccessKind.HTTPS),
+        ("ssh://git@git.example.invalid/talks.git", AccessKind.SSH),
+        ("ssh://git@host:2222/r.git", AccessKind.SSH),
+        ("ssh://git@[::1]:22/r.git", AccessKind.SSH),
+        ("git@git.example.invalid:talks.git", AccessKind.SSH),
+        ("git@github.com:org/repo.git", AccessKind.SSH),
+        ("git@[::1]:r.git", AccessKind.SSH),
+        ("https://[2001:db8::1]/r.git", AccessKind.HTTPS),
+        ("https://[2001:db8::1]:8443/r.git", AccessKind.HTTPS),
+        ("ssh://git@[2001:db8::1]/r.git", AccessKind.SSH),
+        ("git@[2001:db8::1]:r.git", AccessKind.SSH),
+        ("file:///srv/r.git", AccessKind.FILE),
+        ("/srv/r.git", AccessKind.FILE),
+        ("http://git.example.invalid/talks.git", None),
+        ("https://git.example.invalid/talks.git\x00evil", None),
+    ],
+)
+def test_https_and_ssh_urls_name_their_access_kind(
+    url: str, kind: AccessKind | None
+) -> None:
+    assert access_kind_of(url) is kind
+
+
+_HTTPS_TWO_HOSTS = (
+    "https://good.example\\@evil.example/r.git",
+    "https:///good.example\\@evil.example/r.git",
+    "https://a@b@c/r.git",
+    "https://evil.example#@good.example/r.git",
+    "https://evil.example?@good.example/r.git",
+    "https://[::1@evil.example]/r.git",
+    "https://good.example@[evil.example]/r.git",
+    "https://[::1/r.git",
+    "https://good.example\uff20evil.example/r.git",
+    "https://[abc]/r.git",
+    "https://[dead.beef]/r.git",
+    "https://host/r.git\x7f",
+    "https://host/r.git\x9b",
+)
+_SSH_TWO_HOSTS = (
+    "ssh://git@a@b/r.git",
+    "ssh://git@good.example%40evil.example/r.git",
+    "ssh://git@good.example#@evil.example/r.git",
+    "ssh://git@good.example?@evil.example/r.git",
+    "ssh://evil.example%2F@good.example/r.git",
+    "git@a@b:r.git",
+    "git\\@a@b:r.git",
+    "good.example\\@evil.example:r.git",
+    "a\\@b:c",
+    "git@[good.example:x@evil.example]:r.git",
+    "git@[::1@evil.example]:r.git",
+    "ssh://git@good.example/x@[evil.example]/r.git",
+    "ssh://good.example/x@[evil.example]/r.git",
+    "ssh://[::1]/x@[evil.example]/r.git",
+    "ssh://git@good.example:2222/x@[evil.example]/r.git",
+    "ssh://git@good.example/x@[evil.example]:2200/r.git",
+    "git@good.example:x@[evil.example]:r.git",
+    "git@good.example:x]@[evil.example]:r.git",
+    "ssh://git@good.example/x@%5Bevil.example%5D/r.git",
+    "ssh://git@[abc]/r.git",
+    "ssh://git@[dead.beef]/r.git",
+    "git@[abc]:r.git",
+    "git@[dead.beef]:r.git",
+    "ssh://git@good.example/r.git\x7f",
+    "ssh://git@good.example/r.git\x9b",
+    "git@good.example:r.git\x7f",
+    "git@good.example:r.git\x9b",
+)
+
+
+@pytest.mark.parametrize("url", _HTTPS_TWO_HOSTS + _SSH_TWO_HOSTS)
+def test_a_url_whose_host_reads_two_ways_names_no_access(url: str) -> None:
+    assert access_kind_of(url) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "access"),
+    [(_HTTPS_TWO_HOSTS[0], "https"), (_SSH_TWO_HOSTS[1], "ssh")],
+)
+def test_check_connection_refuses_a_two_host_url_before_any_key_or_probe(
+    url: str, access: str
+) -> None:
+    decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
+    draft = decks.source_key_draft(owner_id=_OWNER)
+
+    checked = decks.check_connection(
+        url=url,
+        access=access,
+        secret=_READ_ONLY if access == "https" else "",
+        owner_id=_OWNER,
+        key_draft_id=draft.id,
+    )
+
+    assert checked.failure is SourceRunFailure.REFUSED
+
+
+_URLS_NAMING_NO_ACCESS = (
+    "https://u:pw@a@b/r.git",
+    "https://good.example:pw\\@evil.example/r.git",
+    "http://h/r.git",
+)
+_ACCESS_VALUES_NOT_AN_ACCESS = ("", "bogus", "unsupported")
+
+
+@pytest.mark.parametrize("access", _ACCESS_VALUES_NOT_AN_ACCESS)
+@pytest.mark.parametrize("url", _URLS_NAMING_NO_ACCESS)
+def test_an_unknown_access_never_matches_a_url_that_names_no_access(
+    url: str, access: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = having()
+    decks = decks_over(
+        sources=store, fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun())
+    )
+
+    checked = decks.check_connection(
+        url=url, access=access, secret=_READ_ONLY, owner_id=_OWNER, key_draft_id=""
+    )
+
+    def read_as_https(_url: str) -> AccessKind:
+        return AccessKind.HTTPS
+
+    with monkeypatch.context() as earlier_instance:
+        # A fingerprint an earlier instance, which read this URL as https, issued.
+        earlier_instance.setattr(
+            "presentator.application.decks.access_kind_of", read_as_https
+        )
+        earlier_fingerprint = (
+            decks_over(fakes=DecksFakes(checker=FakeConnectionChecker()))
+            .check_connection(
+                url=url,
+                access="https",
+                secret=_READ_ONLY,
+                owner_id=_OWNER,
+                key_draft_id="",
+            )
+            .fingerprint
+        )
+    created = decks.add_source(
+        NewSourceDraft(
+            name="talks",
+            url=url,
+            access=access,
+            secret=_READ_ONLY,
+            fingerprint=earlier_fingerprint or "",
+        ),
+        owner_id=_OWNER,
+    )
+
+    assert earlier_fingerprint is not None
+    assert checked.failure is SourceRunFailure.REFUSED
+    assert created is SourceRefusal.ACCESS_MISMATCH
+    assert store.all() == ()
