@@ -1,0 +1,8 @@
+claim_id = "87568e9ef26643a08c529d17d47404af"
+agent = "claude"
+role = "builder"
+base = "8bc61c0e8f062ae6a3f1474453d0dde901390d56"
+branch = "claude/issue-280-magpie-qwen-und-voxcpm-provider-sicherhe"
+scope = ["speech/providers/magpie/pyproject.toml", "speech/providers/magpie/uv.lock", "speech/providers/qwen/pyproject.toml", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/pyproject.toml", "speech/providers/voxcpm/uv.lock"]
+opened_commit = "0c1a00609d174e64c6bf3b5a7d058173c58bb30b"
+whole_reason = "Three small lock refreshes of the same kind in three provider directories land as one bundled lane (rows V5, V6, V7)."
