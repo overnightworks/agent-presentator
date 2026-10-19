@@ -26,10 +26,10 @@ Three things the March tool did not do:
 Speech goes through one boundary in this code (`speak`, `hear`). The default
 implementation is the local service at `COPRESENTER_SPEECH_URL`. This process
 never imports that service and never loads a model. The overlay's hearing
-toggle uses that same local socket first; the browser's own `SpeechRecognition`
-is the fallback so a missing speech service does not leave the demo deaf. The
-fallback sends audio to whatever that browser uses (Chrome: a remote service)
-and must be named on stage.
+toggle hears only through that same local socket; with no ready local hearing
+the overlay says "Local hearing not ready" and the browser's own speech
+recognition is never used. A deck folder copied before this holds the old
+overlay: copy `CoPresenter.vue` again.
 
 ## What it sends where
 

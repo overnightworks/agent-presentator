@@ -26,7 +26,6 @@ let mediaStream = null
 let audioContext = null
 let workletNode = null
 let hearSocket = null
-let recognition = null
 let askAbort = null
 let playQueue = Promise.resolve()
 let spokenText = ''
@@ -119,12 +118,7 @@ async function turnOn() {
     await startLocalHear(generation)
     return
   }
-  if (startBrowserHear()) {
-    hearing.value = 'browser'
-    return
-  }
-  hearing.value = 'off'
-  error.value = 'No hearing'
+  fail('Local hearing not ready')
 }
 
 function turnOff() {
@@ -146,7 +140,6 @@ function stopWork() {
     askAbort.abort()
     askAbort = null
   }
-  stopBrowserHear()
   releaseCapture()
   invalidatePlayback()
 }
@@ -222,7 +215,7 @@ async function startLocalHear(generation) {
   } catch {
     abandon({ stream, context, node })
     if (!stillActive(generation)) return
-    fallbackHear('No hearing')
+    fail('No hearing')
   }
 }
 
@@ -237,7 +230,7 @@ function bindHearSocket(socket, generation) {
       return
     }
     if (payload.error) {
-      fallbackHear('No hearing')
+      fail('No hearing')
       return
     }
     if (!payload.text) return
@@ -253,17 +246,6 @@ function bindHearSocket(socket, generation) {
     if (!stillActive(generation)) return
     fail('No hearing')
   }
-}
-
-function fallbackHear(message) {
-  releaseMicrophone()
-  if (!on.value) return
-  error.value = message
-  if (startBrowserHear()) {
-    hearing.value = 'browser'
-    return
-  }
-  hearing.value = 'off'
 }
 
 function abandon({ socket, stream, context, node } = {}) {
@@ -302,46 +284,6 @@ function releaseMicrophone() {
     context: audioContext,
     node: workletNode,
   })
-}
-
-function startBrowserHear() {
-  if (recognition) return true
-  if (!hearSocket || hearSocket.readyState !== WebSocket.OPEN) return false
-  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!Ctor) return false
-  recognition = new Ctor()
-  recognition.lang = 'de-DE'
-  recognition.continuous = true
-  recognition.interimResults = true
-  recognition.onresult = (event) => {
-    for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      const result = event.results[i]
-      const text = result[0].transcript.trim()
-      if (!text) continue
-      heard.value = text
-      if (result.isFinal) onFinal(text)
-    }
-  }
-  recognition.onend = () => {
-    if (on.value && recognition && hearSocket?.readyState === WebSocket.OPEN) {
-      try { recognition.start() } catch { /* Chrome restarts this way */ }
-    }
-  }
-  try {
-    recognition.start()
-    return true
-  } catch {
-    recognition = null
-    return false
-  }
-}
-
-function stopBrowserHear() {
-  if (!recognition) return
-  recognition.onresult = null
-  recognition.onend = null
-  try { recognition.stop() } catch { /* already stopped */ }
-  recognition = null
 }
 
 function onFinal(text) {

@@ -66,6 +66,14 @@ shows no row at all rather than an empty one that would read as "no themes".
 - A deck author reads the set before pushing instead of after a failed
   build, which is what this record was written to fix.
 
+## What a talk loads
+
+The toolchain loads nothing from other hosts. Slidev's defaults would link
+Google Fonts and a CDN favicon, so a deck sets `fonts: provider: none` and
+`favicon: false` in its headmatter to keep its own HTML free of foreign
+requests. The content security policy admits no host but this origin, so a deck
+that leaves the keys out still cannot make a browser fetch from elsewhere.
+
 ## Named gap
 
 The product's own sentence naming an unknown theme on a failed build, rather

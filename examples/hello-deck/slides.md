@@ -1,5 +1,8 @@
 ---
 title: Hello Co-Presenter
+fonts:
+  provider: none
+favicon: false
 ---
 
 # Hello Co-Presenter

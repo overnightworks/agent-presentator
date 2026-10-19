@@ -362,7 +362,7 @@ same-UID Unix socket. The repository overlay calls relative
 roles use them through the existing active session; `/ask` requires its CSRF
 token and hearing requires the configured browser Origin. Presentator rechecks
 an answer and hearing lease every second, so session loss stops generation,
-capture, browser fallback and queued or playing audio. Only readiness, question,
+capture and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
 and credentials do not. Which speech models run and what they cost on the card
 remain owned by that README.

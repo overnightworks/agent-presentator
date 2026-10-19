@@ -163,10 +163,7 @@ DATENSCHUTZ: Final = LegalDocument(
                     "niemand wählt die Fragen aus. Jede angemeldete Person "
                     "darf den CoPresenter nutzen. Die gesprochene Antwort wird "
                     "auf dem Server erzeugt und nur für die Wiedergabe "
-                    "gestreamt. Wenn die Spracherkennung auf dem Server nicht "
-                    "bereit ist, kann der Browser seine eigene Spracherkennung "
-                    "nutzen; Chrome sendet dann das Audio an den "
-                    "Browser-Hersteller. Zweck · Rechtsgrundlage: der Vortrag "
+                    "gestreamt. Zweck · Rechtsgrundlage: der Vortrag "
                     "des Betreibers mit gesprochenen Fragen, "
                     f"{_BASIS_INTEREST}; eine Einwilligung wird dafür nicht "
                     "in Anspruch genommen.",
@@ -210,15 +207,6 @@ DATENSCHUTZ: Final = LegalDocument(
                     "meldet, aus dem Deck, mit dem der CoPresenter gestartet wurde "
                     "(falls dieses Deck sie hat), und jede Folie dieses Decks mit "
                     "ihren Notizen.",
-                ),
-                _point(
-                    "Browser-Hersteller:",
-                    "Nutzt der Browser seine eigene Spracherkennung, erhält "
-                    "dessen Hersteller das Audio (siehe Abschnitt 2).",
-                ),
-                _point(
-                    "Google:",
-                    "Gebaute Vorträge laden ihre Schriftarten von Google.",
                 ),
                 _point(
                     "Sprachausgabe und Spracherkennung:",
