@@ -1,7 +1,0 @@
-claim_id = "21ca7392d2d04406b12eb821717c6319"
-agent = "claude"
-role = "builder"
-base = "660b374138bfc9b70152024ffb051d851c1509d9"
-branch = "claude/issue-276-build-worker-a4a1-socket-im-volume-binde"
-scope = ["src/presentator/host/worker.py", "tests/test_worker.py", "tests/test_worker_serving.py"]
-opened_commit = "2c46efb1b4ec19fec7a4d1fd2198dcf84f613d62"
