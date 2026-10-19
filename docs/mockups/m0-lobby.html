@@ -639,10 +639,6 @@
     padding-top: 0;
   }
 
-  .legal-page .offen {
-    color: var(--busy);
-  }
-
   /* ---------- login ---------- */
 
   .login {
@@ -4278,7 +4274,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
       <figure class="board" id="datenschutz">
         <figcaption class="board-cap">
           <div class="board-title">Datenschutz, reachable without login <span class="w">1024 px</span></div>
-          <p class="board-note">The page's layout with its text shortened. The words are owned by <span class="path">src/presentator/api/legal.py</span>; the operator approves them as <span class="path">docs/mockups/legal-datenschutz-draft.md</span> before they go online (line 3). Every <span class="offen">[offen: …]</span> marks a fact the code does not settle.</p>
+          <p class="board-note">The page's layout with the words of <span class="path">src/presentator/api/legal.py</span>, which owns them; the operator approves them before they go online (line 3).</p>
         </figcaption>
         <div class="frame" style="--w: 960px">
           <div class="route">presentator.local/datenschutz</div>
@@ -4292,7 +4288,7 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
             <div class="body legal-page">
               <section>
                 <h1>Datenschutzerklärung</h1>
-                <p>Entwurf, aus dem Code abgeleitet. Jede Stelle, die sich nicht aus dem Code ergibt, ist mit <span class="offen">[offen: …]</span> markiert statt geraten.</p>
+                <p>Diese Erklärung beschreibt, welche Daten Presentator verarbeitet, wohin sie gelangen und wie lange sie bleiben.</p>
               </section>
               <section>
                 <h2>1. Verantwortlicher</h2>
@@ -4301,45 +4297,49 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
               <section>
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
-                  <li><b>Benutzerkonto:</b> Benutzername und Rolle (Admin/Nutzer) aus der zentralen Anmeldung. Die Anmeldung selbst verarbeitet Keycloak unter auth.hallucinai.de als Auftragsverarbeiter; Presentator speichert kein Passwort.</li>
-                  <li><b>Sitzungen und Cookies:</b> ein serverseitig signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, nur über HTTPS) sowie ein zweites, von JavaScript lesbares Cookie ausschließlich zum Fälschungsschutz (CSRF, kein Tracking). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der letzten Aktivität. Eine Sitzung gilt nach 12 Stunden Inaktivität als beendet; die Zeile wird beim Abmelden gelöscht.</li>
-                  <li><b>Decks und Quellen:</b> der Inhalt Ihrer verbundenen Git-Quellen (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt und zu Vorträgen gebaut. Ein Lesezugriffsschlüssel pro Quelle wird verschlüsselt gespeichert und kann nach der Eingabe nur erneuert, nie wieder angezeigt werden.</li>
-                  <li><b>CoPresenter (Sprachfunktion):</b> Ihre gesprochene Frage wird lokal in Text umgewandelt; die Audio-Rohdaten werden dabei nicht gespeichert. Der erkannte Text, die aktuelle Folie und der vollständige Deckinhalt werden an den in Abschnitt 3 genannten KI-Anbieter gesendet. Die gesprochene Antwort wird lokal erzeugt und nur für die Wiedergabe gestreamt, nicht dauerhaft gespeichert.</li>
-                  <li><b>Server-Protokolle:</b> die Anwendung schreibt Betriebsprotokolle. <span class="offen">[offen: Aufbewahrungsdauer und Speicherort liegen an der Server-Konfiguration des Betreibers, nicht im Anwendungscode.]</span></li>
+                  <li><b>Benutzerkonto:</b> Kennung (Subject-ID) des Keycloak-Kontos, Benutzername und Rolle (Admin/Nutzer) sowie Ihre Einstellungen für Sprache und Darstellung. Presentator speichert kein Passwort. Die Anmeldung läuft über Keycloak unter auth.hallucinai.de, das der Betreiber betreibt. Zweck · Rechtsgrundlage: Konto und Einstellungen bereitstellen, Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f).</li>
+                  <li><b>Sitzung und Cookies:</b> <code>__Host-session_id</code> ist das Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, nur über HTTPS, 12 Stunden gültig). <code>__Host-csrf_token</code> ist von JavaScript lesbar und dient nur dem Fälschungsschutz (CSRF). Gespeichert werden Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der Zeitpunkt der Anmeldung und der letzten Aktivität. Eine Sitzung endet 12 Stunden nach der Anmeldung. Zweck · Rechtsgrundlage: angemeldet bleiben, Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f); IP-Adresse und User-Agent dienen der Sicherheit der Sitzung, Art. 6 Abs. 1 lit. f DSGVO; die Cookies selbst sind nach § 25 Abs. 2 Nr. 2 TDDDG ohne Einwilligung zulässig.</li>
+                  <li><b>Lokaler Speicher des Browsers:</b> Die Vortragsansicht (Slidev) legt ihre Einstellungen unter Schlüsseln mit dem Anfang <code>slidev-</code> im lokalen Speicher Ihres Browsers ab, ohne Kennung. Zweck · Rechtsgrundlage: die Ansicht so darstellen, wie Sie sie eingestellt haben, § 25 Abs. 2 Nr. 2 TDDDG.</li>
+                  <li><b>Decks und Quellen:</b> Ein Administrator verbindet Git-Quellen. Der Inhalt (Folientitel, Folieninhalt, Sprechernotizen) wird auf den Server gespiegelt und zu Vorträgen gebaut; der Spiegel behält auch die Namen und E-Mail-Adressen der Mitwirkenden aus dem Git-Verlauf. Zugangsdaten einer Quelle werden verschlüsselt gespeichert und nach der Eingabe nur erneuert, nie wieder angezeigt; Webhook-Geheimnisse werden nur als Hash gespeichert. Zweck · Rechtsgrundlage: Vorträge bereitstellen, Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f).</li>
+                  <li><b>CoPresenter (Sprachfunktion):</b> Ihre gesprochene Frage wird auf dem Server in Text umgewandelt; die Audio-Rohdaten werden nicht gespeichert. Der erkannte Text, die aktuelle Folie und das Deck, mit dem der CoPresenter gestartet wurde, jede Folie mit ihren Notizen, werden an Anthropic gesendet. Solange der CoPresenter eingeschaltet ist, wird alles, was im Raum gesagt wird, in Fragen umgewandelt und als Text an Anthropic gesendet. Jede angemeldete Person darf den CoPresenter nutzen. Wenn die Spracherkennung auf dem Server nicht bereit ist, kann der Browser seine eigene nutzen; Chrome sendet dann das Audio an den Browser-Hersteller. Zweck · Rechtsgrundlage: der Vortrag des Betreibers mit gesprochenen Fragen, Art. 6 Abs. 1 lit. f DSGVO; eine Einwilligung wird dafür nicht in Anspruch genommen.</li>
+                  <li><b>Server-Protokolle:</b> Der Server schreibt Zugriffsprotokolle. Darin steht die Adresse des Docker-Gateways, nicht die Ihres Geräts. Eine Aufbewahrungsdauer ist nicht festgelegt. Zweck · Rechtsgrundlage: Betrieb und Fehlersuche, Art. 6 Abs. 1 lit. f DSGVO.</li>
                 </ul>
               </section>
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator nutzt von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
-                  <li><b>Anthropic (Claude):</b> aktuell der einzige aktiv genutzte Antwort-Anbieter des CoPresenter-Features, über den eigenen Claude-Zugang des Betreibers, nicht über einen pro Anfrage übertragenen API-Schlüssel. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und der gesamte Deckinhalt. <span class="offen">[offen: Anthropics eigene Aufbewahrungs- und Verarbeitungspraxis liegt außerhalb dieses Codes.]</span></li>
-                  <li><b>Grok, Codex:</b> die Technik ist vorbereitet, wird vom Code aktuell aber nicht aufgerufen — nur Claude beantwortet Fragen. <span class="offen">[offen: ob/wann sich das ändert, legt der Betreiber fest.]</span></li>
-                  <li><b>Sprachausgabe und Spracherkennung:</b> laufen lokal auf dem Server des Betreibers (Piper und Chatterbox für die Sprachausgabe; lokale Spracherkennung). Keine Übertragung an einen externen Sprachanbieter.</li>
-                  <li>Keine Weitergabe an weitere Dritte, kein Verkauf von Daten, keine Werbung, kein Tracking, keine Analyse-Tools.</li>
+                  <li><b>Keycloak:</b> Die Anmeldung läuft über Keycloak unter auth.hallucinai.de, das der Betreiber betreibt.</li>
+                  <li><b>Cloudflare:</b> Der Zugang zur Anwendung läuft über Cloudflare. Die verschlüsselte Verbindung endet dort, daher läuft auch die Mikrofon-Verbindung des CoPresenters durch Cloudflare.</li>
+                  <li><b>Git-Hosts der verbundenen Quellen:</b> erhalten die Abrufe, mit denen der Server die Quellen spiegelt.</li>
+                  <li><b>Anthropic Ireland, Limited:</b> Für die CoPresenter-Antworten wird Claude verwendet, über den eigenen Claude-Zugang des Betreibers (die installierte claude-Kommandozeile). Anthropic ist dafür ein eigener Verantwortlicher. Übertragen werden die gesprochene Frage als Text, die aktuelle Folie und das gesamte Deck.</li>
+                  <li><b>Browser-Hersteller:</b> Nutzt der Browser seine eigene Spracherkennung, erhält dessen Hersteller das Audio (siehe Abschnitt 2).</li>
+                  <li><b>Google:</b> Gebaute Vorträge laden ihre Schriftarten von Google.</li>
+                  <li><b>Sprachausgabe und Spracherkennung:</b> Die Sprachausgabe (Piper, Chatterbox, Qwen3-TTS, VoxCPM 2, NVIDIA Magpie) und die Spracherkennung (faster-whisper) laufen auf dem Server des Betreibers.</li>
                 </ul>
               </section>
               <section>
                 <h2>4. Speicherort</h2>
-                <p>Benutzerkonten (lokaler Eintrag), Sitzungen, gespiegelte Decks und gebaute Vorträge liegen lokal auf dem vom Betreiber betriebenen Server — nicht in der Cloud eines Drittanbieters. Die einzige Ausnahme ist die in Abschnitt 3 genannte Übertragung an Anthropic für die CoPresenter-Antwort.</p>
+                <p>Benutzerkonten, Sitzungen, gespiegelte Decks und die gebauten Vorträge liegen auf dem vom Betreiber betriebenen Server. Die in Abschnitt 3 genannten Empfänger erhalten Daten aus den dort genannten Gründen.</p>
               </section>
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Kennung (Subject-ID), Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
-                  <li><b>Sitzungen:</b> Zeile gelöscht beim Abmelden. <span class="offen">[offen: eine nie abgemeldete Sitzung wird im Code nicht automatisch gelöscht.]</span></li>
-                  <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel:</b> spätestens nach 24 Stunden automatisch entfernt.</li>
-                  <li><b>Decks und Builds:</b> bis die Quelle entfernt wird oder der Ordner aus Git verschwindet.</li>
-                  <li><b>CoPresenter-Audio:</b> nicht gespeichert, nur für die Antwortdauer gestreamt.</li>
-                  <li><b>Server-Protokolle:</b> <span class="offen">[offen: siehe Abschnitt 2.]</span></li>
+                  <li><b>Benutzerkonten:</b> Der Eintrag bleibt bestehen; keine Funktion löscht oder exportiert eine Person.</li>
+                  <li><b>Sitzungen:</b> Die Zeile endet beim Abmelden oder wird gelöscht, wenn ihr abgelaufenes Cookie zurückkehrt. Sonst bleibt sie mit IP-Adresse und User-Agent bestehen.</li>
+                  <li><b>Einmalig angezeigte Quellen-Zugriffsschlüssel (SSH-Deploy-Key-Entwürfe):</b> werden rund 24 Stunden nach Erzeugung beim nächsten Abgleich gelöscht.</li>
+                  <li><b>Decks und Builds:</b> Die Decks eines entfernten Ordners werden nur markiert; ein neuer Build lässt den alten bestehen.</li>
+                  <li><b>Kopien der Claude-Software:</b> Frage, Deck und Antwort bleiben bis zu 30 Tage im Klartext bei der Claude-Software auf dem Server des Betreibers.</li>
+                  <li><b>CoPresenter-Audio:</b> wird nicht gespeichert, nur für die Dauer der Antwort gestreamt.</li>
+                  <li><b>Server-Protokolle:</b> Eine Aufbewahrungsdauer ist nicht festgelegt.</li>
                 </ul>
               </section>
               <section>
                 <h2>6. Ihre Rechte</h2>
-                <p>Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit, Widerspruch und Beschwerde bei einer Aufsichtsbehörde. Zur Ausübung wenden Sie sich an die im <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a> genannte Kontaktadresse.</p>
+                <p>Sie haben das Recht auf Auskunft über Ihre gespeicherten Daten, Berichtigung unrichtiger Daten, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit, Widerspruch gegen die Verarbeitung und Beschwerde bei einer Aufsichtsbehörde. Keine Funktion in Presentator löscht oder exportiert eine Person; wenden Sie sich zur Ausübung an die im <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a> genannte Kontaktadresse.</p>
               </section>
               <section>
                 <h2>7. Stand</h2>
-                <p><span class="offen">[offen: Datum wird bei der Freigabe durch den Betreiber gesetzt.]</span></p>
+                <p>Stand: 19. Oktober 2026</p>
               </section>
             </div>
             <div class="app-footer">
@@ -4369,53 +4369,58 @@ Cannot resolve import "./folien/03-fabric.md" from slides.md
             <div class="body legal-page">
               <section>
                 <h1>Datenschutzerklärung</h1>
-                <p>Entwurf, aus dem Code abgeleitet. Jede Stelle, die sich nicht aus dem Code ergibt, ist mit <span class="offen">[offen: …]</span> markiert statt geraten.</p>
+                <p>Diese Erklärung beschreibt, welche Daten Presentator verarbeitet, wohin sie gelangen und wie lange sie bleiben.</p>
               </section>
               <section>
                 <h2>1. Verantwortlicher</h2>
-                <p>Verantwortlich für diese Anwendung ist der Betreiber. Kontaktdaten: siehe <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
+                <p>Verantwortlich ist der Betreiber. Kontaktdaten: siehe <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
               </section>
               <section>
                 <h2>2. Welche Daten wir verarbeiten</h2>
                 <ul>
-                  <li><b>Benutzerkonto:</b> Benutzername und Rolle aus der Anmeldung über Keycloak (auth.hallucinai.de, Auftragsverarbeiter). Kein Passwort in Presentator.</li>
-                  <li><b>Sitzungen und Cookies:</b> ein signiertes Sitzungs-Cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>, HTTPS) plus ein CSRF-Cookie ohne Tracking. Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, letzte Aktivität. Gültig 12 Stunden; Zeile gelöscht beim Abmelden.</li>
-                  <li><b>Decks und Quellen:</b> gespiegelter Git-Inhalt (Folien, Notizen); ein verschlüsselter Lesezugriffsschlüssel pro Quelle.</li>
-                  <li><b>CoPresenter:</b> gesprochene Frage lokal in Text umgewandelt (Audio nicht gespeichert); Text, aktuelle Folie und Deckinhalt gehen an den KI-Anbieter unten. Antwort-Audio nur gestreamt.</li>
-                  <li><b>Server-Protokolle:</b> <span class="offen">[offen: Aufbewahrungsdauer liegt an der Server-Konfiguration.]</span></li>
+                  <li><b>Benutzerkonto:</b> Kennung (Subject-ID), Benutzername und Rolle, dazu Einstellungen für Sprache und Darstellung. Kein Passwort. Die Anmeldung läuft über Keycloak unter auth.hallucinai.de, das der Betreiber betreibt. Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f).</li>
+                  <li><b>Sitzung und Cookies:</b> <code>__Host-session_id</code> (<code>HttpOnly</code>, <code>SameSite=Lax</code>, 12 Stunden) und <code>__Host-csrf_token</code> (von JavaScript lesbar, nur Fälschungsschutz). Gespeichert: Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent, Anmeldung und letzte Aktivität. Art. 6 Abs. 1 lit. b (hilfsweise f) bzw. lit. f DSGVO; Cookies nach § 25 Abs. 2 Nr. 2 TDDDG.</li>
+                  <li><b>Lokaler Speicher des Browsers:</b> Einstellungen der Vortragsansicht (Slidev) unter <code>slidev-</code>, ohne Kennung. § 25 Abs. 2 Nr. 2 TDDDG.</li>
+                  <li><b>Decks und Quellen:</b> Ein Administrator verbindet Quellen; der Spiegel hält Folien, Notizen sowie Namen und E-Mail-Adressen der Mitwirkenden. Zugangsdaten verschlüsselt, Webhook-Geheimnisse nur als Hash. Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f).</li>
+                  <li><b>CoPresenter:</b> Frage auf dem Server in Text umgewandelt (Audio nicht gespeichert); Text, Folie und das Deck des Starts mit allen Notizen gehen an Anthropic. Solange er eingeschaltet ist, wird alles im Raum Gesagte so verarbeitet. Jede angemeldete Person darf ihn nutzen. Ohne bereite Server-Erkennung kann der Browser seine eigene nutzen; Chrome sendet das Audio an den Browser-Hersteller. Art. 6 Abs. 1 lit. f DSGVO, keine Einwilligung.</li>
+                  <li><b>Server-Protokolle:</b> Zugriffsprotokolle mit der Adresse des Docker-Gateways, nicht Ihres Geräts; keine Aufbewahrungsdauer festgelegt. Art. 6 Abs. 1 lit. f DSGVO.</li>
                 </ul>
               </section>
               <section>
                 <h2>3. Empfänger und externe Anbieter</h2>
                 <ul>
-                  <li><b>Keycloak (auth.hallucinai.de):</b> Auftragsverarbeiter der Anmeldung; Presentator nutzt von dort Kennung (Subject-ID), Name und Gruppe, kein Passwort.</li>
-                  <li><b>Anthropic (Claude):</b> einziger aktiv genutzter Anbieter, über den eigenen Claude-Zugang des Betreibers. <span class="offen">[offen: Anthropics eigene Aufbewahrung liegt außerhalb dieses Codes.]</span></li>
-                  <li><b>Grok, Codex:</b> vorbereitet, aber vom Code aktuell nicht aufgerufen.</li>
-                  <li><b>Sprachausgabe/-erkennung:</b> lokal (Piper, Chatterbox) — keine externe Übertragung.</li>
-                  <li>Keine Weitergabe an weitere Dritte, kein Tracking, keine Werbung.</li>
+                  <li><b>Keycloak:</b> Die Anmeldung läuft über Keycloak unter auth.hallucinai.de, das der Betreiber betreibt.</li>
+                  <li><b>Cloudflare:</b> Zugang zur Anwendung; die verschlüsselte Verbindung endet dort, auch die des Mikrofons.</li>
+                  <li><b>Git-Hosts der Quellen:</b> erhalten die Abrufe des Servers.</li>
+                  <li><b>Anthropic Ireland, Limited:</b> eigener Verantwortlicher, über den Claude-Zugang des Betreibers; erhält Frage, Folie und Deck.</li>
+                  <li><b>Browser-Hersteller:</b> erhält das Audio bei eigener Spracherkennung des Browsers.</li>
+                  <li><b>Google:</b> Schriftarten gebauter Vorträge.</li>
+                  <li><b>Sprache:</b> Sprachausgabe (Piper, Chatterbox, Qwen3-TTS, VoxCPM 2, NVIDIA Magpie) und Spracherkennung (faster-whisper) laufen auf dem Server des Betreibers.</li>
                 </ul>
               </section>
               <section>
                 <h2>4. Speicherort</h2>
-                <p>Lokal auf dem Server des Betreibers, außer der CoPresenter-Übertragung an Anthropic.</p>
+                <p>Auf dem Server des Betreibers; die Empfänger aus Abschnitt 3 erhalten Daten aus den dort genannten Gründen.</p>
               </section>
               <section>
                 <h2>5. Speicherdauer</h2>
                 <ul>
-                  <li><b>Benutzerkonten:</b> Das Konto selbst wird in Keycloak verwaltet. Presentator führt dazu einen lokalen Eintrag (Kennung (Subject-ID), Benutzername, Rolle, Einstellungen wie Sprache und Darstellung). <span class="offen">[offen: wann der lokale Eintrag gelöscht wird — es gibt keinen Löschweg in Presentator.]</span></li>
-                  <li><b>Sitzungen:</b> gelöscht beim Abmelden. <span class="offen">[offen: keine automatische Löschung einer nie abgemeldeten Sitzung.]</span></li>
-                  <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> nach spätestens 24 Stunden entfernt.</li>
-                  <li><b>Decks/Builds:</b> bis die Quelle entfernt wird.</li>
+                  <li><b>Benutzerkonten:</b> bleiben; keine Funktion löscht oder exportiert eine Person.</li>
+                  <li><b>Sitzungen:</b> enden beim Abmelden oder werden gelöscht, wenn ihr abgelaufenes Cookie zurückkehrt; sonst bleiben sie mit IP-Adresse und User-Agent.</li>
+                  <li><b>Quellen-Zugriffsschlüssel (Entwürfe):</b> rund 24 Stunden nach Erzeugung beim nächsten Abgleich gelöscht.</li>
+                  <li><b>Decks und Builds:</b> Decks eines entfernten Ordners nur markiert; ein neuer Build lässt den alten bestehen.</li>
+                  <li><b>Kopien der Claude-Software:</b> bis zu 30 Tage im Klartext auf dem Server.</li>
                   <li><b>CoPresenter-Audio:</b> nicht gespeichert.</li>
+                  <li><b>Server-Protokolle:</b> keine Aufbewahrungsdauer festgelegt.</li>
                 </ul>
               </section>
               <section>
                 <h2>6. Ihre Rechte</h2>
-                <p>Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch, Beschwerde — Kontakt über das <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
+                <p>Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch, Beschwerde. Keine Funktion löscht oder exportiert eine Person; Kontakt über das <a class="linkish" href="https://hallucinai.de/impressum">Impressum</a>.</p>
               </section>
               <section>
                 <h2>7. Stand</h2>
-                <p><span class="offen">[offen: Datum wird bei Freigabe gesetzt.]</span></p>
+                <p>Stand: 19. Oktober 2026</p>
               </section>
             </div>
             <div class="app-footer">
