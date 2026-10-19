@@ -48,7 +48,6 @@ type MediaObservation = {
   trackStopped: boolean
   playbackStarted: boolean
   playbackPaused: boolean
-  speechRecognitionsBuilt: number
 }
 
 let media = createMediaObservation()
@@ -223,7 +222,6 @@ async function startServer() {
       if (url.pathname === '/observations/track-stopped') media.trackStopped = true
       if (url.pathname === '/observations/playback-started') media.playbackStarted = true
       if (url.pathname === '/observations/playback-paused') media.playbackPaused = true
-      if (url.pathname === '/observations/speech-recognition-built') media.speechRecognitionsBuilt += 1
       response.writeHead(204)
       response.end()
       return
@@ -276,7 +274,6 @@ function createMediaObservation(): MediaObservation {
     trackStopped: false,
     playbackStarted: false,
     playbackPaused: false,
-    speechRecognitionsBuilt: 0,
   }
 }
 
@@ -316,8 +313,12 @@ async function installMediaFakes(page: Page) {
       port = { onmessage: null }
       disconnect() {}
     } as unknown as typeof AudioWorkletNode
+    const counter = window as unknown as { __speechRecognitionsBuilt: number }
+    counter.__speechRecognitionsBuilt = 0
     class CountedSpeechRecognition {
-      constructor() { report('speech-recognition-built') }
+      constructor() { counter.__speechRecognitionsBuilt += 1 }
+      start() {}
+      stop() {}
     }
     Object.assign(window, {
       SpeechRecognition: CountedSpeechRecognition,
@@ -490,7 +491,16 @@ describe('presenter controls', () => {
       await ai.click({ timeout: 2_000 })
       await page.getByText(message).waitFor({ state: 'visible', timeout: 5_000 })
       expect(await page.locator('.copresenter').getAttribute('data-hearing')).toBe('off')
-      expect(media.speechRecognitionsBuilt).toBe(0)
+      expect(await page.evaluate(
+        () => (window as unknown as { __speechRecognitionsBuilt: number }).__speechRecognitionsBuilt,
+      )).toBe(0)
+      await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
+      const { micLive, hearOpen } = await page.evaluate(
+        () => (window as unknown as {
+          __copresenter: { snapshot: () => { micLive: boolean; hearOpen: boolean } }
+        }).__copresenter.snapshot(),
+      )
+      expect({ micLive, hearOpen }).toEqual({ micLive: false, hearOpen: false })
     } finally {
       hearingMode = 'ready'
       await browser.close()
@@ -512,7 +522,7 @@ describe('presenter controls', () => {
     }
   })
 
-  it('loads the AudioWorklet from exactly the README\'s copied overlay, never the browser-speech fallback', async () => {
+  it('loads the AudioWorklet from exactly the README\'s copied overlay', async () => {
     const overlayBuildDirectory = await buildCopiedOverlayDeck()
     const { server: overlayServer, origin: overlayOrigin, sockets: overlaySockets }
       = await createOverlayDeckServer(overlayBuildDirectory)

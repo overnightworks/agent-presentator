@@ -68,7 +68,7 @@ shows no row at all rather than an empty one that would read as "no themes".
 
 ## What a talk loads
 
-The toolchain loads nothing from other hosts. Slidev's defaults would link
+A talk loads nothing from other hosts. Slidev's defaults would link
 Google Fonts and a CDN favicon, so a deck sets `fonts: provider: none` and
 `favicon: false` in its headmatter to keep its own HTML free of foreign
 requests. The content security policy admits no host but this origin, so a deck

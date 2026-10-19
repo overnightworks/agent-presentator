@@ -85,6 +85,11 @@ from tests.application.fakes import (
 )
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
+A_BUILT_DECK_SLUG: Final = "hello-deck"
+# What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
+_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
+_EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
+_BUILT_DECK_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 # No route test waits for a build, so the bound only has to be longer than the
 # ages the tests arrange.
 BUILD_BOUND: Final = timedelta(minutes=5)
@@ -493,3 +498,32 @@ def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:
     lobby = a_lobby(given=given)
     lobby.sign_in()
     return lobby.client
+
+
+def a_signed_in_lobby_with_a_built_deck() -> TestClient:
+    """A signed-in lobby whose one deck already has a built talk to serve."""
+    store = FakeDeckStore()
+    store.put(
+        Deck(
+            slug=A_BUILT_DECK_SLUG,
+            title="Hello Co-Presenter",
+            changed_at=NOW,
+            owner_id=ADMIN,
+            source_id=SOURCE_ID,
+            commit=_BUILT_DECK_COMMIT,
+            build=None,
+            attempt=None,
+        ),
+    )
+    store.put_build(
+        A_BUILT_DECK_SLUG,
+        Build(
+            directory=_BUILT_TALK,
+            pdf=_EXPORTED_PDF,
+            commit=_BUILT_DECK_COMMIT,
+            built_at=NOW,
+        ),
+    )
+    return a_signed_in_lobby(
+        GivenDecks(store=store, source=a_configured_source("git@heimserver:decks.git")),
+    )

@@ -1,43 +1,66 @@
 """A talk and the policy around it name no host but this origin."""
 
 import re
-from pathlib import Path
+from http import HTTPStatus
 from typing import Final
 
 import pytest
 
 from presentator.api.auth import CONTENT_SECURITY_POLICY
+from tests.api.lobby import A_BUILT_DECK_SLUG, a_signed_in_lobby_with_a_built_deck
 
-# What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
-_A_FOREIGN_HOST: Final = re.compile(r"(?:https?:)?//|[a-z0-9-]+(?:\.[a-z0-9-]+)+\b")
+# Outside `form-action`, a source names no host when it is a quoted keyword,
+# hash or nonce, or the data: or blob: scheme; every other spelling can admit one.
+_A_SOURCE_WITHOUT_A_HOST: Final = re.compile(r"'[^']+'|data:|blob:")
 _ADDRESS_ATTRIBUTE: Final = re.compile(r"""\b(?:href|src)\s*=\s*["']([^"']*)["']""")
+_AN_ADDRESS_ON_ANOTHER_HOST: Final = re.compile(
+    r"(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE
+)
+_THE_TALK: Final = f"/deck/{A_BUILT_DECK_SLUG}/"
 
 
-def _addresses_in(page: Path) -> list[str]:
-    return _ADDRESS_ATTRIBUTE.findall(page.read_text(encoding="utf-8"))
-
-
-def test_the_content_security_policy_admits_no_host_but_this_origin() -> None:
-    directives = [part.split() for part in CONTENT_SECURITY_POLICY.split(";")]
-
-    foreign_sources = [
+def _sources_that_may_admit_a_host(policy: str) -> list[tuple[str, str]]:
+    directives = [part.split() for part in policy.split(";") if part.strip()]
+    return [
         (name, source)
         for name, *sources in directives
         if name != "form-action"
         for source in sources
-        if _A_FOREIGN_HOST.search(source)
+        if not _A_SOURCE_WITHOUT_A_HOST.fullmatch(source)
     ]
 
-    assert foreign_sources == []
+
+@pytest.mark.parametrize(
+    ("policy", "admitted"),
+    [
+        ("default-src 'self'; img-src *", ("img-src", "*")),
+        ("default-src 'self'; connect-src 'self' wss:", ("connect-src", "wss:")),
+        ("default-src 'self'; script-src https:", ("script-src", "https:")),
+        ("default-src 'self'; font-src localhost:8000", ("font-src", "localhost:8000")),
+        ("default-src 'self'; img-src CDN.Example.COM", ("img-src", "CDN.Example.COM")),
+    ],
+)
+def test_a_policy_source_that_may_admit_a_host_is_found(
+    policy: str,
+    admitted: tuple[str, str],
+) -> None:
+    assert _sources_that_may_admit_a_host(policy) == [admitted]
 
 
-@pytest.mark.parametrize("page_name", ["index.html", "404.html"])
+def test_the_content_security_policy_admits_no_host_but_this_origin() -> None:
+    assert _sources_that_may_admit_a_host(CONTENT_SECURITY_POLICY) == []
+
+
+@pytest.mark.parametrize("page_name", ["", "404.html"])
 def test_a_built_talk_page_points_only_at_its_own_origin(page_name: str) -> None:
+    lobby = a_signed_in_lobby_with_a_built_deck()
+
+    page = lobby.get(_THE_TALK + page_name)
+
+    assert page.status_code == HTTPStatus.OK
     foreign_addresses = [
         address
-        for address in _addresses_in(_BUILT_TALK / page_name)
-        if re.match(r"(?:[a-z][a-z0-9+.-]*:)?//", address, re.IGNORECASE)
+        for address in _ADDRESS_ATTRIBUTE.findall(page.text)
+        if _AN_ADDRESS_ON_ANOTHER_HOST.match(address)
     ]
-
     assert foreign_addresses == []
