@@ -1,8 +1,0 @@
-claim_id = "eb19aa43adba48d482251997db496c79"
-agent = "claude"
-role = "builder"
-base = "2cba389a97ea784f9b67c89483f95b87c2fa8708"
-branch = "claude/issue-264-a2-image-identity"
-scope = [".github/workflows/ci.yml", "Dockerfile", "docs/OPERATIONS.md", "pyproject.toml", "scripts/prove_container_build.py"]
-opened_commit = "bd0dc18db8be5841a7c61e039fe7a93110abafec"
-whole_reason = "One image identity change with its CI proof and the operations text that names it."
