@@ -6,9 +6,12 @@ from typing import Final
 
 import pytest
 
-from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.contracts.decks import talk_address
-from tests.api.lobby import A_BUILT_DECK_SLUG, a_signed_in_lobby_with_a_built_deck
+from tests.api.lobby import (
+    A_BUILT_DECK_SLUG,
+    a_content_security_policy,
+    a_signed_in_lobby_with_a_built_deck,
+)
 
 # Outside `form-action`, a source names no host when it is 'self', 'none',
 # 'unsafe-inline', a hash or nonce, or the data: or blob: scheme; every other
@@ -55,7 +58,7 @@ def test_a_policy_source_that_may_admit_a_host_is_found(
 
 
 def test_the_content_security_policy_admits_no_host_but_this_origin() -> None:
-    assert _sources_that_may_admit_a_host(CONTENT_SECURITY_POLICY) == []
+    assert _sources_that_may_admit_a_host(a_content_security_policy()) == []
 
 
 @pytest.mark.parametrize("page_name", ["", "404.html"])

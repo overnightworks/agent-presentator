@@ -25,7 +25,7 @@ of it. A sign-in writes an INFO log line when it creates an account or changes
 its role (event kind, Keycloak subject id, role). A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
-Logging out deletes the row. A session past its expiry is refused, and a sweep of its own deletes
+Logging out deletes the row. The Keycloak client must register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as its post-logout redirect URI, or Keycloak shows an error page at every logout. A session past its expiry is refused, and a sweep of its own deletes
 its row every five minutes, apart from the deck refresh.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is

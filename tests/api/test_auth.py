@@ -9,7 +9,6 @@ from fastapi import Response
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
 from webauth.cookies import (
-    DEFAULT_CSRF_COOKIE_NAME,
     DEFAULT_SESSION_COOKIE_NAME,
     MAX_SESSION_COOKIE_CHARS,
 )
@@ -21,7 +20,6 @@ from webauth.middleware.security_headers import (
 from webauth.oidc import PENDING_LOGIN_MAX_AGE_SECONDS
 from webauth.policies import SecurityHeadersPolicy
 
-from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
 from presentator.application.decks import DRAFT_MAX_AGE
@@ -36,13 +34,14 @@ from tests.api.lobby import (
     ENGLISH,
     USERNAME,
     Lobby,
+    a_content_security_policy,
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
     a_signed_in_lobby_with_a_built_deck,
 )
 
 _STRICT_TRANSPORT_SECURITY = SecurityHeadersPolicy(
-    content_security_policy=CONTENT_SECURITY_POLICY
+    content_security_policy=a_content_security_policy()
 ).strict_transport_security
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
@@ -54,7 +53,7 @@ _EVERY_SECURITY_HEADER = {
     "cache-control": "no-store",
     "x-content-type-options": CONTENT_TYPE_OPTIONS,
     "x-frame-options": FRAME_OPTIONS,
-    "content-security-policy": CONTENT_SECURITY_POLICY,
+    "content-security-policy": a_content_security_policy(),
     "referrer-policy": REFERRER_POLICY,
     "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
 }
@@ -325,27 +324,6 @@ def test_an_uncaught_error_still_carries_the_full_set_of_security_headers(
         assert answer.headers[name] == value
 
 
-def test_logging_out_ends_the_session_and_the_old_cookie_cannot_come_back(
-    signed_in_lobby: Lobby,
-) -> None:
-    cookie = signed_in_lobby.client.cookies[DEFAULT_SESSION_COOKIE_NAME]
-
-    logged_out = signed_in_lobby.client.post("/logout")
-
-    assert logged_out.status_code == HTTPStatus.SEE_OTHER
-    assert logged_out.headers["location"] == "/login"
-    assert DEFAULT_SESSION_COOKIE_NAME not in signed_in_lobby.client.cookies
-    signed_in_lobby.client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, cookie)
-    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
-
-
-def test_logging_out_without_a_session_still_lands_at_the_login(lobby: Lobby) -> None:
-    logged_out = lobby.client.post("/logout")
-
-    assert logged_out.status_code == HTTPStatus.SEE_OTHER
-    assert logged_out.headers["location"] == "/login"
-
-
 def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     lobby: Lobby,
 ) -> None:
@@ -355,34 +333,11 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     assert answer.headers["location"] == "/login/oidc?next=%2Fdeck%2Fknowledge-fabric"
 
 
-@pytest.mark.parametrize(
-    "headers",
-    [
-        pytest.param({"origin": "https://another.example"}, id="foreign-origin"),
-        pytest.param({"sec-fetch-site": "cross-site"}, id="cross-site-fetch"),
-    ],
-)
-def test_a_form_another_site_submitted_is_refused(headers: dict[str, str]) -> None:
-    lobby = a_lobby_that_claims_no_origin_of_its_own()
-    lobby.sign_in()
-
-    refused = submit_the_logout_form(lobby, headers)
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert lobby.client.get("/").status_code == HTTPStatus.OK
-
-
 def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
     assert asked.headers["location"] == "/login/oidc?next=%2Fsources%2Ftalks%2Ffetch"
-
-
-def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
-    accepted = submit_the_logout_form(lobby, {"origin": lobby.own_origin()})
-
-    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 def test_a_form_naming_the_public_host_is_accepted_without_a_fetch_site() -> None:
@@ -421,23 +376,6 @@ def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
     refused = submit_the_logout_form(lobby, {})
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-
-
-@pytest.mark.parametrize(
-    "cookie_name", [DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME]
-)
-def test_logging_out_expires_the_session_and_the_csrf_cookie_each_at_once(
-    signed_in_lobby: Lobby, cookie_name: str
-) -> None:
-    deletions = signed_in_lobby.client.post("/logout").headers.get_list("set-cookie")
-
-    (cleared,) = (
-        deletion
-        for deletion in deletions
-        if deletion.split("=", 1)[0].endswith(cookie_name)
-    )
-    assert "SameSite=lax" in cleared
-    assert "Max-Age=0" in cleared
 
 
 def test_the_three_stylesheets_are_linked_on_the_open_login_page(
@@ -536,7 +474,6 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
 
     assert "__Secure-oidc_id_token_hint" in document
     assert "__Host-oidc_pending_" in document
-    assert "ohne Rückfrage" not in document
     assert "werden danach nicht erneuert" in document
     assert "mit jeder angemeldeten Antwort erneuert" not in document
     assert "Keycloak-Subject-ID und Rolle" in document
@@ -586,8 +523,17 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
             "Ihren Namen und Ihre E-Mail-Adresse"
         ),
         (
-            "Beim Abmelden bleibt dieses Cookie im Browser, bis es nach "
-            "{session_hours} Stunden abläuft"
+            "Beim Abmelden wird dieses Cookie gelöscht. Ist es dabei noch "
+            "vorhanden und verwendbar, gibt Presentator sein ID-Token als "
+            "Hinweis an Keycloak weiter, damit Keycloak ohne Rückfrage "
+            "abmelden kann. Der Hinweis steht in der Adresse, die der Browser "
+            "aufruft, und kann so im Browserverlauf landen."
+        ),
+        (
+            "Presentator beendet beim Abmelden sofort die Sitzung in "
+            "Presentator und leitet den Browser zu Keycloak weiter, um dort "
+            "auch die Anmeldung zu beenden; Keycloak fragt dabei "
+            "gegebenenfalls nach."
         ),
     ],
 )

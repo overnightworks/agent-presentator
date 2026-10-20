@@ -3,6 +3,7 @@
 import time
 from pathlib import Path
 from typing import Final
+from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 from webauth.https_client import fetch_key_set_over_https
@@ -79,10 +80,17 @@ def relying_party(config: OidcClientConfig) -> OidcRelyingParty:
     )
 
 
-def relying_party_of(settings: Settings) -> OidcRelyingParty:
-    """Read the secret file and build the relying party these settings describe."""
-    secret = read_client_secret(settings.oidc_client_secret_file)
-    return relying_party(oidc_client_config(settings, secret))
+def client_config_of(settings: Settings) -> OidcClientConfig:
+    """Read the secret file and build the client these settings describe."""
+    return oidc_client_config(
+        settings, read_client_secret(settings.oidc_client_secret_file)
+    )
+
+
+def end_session_origin(config: OidcClientConfig) -> str:
+    """The scheme and authority of the issuer's end-session endpoint, no path."""
+    endpoint = urlsplit(config.end_session_endpoint)
+    return f"{endpoint.scheme}://{endpoint.netloc}"
 
 
 def admission_of(settings: Settings) -> AdmissionConfig:

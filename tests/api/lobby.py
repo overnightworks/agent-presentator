@@ -52,6 +52,7 @@ from presentator.adapters.identity import ProcessWriteLock
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
+    content_security_policy,
     create_lobby,
 )
 from presentator.api.copresenter import CoPresenterSurface
@@ -80,7 +81,7 @@ from presentator.contracts.voice import (
 )
 from presentator.host.config import Settings
 from presentator.host.main import lobby_web_auth_config
-from presentator.host.oidc import admission_of, oidc_client_config
+from presentator.host.oidc import admission_of, end_session_origin, oidc_client_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
@@ -261,6 +262,12 @@ def a_settings() -> Settings:
     )
 
 
+def a_content_security_policy() -> str:
+    """The policy of an instance at the test origin, signing out at the fake issuer."""
+    client = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
+    return content_security_policy(end_session_origin(client))
+
+
 def a_relying_party(
     clock: FrozenClock,
     *,
@@ -308,6 +315,7 @@ def an_installed_auth(
         accounts=NobodySignsIn() if accounts is None else accounts,
         lock=ProcessWriteLock() if lock is None else lock,
         audit=LoggingAuditSink() if audit is None else audit,
+        content_security_policy=a_content_security_policy(),
     )
 
 

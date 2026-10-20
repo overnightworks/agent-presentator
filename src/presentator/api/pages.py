@@ -21,7 +21,7 @@ from presentator.contracts.models import User
 from presentator.contracts.preferences import Appearance, ThemeChoice
 from presentator.contracts.text import LobbyText
 
-_TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
+TEMPLATES: Final = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -92,7 +92,7 @@ class Pages:
     ) -> Response:
         """Render a page, with the header a signed-in person sees on every one."""
         appearance = self.appearance(request)
-        return _TEMPLATES.TemplateResponse(
+        return TEMPLATES.TemplateResponse(
             request,
             name,
             {
