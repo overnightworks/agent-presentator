@@ -10,6 +10,8 @@
       <p>{{ text.login_failed_explanation }}</p>
     </div>
   </div>
-  <a data-action data-wide href="{{ start_sign_in }}">{{ text.login_failed_retry }}</a>
+  <p data-actions>
+    <a data-action data-wide href="{{ start_sign_in }}">{{ text.login_failed_retry }}</a>
+  </p>
 </main>
 {% endblock %}
