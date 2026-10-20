@@ -39,9 +39,10 @@ both cookies `Secure` and gives them the library's host-only names
 `__Host-session_id` and `__Host-csrf_token`, which only this exact host can
 set; an `http://` origin, as in a run from a checkout, drops `Secure` and keeps
 the plain names `session_id` and `csrf_token`, because a browser does not send
-a `Secure` cookie back over plain http. A `same-site` or `none`
+a `Secure` cookie back over plain http. A `cross-site` or `none`
 `Sec-Fetch-Site` POST, and a form POST carrying neither `Sec-Fetch-Site` nor
-`Origin`, are refused.
+`Origin`/`Referer`, are refused; every other POST is judged as described under
+the public origin below.
 
 Every answer, including a login redirect and a refusal, carries `webauth`'s
 `SecurityHeadersMiddleware` headers: `Cache-Control: no-store`, a

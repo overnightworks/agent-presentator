@@ -196,8 +196,8 @@ From `agent_providers`: `ProviderRuntimeConfig`, `SecretEnvKeys`,
 `ToolExecutor`, and `ToolCatalog`. `McpServerSpec` and `ImagePolicy` go unused —
 this product runs no MCP server and generates no images.
 
-From `webauth`: `WebAuthConfig` and `SessionRecordStore` are implemented on SQLite
-([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
+From `webauth`: `SessionRecordStore` is implemented on SQLite
+([ADR 0006](0006-sqlite-and-files.md)); the host builds `WebAuthConfig` from its settings. `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
 is implemented here at all — see below. `BodySizePolicy` and `AuditSink` are
 taken with their defaults and stubbed until something here needs them.
@@ -209,7 +209,7 @@ product asks for — because the co-presenter deck's own component
 audio. `CsrfPolicy` exempts the sessionless webhook prefix; its default
 protects every mutating path (13c).
 
-**No Redis.** `SessionRecordStore`, `LoginAttemptStore`, and `RateLimitPolicy`
+**No Redis.** `SessionRecordStore` and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is
 Redis today is the session cache and the sliding-window limiter, and the
 extraction names them as library ports, `SessionCache` and `RateLimitBackend`,
