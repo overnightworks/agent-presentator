@@ -1,17 +1,23 @@
 """The wire child's gate judgement and its idle entry."""
 
+import errno
+import os
 import runpy
 import socket
 import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from types import SimpleNamespace
 
 import pytest
 
+from presentator.adapters.build_wire import StepHeader, write_record
+from presentator.contracts.decks import StepKind
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
-from presentator.host.worker_wire import WireExit
+from presentator.host.worker import create_request_record
+from presentator.host.worker_wire import WireExit, WireRole
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
 GATED_FIELDS = {
@@ -173,6 +179,15 @@ def client_and_descriptor() -> Iterator[tuple[socket.socket, int]]:
         yield client, child_end.detach()
 
 
+@pytest.fixture
+def record() -> Iterator[int]:
+    descriptor = create_request_record()
+    try:
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
 def run_bounded(client: socket.socket, entry: Callable[[], object]) -> object:
     """Fail, after freeing the entry, when it outlasts the wait."""
     outcome: list[object] = []
@@ -193,9 +208,22 @@ def run_bounded(client: socket.socket, entry: Callable[[], object]) -> object:
     return outcome[0]
 
 
-def run_entry(client: socket.socket, descriptor: int) -> object:
+def entry_arguments(descriptor: int, record: int, role: WireRole) -> list[str]:
+    return [
+        "--role",
+        role,
+        "--connection-fd",
+        str(descriptor),
+        "--record-fd",
+        str(record),
+    ]
+
+
+def run_entry(
+    client: socket.socket, descriptor: int, record: int, role: WireRole = WireRole.IDLE
+) -> object:
     return run_bounded(
-        client, lambda: worker_wire.main(["--connection-fd", str(descriptor)])
+        client, lambda: worker_wire.main(entry_arguments(descriptor, record, role))
     )
 
 
@@ -211,48 +239,80 @@ def read_to_end_or_reset(client: socket.socket) -> bytes:
 
 @pytest.mark.parametrize("sent", REFUSED_INPUTS.values(), ids=REFUSED_INPUTS.keys())
 def test_the_entry_closes_a_refused_input_with_no_reply(
-    client_and_descriptor: tuple[socket.socket, int], sent: bytes
+    client_and_descriptor: tuple[socket.socket, int], record: int, sent: bytes
 ) -> None:
     client, descriptor = client_and_descriptor
     client.sendall(sent)
     client.shutdown(socket.SHUT_WR)
 
-    assert run_entry(client, descriptor) == WireExit.CLOSED
+    assert run_entry(client, descriptor, record) == WireExit.CLOSED
     assert read_to_end_or_reset(client) == b""
+    assert os.fstat(record).st_size == 0
 
 
 def test_the_entry_answers_a_hello_with_status_and_exits_answered(
-    client_and_descriptor: tuple[socket.socket, int],
+    client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
     client.sendall(HELLO + b"x")
 
-    assert run_entry(client, descriptor) == WireExit.ANSWERED
+    assert run_entry(client, descriptor, record) == WireExit.ANSWERED
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert os.fstat(record).st_size == 0
 
 
-def test_the_entry_exits_accepted_on_a_valid_step_and_replies_nothing(
-    client_and_descriptor: tuple[socket.socket, int],
+def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_reply(
+    client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
     client.sendall(VALID_STEP)
 
-    assert run_entry(client, descriptor) == WireExit.ACCEPTED
+    assert run_entry(client, descriptor, record) == WireExit.ACCEPTED
     assert client.recv(64) == b""
+    assert os.pread(record, 4096, 0) == b'{"step":"export","slug":"my-deck"}'
+    assert os.lseek(record, 0, os.SEEK_CUR) == 0
+
+
+def test_the_upload_entry_decodes_the_record_and_answers_status_exiting_uploaded(
+    client_and_descriptor: tuple[socket.socket, int], record: int
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+
+    assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.UPLOADED
+    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_a_refused_memfd_surfaces_as_the_kernels_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def memfd_failure(*_call: object) -> int:
+        return -1
+
+    def refusing_libc(*_arguments: object, **_keywords: object) -> SimpleNamespace:
+        return SimpleNamespace(memfd_create=memfd_failure)
+
+    monkeypatch.setattr(worker.ctypes, "CDLL", refusing_libc)
+    monkeypatch.setattr(worker.ctypes, "get_errno", lambda: errno.EMFILE)
+
+    with pytest.raises(OSError, match="memfd_create failed") as refused:
+        create_request_record()
+
+    assert refused.value.errno == errno.EMFILE
 
 
 def test_the_entry_closes_when_the_client_hung_up_before_status(
-    client_and_descriptor: tuple[socket.socket, int],
+    client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
     client.sendall(HELLO)
     client.close()
 
-    assert run_entry(client, descriptor) == WireExit.CLOSED
+    assert run_entry(client, descriptor, record) == WireExit.CLOSED
 
 
 def test_run_as_a_program_the_entry_answers_a_hello(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, record: int
 ) -> None:
     controller_end, child_end = socket.socketpair()
     controller_end.settimeout(SECONDS_TO_WAIT)
@@ -260,7 +320,9 @@ def test_run_as_a_program_the_entry_answers_a_hello(
         controller_end.sendall(HELLO)
         descriptor = child_end.detach()
         monkeypatch.setattr(
-            sys, "argv", ["worker_wire", "--connection-fd", str(descriptor)]
+            sys,
+            "argv",
+            ["worker_wire", *entry_arguments(descriptor, record, WireRole.IDLE)],
         )
         monkeypatch.delitem(sys.modules, "presentator.host.worker_wire")
 

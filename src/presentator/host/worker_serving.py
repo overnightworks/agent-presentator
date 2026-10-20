@@ -15,7 +15,7 @@ from presentator.host.worker_termination import (
     WATCHDOG_SECONDS,
     Watchdog,
 )
-from presentator.host.worker_wire import KEPT_LIFE_EXITS, WireExit
+from presentator.host.worker_wire import KEPT_LIFE_EXITS, WireExit, WireRole
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,8 @@ class LifeEnd(StrEnum):
     WIRE_EXIT = "wire-exit"
     SWEEP = "sweep"
     ACCEPT = "accept"
+    SEAL_FAILED = "seal-failed"
+    UPLOAD_EXPIRED = "upload-expired"
 
 
 class WireChild(Protocol):
@@ -116,6 +118,8 @@ class Serving:
     spawn: Spawn
     gate_admits: Callable[[str], bool]
     sweep: Callable[[float], bool]
+    create_record: Callable[[], int]
+    seal: Callable[[int], None]
     watchdog: Watchdog
     clock: Callable[[], float]
     build_timeout_seconds: float
@@ -137,63 +141,154 @@ def _released(child: WireChild) -> bool:
 
 
 def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
-    child.kill()
-    child.wait()
+    try:
+        child.kill()
+    finally:
+        child.wait()
     return life_end
 
 
-def _header_expired(child: WireChild) -> None:
-    logger.warning("header deadline")
-    _killed(child, None)
+def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+    try:
+        _killed(child, None)
+    except (Exception, KeyboardInterrupt) as cleanup_failure:
+        logger.exception("child not killed and reaped")
+        original.add_note(f"killing and reaping the child failed: {cleanup_failure!r}")
 
 
-def _life_end_after(exit_status: int) -> LifeEnd | None:
-    if exit_status in KEPT_LIFE_EXITS:
-        return None
-    if exit_status == WireExit.ACCEPTED:
+@dataclass(frozen=True)
+class _ChildRun:
+    """How a gated child's run ended: its exit status, else the life end to take."""
+
+    exit_status: int | None
+    life_end: LifeEnd | None = None
+
+
+def _command(role: WireRole, connection: int, record: int) -> list[str]:
+    return [
+        sys.executable,
+        "-I",
+        "-m",
+        "presentator.host.worker_wire",
+        "--role",
+        role,
+        "--connection-fd",
+        str(connection),
+        "--record-fd",
+        str(record),
+    ]
+
+
+def _run_gated(
+    serving: Serving,
+    role: WireRole,
+    descriptors: tuple[int, int],
+    ends_at: float,
+    expired: LifeEnd | None,
+) -> _ChildRun:
+    """Spawn behind the gate, release and wait until ends_at; kill on expiry."""
+    try:
+        child = serving.spawn(
+            _command(role, *descriptors),
+            environment={"PATH": os.environ["PATH"]},
+            pass_fds=descriptors,
+        )
+    except OSError:
+        return _ChildRun(None, LifeEnd.SPAWN)
+    try:
+        return _released_run(child, serving, role, ends_at, expired)
+    except BaseException as original:
+        _killed_noting_failure(child, original)
+        raise
+    finally:
+        child.close_gate()
+
+
+def _released_run(
+    child: WireChild,
+    serving: Serving,
+    role: WireRole,
+    ends_at: float,
+    expired: LifeEnd | None,
+) -> _ChildRun:
+    if not _admitted_at_gate(child, serving):
+        return _ChildRun(None, _killed(child, LifeEnd.GATE))
+    if serving.clock() >= ends_at:
+        return _ChildRun(None, _expired(child, role, expired))
+    if not _released(child):
+        return _ChildRun(None, _killed(child, LifeEnd.GATE))
+    remaining = ends_at - serving.clock()
+    exit_status = child.wait_within(remaining) if remaining > 0 else None
+    if exit_status is None:
+        return _ChildRun(None, _expired(child, role, expired))
+    return _ChildRun(exit_status)
+
+
+def _expired(
+    child: WireChild, role: WireRole, life_end: LifeEnd | None
+) -> LifeEnd | None:
+    logger.warning("%s deadline", role)
+    return _killed(child, life_end)
+
+
+def _sealed(serving: Serving, record: int) -> bool:
+    try:
+        serving.seal(record)
+    except OSError:
+        logger.exception("request record not sealed")
+        return False
+    return True
+
+
+def _hand_over_upload(
+    connection: int, serving: Serving, record: int, upload_ends_at: float
+) -> LifeEnd | None:
+    if not _sealed(serving, record):
+        return LifeEnd.SEAL_FAILED
+    upload = _run_gated(
+        serving,
+        WireRole.UPLOAD,
+        (connection, record),
+        upload_ends_at,
+        LifeEnd.UPLOAD_EXPIRED,
+    )
+    if upload.exit_status is None:
+        return upload.life_end
+    if upload.exit_status == WireExit.UPLOADED:
         return LifeEnd.STEP_ACCEPTED
     return LifeEnd.WIRE_EXIT
+
+
+def _hand_over_with_record(
+    connection: int, serving: Serving, accepted_at: float, record: int
+) -> LifeEnd | None:
+    header = _run_gated(
+        serving,
+        WireRole.IDLE,
+        (connection, record),
+        accepted_at + HEADER_SECONDS,
+        None,
+    )
+    if header.exit_status is None:
+        return header.life_end
+    if header.exit_status != WireExit.ACCEPTED:
+        return None if header.exit_status in KEPT_LIFE_EXITS else LifeEnd.WIRE_EXIT
+    upload_ends_at = serving.clock() + UPLOAD_SECONDS
+    serving.watchdog.arm(
+        emergency_end(accepted_at, serving.build_timeout_seconds) - serving.clock()
+    )
+    return _hand_over_upload(connection, serving, record, upload_ends_at)
 
 
 def hand_over(
     connection: socket.socket, serving: Serving, accepted_at: float
 ) -> LifeEnd | None:
-    """Give the connection to a gated wire child; None keeps the life."""
-    descriptor = connection.fileno()
-    command = [
-        sys.executable,
-        "-I",
-        "-m",
-        "presentator.host.worker_wire",
-        "--connection-fd",
-        str(descriptor),
-    ]
+    """Give the connection to gated wire children; None keeps the life."""
+    record = serving.create_record()
     try:
-        child = serving.spawn(
-            command, environment={"PATH": os.environ["PATH"]}, pass_fds=(descriptor,)
-        )
-    except OSError:
-        return LifeEnd.SPAWN
-    try:
-        if not _admitted_at_gate(child, serving):
-            return _killed(child, LifeEnd.GATE)
-        header_ends_at = accepted_at + HEADER_SECONDS
-        if serving.clock() >= header_ends_at:
-            return _header_expired(child)
-        if not _released(child):
-            return _killed(child, LifeEnd.GATE)
-        remaining = header_ends_at - serving.clock()
-        exit_status = child.wait_within(remaining) if remaining > 0 else None
-        if exit_status is None:
-            return _header_expired(child)
-        if exit_status == WireExit.ACCEPTED:
-            serving.watchdog.arm(
-                emergency_end(accepted_at, serving.build_timeout_seconds)
-                - serving.clock()
-            )
-        return _life_end_after(exit_status)
+        return _hand_over_with_record(connection.fileno(), serving, accepted_at, record)
     finally:
-        child.close_gate()
+        os.close(record)
 
 
 def accept_connections(

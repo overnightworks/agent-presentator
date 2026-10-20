@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import ClassVar
@@ -60,6 +60,8 @@ serving = worker_serving.Serving(
     spawn=stall,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
+    create_record=worker.create_request_record,
+    seal=lambda _record: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     build_timeout_seconds=300.0,
@@ -77,6 +79,7 @@ sys.exit(
 PROBE = """
 import json, os, sys
 descriptor = int(sys.argv[1])
+record = int(sys.argv[2])
 open_descriptors = sorted(
     int(name)
     for name in os.listdir("/proc/self/fd")
@@ -86,6 +89,7 @@ report = {
     "stdin": os.readlink("/proc/self/fd/0"),
     "descriptors": open_descriptors,
     "connection": descriptor,
+    "record": record,
     "working_directory": os.getcwd(),
     "umask": os.umask(0),
     "session_leader": os.getsid(0) == os.getpid(),
@@ -109,7 +113,15 @@ def marker_writer(marker: Path) -> GatedChild:
 
 def run_program(source: str, command: Sequence[str]) -> list[str]:
     connection_flag = command.index("--connection-fd")
-    return [sys.executable, "-I", "-c", source, command[connection_flag + 1]]
+    record_flag = command.index("--record-fd")
+    return [
+        sys.executable,
+        "-I",
+        "-c",
+        source,
+        command[connection_flag + 1],
+        command[record_flag + 1],
+    ]
 
 
 def spawn_probe(source: str) -> Callable[..., WireChild]:
@@ -136,6 +148,8 @@ def serving_with(
         spawn=spawn,
         gate_admits=lambda _status: admits,
         sweep=lambda _deadline: quiet,
+        create_record=worker.create_request_record,
+        seal=worker.seal_record,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         build_timeout_seconds=300.0,
@@ -186,6 +200,7 @@ class ProbeReport:
     stdin: str
     descriptors: list[int]
     connection: int
+    record: int
     working_directory: str
     umask: int
     session_leader: bool
@@ -214,7 +229,10 @@ def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
     report = hand_over_probe(connection_pair, monkeypatch)
 
     assert report.stdin == "/dev/null"
-    assert set(report.descriptors) == INHERITED_DESCRIPTORS | {report.connection}
+    assert set(report.descriptors) == INHERITED_DESCRIPTORS | {
+        report.connection,
+        report.record,
+    }
     assert report.working_directory == "/"
     assert report.umask == RELEASED_UMASK
     assert report.session_leader
@@ -466,13 +484,8 @@ class RealServing:
         assert self.swept.acquire(timeout=WAIT_SECONDS)
 
     def start(self) -> threading.Thread:
-        serving = Serving(
-            spawn=self.spawn,
-            gate_admits=lambda _status: True,
-            sweep=self.sweep,
-            watchdog=self.watchdog,
-            clock=time.monotonic,
-            build_timeout_seconds=300.0,
+        serving = replace(
+            serving_with(self.spawn), sweep=self.sweep, watchdog=self.watchdog
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
@@ -559,7 +572,7 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
 
 
-def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
+def test_a_valid_step_is_answered_with_status_by_the_upload_child_and_ends_the_life(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
@@ -567,7 +580,7 @@ def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
         reply = run.serving.exchange(run.thread, VALID_STEP)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == b""
+    assert reply.received == STATUS
     assert not reply.ended_by_reset
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]

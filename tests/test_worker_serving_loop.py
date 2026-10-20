@@ -18,6 +18,7 @@ from presentator.host.worker_wire import WireExit
 from tests.worker_support import (
     ACCEPT_TIME,
     ADMITTING_PATH,
+    CHILD_LEG,
     CONNECTIONS,
     FOREIGN_UID,
     OWN_GID,
@@ -186,10 +187,13 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         "-I",
         "-m",
         "presentator.host.worker_wire",
+        "--role",
+        "idle",
         "--connection-fd",
         str(spawned.pass_fds[0]),
+        "--record-fd",
+        str(spawned.pass_fds[1]),
     ]
-    assert len(spawned.pass_fds) == 1
 
 
 def accept_from(
@@ -249,12 +253,10 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
 
     assert life.events == [
         "arm 7.0",
-        "spawn",
-        "status",
-        "release",
-        "wait-within",
+        *CHILD_LEG,
         f"arm {rearmed_for}",
-        "close-gate",
+        "seal",
+        *CHILD_LEG,
     ]
 
 
@@ -292,15 +294,7 @@ LIFE_ENDS = {
     "an accepted step": (
         lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
         LifeEnd.STEP_ACCEPTED,
-        [
-            "arm 7.0",
-            "spawn",
-            "status",
-            "release",
-            "wait-within",
-            "arm 447.0",
-            "close-gate",
-        ],
+        ["arm 7.0", *CHILD_LEG, "arm 447.0", "seal", *CHILD_LEG],
     ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),

@@ -1,5 +1,6 @@
 """Shared arrangement for the build worker's socket and serving-loop tests."""
 
+import errno
 import os
 import socket
 import threading
@@ -13,6 +14,7 @@ import pytest
 
 from presentator.adapters.build_wire import read_request
 from presentator.host import worker
+from presentator.host.worker import create_request_record
 from presentator.host.worker_serving import Serving
 from presentator.host.worker_wire import WireExit
 
@@ -47,6 +49,9 @@ ACCEPT_TIME = 100.0
 ADMITTING_PATH = "/opt/test/bin"
 
 
+CHILD_LEG = ["spawn", "status", "release", "wait-within", "close-gate"]
+
+
 @dataclass(frozen=True)
 class Spawned:
     """What the controller asked a spawn for."""
@@ -54,6 +59,26 @@ class Spawned:
     command: Sequence[str]
     environment: Mapping[str, str]
     pass_fds: Sequence[int]
+
+
+class RecordingCreation:
+    """Remembers the record the controller created and which object it is."""
+
+    descriptor: int
+    identity: tuple[int, int]
+
+    def __call__(self) -> int:
+        self.descriptor = create_request_record()
+        made = os.fstat(self.descriptor)
+        self.identity = (made.st_dev, made.st_ino)
+        return self.descriptor
+
+    def is_closed(self) -> bool:
+        try:
+            held = os.fstat(self.descriptor)
+        except OSError as error:
+            return error.errno == errno.EBADF
+        return (held.st_dev, held.st_ino) != self.identity
 
 
 @dataclass
@@ -66,6 +91,18 @@ class ScriptedLife:
     gate_admits: bool = True
     release_error: OSError | None = None
     exit_status: int = WireExit.CLOSED
+    upload_exit_status: int = WireExit.UPLOADED
+    upload_stalled: bool = False
+    upload_spawn_error: OSError | None = None
+    upload_gate_admits: bool = True
+    seal_error: OSError | None = None
+    arm_takes: float = 0.0
+    seal_takes: float = 0.0
+    upload_spawn_takes: float = 0.0
+    wait_error: OSError | None = None
+    wait_error_at: int = 0
+    kill_error: BaseException | None = None
+    reap_error: BaseException | None = None
     headers_stalled: int = 0
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
@@ -77,6 +114,8 @@ class ScriptedLife:
     sweep_quiet: bool = True
     connections_served_before_sweep_fails: int | None = None
     spawned: list[Spawned] = field(default_factory=list[Spawned])
+    sealed_descriptors: list[int] = field(default_factory=list[int])
+    creation: RecordingCreation = field(default_factory=RecordingCreation)
 
     def spawn(
         self,
@@ -89,7 +128,18 @@ class ScriptedLife:
         self.events.append("spawn")
         if self.spawn_error is not None:
             raise self.spawn_error
+        if self.uploading:
+            self.clock_now += self.upload_spawn_takes
+            if self.upload_spawn_error is not None:
+                raise self.upload_spawn_error
         return self
+
+    @property
+    def uploading(self) -> bool:
+        return "upload" in self.spawned[-1].command
+
+    def admits(self, _status: str) -> bool:
+        return self.upload_gate_admits if self.uploading else self.gate_admits
 
     def status_text(self) -> str:
         self.events.append("status")
@@ -106,10 +156,19 @@ class ScriptedLife:
 
     def kill(self) -> None:
         self.events.append("kill")
+        if self.kill_error is not None:
+            raise self.kill_error
 
     def wait_within(self, seconds: float) -> int | None:
         self.events.append("wait-within")
         self.budgets_waited.append(seconds)
+        if (
+            self.wait_error is not None
+            and len(self.budgets_waited) == self.wait_error_at + 1
+        ):
+            raise self.wait_error
+        if self.uploading:
+            return None if self.upload_stalled else self.upload_exit_status
         if len(self.budgets_waited) <= self.headers_stalled:
             return None
         if self.answer:
@@ -124,6 +183,8 @@ class ScriptedLife:
 
     def wait(self) -> int:
         self.events.append("wait")
+        if self.reap_error is not None:
+            raise self.reap_error
         return self.exit_status
 
     def clock(self) -> float:
@@ -144,6 +205,14 @@ class ScriptedLife:
 
     def arm(self, remaining: float) -> None:
         self.events.append(f"arm {remaining}")
+        self.clock_now += self.arm_takes
+
+    def seal(self, descriptor: int) -> None:
+        self.events.append("seal")
+        self.sealed_descriptors.append(descriptor)
+        self.clock_now += self.seal_takes
+        if self.seal_error is not None:
+            raise self.seal_error
 
     def cancel(self) -> None:
         self.events.append("cancel")
@@ -151,8 +220,10 @@ class ScriptedLife:
     def serving(self) -> Serving:
         return Serving(
             spawn=self.spawn,
-            gate_admits=lambda _status: self.gate_admits,
+            gate_admits=self.admits,
             sweep=self.sweep,
+            create_record=self.creation,
+            seal=self.seal,
             watchdog=self,
             clock=self.clock,
             build_timeout_seconds=self.build_timeout_seconds,

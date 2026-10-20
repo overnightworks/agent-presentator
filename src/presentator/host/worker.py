@@ -2,6 +2,7 @@
 
 import argparse
 import ctypes
+import fcntl
 import grp
 import logging
 import os
@@ -12,7 +13,7 @@ import stat
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from functools import partial
 from pathlib import Path
 from typing import Protocol
@@ -601,6 +602,40 @@ def serve(
     return 0
 
 
+# The Python standard library lacks these Linux constants (linux/fcntl.h).
+F_ADD_SEALS = 1033
+MFD_CLOEXEC = 1
+MFD_ALLOW_SEALING = 2
+
+
+class RecordSeal(IntFlag):
+    """The memfd seals that freeze the request record."""
+
+    SEAL = 1
+    SHRINK = 2
+    GROW = 4
+    WRITE = 8
+
+
+RECORD_SEALS = RecordSeal.WRITE | RecordSeal.GROW | RecordSeal.SHRINK | RecordSeal.SEAL
+
+
+def create_request_record() -> int:
+    """A sealable, close-on-exec memfd; the standalone Python has no os.memfd_create."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
+    libc.memfd_create.restype = ctypes.c_int
+    descriptor = libc.memfd_create(b"request-record", MFD_CLOEXEC | MFD_ALLOW_SEALING)
+    if descriptor < 0:
+        raise OSError(ctypes.get_errno(), "memfd_create failed")
+    return descriptor
+
+
+def seal_record(descriptor: int) -> None:
+    """Freeze the request record; EBUSY while a writable shared mapping exists."""
+    fcntl.fcntl(descriptor, F_ADD_SEALS, RECORD_SEALS)
+
+
 def real_serving(settings: WorkerSettings) -> Serving:
     """The effects of a serving life on this machine, bounded by the settings."""
     return Serving(
@@ -618,6 +653,8 @@ def real_serving(settings: WorkerSettings) -> Serving:
                 sleep=time.sleep,
             ),
         ),
+        create_record=create_request_record,
+        seal=seal_record,
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
         build_timeout_seconds=settings.build_timeout_seconds,
