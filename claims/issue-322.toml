@@ -1,8 +1,0 @@
-claim_id = "ae4d3c5f5af34ff582849b779388a935"
-agent = "claude"
-role = "builder"
-base = "12cca92910e9c297279178573e672ad3a1f9765e"
-branch = "claude/issue-322-k13-1a-webauth-018"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "pyproject.toml", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/application/identity.py", "src/presentator/contracts/models.py", "src/presentator/host/main.py", "src/presentator/ports/identity.py", "tests/adapters/test_identity.py", "tests/api/lobby.py", "tests/api/test_auth.py", "tests/api/test_copresenter.py", "tests/application/fakes.py", "tests/application/test_identity.py", "tests/test_host.py", "uv.lock"]
-opened_commit = "c2ae61508695de7807c15ca16f9350153e30b345"
-whole_reason = "One decider moves to webauth 0.18.0: the pin, the sessions schema, the store protocol, the guard and the hearing admission, the composition root and the texts that would otherwise lie must change together; the predecessors it replaces are deleted in the same change."
