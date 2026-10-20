@@ -510,6 +510,8 @@ class RealServing:
 
 HELLO = b"PBW\x01\x01\x00\x02{}"
 STATUS = b"PBW\x01\x03\x00\x02{}"
+OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
+END = b"\x03" + bytes(12)
 STEP_PREAMBLE = b"PBW\x01\x02"
 
 
@@ -566,16 +568,17 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
 
 
-def test_a_valid_step_is_answered_with_status_by_the_upload_child_and_ends_the_life(
+def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_life(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
     with dripped_header(socket_directory) as run:
-        reply = run.serving.exchange(run.thread, VALID_STEP + b"\x03" + bytes(12))
+        reply = run.serving.exchange(run.thread, VALID_STEP + END)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == STATUS
+    assert reply.received == STATUS + OUTCOME_FAILED + END
     assert not reply.ended_by_reset
+    assert run.spawns.roles == ["idle", "upload", "send"]
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
     assert run.serving.sweep_deadlines == []
@@ -592,6 +595,7 @@ class RecordingSpawn:
     """The real gated spawn that remembers every child and can be made to fail."""
 
     children: list[GatedChild] = field(default_factory=list[GatedChild])
+    roles: list[str] = field(default_factory=list[str])
     stopped: bool = False
 
     def __call__(
@@ -608,6 +612,7 @@ class RecordingSpawn:
             command, identity=OWN_IDENTITY, environment=environment, pass_fds=pass_fds
         )
         self.children.append(child)
+        self.roles.append(command[command.index("--role") + 1])
         return child
 
     def still_running(self) -> list[GatedChild]:

@@ -30,6 +30,7 @@ OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
 PATH = "/usr/bin:/bin"
 STATUS = b"PBW\x01\x03\x00\x02{}"
+OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
 STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
 VALID_STEP = b"PBW\x01\x02" + len(STEP_HEADER).to_bytes(2, "big") + STEP_HEADER
 END = b"\x03" + bytes(12)
@@ -39,6 +40,7 @@ import os, sys
 os.pwrite(int(sys.argv[2]), bytes.fromhex(sys.argv[3]), 0)
 sys.exit(5)
 """
+EXITING_SEVEN = "import sys; sys.exit(7)"
 SLEEPER = "import time; time.sleep(120)"
 INODES_REPORTER = """
 import json, os, sys
@@ -103,6 +105,15 @@ class Life:
 
 
 def read_to_end(client: socket.socket) -> bytes:
+    """Read until a clean EOF; a reset raises."""
+    received = b""
+    while chunk := client.recv(4096):
+        received += chunk
+    return received
+
+
+def read_to_end_or_reset(client: socket.socket) -> bytes:
+    """Read until EOF or a reset, for refusals that leave bytes unread."""
     received = b""
     with suppress(ConnectionResetError):
         while chunk := client.recv(4096):
@@ -112,11 +123,12 @@ def read_to_end(client: socket.socket) -> bytes:
 
 @dataclass(frozen=True)
 class LifeScenario:
-    """What a life runs on besides the spawn: the record effects and the deck."""
+    """What a life runs on besides the spawn: record effects, deck and reply reader."""
 
     seal: Callable[[int], None] = worker.seal_record
     create_record: Callable[[], int] = worker.create_request_record
     deck: Path | None = None
+    reader: Callable[[socket.socket], bytes] = read_to_end_or_reset
 
 
 def run_life(
@@ -181,7 +193,7 @@ def _run_life_at(
             converse(client)
             thread.join(WAIT_SECONDS)
             controller_end.close()
-            reply = read_to_end(client)
+            reply = scenario.reader(client)
         finally:
             _end_life(spawn, thread, client)
         return Life(outcome[0], reply, spawn)
@@ -202,13 +214,13 @@ def test_the_upload_child_answers_status_from_the_record_the_idle_child_wrote() 
 
     life = run_life(
         VALID_STEP + END,
-        ChainSpawn(),
+        ChainSpawn(programs={"send": [EXITING_SEVEN]}),
         LifeScenario(seal=seal_then_read_as_the_test),
     )
 
     assert life.reply == STATUS
-    assert life.life_end == LifeEnd.STEP_ACCEPTED
-    assert life.spawn.roles == ["idle", "upload"]
+    assert life.life_end == LifeEnd.CONSUMED
+    assert life.spawn.roles == ["idle", "upload", "send"]
     assert written == [STEP_HEADER]
 
 

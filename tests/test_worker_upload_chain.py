@@ -14,6 +14,7 @@ from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     END,
+    EXITING_SEVEN,
     HELLO,
     PATH,
     STATUS,
@@ -31,7 +32,6 @@ mode = stat.S_IMODE(os.stat(sys.argv[3]).st_mode)
 os.write(int(sys.argv[1]), str(oct(mode)).encode())
 sys.exit(6)
 """
-EXITING_SEVEN = "import sys; sys.exit(7)"
 CONTROLLER_UMASK = 0o077
 
 
@@ -60,7 +60,7 @@ def read_status(client: socket.socket) -> None:
     assert received == STATUS
 
 
-def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_accepted(
+def test_an_end_only_upload_is_answered_with_status_and_a_fake_sender_consumes_the_life(
     sandbox: Path,
 ) -> None:
     modes_during_upload: list[int] = []
@@ -70,11 +70,13 @@ def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_acce
         modes_during_upload.append(deck_mode(sandbox))
         client.sendall(END)
 
-    life = run_life(VALID_STEP, ChainSpawn(), on_deck(sandbox), status_then_end)
+    spawn = ChainSpawn(programs={"send": [EXITING_SEVEN]})
+
+    life = run_life(VALID_STEP, spawn, on_deck(sandbox), status_then_end)
 
     assert life.reply == b""
-    assert life.life_end == LifeEnd.STEP_ACCEPTED
-    assert life.spawn.roles == ["idle", "upload"]
+    assert life.life_end == LifeEnd.CONSUMED
+    assert life.spawn.roles == ["idle", "upload", "send"]
     assert modes_during_upload == [DECK_OPEN_MODE]
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
@@ -83,12 +85,14 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
     sandbox: Path,
 ) -> None:
     deck = sandbox / "deck"
-    spawn = ChainSpawn(programs={"upload": [DECK_MODE_REPORTER, str(deck)]})
+    spawn = ChainSpawn(
+        programs={"upload": [DECK_MODE_REPORTER, str(deck)], "send": [EXITING_SEVEN]}
+    )
 
     life = run_life(VALID_STEP, spawn, LifeScenario(deck=deck))
 
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
-    assert life.life_end == LifeEnd.STEP_ACCEPTED
+    assert life.life_end == LifeEnd.CONSUMED
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
 

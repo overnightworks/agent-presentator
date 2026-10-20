@@ -93,7 +93,7 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
         close_deck=close_noting_mode,
     )
 
-    assert hand_over(connection, serving, ACCEPT_TIME) == LifeEnd.STEP_ACCEPTED
+    assert hand_over(connection, serving, ACCEPT_TIME) == LifeEnd.CONSUMED
     assert modes_when_closing == [DECK_OPEN_MODE]
     assert mode_of(deck) == DECK_CLOSED_MODE
 
@@ -105,7 +105,7 @@ def test_the_deck_is_opened_after_the_seal_and_closed_after_the_upload_waited(
 
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
 
-    assert outcome == LifeEnd.STEP_ACCEPTED
+    assert outcome == LifeEnd.CONSUMED
     names = [event.split()[0] for event in life.events]
     opened = names.index("open-deck")
     assert names[opened - 1] == "seal"

@@ -16,7 +16,7 @@ from presentator.adapters.build_wire import read_request
 from presentator.host import worker
 from presentator.host.worker import create_request_record
 from presentator.host.worker_serving import Serving
-from presentator.host.worker_wire import WireExit
+from presentator.host.worker_wire import WireExit, WireRole
 
 OWN_UID = os.getuid()
 
@@ -115,12 +115,20 @@ class ScriptedLife:
     upload_stalled: bool = False
     upload_spawn_error: OSError | None = None
     upload_gate_admits: bool = True
+    send_exit_status: int = WireExit.SENT
+    send_stalled: bool = False
+    send_spawn_error: OSError | None = None
+    send_gate_admits: bool = True
+    send_status: str | OSError = GATED_STATUS
+    send_release_error: OSError | None = None
     seal_error: OSError | None = None
     deck_open_error: OSError | None = None
     deck_close_error: OSError | None = None
     arm_takes: float = 0.0
     seal_takes: float = 0.0
     upload_spawn_takes: float = 0.0
+    send_spawn_takes: float = 0.0
+    upload_runs_for: float = 0.0
     wait_error: OSError | None = None
     wait_error_at: int = 0
     kill_error: BaseException | None = None
@@ -150,31 +158,46 @@ class ScriptedLife:
         self.events.append("spawn")
         if self.spawn_error is not None:
             raise self.spawn_error
-        if self.uploading:
+        if self.role == WireRole.UPLOAD:
             self.clock_now += self.upload_spawn_takes
             if self.upload_spawn_error is not None:
                 raise self.upload_spawn_error
+        if self.role == WireRole.SEND:
+            self.clock_now += self.send_spawn_takes
+            if self.send_spawn_error is not None:
+                raise self.send_spawn_error
         return self
 
     @property
-    def uploading(self) -> bool:
-        return "upload" in self.spawned[-1].command
+    def role(self) -> WireRole:
+        command = self.spawned[-1].command
+        return WireRole(command[command.index("--role") + 1])
 
     def admits(self, _status: str) -> bool:
-        return self.upload_gate_admits if self.uploading else self.gate_admits
+        return {
+            WireRole.IDLE: self.gate_admits,
+            WireRole.UPLOAD: self.upload_gate_admits,
+            WireRole.SEND: self.send_gate_admits,
+        }[self.role]
 
     def status_text(self) -> str:
         self.events.append("status")
         self.clock_now += self.inspection_takes
-        if isinstance(self.status, OSError):
-            raise self.status
-        return self.status
+        status = self.send_status if self.role == WireRole.SEND else self.status
+        if isinstance(status, OSError):
+            raise status
+        return status
 
     def release(self) -> None:
         self.events.append("release")
         self.clock_now += self.release_takes
-        if self.release_error is not None:
-            raise self.release_error
+        error = (
+            self.send_release_error
+            if self.role == WireRole.SEND
+            else self.release_error
+        )
+        if error is not None:
+            raise error
 
     def kill(self) -> None:
         self.events.append("kill")
@@ -189,8 +212,11 @@ class ScriptedLife:
             and len(self.budgets_waited) == self.wait_error_at + 1
         ):
             raise self.wait_error
-        if self.uploading:
+        if self.role == WireRole.UPLOAD:
+            self.clock_now += self.upload_runs_for
             return None if self.upload_stalled else self.upload_exit_status
+        if self.role == WireRole.SEND:
+            return None if self.send_stalled else self.send_exit_status
         if len(self.budgets_waited) <= self.headers_stalled:
             return None
         if self.answer:

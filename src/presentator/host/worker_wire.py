@@ -1,4 +1,4 @@
-"""The wire child's entry: the idle role takes a HELLO or STEP, upload answers."""
+"""The wire child's entry: idle takes a HELLO or STEP, upload and send answer."""
 
 import argparse
 import socket
@@ -12,6 +12,8 @@ from presentator.adapters.build_wire import (
     read_end,
     read_record,
     read_request,
+    send_end,
+    send_failed,
     send_status,
     write_record,
 )
@@ -22,6 +24,7 @@ class WireRole(StrEnum):
 
     IDLE = "idle"
     UPLOAD = "upload"
+    SEND = "send"
 
 
 class WireExit(IntEnum):
@@ -31,6 +34,7 @@ class WireExit(IntEnum):
     ANSWERED = 4
     ACCEPTED = 5
     UPLOADED = 6
+    SENT = 7
 
 
 KEPT_LIFE_EXITS = frozenset({WireExit.CLOSED, WireExit.ANSWERED})
@@ -52,11 +56,17 @@ def _upload(connection: socket.socket, record_fd: int) -> WireExit:
     return WireExit.UPLOADED
 
 
-_ROLES = {WireRole.IDLE: _idle, WireRole.UPLOAD: _upload}
+def _send(connection: socket.socket, _record_fd: int) -> WireExit:
+    send_failed(connection)
+    send_end(connection)
+    return WireExit.SENT
+
+
+_ROLES = {WireRole.IDLE: _idle, WireRole.UPLOAD: _upload, WireRole.SEND: _send}
 
 
 def main(argv: Sequence[str]) -> int:
-    """Run the role: idle answers or accepts, upload decodes, answers and reads END."""
+    """Run the role: idle answers or accepts, upload reads END, send replies."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", type=WireRole, choices=list(WireRole), required=True)
     parser.add_argument("--connection-fd", type=int, required=True)
