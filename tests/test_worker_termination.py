@@ -12,7 +12,6 @@ from typing import IO
 
 import pytest
 
-from presentator.host import worker_termination
 from presentator.host.worker_termination import (
     FaultHandlerWatchdog,
     SweepEffects,
@@ -22,7 +21,6 @@ from presentator.host.worker_termination import (
 )
 
 DEADLINE = 4.0
-INTERVAL = worker_termination.SWEEP_INTERVAL_SECONDS
 LEFTOVER = "4711"
 STDERR_DESCRIPTOR = 2
 
@@ -36,6 +34,7 @@ class FakeProcessTable:
     kill_error: OSError | None = None
     listing_error: OSError | None = None
     now: float = 0.0
+    listing_takes: float = 0.0
     sleeps: list[float] = field(default_factory=list[float])
     rounds: int = 0
 
@@ -49,6 +48,7 @@ class FakeProcessTable:
     def list_process_ids(self) -> Sequence[str]:
         if self.listing_error is not None:
             raise self.listing_error
+        self.now += self.listing_takes
         return self.processes
 
     def sleep(self, seconds: float) -> None:
@@ -97,8 +97,23 @@ def test_a_round_comes_every_fifty_milliseconds_and_the_last_wait_is_clipped() -
 
     assert not sweep(table.effects(), deadline)
 
-    assert table.sleeps == pytest.approx([INTERVAL, INTERVAL, deadline - 2 * INTERVAL])
+    assert table.sleeps == pytest.approx([0.05, 0.05, 0.02])
     assert table.now == pytest.approx(deadline)
+
+
+LATE_TABLES = {
+    "entered after its deadline": FakeProcessTable(now=5.0),
+    "a listing that crosses the deadline": FakeProcessTable(
+        now=3.99, listing_takes=0.26
+    ),
+}
+
+
+@pytest.mark.parametrize("table", LATE_TABLES.values(), ids=LATE_TABLES.keys())
+def test_only_pid_one_left_after_the_deadline_is_not_quiet(
+    table: FakeProcessTable,
+) -> None:
+    assert not sweep(table.effects(), DEADLINE)
 
 
 def test_a_listing_error_is_not_quiet() -> None:
@@ -194,8 +209,11 @@ class FaultHandlerCalls:
 def fake_faulthandler(monkeypatch: pytest.MonkeyPatch) -> Iterator[FaultHandlerCalls]:
     calls = FaultHandlerCalls()
 
-    def arm(timeout: float, *, exit: bool, file: IO[str]) -> None:  # noqa: A002
-        calls.armed.append((timeout, exit, file))
+    def arm(timeout: float, **options: bool | IO[str]) -> None:
+        exits, file = options["exit"], options["file"]
+        assert isinstance(exits, bool)
+        assert not isinstance(file, bool)
+        calls.armed.append((timeout, exits, file))
 
     def cancel() -> None:
         calls.cancelled += 1

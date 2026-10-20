@@ -20,7 +20,6 @@ from presentator.adapters import worker_children
 from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
 from presentator.host import worker
 from presentator.host.worker import LifeEnd, Serving, WireChild
-from presentator.host.worker_wire import WireExit
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -31,6 +30,7 @@ INHERITED_DESCRIPTORS = {0, 1, 2}
 RELEASED_UMASK = 0o022
 CURRENT_DIRECTORY_KEY = "PWD"
 PATH = "/usr/bin:/bin"
+SECOND_CONNECTION = 2
 STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
@@ -40,12 +40,17 @@ from presentator.host.worker_termination import FaultHandlerWatchdog
 def stall(*_arguments, **_keywords):
     ctypes.PyDLL(None).pause()
 
+def clock_announcing_each_reading():
+    reading = time.monotonic()
+    print(reading, flush=True)
+    return reading
+
 serving = worker.Serving(
     spawn=stall,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
     watchdog=FaultHandlerWatchdog(),
-    clock=time.monotonic,
+    clock=clock_announcing_each_reading,
 )
 sys.exit(
     worker.serve(
@@ -223,21 +228,20 @@ def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_repl
 
 
 @pytest.mark.parametrize(
-    ("release_text", "released"),
-    [(b"go\n", False), (b"go", True)],
+    "release_text",
+    [None, b"go"],
     ids=["a bare end of file", "go before the end of file"],
 )
 def test_a_gate_that_is_not_released_with_a_line_never_runs_the_program(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    release_text: bytes,
-    released: bool,  # noqa: FBT001
+    release_text: bytes | None,
 ) -> None:
     marker = tmp_path / "marker"
-    monkeypatch.setattr(worker_children, "RELEASE", release_text)
     child = marker_writer(marker)
 
-    if released:
+    if release_text is not None:
+        monkeypatch.setattr(worker_children, "RELEASE", release_text)
         child.release()
     child.close_gate()
 
@@ -291,7 +295,6 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
     )
     child.release()
     child.close_gate()
-    child.close_gate()
     child.wait()
     foreign = ChildIdentity(OWN_UID + 100_000, OWN_GID, extra_groups=None)
     with pytest.raises(PermissionError):
@@ -302,26 +305,16 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
     assert open_descriptor_count() == before
 
 
-def test_a_release_after_the_gate_is_closed_is_a_broken_pipe() -> None:
-    child = spawn_gated(
-        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
-    )
-    child.close_gate()
-    child.wait()
-
-    with pytest.raises(BrokenPipeError):
-        child.release()
-
-
 class RecordedPopen:
     """Records how the controller spawns and then fails the spawn."""
 
+    FAILURE: ClassVar[str] = "popen recorded"
     calls: ClassVar[list[tuple[object, dict[str, object]]]] = []
 
     def __init__(self, arguments: object, **keywords: object) -> None:
         """Record the call and fail."""
         self.calls.append((arguments, keywords))
-        raise OSError
+        raise OSError(self.FAILURE)
 
 
 def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
@@ -330,7 +323,7 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
     monkeypatch.setattr(RecordedPopen, "calls", [])
     monkeypatch.setattr(worker_children.subprocess, "Popen", RecordedPopen)
 
-    with pytest.raises(OSError):  # noqa: PT011
+    with pytest.raises(OSError, match=RecordedPopen.FAILURE):
         worker.REAL_SERVING.spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
 
     [(_arguments, keywords)] = RecordedPopen.calls
@@ -364,7 +357,7 @@ def test_the_real_entry_resets_a_client_that_wrote_a_byte_twice_in_one_process(
 
     def sweep_then_end_the_second_time(deadline: float) -> bool:
         sweeps.append(deadline)
-        return len(sweeps) < 2  # noqa: PLR2004
+        return len(sweeps) < SECOND_CONNECTION
 
     entry = partial(spawn_gated, identity=OWN_IDENTITY)
     serving = Serving(
@@ -389,7 +382,7 @@ def test_the_real_entry_resets_a_client_that_wrote_a_byte_twice_in_one_process(
     )
     thread.start()
 
-    for _ in range(2):
+    for _ in range(SECOND_CONNECTION):
         with closing(connect_when_bound(socket_directory, thread.is_alive)) as client:
             client.send(b"x")
             with pytest.raises(ConnectionResetError):
@@ -397,8 +390,7 @@ def test_the_real_entry_resets_a_client_that_wrote_a_byte_twice_in_one_process(
     thread.join(WAIT_SECONDS)
 
     assert outcome == [0]
-    assert len(sweeps) == 2  # noqa: PLR2004
-    assert WireExit.CLOSED == 3  # noqa: PLR2004
+    assert len(sweeps) == SECOND_CONNECTION
 
 
 def connect_when_bound(
@@ -422,19 +414,24 @@ def test_a_stalled_controller_serving_an_idle_connection_exits_one_at_seven_seco
 ) -> None:
     controller = subprocess.Popen(
         [sys.executable, "-I", "-c", STALLED_CONTROLLER, str(socket_directory)],
+        stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     try:
         client = connect_when_bound(socket_directory, lambda: controller.poll() is None)
-        accepted_at = time.monotonic()
         with closing(client):
             exit_status = controller.wait(timeout=WAIT_SECONDS + 5)
-        elapsed = time.monotonic() - accepted_at
+        exited_at = time.monotonic()
+        assert controller.stdout is not None
+        accepted_at = float(controller.stdout.readline())
     finally:
         controller.kill()
         controller.wait()
         assert controller.stderr is not None
         controller.stderr.close()
+        assert controller.stdout is not None
+        controller.stdout.close()
+    elapsed = exited_at - accepted_at
 
     assert exit_status == 1
     assert WATCHDOG_WINDOW[0] <= elapsed <= WATCHDOG_WINDOW[1]

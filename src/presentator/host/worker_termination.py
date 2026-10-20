@@ -27,8 +27,8 @@ class SweepEffects:
 
 
 def sweep(effects: SweepEffects, deadline: float) -> bool:
-    """Kill, reap and list every 50 ms until only PID 1 is left or time is up."""
-    while True:
+    """Kill, reap and list every 50 ms until only PID 1 is left within the deadline."""
+    while effects.clock() <= deadline:
         with suppress(ProcessLookupError):  # no target is left to signal
             effects.kill_all()
         effects.reap()
@@ -36,12 +36,15 @@ def sweep(effects: SweepEffects, deadline: float) -> bool:
             process_ids = effects.list_process_ids()
         except OSError:
             return False
+        remaining = deadline - effects.clock()
+        if remaining < 0:
+            return False
         if set(process_ids) == {PID_ONE}:
             return True
-        remaining = deadline - effects.clock()
-        if remaining <= 0:
+        if remaining == 0:
             return False
         effects.sleep(min(SWEEP_INTERVAL_SECONDS, remaining))
+    return False
 
 
 def reap_children() -> None:

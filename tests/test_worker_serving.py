@@ -8,7 +8,8 @@ import threading
 import time
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import ClassVar, NoReturn, overload
 
@@ -16,6 +17,7 @@ import pytest
 
 from presentator.host import worker
 from presentator.host.worker import LifeEnd, Serving, StartRefusal
+from presentator.host.worker_termination import SweepEffects, sweep
 from presentator.host.worker_wire import WireExit
 
 OWN_UID = os.getuid()
@@ -607,6 +609,28 @@ def accept_from(
     life: ScriptedLife, listener: socket.socket, runtime_uid: int
 ) -> LifeEnd:
     return worker.accept_connections(listener, runtime_uid, life.serving())
+
+
+def test_a_sweep_that_is_quiet_only_after_its_deadline_ends_the_life_armed(
+    volume: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", ADMITTING_PATH)
+    life = ScriptedLife()
+    late = SweepEffects(
+        kill_all=lambda: None,
+        reap=lambda: None,
+        list_process_ids=lambda: ["1"],
+        clock=lambda: ACCEPT_TIME + worker.SWEEP_SECONDS + 1,
+        sleep=lambda _seconds: None,
+    )
+    late_serving = replace(life.serving(), sweep=partial(sweep, late))
+    with listening_with(volume, accepts=2) as listener:
+        connect(volume)
+        connect(volume)
+        outcome = worker.accept_connections(listener, OWN_UID, late_serving)
+
+    assert outcome == LifeEnd.SWEEP
+    assert "cancel" not in life.events
 
 
 LIFE_ENDS = {

@@ -29,7 +29,7 @@ class GatedChild:
     def __init__(self, process: "subprocess.Popen[bytes]", gate_write: int) -> None:
         """Take over the process and the write end of its gate pipe."""
         self._process = process
-        self._gate_write: int | None = gate_write
+        self._gate_write = gate_write
 
     def status_text(self) -> str:
         """Read the kernel's account of the child; an unreadable one raises."""
@@ -37,8 +37,6 @@ class GatedChild:
 
     def release(self) -> None:
         """Let the program exec; a dead child raises BrokenPipeError."""
-        if self._gate_write is None:
-            raise BrokenPipeError
         os.write(self._gate_write, RELEASE)
 
     def kill(self) -> None:
@@ -50,10 +48,8 @@ class GatedChild:
         return self._process.wait()
 
     def close_gate(self) -> None:
-        """Close the write end of the gate; closing twice is harmless."""
-        if self._gate_write is not None:
-            os.close(self._gate_write)
-            self._gate_write = None
+        """Close the write end of the gate; the caller closes it once."""
+        os.close(self._gate_write)
 
 
 def spawn_gated(
