@@ -1,7 +1,0 @@
-claim_id = "c8948ee14dc74d078dca4083f8dfdd94"
-agent = "claude"
-role = "builder"
-base = "f9ea3e9e6fdd0f3e678a68a8bca3efc3b096dc73"
-branch = "claude/issue-301-wackliger-browser-test-1024"
-scope = ["frontend/tests/presenter-controls.browser.test.ts"]
-opened_commit = "abaf5c6119c7867db9a361e6a225f8ea4a98abc7"
