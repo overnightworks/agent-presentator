@@ -4,7 +4,7 @@ import os
 import shutil
 import stat
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -120,3 +120,13 @@ def remote(tmp_path: Path) -> GitRemote:
 def another_remote(tmp_path: Path) -> GitRemote:
     """A second one, for what two sources of one instance do to one another."""
     return _a_remote(tmp_path, "another-remote")
+
+
+@pytest.fixture
+def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    before = os.umask(0)
+    os.umask(before)
+    directory = tmp_path_factory.mktemp("v")
+    directory.chmod(0o700)
+    yield directory
+    os.umask(before)

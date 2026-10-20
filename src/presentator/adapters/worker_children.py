@@ -47,6 +47,13 @@ class GatedChild:
         """Wait for the child and return its exit status (negative for a signal)."""
         return self._process.wait()
 
+    def wait_within(self, seconds: float) -> int | None:
+        """Wait at most the seconds; None when the child is still running."""
+        try:
+            return self._process.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return None
+
     def close_gate(self) -> None:
         """Close the write end of the gate; the caller closes it once."""
         os.close(self._gate_write)
