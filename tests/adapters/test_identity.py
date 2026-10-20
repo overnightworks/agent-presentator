@@ -398,3 +398,64 @@ def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untou
     assert set(database.parent.iterdir()) - folder_before <= {
         database.with_name(database.name + "-shm")
     }
+
+
+@pytest.mark.parametrize(
+    ("expires_at", "stays"),
+    [
+        (_NOW - timedelta(seconds=1), False),
+        (_NOW, True),
+        (_NOW + timedelta(seconds=1), True),
+    ],
+    ids=["before the sweep", "at the sweep", "after the sweep"],
+)
+def test_a_sweep_deletes_a_session_only_when_it_ended_before_the_sweep(
+    sessions: SqliteSessionRecordStore,
+    expires_at: datetime,
+    *,
+    stays: bool,
+) -> None:
+    session = sessions.create(
+        "user-1", now=_NOW - SESSION_LIFETIME, expires_at=expires_at
+    )
+
+    deleted = sessions.delete_expired(_NOW)
+
+    assert (sessions.load(session.id) is not None) is stays
+    assert deleted == (0 if stays else 1)
+
+
+def test_a_session_the_sweep_keeps_is_one_the_admission_still_admits(
+    sessions: SqliteSessionRecordStore,
+) -> None:
+    session = sessions.create("user-1", now=_NOW - SESSION_LIFETIME, expires_at=_NOW)
+
+    sessions.delete_expired(_NOW)
+
+    loaded = sessions.load(session.id)
+    assert loaded is not None
+    assert loaded.expires_at == _NOW
+
+
+def dump_without_sessions(database: Path) -> list[str]:
+    with closing(sqlite3.connect(database)) as connection:
+        return [
+            statement
+            for statement in connection.iterdump()
+            if not statement.startswith('INSERT INTO "sessions"')
+        ]
+
+
+def test_a_sweep_leaves_the_accounts_and_every_other_table_as_they_were(
+    database: Path,
+    sessions: SqliteSessionRecordStore,
+) -> None:
+    ended = _NOW - SESSION_LIFETIME
+    sessions.create("user-1", now=ended, expires_at=ended)
+    before = dump_without_sessions(database)
+
+    deleted = sessions.delete_expired(_NOW)
+
+    assert deleted == 1
+    assert any("felix" in statement for statement in before)
+    assert dump_without_sessions(database) == before

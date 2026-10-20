@@ -68,7 +68,7 @@ from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
-from presentator.application.identity import SESSION_LIFETIME
+from presentator.application.identity import SESSION_LIFETIME, SESSION_SWEEP_INTERVAL
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
@@ -78,7 +78,7 @@ from presentator.host.config import (
     cannot_start,
     load_settings,
 )
-from presentator.host.polling import SourcePoller
+from presentator.host.polling import Schedule
 
 _WITHOUT_A_SANDBOX = (
     "build_image and build_volume say what a deck's build runs in and where it"
@@ -102,10 +102,11 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Instance:
-    """What a running instance is: the addresses, and the polling beside them."""
+    """What a running instance is: the addresses, and the schedules beside them."""
 
     lobby: FastAPI
-    poller: SourcePoller
+    poller: Schedule
+    session_sweep: Schedule
 
 
 def build_instance(settings: Settings) -> Instance:
@@ -177,6 +178,7 @@ def build_instance(settings: Settings) -> Instance:
         clock=SystemClock(),
         local_mount=local_mount,
     )
+    sessions = SqliteSessionRecordStore(settings.database)
     pages = Pages(
         preferences=Preferences(
             instance=SqliteInstanceSettingsStore(settings.database),
@@ -190,7 +192,7 @@ def build_instance(settings: Settings) -> Instance:
     # the one refresh that runs at a time.
     return Instance(
         lobby=create_lobby(
-            sessions=SqliteSessionRecordStore(settings.database),
+            sessions=sessions,
             decks=decks,
             pages=pages,
             auth=InstalledAuth(config=web_auth),
@@ -205,9 +207,13 @@ def build_instance(settings: Settings) -> Instance:
                 voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
             ),
         ),
-        poller=SourcePoller(
-            refresh=decks.refresh,
+        poller=Schedule(
+            chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
+        ),
+        session_sweep=Schedule(
+            chore=lambda: sessions.delete_expired(clock.now()),
+            interval=SESSION_SWEEP_INTERVAL,
         ),
     )
 
@@ -281,7 +287,7 @@ def main() -> None:
 
 
 async def _serve(instance: Instance, settings: Settings) -> None:
-    """Poll for as long as the server answers, and stop with it."""
+    """Poll and sweep for as long as the server answers, and stop with it."""
     server = uvicorn.Server(
         uvicorn.Config(
             instance.lobby,
@@ -290,5 +296,5 @@ async def _serve(instance: Instance, settings: Settings) -> None:
             proxy_headers=False,
         ),
     )
-    async with instance.poller.polling():
+    async with instance.poller.polling(), instance.session_sweep.polling():
         await server.serve()
