@@ -71,6 +71,7 @@ class ScriptedLife:
     release_takes: float = 0.0
     budgets_waited: list[float] = field(default_factory=list[float])
     sweep_error: OSError | None = None
+    answer: bytes = b""
     sweep_quiet: bool = True
     connections_served_before_sweep_fails: int | None = None
     spawned: list[Spawned] = field(default_factory=list[Spawned])
@@ -109,6 +110,8 @@ class ScriptedLife:
         self.budgets_waited.append(seconds)
         if len(self.budgets_waited) <= self.headers_stalled:
             return None
+        if self.answer:
+            os.write(self.spawned[-1].pass_fds[0], self.answer)
         return self.exit_status
 
     def wait(self) -> int:

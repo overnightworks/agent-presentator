@@ -452,6 +452,8 @@ def test_a_body_failure_carries_the_serving_error_as_a_note(
     assert any("serving broke" in note for note in body_failure.__notes__)
 
 
+HELLO_FRAME = b"PBW\x01\x01\x00\x02{}"
+STATUS_FRAME = b"PBW\x01\x03\x00\x02{}"
 CUT_OFF_HEADER = [
     "arm 7.0",
     "spawn",
@@ -531,7 +533,11 @@ def test_a_stalled_header_never_ends_the_life_while_the_sweep_is_quiet(
 def test_serve_cuts_a_stalled_header_off_and_serves_the_next_connection_in_one_life(
     volume: Path,
 ) -> None:
-    life = ScriptedLife(headers_stalled=1, connections_served_before_sweep_fails=2)
+    life = ScriptedLife(
+        headers_stalled=1,
+        connections_served_before_sweep_fails=2,
+        answer=STATUS_FRAME,
+    )
     outcome: list[int] = []
     thread = threading.Thread(
         target=lambda: outcome.append(
@@ -550,15 +556,16 @@ def test_serve_cuts_a_stalled_header_off_and_serves_the_next_connection_in_one_l
         first = connect_when_bound(volume, thread)
         assert first.recv(1) == b""
         second = connect(volume)
-        assert second.recv(1) == b""
+        second.sendall(HELLO_FRAME)
+        assert second.recv(len(STATUS_FRAME)) == STATUS_FRAME
         thread.join(WAIT_SECONDS)
     finally:
         life.spawn_error = OSError("stop")
         wake_until_ended(volume, thread)
 
     assert outcome == [0]
-    assert life.events[: len(CUT_OFF_HEADER)] == CUT_OFF_HEADER
-    assert life.events.count("kill") == 1
+    assert len(life.spawned) == CONNECTIONS
+    assert life.events == CUT_OFF_HEADER + ANSWERED_HEADER[:-1]
 
 
 @pytest.mark.parametrize(

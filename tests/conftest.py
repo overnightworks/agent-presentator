@@ -11,8 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.worker_support import PRIVATE_MODE
-
 EXAMPLE_DECK = Path(__file__).parents[1] / "examples" / "hello-deck"
 EXAMPLE_SLUG = EXAMPLE_DECK.name
 EXAMPLE_TITLE = "Hello Co-Presenter"
@@ -129,6 +127,6 @@ def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     before = os.umask(0)
     os.umask(before)
     directory = tmp_path_factory.mktemp("v")
-    directory.chmod(PRIVATE_MODE)
+    directory.chmod(0o700)
     yield directory
     os.umask(before)

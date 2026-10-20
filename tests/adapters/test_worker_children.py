@@ -289,23 +289,31 @@ def test_waiting_within_a_budget_returns_none_and_leaves_the_released_child_aliv
     None
 ):
     child = sleeping_child()
-    child.release()
-    child.close_gate()
     try:
-        assert child.wait_within(SHORT_BUDGET_SECONDS) is None
+        child.release()
+        child.close_gate()
+        waited = child.wait_within(SHORT_BUDGET_SECONDS)
     finally:
         child.kill()
-    assert child.wait() == -signal.SIGKILL
+        reaped_status = child.wait()
+
+    assert waited is None
+    assert reaped_status == -signal.SIGKILL
 
 
 def test_waiting_within_a_budget_returns_the_status_of_a_child_that_exited() -> None:
     child = spawn_gated(
         ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
     )
-    child.release()
-    child.close_gate()
+    try:
+        child.release()
+        child.close_gate()
+        waited = child.wait_within(WAIT_SECONDS)
+    finally:
+        child.kill()
+        child.wait()
 
-    assert child.wait_within(WAIT_SECONDS) == 0
+    assert waited == 0
 
 
 def test_a_dead_child_breaks_the_release_pipe_and_has_no_readable_status() -> None:
@@ -482,21 +490,20 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    serving = RealServing(socket_directory, connections=SECOND_CONNECTION)
-    thread = serving.start()
+    with dripped_header(socket_directory) as run:
+        serving = run.serving
+        for _ in range(SECOND_CONNECTION):
+            before = time.monotonic()
+            reply = serving.exchange(run.thread, HELLO)
+            after = time.monotonic()
+            serving.await_sweep()
 
-    for _ in range(SECOND_CONNECTION):
-        before = time.monotonic()
-        reply = serving.exchange(thread, HELLO)
-        after = time.monotonic()
-        serving.await_sweep()
-
-        assert reply.received == STATUS
-        assert not reply.ended_by_reset
-        assert after - before < HEADER_SECONDS
-        assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
-        assert serving.sweep_deadlines[-1] <= after + SWEEP_SECONDS
-    thread.join(WAIT_SECONDS)
+            assert reply.received == STATUS
+            assert not reply.ended_by_reset
+            assert after - before < HEADER_SECONDS
+            assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
+            assert serving.sweep_deadlines[-1] <= after + SWEEP_SECONDS
+        run.thread.join(WAIT_SECONDS)
 
     assert serving.outcome == [0]
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
@@ -506,14 +513,13 @@ def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    serving = RealServing(socket_directory, connections=SECOND_CONNECTION)
-    thread = serving.start()
-
-    assert serving.exchange(thread, STEP_PREAMBLE_AND_HEADER).received == b""
-    second_reply = serving.exchange(thread, HELLO)
-    assert second_reply.received == STATUS
-    assert not second_reply.ended_by_reset
-    thread.join(WAIT_SECONDS)
+    with dripped_header(socket_directory) as run:
+        serving = run.serving
+        assert serving.exchange(run.thread, STEP_PREAMBLE_AND_HEADER).received == b""
+        second_reply = serving.exchange(run.thread, HELLO)
+        assert second_reply.received == STATUS
+        assert not second_reply.ended_by_reset
+        run.thread.join(WAIT_SECONDS)
 
     assert serving.outcome == [0]
     assert len(serving.sweep_deadlines) == SECOND_CONNECTION
