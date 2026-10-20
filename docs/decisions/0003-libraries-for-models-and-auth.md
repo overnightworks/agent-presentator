@@ -253,9 +253,9 @@ changes anything above `adapters`.
 commits. This host keeps autocommit stores instead: each statement commits on
 its own, so there is nothing to commit or roll back. `WriteLock.hold()` takes
 one `threading.RLock` per process. The sign-in callback takes it twice, for
-admission and for `open_session`; `log_out` and the back-channel logout take it
-once they exist (they are obligations of the logout and back-channel slices).
-That suffices because one
+admission and for `open_session`; the host's calls of webauth's `log_out` and
+`receive_backchannel_logout` take it when the logout and back-channel slices
+(#242 S5, S6) build them. That suffices because one
 lobby process is the only writer of `users` and `sessions`
 ([ADR 0006](0006-sqlite-and-files.md)).
 

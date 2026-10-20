@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import threading
 from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -170,16 +170,17 @@ def _is_a_taken_username(refused: sqlite3.IntegrityError) -> bool:
 class ProcessWriteLock:
     """The one lock the sign-in callback takes for admission and `open_session`.
 
-    Logout and the back-channel logout take it when they are built (ADR 0003).
+    The host's calls of webauth's `log_out` and `receive_backchannel_logout`
+    take it when the logout and back-channel slices (#242 S5, S6) build them.
     Re-entrant, and held only on worker threads, never on the event loop.
     """
 
-    _lock: threading.RLock = field(default_factory=threading.RLock, init=False)
+    primitive: AbstractContextManager[object] = field(default_factory=threading.RLock)
 
     @contextmanager
     def hold(self) -> Generator[None]:
         """Serialize the check-then-write steps of this process."""
-        with self._lock:
+        with self.primitive:
             yield
 
 

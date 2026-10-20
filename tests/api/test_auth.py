@@ -18,6 +18,7 @@ from webauth.middleware.security_headers import (
     FRAME_OPTIONS,
     REFERRER_POLICY,
 )
+from webauth.oidc import PENDING_LOGIN_MAX_AGE_SECONDS
 from webauth.policies import SecurityHeadersPolicy
 
 from presentator.api.auth import CONTENT_SECURITY_POLICY
@@ -573,6 +574,35 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
     assert f"Cookies nach der Anmeldung sind {session_hours} Stunden gültig" in page
+
+
+@pytest.mark.parametrize(
+    "disclosure",
+    [
+        "vier Cookie-Arten",
+        "bleibt es, bis seine {pending_minutes} Minuten ablaufen",
+        (
+            "Ihre Gruppen und, soweit in Keycloak hinterlegt, Ihren Benutzernamen, "
+            "Ihren Namen und Ihre E-Mail-Adresse"
+        ),
+        (
+            "Beim Abmelden bleibt dieses Cookie im Browser, bis es nach "
+            "{session_hours} Stunden abläuft"
+        ),
+    ],
+)
+def test_the_datenschutz_discloses_the_cookie_kinds_the_token_and_the_hint_at_logout(
+    lobby: Lobby,
+    disclosure: str,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+    session_hours = int(SESSION_LIFETIME.total_seconds()) // 3600
+    pending_minutes = PENDING_LOGIN_MAX_AGE_SECONDS // 60
+
+    assert (
+        disclosure.format(pending_minutes=pending_minutes, session_hours=session_hours)
+        in page
+    )
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])

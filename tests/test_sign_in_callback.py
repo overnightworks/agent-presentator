@@ -85,40 +85,44 @@ class RecordingAudit:
 
 
 @dataclass
-class WatchedLock:
-    """The real process lock, which also counts, announces and watches each hold."""
+class ContentionSignalingLock:
+    """A real re-entrant lock that says when a taker found it held."""
 
-    real: ProcessWriteLock = field(default_factory=ProcessWriteLock)
+    contended: threading.Event = field(default_factory=threading.Event)
+    _real: threading.RLock = field(default_factory=threading.RLock)
+
+    def __enter__(self) -> bool:
+        """Take the lock, announcing first when it was already held."""
+        if self._real.acquire(blocking=False):
+            return True
+        self.contended.set()
+        return self._real.acquire()
+
+    def __exit__(self, *_exception: object) -> None:
+        """Let go of the lock."""
+        self._real.release()
+
+
+@dataclass
+class WatchedLock:
+    """The process lock over a contention-signaling primitive, counting its holds."""
+
+    primitive: ContentionSignalingLock = field(default_factory=ContentionSignalingLock)
     holds: int = 0
-    most_holders_at_once: int = 0
     held_on_the_event_loop: bool = False
-    attempted: threading.Semaphore = field(
-        default_factory=lambda: threading.Semaphore(0)
-    )
-    _holders: int = 0
     _mutex: threading.Lock = field(default_factory=threading.Lock)
+
+    @property
+    def contended(self) -> threading.Event:
+        return self.primitive.contended
 
     @contextmanager
     def hold(self) -> Generator[None]:
         with self._mutex:
             self.holds += 1
-        self.attempted.release()
-        with self.real.hold():
-            self._enter()
-            try:
-                yield
-            finally:
-                self._leave()
-
-    def _enter(self) -> None:
-        with self._mutex:
-            self._holders += 1
-            self.most_holders_at_once = max(self.most_holders_at_once, self._holders)
             self.held_on_the_event_loop |= _on_an_event_loop()
-
-    def _leave(self) -> None:
-        with self._mutex:
-            self._holders -= 1
+        with ProcessWriteLock(primitive=self.primitive).hold():
+            yield
 
 
 def _on_an_event_loop() -> bool:
@@ -527,12 +531,10 @@ def test_two_first_sign_ins_of_one_subject_make_one_account_and_two_sessions(
         first = pool.submit(scene.sign_in, scene.browser())
         assert accounts.first_read.wait(_BOUND)
         second = pool.submit(scene.sign_in, scene.browser())
-        assert lock.attempted.acquire(timeout=_BOUND)
-        assert lock.attempted.acquire(timeout=_BOUND)
+        assert lock.contended.wait(_BOUND)
         accounts.release_first.set()
         answers = [first.result(timeout=_BOUND), second.result(timeout=_BOUND)]
 
-    assert lock.most_holders_at_once == 1
     assert [answer.status_code for answer in answers] == [HTTPStatus.SEE_OTHER] * 2
     assert (scene.count("users"), scene.count("sessions")) == (1, 2)
     assert [event.kind for event in scene.audit.events] == [
