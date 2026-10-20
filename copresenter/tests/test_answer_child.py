@@ -45,6 +45,13 @@ report = {{
     "foreign_secret_present": "{foreign_secret}" in environment,
     "home": home,
     "credentials_file_present": (Path(home) / ".claude" / ".credentials.json").exists(),
+    "switches_present": [
+        name
+        for name in ("DISABLE_TELEMETRY", "DISABLE_AUTOUPDATER",
+                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+        if name in environment
+    ],
+    "keeps_no_session": "--no-session-persistence" in sys.argv[1:],
 }}
 print(json.dumps({{"type": "system", "subtype": "init", "tools": [], "slash_commands": [],
                   "mcp_servers": [], "apiKeySource": "none"}}), flush=True)
@@ -172,6 +179,17 @@ def test_child_home_lies_below_the_working_root_and_holds_no_credentials_file(
 
     assert Path(str(report["home"])).is_relative_to(claude.working_root)
     assert report["credentials_file_present"] is False
+
+
+def test_child_runs_with_telemetry_switched_off_and_keeps_no_session(claude: Claude) -> None:
+    report = claude.reported()
+
+    assert report["switches_present"] == [
+        "DISABLE_TELEMETRY",
+        "DISABLE_AUTOUPDATER",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    ]
+    assert report["keeps_no_session"] is True
 
 
 def test_a_normal_turn_leaves_no_home_in_the_working_root(claude: Claude) -> None:

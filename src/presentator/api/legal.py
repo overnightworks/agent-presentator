@@ -285,10 +285,15 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Kopien der Claude-Software:",
-                    "Frage, Deck und Antwort bleiben im Klartext bei der "
-                    "Claude-Software auf dem Server des Betreibers; deren "
-                    "Standardeinstellung sind 30 Tage, eine Obergrenze ist "
-                    "nicht belegt.",
+                    "Die Claude-Software führt jede Frage in einem eigenen "
+                    "privaten Ordner auf dem Server des Betreibers aus, der "
+                    "mit dem Ende der Antwort entfernt wird, und behält keine "
+                    "Sitzung auf der Festplatte. Ihre eigene Telemetrie, ihre "
+                    "Fehlerberichte und ihre nicht notwendigen Verbindungen "
+                    "sind abgeschaltet; die Frage selbst geht weiterhin an "
+                    "Anthropic. Einzige Ausnahme: Lässt sich ein "
+                    "Claude-Prozess nicht beenden, bleibt sein Ordner bis zum "
+                    "Neustart des Dienstes.",
                 ),
                 _point(
                     "CoPresenter-Audio:",
