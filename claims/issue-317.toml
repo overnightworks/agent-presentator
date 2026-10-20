@@ -1,0 +1,8 @@
+claim_id = "9c00c777214e4725b870cfa7fef7d0b3"
+agent = "claude"
+role = "builder"
+base = "2a1e5f16c5afd7e78e0b2ba5d14c5eec33a4c5a7"
+branch = "claude/issue-317-build-worker-a5a-header-frist"
+scope = ["src/presentator/adapters/worker_children.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "tests/adapters/test_worker_children.py", "tests/test_worker_serving.py", "tests/test_worker_serving_loop.py", "tests/worker_support.py"]
+opened_commit = "8c2e2e2dce177a8801131b8aaf6bd30f21690c1d"
+whole_reason = "The H rule and the accept ruling both edit the loop, and the loop must leave worker.py first or the 800-line ratchet turns red; a separate move item would be a refactor with no behaviour for the head to review, and the move commits (production and tests) are verbatim and first."
