@@ -545,10 +545,17 @@ co-presenter. Create it once: run `claude setup-token`, write the one line to
 `~/.secrets/agent-service/claude.token` and set mode `0600`; to renew it, write
 a file beside it and `mv -T` it over. The unit needs no `UnsetEnvironment=`
 line for the login, and old CLI copies under `~/.claude` can be purged. Each
-turn's home lives below `COPRESENTER_CLI_WORKING_ROOT` and is removed when the
-turn ends. When the log says a turn's process group is not confirmed gone, that
-turn's home stays under the root until `presentator-copresenter.service`
-restarts.
+turn's home lives below `COPRESENTER_CLI_WORKING_ROOT`; the service tries to
+remove it when the turn ends. When removal fails, for example because the log
+says a turn's process group is not confirmed gone, it tries again when the
+service stops in an orderly way; if that fails too, or after a crash, SIGKILL or
+OOM, the home stays. To clear leftovers, stop `presentator-copresenter.service`
+(systemd's cgroup kill ends the old processes), remove what is left under
+`COPRESENTER_CLI_WORKING_ROOT`, then start it.
+
+No file under `/etc/claude-code/` on this host may configure an export: the
+Datenschutz says the CLI's own telemetry and nonessential traffic are off, and
+the child's switches do not override a managed export.
 
 After an upgrade, restart `presentator-copresenter.service`, then ask one
 question on stage to see the answer arrive.

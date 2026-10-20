@@ -70,8 +70,10 @@ logged in by the one setup token in `COPRESENTER_CLAUDE_TOKEN_FILE`, the file
 every app on this machine shares. The process does not take an API key. Each
 turn runs in a fresh home below `COPRESENTER_CLI_WORKING_ROOT` with a closed
 environment: the token reaches the child only as `CLAUDE_CODE_OAUTH_TOKEN`, and
-the home is gone when the turn ends. A turn whose process group cannot be shown
-gone leaves its home until `presentator-copresenter.service` restarts.
+the home is removed when the turn ends. Removal is only attempted: when it
+fails, for example because the turn's process group cannot be shown gone, the
+service tries again when it stops in an orderly way, and the home stays until
+it is removed if that fails too or after a crash.
 
 ```sh
 # the shared token file exists once: `claude setup-token`, one line, mode 0600
