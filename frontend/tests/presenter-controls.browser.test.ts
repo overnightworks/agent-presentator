@@ -162,6 +162,17 @@ async function serveFile(directory: string, pathname: string, response: ServerRe
   response.end(await readFile(join(directory, 'index.html')))
 }
 
+// A peer reset while a page tears down is expected on an upgraded socket and
+// would otherwise surface as an unhandled `error` that fails the whole run;
+// any other socket error is kept for the shared `afterEach` to judge.
+const socketErrors: Error[] = []
+
+function recordUnexpectedSocketErrors(socket: import('node:stream').Duplex) {
+  socket.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ECONNRESET') socketErrors.push(error)
+  })
+}
+
 function websocketAcceptKey(key: string) {
   return createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
 }
@@ -201,6 +212,7 @@ async function createOverlayDeckServer(directory: string) {
       'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
       + `Sec-WebSocket-Accept: ${websocketAcceptKey(key)}\r\n\r\n`,
     )
+    recordUnexpectedSocketErrors(socket)
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
   })
@@ -262,6 +274,7 @@ async function startServer() {
     if (hearingMode === 'ready') {
       socket.write(frame(JSON.stringify({ text: 'Where does the handoff slow down?', final: true })))
     }
+    recordUnexpectedSocketErrors(socket)
     hearingSockets.add(socket)
     let closed = false
     const closeHearing = () => {
@@ -413,10 +426,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   cspViolations = []
+  socketErrors.length = 0
 })
 
 afterEach(() => {
   expect(cspViolations).toEqual([])
+  expect(socketErrors).toEqual([])
 })
 
 describe('presenter controls', () => {
