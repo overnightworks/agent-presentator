@@ -31,7 +31,6 @@ from tests.api.lobby import (
     ENGLISH,
     USERNAME,
     Lobby,
-    a_lobby,
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
     a_signed_in_lobby_with_a_built_deck,
@@ -62,7 +61,7 @@ def test_the_lobby_sends_a_visitor_who_is_not_signed_in_to_the_login(
     answer = lobby.client.get("/")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login?next=%2F"
+    assert answer.headers["location"] == "/login/oidc?next=%2F"
 
 
 def test_a_signed_out_browser_keeps_its_requested_path_and_query_at_login(
@@ -72,7 +71,8 @@ def test_a_signed_out_browser_keeps_its_requested_path_and_query_at_login(
 
     assert asked.status_code == HTTPStatus.FOUND
     assert (
-        asked.headers["location"] == "/login?next=%2Fsettings%2Fsources%3Ftab%3Drecent"
+        asked.headers["location"]
+        == "/login/oidc?next=%2Fsettings%2Fsources%3Ftab%3Drecent"
     )
 
 
@@ -158,7 +158,7 @@ def test_a_cookie_the_library_cannot_read_leads_to_the_login_without_a_store_rea
     answer = signed_in_lobby.client.get("/", headers={"cookie": cookie})
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login?next=%2F"
+    assert answer.headers["location"] == "/login/oidc?next=%2F"
     assert signed_in_lobby.people.sessions.loads == 0
 
 
@@ -185,7 +185,7 @@ def test_there_is_no_first_start_page_for_a_signed_out_reader_either(
 def test_the_login_page_offers_no_form_and_no_password_field(lobby: Lobby) -> None:
     page = lobby.client.get("/login").text
 
-    assert ENGLISH.login_title in page
+    assert ENGLISH.logged_out_title in page
     assert "<form" not in page
     assert 'type="password"' not in page
 
@@ -263,15 +263,6 @@ def test_a_lobby_reached_over_https_sends_strict_transport_security(
     answer = signed_in_lobby.client.get("/")
 
     assert answer.headers["strict-transport-security"] == _STRICT_TRANSPORT_SECURITY
-
-
-def test_a_lobby_reached_over_plain_http_sends_no_hsts() -> None:
-    lobby = a_lobby(cookie_secure=False)
-    lobby.sign_in()
-
-    answer = lobby.client.get("/")
-
-    assert "strict-transport-security" not in answer.headers
 
 
 def test_the_permissions_policy_admits_only_the_copresenters_own_microphone(
@@ -359,7 +350,7 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     answer = lobby.client.get("/deck/knowledge-fabric")
 
     assert answer.status_code == HTTPStatus.FOUND
-    assert answer.headers["location"] == "/login?next=%2Fdeck%2Fknowledge-fabric"
+    assert answer.headers["location"] == "/login/oidc?next=%2Fdeck%2Fknowledge-fabric"
 
 
 @pytest.mark.parametrize(
@@ -383,7 +374,7 @@ def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
-    assert asked.headers["location"] == "/login?next=%2Fsources%2Ftalks%2Ffetch"
+    assert asked.headers["location"] == "/login/oidc?next=%2Fsources%2Ftalks%2Ffetch"
 
 
 def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
@@ -477,7 +468,7 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert walked_out.headers["location"] == "/login?next=%2F"
+    assert walked_out.headers["location"] == "/login/oidc?next=%2F"
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(

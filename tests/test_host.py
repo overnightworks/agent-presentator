@@ -18,8 +18,6 @@ from webauth.config import installed_web_auth_config
 from webauth.cookies import (
     DEFAULT_CSRF_COOKIE_NAME,
     DEFAULT_SESSION_COOKIE_NAME,
-    PLAIN_CSRF_COOKIE_NAME,
-    PLAIN_SESSION_COOKIE_NAME,
 )
 
 from presentator.adapters.decks import (
@@ -48,6 +46,7 @@ from presentator.host.main import Instance
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
+    configure_oidc,
     hand_over_session_cookies,
 )
 from tests.conftest import (
@@ -127,6 +126,7 @@ def bare_environment(
     # every such test naming the mount for itself.
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
+    configure_oidc(monkeypatch, tmp_path)
     monkeypatch.setenv(
         "PRESENTATOR_COPRESENTER_SOCKET",
         str(tmp_path / "copresenter.sock"),
@@ -213,6 +213,7 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
     "origin",
     [
         "*",
+        "http://presentator.test",
         "https://user@presentator.test",
         "https://presentator.test/",
         "https://presentator.test/path",
@@ -221,7 +222,7 @@ def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
         "https://presentator.test:not-a-port",
     ],
 )
-def test_copresenter_public_origin_must_be_one_canonical_origin(
+def test_the_public_origin_must_be_one_canonical_https_origin(
     environment: pytest.MonkeyPatch,
     origin: str,
 ) -> None:
@@ -350,38 +351,18 @@ def test_the_real_stack_keeps_a_seeded_person_in_until_they_sign_out() -> None:
     assert real_lobby.get("/").status_code == HTTPStatus.FOUND
 
 
-@pytest.mark.parametrize(
-    ("origin", "cookie_names", "secure"),
-    [
-        pytest.param(
-            "https://presentator.test",
-            (DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME),
-            True,
-            id="https-origin",
-        ),
-        pytest.param(
-            "http://presentator.test",
-            (PLAIN_SESSION_COOKIE_NAME, PLAIN_CSRF_COOKIE_NAME),
-            False,
-            id="http-origin",
-        ),
-    ],
-)
-def test_the_cookies_are_secure_and_host_only_exactly_when_the_origin_is_https(
-    environment: pytest.MonkeyPatch,
-    *,
-    origin: str,
-    cookie_names: tuple[str, str],
-    secure: bool,
-) -> None:
-    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
-    browser = signed_in(a_real_instance(), base_url=origin)
+@pytest.mark.usefixtures("environment")
+def test_the_cookies_are_secure_and_host_only() -> None:
+    browser = signed_in(a_real_instance())
 
     answered = browser.get("/")
 
     cookies = answered.headers.get_list("set-cookie")
-    assert [cookie.split("=", 1)[0] for cookie in cookies] == list(cookie_names)
-    assert all(("; Secure" in cookie) is secure for cookie in cookies)
+    assert [cookie.split("=", 1)[0] for cookie in cookies] == [
+        DEFAULT_SESSION_COOKIE_NAME,
+        DEFAULT_CSRF_COOKIE_NAME,
+    ]
+    assert all("; Secure" in cookie for cookie in cookies)
     assert answered.is_success
 
 
@@ -398,15 +379,16 @@ def test_the_hook_address_names_https_only_behind_a_trusted_proxy(
     trusted_proxies: str,
     hook_scheme: str,
 ) -> None:
-    origin = "http://presentator.test"
-    environment.setenv("PRESENTATOR_PUBLIC_ORIGIN", origin)
     environment.setenv("PRESENTATOR_TRUSTED_PROXIES", trusted_proxies)
     instance = a_polled_source(remote, tmp_path)
-    browser = signed_in(instance, base_url=origin, peer="127.0.0.1")
+    browser = signed_in(instance, peer="127.0.0.1")
+    # A browser sends a Secure cookie over https only, so the cookie rides as a
+    # header to reach the lobby the way a proxy that terminated TLS would.
+    cookie = "; ".join(f"{name}={value}" for name, value in browser.cookies.items())
 
     page = browser.get(
-        f"/settings/sources/{_SOURCE_NAME}",
-        headers={"x-forwarded-proto": "https"},
+        f"http://presentator.test/settings/sources/{_SOURCE_NAME}",
+        headers={"x-forwarded-proto": "https", "cookie": cookie},
     )
 
     assert f"{hook_scheme}://presentator.test{hook_address(_SOURCE_NAME)}" in page.text

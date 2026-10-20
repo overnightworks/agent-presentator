@@ -1,0 +1,167 @@
+"""The relying party is built from settings; an instance without them cannot start."""
+
+from pathlib import Path
+
+import pytest
+from pydantic import SecretStr
+
+from presentator.host import main
+from presentator.host.config import ConfigurationError, load_settings
+from presentator.host.oidc import (
+    oidc_client_config,
+    read_client_secret,
+    relying_party_of,
+)
+from tests.api.lobby import (
+    A_CLIENT_ID,
+    A_CLIENT_SECRET,
+    AN_ISSUER,
+    a_settings,
+    configure_oidc,
+)
+
+_UNDECODABLE: bytes = b"fake-secret-bytes-\xff\xfe"
+
+
+@pytest.fixture
+def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.MonkeyPatch:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
+    monkeypatch.setenv("PRESENTATOR_SECRET_KEY", "an instance key of at least 32 bytes")
+    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
+    monkeypatch.setenv("PRESENTATOR_COPRESENTER_SOCKET", str(tmp_path / "co.sock"))
+    monkeypatch.setenv("PRESENTATOR_BUILD_RUNNER", "host")
+    configure_oidc(monkeypatch, tmp_path)
+    return monkeypatch
+
+
+def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
+    config = oidc_client_config(a_settings(), SecretStr(A_CLIENT_SECRET))
+
+    realm = f"{AN_ISSUER}/protocol/openid-connect"
+    assert config.issuer == AN_ISSUER
+    assert config.authorization_endpoint == f"{realm}/auth"
+    assert config.token_endpoint == f"{realm}/token"
+    assert config.jwks_url == f"{realm}/certs"
+    assert config.end_session_endpoint == f"{realm}/logout"
+    assert config.client_id == A_CLIENT_ID
+    assert config.redirect_uri == "https://testserver/auth/callback"
+    assert config.post_logout_redirect_uri == "https://testserver/login"
+    assert config.logout_path == "/logout"
+    assert config.scopes == ("openid", "profile", "groups")
+
+
+@pytest.mark.parametrize(
+    ("content", "secret"),
+    [
+        ("a-secret\n", "a-secret"),
+        ("a-secret", "a-secret"),
+        ("a-secret\n\n", "a-secret\n"),
+    ],
+    ids=["one newline", "none", "only one of two"],
+)
+def test_the_secret_file_is_read_with_one_trailing_newline_stripped(
+    tmp_path: Path,
+    content: str,
+    secret: str,
+) -> None:
+    secret_file = tmp_path / "secret"
+    secret_file.write_text(content, encoding="utf-8")
+
+    assert read_client_secret(secret_file).get_secret_value() == secret
+
+
+def test_the_relying_party_begins_a_login_at_the_issuer_the_settings_name(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    del environment
+
+    started = relying_party_of(load_settings()).begin_login()
+
+    assert started.url.startswith(f"{AN_ISSUER}/protocol/openid-connect/auth?")
+
+
+@pytest.mark.parametrize(
+    ("content", "is_directory"),
+    [(None, False), (None, True), (b"\n", False), (_UNDECODABLE, False)],
+    ids=["missing", "a directory", "empty", "undecodable"],
+)
+def test_a_secret_file_nobody_can_use_refuses_naming_only_the_setting(
+    tmp_path: Path,
+    content: bytes | None,
+    *,
+    is_directory: bool,
+) -> None:
+    secret_file = tmp_path / "secret"
+    if is_directory:
+        secret_file.mkdir()
+    elif content is not None:
+        secret_file.write_bytes(content)
+
+    with pytest.raises(ConfigurationError) as refused:
+        read_client_secret(secret_file)
+
+    assert "oidc_client_secret_file" in str(refused.value)
+    assert "fake-secret-bytes" not in str(refused.value)
+
+
+def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment.setenv("PRESENTATOR_OIDC_CLIENT_SECRET_FILE", str(tmp_path / "gone"))
+    settings = load_settings()
+
+    with pytest.raises(ConfigurationError, match="oidc_client_secret_file"):
+        main.build_instance(settings)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "setting"),
+    [
+        (
+            "PRESENTATOR_OIDC_ISSUER",
+            "http://auth.example.test/realms/test",
+            "oidc_issuer",
+        ),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}/", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}?realm=x", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_CLIENT_ID", "", "oidc_client_id"),
+        (
+            "PRESENTATOR_OIDC_CLIENT_SECRET_FILE",
+            "relative/secret",
+            "oidc_client_secret_file",
+        ),
+    ],
+    ids=["http issuer", "trailing slash", "query", "no client id", "relative file"],
+)
+def test_a_setting_that_is_not_a_sign_in_refuses_to_start_naming_it(
+    environment: pytest.MonkeyPatch,
+    variable: str,
+    value: str,
+    setting: str,
+) -> None:
+    environment.setenv(variable, value)
+
+    with pytest.raises(ConfigurationError, match=setting):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "PRESENTATOR_OIDC_ISSUER",
+        "PRESENTATOR_OIDC_CLIENT_ID",
+        "PRESENTATOR_OIDC_CLIENT_SECRET_FILE",
+    ],
+)
+def test_an_instance_without_a_sign_in_setting_refuses_to_start(
+    environment: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    environment.delenv(variable)
+
+    with pytest.raises(
+        ConfigurationError, match=variable.removeprefix("PRESENTATOR_").lower()
+    ):
+        load_settings()

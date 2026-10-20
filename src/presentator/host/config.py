@@ -68,10 +68,10 @@ def _a_proxy_list(given: str) -> str:
 
 
 def _one_public_origin(given: str) -> str:
-    """Require one canonical HTTP origin, without any address suffix."""
+    """Require one canonical https origin, without any address suffix."""
     parsed = urlsplit(given)
     if (
-        parsed.scheme not in {"http", "https"}
+        parsed.scheme != "https"
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
@@ -80,13 +80,30 @@ def _one_public_origin(given: str) -> str:
         or parsed.fragment
         or given != f"{parsed.scheme}://{parsed.netloc}"
     ):
-        message = "is one canonical http(s) origin without credentials or a path"
+        message = "is one canonical https origin without credentials or a path"
         raise ValueError(message)
     try:
         _port = parsed.port
     except ValueError as refused:
         message = "has an invalid port"
         raise ValueError(message) from refused
+    return given
+
+
+def _an_https_realm_url(given: str) -> str:
+    """Require an https URL to a realm, which ends in no slash."""
+    parsed = urlsplit(given)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or given.endswith("/")
+    ):
+        message = "is an https URL without credentials, query or trailing slash"
+        raise ValueError(message)
     return given
 
 
@@ -136,6 +153,11 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     host: str = "127.0.0.1"
     port: int = 8000
     public_origin: Annotated[str, AfterValidator(_one_public_origin)]
+    # The issuer is the realm the lobby signs people in at; the secret is read
+    # from a file once at start, so it never rides the environment.
+    oidc_issuer: Annotated[str, AfterValidator(_an_https_realm_url)]
+    oidc_client_id: str = Field(min_length=1)
+    oidc_client_secret_file: Annotated[Path, AfterValidator(_an_absolute_path)]
     copresenter_socket: Annotated[Path, AfterValidator(_an_absolute_path)]
     speech_socket: Annotated[Path, AfterValidator(_an_absolute_path)] = Path(
         "/run/presentator-speech/speech.sock"

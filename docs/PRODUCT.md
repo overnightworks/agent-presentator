@@ -47,17 +47,19 @@ given, is [OPERATIONS.md](OPERATIONS.md).
 ### Signing in
 
 Nobody can sign in yet: the password login and `/setup` are gone, and the
-Keycloak sign-in arrives with K13
+Keycloak sign-in is K13
 ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
-`/login` shows the heading and the legal links only. A session that SQLite
+`/login` says "You are logged out." with one Log in button and the legal links;
+the button starts the sign-in at `/login/oidc`, which sends the browser to
+Keycloak, and the return at `/auth/callback` is not built yet. A session that SQLite
 holds is carried by a signed cookie, and the session ends twelve hours after the
 sign-in that opened it, however often it is used. `webauth` v0.18.0 owns the cookie and
 CSRF-origin mechanism and formats the refusal for a missing session; its
 `admit_session` decides which SQLite session names a signed-in person. The
 session row holds no client address and no user agent. A schedule of its own deletes
 expired session rows every five minutes, apart from the deck refresh.
-A signed-out browser navigation goes to `/login` with the requested path and
-query in `next`; a JSON request receives 401. Every mutating route is
+A signed-out browser navigation goes to `/login/oidc` with the requested path
+and query in `next`; a JSON request receives 401. Every mutating route is
 cross-origin protected by default; the sessionless `POST /sources/<name>/fetch`
 is the only exemption. Logging out is a POST that deletes the session row. No answer may be replayed from the
 browser cache.

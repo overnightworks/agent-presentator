@@ -10,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Final, Self
 
+import pytest
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 from httpx2 import Request as BrowserRequest
@@ -17,6 +18,12 @@ from httpx2 import Response as BrowserResponse
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig, installed_web_auth_config
 from webauth.cookies import issue_session_cookies
+from webauth.oidc import (
+    OidcRelyingParty,
+    TokenEndpointAnswer,
+    TokenEndpointError,
+    TokenRequest,
+)
 
 from gitmirror.model import CredentialReference
 from presentator.adapters.builds import (
@@ -60,7 +67,9 @@ from presentator.contracts.voice import (
     VoiceSnapshot,
     VoiceUnavailableError,
 )
+from presentator.host.config import Settings
 from presentator.host.main import lobby_web_auth_config
+from presentator.host.oidc import oidc_client_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
@@ -112,10 +121,9 @@ A_BROWSERS_ADDRESS: Final = "https://testserver"
 # Starlette's test client opens a socket at its own `ws://` address unless it
 # is given a whole one, so a socket test names this one.
 A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
-# What a test naming `cookie_secure=False` drives instead: the plain-http
-# origin production's own `cookie_secure` derivation picks for an http
-# `public_origin` (`host/main.py`).
-AN_INSECURE_ORIGIN: Final = "http://testserver"
+AN_ISSUER: Final = "https://auth.example.test/realms/test"
+A_CLIENT_ID: Final = "presentator-test"
+A_CLIENT_SECRET: Final = "the-secret-only-this-test-has"  # noqa: S105
 
 
 class UnavailableSpeech:
@@ -197,20 +205,60 @@ class Lobby:
         return str(self.client.base_url).rstrip("/")
 
 
-def a_web_auth(clock: FrozenClock, *, cookie_secure: bool = True) -> WebAuthConfig:
+def a_web_auth(clock: FrozenClock) -> WebAuthConfig:
     """The host's library configuration, as the test origin reaches it.
 
-    `cookie_secure` stands in for the production derivation from
-    `public_origin`'s scheme: a route test names the origin it wants driven.
     The library reads its now from the test's clock, the one the session
     fake is seeded from.
     """
     host_config = lobby_web_auth_config(
         SecretStr("t" * 32),
         trusted_proxies="",
-        public_origin=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
+        public_origin=A_BROWSERS_ADDRESS,
     )
     return replace(host_config, wall_clock=lambda: clock.now().timestamp())
+
+
+def configure_oidc(monkeypatch: pytest.MonkeyPatch, directory: Path) -> Path:
+    """Name the issuer, the client and a secret file of a test's own."""
+    secret_file = directory / "oidc-client-secret"
+    secret_file.write_text(f"{A_CLIENT_SECRET}\n", encoding="utf-8")
+    monkeypatch.setenv("PRESENTATOR_OIDC_ISSUER", AN_ISSUER)
+    monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_ID", A_CLIENT_ID)
+    monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_SECRET_FILE", str(secret_file))
+    return secret_file
+
+
+def _no_token_endpoint(request: TokenRequest) -> TokenEndpointAnswer:
+    message = f"no issuer answers a test: {request.url}"
+    raise TokenEndpointError(message)
+
+
+def _no_key_set(url: str) -> bytes:
+    raise AssertionError(url)
+
+
+def a_settings() -> Settings:
+    """The settings of an instance at the test origin, signing in at a fake issuer."""
+    return Settings(
+        secret_key=SecretStr("t" * 32),
+        public_origin=A_BROWSERS_ADDRESS,
+        copresenter_socket=Path("/run/copresenter.sock"),
+        oidc_issuer=AN_ISSUER,
+        oidc_client_id=A_CLIENT_ID,
+        oidc_client_secret_file=Path("/run/oidc-client-secret"),
+    )
+
+
+def a_relying_party(clock: FrozenClock) -> OidcRelyingParty:
+    """The issuer's client, whose transports reach nobody: no test signs in yet."""
+    return OidcRelyingParty(
+        oidc_client_config(a_settings(), SecretStr(A_CLIENT_SECRET)),
+        post_token_request=_no_token_endpoint,
+        fetch_key_set=_no_key_set,
+        wall_clock=lambda: clock.now().timestamp(),
+        monotonic_clock=lambda: 0.0,
+    )
 
 
 def a_configured_source(url: str) -> Source:
@@ -269,7 +317,6 @@ def a_lobby_app(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     copresenter: CoPresenterSurface | None = None,
-    cookie_secure: bool = True,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     crowd = a_crowd() if people is None else people
@@ -344,7 +391,8 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(clock, cookie_secure=cookie_secure),
+            config=a_web_auth(clock),
+            relying_party=a_relying_party(clock),
         ),
         private=LobbyPrivate(
             copresenter=copresenter,
@@ -386,7 +434,6 @@ def a_lobby(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     voice: VoiceStatusUse | None = None,
-    cookie_secure: bool = True,
 ) -> Lobby:
     """The whole lobby, with in-memory stores behind every port."""
     people = a_crowd(users)
@@ -394,12 +441,11 @@ def a_lobby(
         people=people,
         catalogs=catalogs,
         given=replace(given, voice=voice),
-        cookie_secure=cookie_secure,
     )
     return a_browser_at(
         app,
         people=people,
-        base_url=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
+        base_url=A_BROWSERS_ADDRESS,
         headers=A_BROWSERS_HEADERS,
     )
 

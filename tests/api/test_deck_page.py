@@ -428,19 +428,21 @@ def test_a_deck_whose_build_directory_was_removed_answers_nothing(
 @pytest.mark.parametrize(
     ("address", "login_redirect"),
     [
-        pytest.param(_PAGE, "/login?next=%2Fdeck%2Fhello-deck", id="page"),
-        pytest.param(_PROJECTOR, "/login?next=%2Fdeck%2Fhello-deck%2F", id="projector"),
+        pytest.param(_PAGE, "/login/oidc?next=%2Fdeck%2Fhello-deck", id="page"),
+        pytest.param(
+            _PROJECTOR, "/login/oidc?next=%2Fdeck%2Fhello-deck%2F", id="projector"
+        ),
         pytest.param(
             _PRESENTER,
-            "/login?next=%2Fdeck%2Fhello-deck%2Fpresenter%2F",
+            "/login/oidc?next=%2Fdeck%2Fhello-deck%2Fpresenter%2F",
             id="presenter",
         ),
         pytest.param(
             f"{_PROJECTOR}index.html",
-            "/login?next=%2Fdeck%2Fhello-deck%2Findex.html",
+            "/login/oidc?next=%2Fdeck%2Fhello-deck%2Findex.html",
             id="an asset",
         ),
-        pytest.param(_PDF, "/login?next=%2Fdeck%2Fhello-deck%2Fpdf", id="the pdf"),
+        pytest.param(_PDF, "/login/oidc?next=%2Fdeck%2Fhello-deck%2Fpdf", id="the pdf"),
     ],
 )
 def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(

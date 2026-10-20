@@ -78,6 +78,7 @@ from presentator.host.config import (
     cannot_start,
     load_settings,
 )
+from presentator.host.oidc import relying_party_of
 from presentator.host.polling import Schedule
 
 _WITHOUT_A_SANDBOX = (
@@ -119,11 +120,6 @@ def build_instance(settings: Settings) -> Instance:
     create_deck_tables(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
-    web_auth = lobby_web_auth_config(
-        settings.secret_key,
-        trusted_proxies=settings.trusted_proxies,
-        public_origin=settings.public_origin,
-    )
     # One box for both directions: what the store writes down is what the
     # resolver opens at the pull, and neither picks its own key.
     box = secret_box(settings.secret_key.get_secret_value())
@@ -186,7 +182,7 @@ def build_instance(settings: Settings) -> Instance:
             sessions=sessions,
             decks=decks,
             pages=_pages(settings),
-            auth=InstalledAuth(config=web_auth),
+            auth=_installed_auth(settings),
             private=LobbyPrivate(
                 copresenter=CoPresenterSurface(
                     use=CoPresenterUse(
@@ -203,6 +199,17 @@ def build_instance(settings: Settings) -> Instance:
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
         session_sweep=_session_sweep(sessions, clock),
+    )
+
+
+def _installed_auth(settings: Settings) -> InstalledAuth:
+    return InstalledAuth(
+        config=lobby_web_auth_config(
+            settings.secret_key,
+            trusted_proxies=settings.trusted_proxies,
+            public_origin=settings.public_origin,
+        ),
+        relying_party=relying_party_of(settings),
     )
 
 
@@ -267,10 +274,10 @@ def lobby_web_auth_config(
 ) -> WebAuthConfig:
     """The library configuration this host runs: no Redis, a 12 hour cap.
 
-    The cookies carry `Secure`, and the library's `__Host-` names, exactly when
-    the origin people reach the lobby under is https: a browser would not send
-    a `Secure` cookie back over plain http. The only host the lobby answers to
-    is the one people reach it under.
+    The cookies carry `Secure`, and the library's `__Host-` names: the public
+    origin is https, and a browser would not send a `Secure` cookie back over
+    plain http. The only host the lobby answers to is the one people reach it
+    under.
     """
     lifetime_seconds = int(SESSION_LIFETIME.total_seconds())
     return WebAuthConfig(
@@ -284,7 +291,7 @@ def lobby_web_auth_config(
             absolute_max_age_seconds=lifetime_seconds,
         ),
         cookie_samesite="lax",
-        cookie_secure=urlsplit(public_origin).scheme == "https",
+        cookie_secure=True,
     )
 
 

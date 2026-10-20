@@ -396,11 +396,11 @@ def test_a_visitor_who_is_not_signed_in_is_sent_to_the_login() -> None:
     posting = fetch(lobby.client, "decks")
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login?next=%2Fsettings%2Fsources"
+    assert reading.headers["location"] == "/login/oidc?next=%2Fsettings%2Fsources"
     assert posting.status_code == HTTPStatus.FOUND
     assert (
         posting.headers["location"]
-        == "/login?next=%2Fsettings%2Fsources%2Fdecks%2Ffetch"
+        == "/login/oidc?next=%2Fsettings%2Fsources%2Fdecks%2Ffetch"
     )
 
 
@@ -1121,9 +1121,9 @@ def test_a_visitor_who_is_not_signed_in_cannot_add_a_source() -> None:
     posting = create_source(lobby.client)
 
     assert reading.status_code == HTTPStatus.FOUND
-    assert reading.headers["location"] == "/login?next=%2Fsettings%2Fsources%2Fnew"
+    assert reading.headers["location"] == "/login/oidc?next=%2Fsettings%2Fsources%2Fnew"
     assert posting.status_code == HTTPStatus.FOUND
-    assert posting.headers["location"] == "/login?next=%2Fsettings%2Fsources%2Fnew"
+    assert posting.headers["location"] == "/login/oidc?next=%2Fsettings%2Fsources%2Fnew"
 
 
 def a_deck_from(source: Source) -> Deck:
