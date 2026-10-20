@@ -173,8 +173,10 @@ def test_the_deck_is_closed_when_the_upload_run_raises_and_the_original_propagat
 ) -> None:
     life = accepted_life(wait_error=OSError("lost"), wait_error_at=1)
 
+    serving = life.serving()
+
     with pytest.raises(OSError, match="lost") as raised:
-        hand_over(connection, life.serving(), ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME)
 
     assert life.events.index("close-deck") > life.events.index("kill")
     assert not getattr(raised.value, "__notes__", [])
@@ -189,8 +191,10 @@ def test_a_deck_that_cannot_be_closed_is_not_swallowed_after_the_original_is_not
         deck_close_error=OSError("no chmod"),
     )
 
+    serving = life.serving()
+
     with pytest.raises(OSError, match="lost") as raised:
-        hand_over(connection, life.serving(), ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME)
 
     assert any("no chmod" in note for note in raised.value.__notes__)
 
@@ -200,5 +204,7 @@ def test_a_deck_that_cannot_be_closed_after_a_clean_run_raises(
 ) -> None:
     life = accepted_life(deck_close_error=OSError("no chmod"))
 
+    serving = life.serving()
+
     with pytest.raises(OSError, match="no chmod"):
-        hand_over(connection, life.serving(), ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME)
