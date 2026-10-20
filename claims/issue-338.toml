@@ -1,7 +1,0 @@
-claim_id = "cab7b39db5314fbdbab2fbb66cd75b36"
-agent = "claude"
-role = "builder"
-base = "424f227f196f49f443dfb8aaad808336ef37f89a"
-branch = "claude/issue-338-frontend-econnreset-flake"
-scope = ["frontend/tests/presenter-controls.browser.test.ts"]
-opened_commit = "4570984b6715a39bedcd6e5b6a96c624bf8fa85b"
