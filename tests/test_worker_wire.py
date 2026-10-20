@@ -1,8 +1,10 @@
-"""The wire child's gate judgement and its transitional entry."""
+"""The wire child's gate judgement and its idle entry."""
 
 import runpy
 import socket
 import sys
+from collections.abc import Iterator
+from contextlib import closing
 
 import pytest
 
@@ -95,28 +97,109 @@ def test_production_judges_by_the_gate_of_the_wire_identity() -> None:
 
 
 def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:
-    assert WireExit.CLOSED not in {0, 1, 2, 126, 127}
-    assert WireExit.CLOSED not in range(128, 256)
+    for status in WireExit:
+        assert status not in {0, 1, 2, 126, 127}
+        assert status not in range(128, 256)
 
 
-def test_the_wire_entry_closes_its_connection_unread() -> None:
-    controller_end, child_end = socket.socketpair()
-    with controller_end, child_end:
-        controller_end.send(b"unread")
-        descriptor = child_end.detach()
-
-        status = worker_wire.main(["--connection-fd", str(descriptor)])
-
-        assert status == WireExit.CLOSED
-        with pytest.raises(ConnectionResetError):
-            controller_end.recv(1)
+HELLO = b"PBW\x01\x01\x00\x02{}"
+SECONDS_TO_WAIT = 5
+BOM = b"\xef\xbb\xbf"
 
 
-def test_run_as_a_program_the_entry_exits_closed(
+def framed(header: bytes, preamble: bytes = b"PBW\x01\x01") -> bytes:
+    return preamble + len(header).to_bytes(2, "big") + header
+
+
+REFUSED_INPUTS = {
+    "wrong magic X": framed(b"{}", b"XBW\x01\x01"),
+    "wrong magic last byte": framed(b"{}", b"PBX\x01\x01"),
+    "version 0": framed(b"{}", b"PBW\x00\x01"),
+    "version 2": framed(b"{}", b"PBW\x02\x01"),
+    "kind 0": framed(b"{}", b"PBW\x01\x00"),
+    "kind BUSY": framed(b"{}", b"PBW\x01\x04"),
+    "kind OUTCOME": framed(b"{}", b"PBW\x01\x05"),
+    "kind STATUS": framed(b"{}", b"PBW\x01\x03"),
+    "kind 6": framed(b"{}", b"PBW\x01\x06"),
+    "kind 255": framed(b"{}", b"PBW\x01\xff"),
+    "a STEP preamble": framed(b"{}", b"PBW\x01\x02"),
+    "nothing": b"",
+    "EOF inside the preamble": b"PB",
+    "header length 0": b"PBW\x01\x01\x00\x00",
+    "header length 1": b"PBW\x01\x01\x00\x01{",
+    "header length 4097": b"PBW\x01\x01\x10\x01" + b" " * 4097,
+    "EOF inside the length": b"PBW\x01\x01\x00",
+    "header not UTF-8": framed(b"\xff\xfe"),
+    "header a list": framed(b"[]"),
+    "header null": framed(b"null"),
+    "header with a key": framed(b'{"a":1}'),
+    "header two objects": framed(b"{}{}"),
+    "header with a BOM": framed(BOM + b"{}"),
+    "EOF inside the body": b"PBW\x01\x01\x00\x05{}",
+}
+
+
+@pytest.fixture
+def client_and_descriptor() -> Iterator[tuple[socket.socket, int]]:
+    client, child_end = socket.socketpair()
+    client.settimeout(SECONDS_TO_WAIT)
+    with closing(client):
+        yield client, child_end.detach()
+
+
+def run_entry(descriptor: int) -> int:
+    return worker_wire.main(["--connection-fd", str(descriptor)])
+
+
+def read_to_end_or_reset(client: socket.socket) -> bytes:
+    received = b""
+    try:
+        while chunk := client.recv(64):
+            received += chunk
+    except ConnectionResetError:
+        pass
+    return received
+
+
+@pytest.mark.parametrize("sent", REFUSED_INPUTS.values(), ids=REFUSED_INPUTS.keys())
+def test_the_entry_closes_a_refused_input_with_no_reply(
+    client_and_descriptor: tuple[socket.socket, int], sent: bytes
+) -> None:
+    client, descriptor = client_and_descriptor
+    client.sendall(sent)
+    client.shutdown(socket.SHUT_WR)
+
+    assert run_entry(descriptor) == WireExit.CLOSED
+    assert read_to_end_or_reset(client) == b""
+
+
+def test_the_entry_answers_a_hello_with_status_and_exits_answered(
+    client_and_descriptor: tuple[socket.socket, int],
+) -> None:
+    client, descriptor = client_and_descriptor
+    client.sendall(HELLO + b"x")
+
+    assert run_entry(descriptor) == WireExit.ANSWERED
+    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_the_entry_closes_when_the_client_hung_up_before_status(
+    client_and_descriptor: tuple[socket.socket, int],
+) -> None:
+    client, descriptor = client_and_descriptor
+    client.sendall(HELLO)
+    client.close()
+
+    assert run_entry(descriptor) == WireExit.CLOSED
+
+
+def test_run_as_a_program_the_entry_answers_a_hello(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     controller_end, child_end = socket.socketpair()
+    controller_end.settimeout(SECONDS_TO_WAIT)
     with controller_end, child_end:
+        controller_end.sendall(HELLO)
         descriptor = child_end.detach()
         monkeypatch.setattr(
             sys, "argv", ["worker_wire", "--connection-fd", str(descriptor)]
@@ -126,5 +209,5 @@ def test_run_as_a_program_the_entry_exits_closed(
         with pytest.raises(SystemExit) as exited:
             runpy.run_module("presentator.host.worker_wire", run_name="__main__")
 
-        assert exited.value.code == WireExit.CLOSED
-        assert controller_end.recv(1) == b""
+        assert exited.value.code == WireExit.ANSWERED
+        assert controller_end.recv(64) == b"PBW\x01\x03\x00\x02{}"

@@ -30,7 +30,7 @@ from presentator.host.worker_termination import (
     reap_children,
     sweep,
 )
-from presentator.host.worker_wire import WireExit
+from presentator.host.worker_wire import KEPT_LIFE_EXITS
 
 logger = logging.getLogger(__name__)
 
@@ -678,7 +678,7 @@ def hand_over(connection: socket.socket, serving: Serving) -> LifeEnd | None:
             child.kill()
             child.wait()
             return LifeEnd.GATE
-        return None if child.wait() == WireExit.CLOSED else LifeEnd.WIRE_EXIT
+        return None if child.wait() in KEPT_LIFE_EXITS else LifeEnd.WIRE_EXIT
     finally:
         child.close_gate()
 
