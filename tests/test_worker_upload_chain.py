@@ -4,13 +4,15 @@ import errno
 import os
 import socket
 import stat
+import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
-from presentator.host import worker_serving
+import tests.test_worker_record_chain as record_chain
+from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     END,
@@ -20,6 +22,7 @@ from tests.test_worker_record_chain import (
     VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
+    LifeScenario,
     run_life,
 )
 from tests.worker_support import DECK_CLOSED_MODE, DECK_OPEN_MODE, PRIVATE_MODE
@@ -32,7 +35,8 @@ sys.exit(6)
 """
 EXITING_SEVEN = "import sys; sys.exit(7)"
 CONTROLLER_UMASK = 0o077
-CLOSING_SECONDS = 0.3
+HOLD_SECONDS = WAIT_SECONDS
+JOIN_SECONDS = 0.5
 
 
 @pytest.fixture
@@ -43,6 +47,10 @@ def sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
         yield tmp_path
     finally:
         os.umask(previous)
+
+
+def on_deck(sandbox: Path) -> LifeScenario:
+    return LifeScenario(deck=sandbox / "deck")
 
 
 def deck_mode(sandbox: Path) -> int:
@@ -66,9 +74,7 @@ def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_acce
         modes_during_upload.append(deck_mode(sandbox))
         client.sendall(END)
 
-    life = run_life(
-        VALID_STEP, ChainSpawn(deck=sandbox / "deck"), converse=status_then_end
-    )
+    life = run_life(VALID_STEP, ChainSpawn(), on_deck(sandbox), status_then_end)
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.STEP_ACCEPTED
@@ -80,12 +86,10 @@ def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_acce
 def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
     sandbox: Path,
 ) -> None:
-    spawn = ChainSpawn(
-        programs={"upload": [DECK_MODE_REPORTER, str(sandbox / "deck")]},
-        deck=sandbox / "deck",
-    )
+    deck = sandbox / "deck"
+    spawn = ChainSpawn(programs={"upload": [DECK_MODE_REPORTER, str(deck)]})
 
-    life = run_life(VALID_STEP, spawn)
+    life = run_life(VALID_STEP, spawn, LifeScenario(deck=deck))
 
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
     assert life.life_end == LifeEnd.STEP_ACCEPTED
@@ -96,30 +100,114 @@ class ConversationFailedError(Exception):
     """The client side of a test conversation broke."""
 
 
-class SlowlyClosedDeck(type(Path())):
-    """A deck whose closing takes a moment, as a controller still running would."""
+class CleanUpFailedError(OSError):
+    """Ending the children of a test life broke."""
+
+
+class GatedClosingDeck(type(Path())):
+    """A deck whose closing waits until the test lets the controller go on."""
+
+    released: threading.Event
 
     def chmod(self, mode: int, *, follow_symlinks: bool = True) -> None:
         if mode == DECK_CLOSED_MODE:
-            time.sleep(CLOSING_SECONDS)
+            self.released.wait(HOLD_SECONDS)
         super().chmod(mode, follow_symlinks=follow_symlinks)
 
 
-def test_a_failing_conversation_returns_only_after_the_controller_closed_the_deck(
-    sandbox: Path,
+class ReleasingSpawn(ChainSpawn):
+    """Lets the gated deck close once the children are reaped, then fails if asked."""
+
+    def __init__(self, released: threading.Event, failure: OSError | None) -> None:
+        """Gate on the given event and fail the reaping with the given error."""
+        super().__init__()
+        self.released = released
+        self.failure = failure
+
+    def kill_and_reap(self) -> None:
+        super().kill_and_reap()
+        self.released.set()
+        if self.failure is not None:
+            raise self.failure
+
+
+CLEAN_UP_FAILURES = {
+    "the clean-up succeeds": None,
+    "the clean-up fails": CleanUpFailedError("reap failed"),
+}
+
+
+@pytest.mark.parametrize(
+    "failure", CLEAN_UP_FAILURES.values(), ids=CLEAN_UP_FAILURES.keys()
+)
+def test_a_failing_conversation_stays_primary_and_returns_only_after_the_deck_closed(
+    sandbox: Path, failure: OSError | None
 ) -> None:
     def fail_after_status(client: socket.socket) -> None:
         read_status(client)
         raise ConversationFailedError
 
-    with pytest.raises(ConversationFailedError):
+    deck = GatedClosingDeck(sandbox / "deck")
+    deck.released = threading.Event()
+
+    with pytest.raises(ConversationFailedError) as raised:
         run_life(
             VALID_STEP,
-            ChainSpawn(deck=SlowlyClosedDeck(sandbox / "deck")),
-            converse=fail_after_status,
+            ReleasingSpawn(deck.released, failure),
+            LifeScenario(deck=deck),
+            fail_after_status,
         )
 
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
+    notes = "".join(getattr(raised.value, "__notes__", []))
+    assert (failure is None) == (not notes)
+    assert failure is None or repr(failure) in notes
+
+
+class StuckController:
+    """A seal that holds the controller thread until the test lets it go."""
+
+    def __init__(self) -> None:
+        """Start with the seal not yet entered and not yet released."""
+        self.entered = threading.Event()
+        self.released = threading.Event()
+
+    def seal(self, record: int) -> None:
+        self.entered.set()
+        self.released.wait(HOLD_SECONDS)
+        worker.seal_record(record)
+
+    def await_stuck(self, _client: socket.socket) -> None:
+        assert self.entered.wait(HOLD_SECONDS)
+
+
+@pytest.mark.parametrize("expected", [AssertionError, ConversationFailedError])
+def test_a_controller_that_outlives_the_join_fails_loudly_on_every_path(
+    sandbox: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expected: type[Exception],
+) -> None:
+    monkeypatch.setattr(record_chain, "WAIT_SECONDS", JOIN_SECONDS)
+    stuck = StuckController()
+
+    def converse(client: socket.socket) -> None:
+        stuck.await_stuck(client)
+        if expected is ConversationFailedError:
+            raise ConversationFailedError
+
+    try:
+        with pytest.raises(expected) as raised:
+            run_life(
+                VALID_STEP,
+                ChainSpawn(),
+                LifeScenario(deck=sandbox / "deck", seal=stuck.seal),
+                converse,
+            )
+    finally:
+        stuck.released.set()
+
+    notes = "".join(getattr(raised.value, "__notes__", []))
+    assert ("AssertionError" in notes) == (expected is ConversationFailedError)
 
 
 def step_message(header: bytes) -> bytes:
@@ -143,7 +231,7 @@ REJECTED_HEADERS = {
 def test_a_rejected_or_answered_header_never_makes_the_deck(
     sandbox: Path, sent: bytes
 ) -> None:
-    life = run_life(sent, ChainSpawn(deck=sandbox / "deck"))
+    life = run_life(sent, ChainSpawn(), on_deck(sandbox))
 
     assert life.spawn.roles == ["idle"]
     assert not (sandbox / "deck").exists()
@@ -154,7 +242,7 @@ def test_an_idle_stall_never_makes_the_deck(
 ) -> None:
     monkeypatch.setattr(worker_serving, "HEADER_SECONDS", 0.5)
 
-    life = run_life(b"", ChainSpawn(deck=sandbox / "deck"))
+    life = run_life(b"", ChainSpawn(), on_deck(sandbox))
 
     assert life.life_end is None
     assert life.spawn.roles == ["idle"]
@@ -165,7 +253,9 @@ def test_a_failing_seal_never_makes_the_deck(sandbox: Path) -> None:
     def refuse(_record: int) -> None:
         raise OSError(errno.EBUSY)
 
-    life = run_life(VALID_STEP, ChainSpawn(deck=sandbox / "deck"), refuse)
+    life = run_life(
+        VALID_STEP, ChainSpawn(), LifeScenario(deck=sandbox / "deck", seal=refuse)
+    )
 
     assert life.life_end == LifeEnd.SEAL_FAILED
     assert not (sandbox / "deck").exists()
@@ -231,13 +321,10 @@ def test_a_failed_upload_leaves_the_deck_0755_closes_without_reply_and_ends_the_
     life_end: LifeEnd,
 ) -> None:
     monkeypatch.setattr(worker_serving, "UPLOAD_SECONDS", 1.5)
-    spawn = ChainSpawn(
-        programs={} if program is None else {"upload": [program]},
-        deck=sandbox / "deck",
-    )
+    spawn = ChainSpawn(programs={} if program is None else {"upload": [program]})
 
     started = time.monotonic()
-    life = run_life(VALID_STEP, spawn, converse=converse)
+    life = run_life(VALID_STEP, spawn, on_deck(sandbox), converse)
 
     assert life.life_end == life_end
     assert life.reply == b""
@@ -251,7 +338,7 @@ def test_an_existing_deck_ends_the_life_before_any_upload_spawn(
 ) -> None:
     (sandbox / "deck").mkdir(mode=PRIVATE_MODE)
 
-    life = run_life(VALID_STEP, ChainSpawn(deck=sandbox / "deck"))
+    life = run_life(VALID_STEP, ChainSpawn(), on_deck(sandbox))
 
     assert life.life_end == LifeEnd.DECK_FAILED
     assert life.reply == b""

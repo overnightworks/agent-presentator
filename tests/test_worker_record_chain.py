@@ -60,7 +60,6 @@ class ChainSpawn:
 
     programs: Mapping[str, list[str]] = field(default_factory=dict[str, list[str]])
     roles: list[str] = field(default_factory=list[str])
-    deck: Path | None = None
     children: list[GatedChild] = field(default_factory=list[GatedChild])
     process_ids: list[int] = field(default_factory=list[int])
 
@@ -111,34 +110,56 @@ def read_to_end(client: socket.socket) -> bytes:
     return received
 
 
+@dataclass(frozen=True)
+class LifeScenario:
+    """What a life runs on besides the spawn: the record effects and the deck."""
+
+    seal: Callable[[int], None] = worker.seal_record
+    create_record: Callable[[], int] = worker.create_request_record
+    deck: Path | None = None
+
+
 def run_life(
     sent: bytes,
     spawn: ChainSpawn,
-    seal: Callable[[int], None] = worker.seal_record,
-    create_record: Callable[[], int] = worker.create_request_record,
+    scenario: LifeScenario | None = None,
     converse: Callable[[socket.socket], None] = lambda _client: None,
 ) -> Life:
+    scenario = scenario or LifeScenario()
     with ExitStack() as cleanup:
-        deck = spawn.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
-        return _run_life_at(deck, sent, spawn, (seal, create_record), converse)
+        deck = (
+            scenario.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
+        )
+        return _run_life_at(deck, sent, spawn, scenario, converse)
+
+
+def _end_life(
+    spawn: ChainSpawn, thread: threading.Thread, client: socket.socket | None
+) -> None:
+    try:
+        if client is not None:
+            client.close()
+        spawn.kill_and_reap()
+    finally:
+        thread.join(WAIT_SECONDS)
+        assert not thread.is_alive()
 
 
 def _run_life_at(
     deck: Path,
     sent: bytes,
     spawn: ChainSpawn,
-    record_effects: tuple[Callable[[int], None], Callable[[], int]],
+    scenario: LifeScenario,
     converse: Callable[[socket.socket], None],
 ) -> Life:
-    seal, create_record = record_effects
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
     serving = Serving(
         spawn=spawn,
         gate_admits=lambda _status: True,
         sweep=lambda _deadline: True,
-        create_record=create_record,
-        seal=seal,
+        create_record=scenario.create_record,
+        seal=scenario.seal,
         open_deck=partial(worker.open_deck, deck),
         close_deck=partial(worker.close_deck, deck),
         watchdog=NeverArmed(),
@@ -158,13 +179,15 @@ def _run_life_at(
             client.sendall(sent)
             converse(client)
             thread.join(WAIT_SECONDS)
-        except BaseException:
-            client.close()
+        except BaseException as conversation_failure:
+            try:
+                _end_life(spawn, thread, client)
+            except (OSError, AssertionError) as cleanup_failure:
+                conversation_failure.add_note(
+                    f"clean-up also failed: {cleanup_failure!r}"
+                )
             raise
-        finally:
-            spawn.kill_and_reap()
-            thread.join(WAIT_SECONDS)
-        assert not thread.is_alive()
+        _end_life(spawn, thread, None)
         controller_end.close()
         return Life(outcome[0], read_to_end(client), spawn)
 
@@ -182,7 +205,11 @@ def test_the_upload_child_answers_status_from_the_record_the_idle_child_wrote() 
         worker.seal_record(record)
         written.append(os.pread(record, 4096, 0))
 
-    life = run_life(VALID_STEP + END, ChainSpawn(), seal_then_read_as_the_test)
+    life = run_life(
+        VALID_STEP + END,
+        ChainSpawn(),
+        LifeScenario(seal=seal_then_read_as_the_test),
+    )
 
     assert life.reply == STATUS
     assert life.life_end == LifeEnd.STEP_ACCEPTED
@@ -218,7 +245,7 @@ def test_a_failing_seal_closes_without_status_and_spawns_no_upload_child() -> No
     def refuse(_record: int) -> None:
         raise OSError(errno.EBUSY, "a writable shared mapping exists")
 
-    life = run_life(VALID_STEP, ChainSpawn(), refuse)
+    life = run_life(VALID_STEP, ChainSpawn(), LifeScenario(seal=refuse))
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.SEAL_FAILED
@@ -250,7 +277,7 @@ def test_the_next_life_does_not_hold_the_record_of_the_one_before() -> None:
         life = run_life(
             b"",
             ChainSpawn(programs={"idle": [INODES_REPORTER]}),
-            create_record=creation,
+            LifeScenario(create_record=creation),
         )
         records.append(creation.identity)
         held_by_child.append({tuple(held) for held in json.loads(life.reply)})
