@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { chromium, type Page } from 'playwright-chromium'
+import { chromium, type ElementHandle, type Page } from 'playwright-chromium'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 const run = promisify(execFile)
@@ -91,6 +91,20 @@ function boxesIntersect(first: { x: number, y: number, width: number, height: nu
     && second.x < first.x + first.width
     && first.y < second.y + second.height
     && second.y < first.y + first.height
+}
+
+async function readSameFrameBoxes(page: Page, homeHandle: ElementHandle<Element>, aiHandle: ElementHandle<Element>) {
+  return page.evaluate(([home, ai]) => {
+    const rectOf = (element: Element) => {
+      const { x, y, width, height } = element.getBoundingClientRect()
+      return { x, y, width, height }
+    }
+    return {
+      homeBox: rectOf(home),
+      aiBox: rectOf(ai),
+      navWidth: home.parentElement!.getBoundingClientRect().width,
+    }
+  }, [homeHandle, aiHandle] as const)
 }
 
 async function saveEvidence(page: Page, name: string) {
@@ -435,14 +449,15 @@ describe('presenter controls', () => {
       const ai = page.getByRole('switch', { name: 'AI' })
       await home.waitFor({ state: 'visible', timeout: 2_000 })
       await ai.waitFor({ state: 'visible' })
-      const [homeBox, aiBox] = await Promise.all([home.boundingBox(), ai.boundingBox()])
-      expect(homeBox).not.toBeNull()
-      expect(aiBox).not.toBeNull()
-      expect(homeBox!.width).toBeGreaterThanOrEqual(44)
-      expect(homeBox!.height).toBeGreaterThanOrEqual(44)
-      expect(aiBox!.width).toBeGreaterThanOrEqual(44)
-      expect(aiBox!.height).toBeGreaterThanOrEqual(44)
-      expect(homeBox!.x + homeBox!.width <= aiBox!.x || aiBox!.x + aiBox!.width <= homeBox!.x).toBe(true)
+      const { homeBox, aiBox, navWidth } = await readSameFrameBoxes(page, await home.elementHandle(), await ai.elementHandle())
+      expect(homeBox.width).toBeGreaterThanOrEqual(44)
+      expect(homeBox.height).toBeGreaterThanOrEqual(44)
+      expect(aiBox.width).toBeGreaterThanOrEqual(44)
+      expect(aiBox.height).toBeGreaterThanOrEqual(44)
+      expect(
+        boxesIntersect(homeBox, aiBox),
+        `Home ${JSON.stringify(homeBox)} overlaps AI ${JSON.stringify(aiBox)} in a nav row ${navWidth}px wide`,
+      ).toBe(false)
       await saveEvidence(page, `presenter-home-${width}.png`)
 
       await home.focus()
