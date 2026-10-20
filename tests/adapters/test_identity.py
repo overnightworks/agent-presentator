@@ -398,3 +398,76 @@ def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untou
     assert set(database.parent.iterdir()) - folder_before <= {
         database.with_name(database.name + "-shm")
     }
+
+
+@pytest.mark.parametrize(
+    ("expires_at", "stays"),
+    [
+        (_NOW - timedelta(seconds=1), False),
+        (_NOW, True),
+        (_NOW + timedelta(seconds=1), True),
+    ],
+    ids=["before the sweep", "at the sweep", "after the sweep"],
+)
+def test_a_sweep_deletes_a_session_only_when_it_ended_before_the_sweep(
+    sessions: SqliteSessionRecordStore,
+    expires_at: datetime,
+    *,
+    stays: bool,
+) -> None:
+    session = sessions.create(
+        "user-1", now=_NOW - SESSION_LIFETIME, expires_at=expires_at
+    )
+
+    deleted = sessions.delete_expired(_NOW)
+
+    assert (sessions.load(session.id) is not None) is stays
+    assert deleted == (0 if stays else 1)
+
+
+@pytest.mark.parametrize(
+    "after_expiry",
+    [timedelta(0), timedelta(milliseconds=500), timedelta(seconds=1)],
+    ids=["at the expiry", "within the second after", "a second after"],
+)
+def test_the_sweep_keeps_exactly_the_sessions_the_admission_admits(
+    sessions: SqliteSessionRecordStore,
+    after_expiry: timedelta,
+) -> None:
+    expires_at = _NOW + timedelta(hours=1)
+    admitted_one = sessions.create("user-1", now=_NOW, expires_at=expires_at)
+    swept_one = sessions.create("user-2", now=_NOW, expires_at=expires_at)
+    at = expires_at + after_expiry
+
+    admitted = admit_session(
+        admitted_one.id, sessions=sessions, config=a_config_reading(at)
+    )
+    sessions.delete_expired(at)
+
+    assert (not isinstance(admitted, ConnectionRefusal)) is (
+        sessions.load(swept_one.id) is not None
+    )
+
+
+def dump_without_sessions(database: Path) -> list[str]:
+    with closing(sqlite3.connect(database)) as connection:
+        return [
+            statement
+            for statement in connection.iterdump()
+            if not statement.startswith('INSERT INTO "sessions"')
+        ]
+
+
+def test_a_sweep_leaves_the_accounts_and_every_other_table_as_they_were(
+    database: Path,
+    sessions: SqliteSessionRecordStore,
+) -> None:
+    ended = _NOW - SESSION_LIFETIME
+    sessions.create("user-1", now=ended, expires_at=ended)
+    before = dump_without_sessions(database)
+
+    deleted = sessions.delete_expired(_NOW)
+
+    assert deleted == 1
+    assert any("felix" in statement for statement in before)
+    assert dump_without_sessions(database) == before

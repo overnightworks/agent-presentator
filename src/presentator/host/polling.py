@@ -1,27 +1,30 @@
-"""Fetching the deck sources on a schedule, so no page view has to.
+"""Chores that run on a schedule, so no page view has to.
 
-Polling is the guarantee that a push arrives; the fetch hook only makes it
-faster (ADR 0010). The use cases know nothing of it: this is handed a refresh
-to call, and the server owns when it runs.
+Polling the deck sources is the guarantee that a push arrives; the fetch hook
+only makes it faster (ADR 0010). The use cases know nothing of it: a schedule is
+handed a chore to call, and the server owns when it runs.
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import timedelta
 
+_logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SourcePoller:
-    """Refreshes the decks once every interval, on a task beside the routes."""
+class Schedule:
+    """Runs a chore once every interval, on a task beside the routes."""
 
-    refresh: Callable[[], None]
+    chore: Callable[[], object]
     interval: timedelta
 
     @asynccontextmanager
     async def polling(self) -> AsyncGenerator[None]:
-        """Poll for exactly as long as the block it wraps runs."""
+        """Run the chore for exactly as long as the block it wraps runs."""
         ticking = asyncio.create_task(self._every_interval())
         try:
             yield
@@ -33,12 +36,19 @@ class SourcePoller:
                 await ticking
 
     async def tick(self) -> None:
-        """One refresh, in a thread, so a slow fetch holds up no answer."""
-        await asyncio.to_thread(self.refresh)
+        """One run of the chore, in a thread, so a slow one holds up no answer."""
+        await asyncio.to_thread(self.chore)
 
     async def _every_interval(self) -> None:
         while True:
             await asyncio.sleep(self.interval.total_seconds())
             # Awaiting the whole tick is what keeps two of them from running at
             # once, and the fetch's own bound is what ends the one that hangs.
-            await self.tick()
+            try:
+                await self.tick()
+            except Exception:
+                # The next interval is the retry; ending the loop would stop
+                # the chore for good without a word.
+                _logger.exception(
+                    "A scheduled chore failed; it runs again next interval"
+                )

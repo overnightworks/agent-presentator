@@ -11,9 +11,10 @@ from enum import StrEnum
 from typing import Final
 
 from presentator.application.decks import DRAFT_MAX_AGE
-from presentator.application.identity import SESSION_LIFETIME
+from presentator.application.identity import SESSION_LIFETIME, SESSION_SWEEP_INTERVAL
 
 _SECONDS_PER_HOUR: Final = 3600
+_SECONDS_PER_MINUTE: Final = 60
 
 
 class Emphasis(StrEnum):
@@ -64,6 +65,9 @@ def _point(label: str, *rest: str | Phrase) -> Paragraph:
 
 _IMPRESSUM: Final = Phrase("Impressum", Emphasis.IMPRESSUM)
 _SESSION_HOURS: Final = int(SESSION_LIFETIME.total_seconds()) // _SECONDS_PER_HOUR
+_SWEEP_MINUTES: Final = (
+    int(SESSION_SWEEP_INTERVAL.total_seconds()) // _SECONDS_PER_MINUTE
+)
 _DRAFT_HOURS: Final = int(DRAFT_MAX_AGE.total_seconds()) // _SECONDS_PER_HOUR
 _STAND: Final = "20. Oktober 2026"
 _BASIS_CONTRACT: Final = "Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f)"
@@ -237,10 +241,8 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Sitzungen:",
-                    "Die Zeile endet beim Abmelden. Eine abgelaufene Sitzung "
-                    "lässt sich nicht mehr verwenden, ihre Zeile bleibt aber "
-                    "bestehen, bis sie gelöscht wird; eine automatische "
-                    "Löschung gibt es noch nicht.",
+                    "Die Zeile endet beim Abmelden; abgelaufene Sitzungen "
+                    f"löscht der Dienst alle {_SWEEP_MINUTES} Minuten.",
                 ),
                 _point(
                     "Einmalig angezeigte Quellen-Zugriffsschlüssel "

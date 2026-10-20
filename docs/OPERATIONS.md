@@ -18,10 +18,8 @@ Signing in arrives with Keycloak ([#242](https://github.com/overnightworks/agent
 until then nobody can sign in and every page leads to `/login`. A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
-Logging out deletes the row. A session past its expiry is refused but its row
-stays until the purge that follows
-([#242](https://github.com/overnightworks/agent-presentator/issues/242) is its
-first part).
+Logging out deletes the row. A session past its expiry is refused, and a sweep of its own deletes
+its row every five minutes, apart from the deck refresh.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
 `webauth` v0.18.0's mechanism (`issue_session_cookies` /
