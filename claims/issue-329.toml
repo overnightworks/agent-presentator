@@ -1,0 +1,8 @@
+claim_id = "fbdb771a27c742f59ce95d382d92150d"
+agent = "claude"
+role = "builder"
+base = "146fbbb71edb648ae57a914a845fc7b4da15706c"
+branch = "claude/issue-329-k13-2a-sign-in-start"
+scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "scripts/capture_theme_screenshots.mjs", "scripts/theme_screenshot_manifest.txt", "src/presentator/adapters/catalogs/en.po", "src/presentator/api/auth.py", "src/presentator/api/templates/datenschutz.html", "src/presentator/api/templates/login.html", "src/presentator/contracts/text.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "src/presentator/host/oidc.py", "tests/adapters/test_catalog.py", "tests/api/lobby.py", "tests/api/test_auth.py", "tests/api/test_deck_page.py", "tests/api/test_hooks.py", "tests/api/test_sources.py", "tests/test_catalog_purity.py", "tests/test_host.py", "tests/test_oidc.py", "tests/test_sign_in_start.py", "tests/vulture_allowlist.py"]
+opened_commit = "f6efa8e661cb0a1f60e63235f06a51580622b2aa"
+whole_reason = "The settings, the secret file and the relying party have no caller without the start route, and the start route cannot exist without them; the guard's redirect target and the signed-out page's button are the start's two entries, so they land together."
