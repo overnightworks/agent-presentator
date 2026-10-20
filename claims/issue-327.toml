@@ -1,8 +1,0 @@
-claim_id = "64f34a00d232405da51b8e41f950dd52"
-agent = "claude"
-role = "builder"
-base = "9836dfb7bb6305d3086cc834d848aec046f9a9ae"
-branch = "claude/issue-327-k13-1b-session-sweep"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "src/presentator/adapters/identity.py", "src/presentator/api/legal.py", "src/presentator/application/identity.py", "src/presentator/host/main.py", "src/presentator/host/polling.py", "tests/adapters/test_identity.py", "tests/test_host.py", "tests/test_polling.py", "tests/test_session_sweep.py"]
-opened_commit = "b493f4b6fbde58db82b4664a60a087e76cf70273"
-whole_reason = "The retention sentence must change in the PR that makes it true, so the legal text and its boards land with the sweep; the five production files are one behaviour (a session ends on disk)."
