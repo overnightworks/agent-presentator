@@ -101,6 +101,8 @@ class ScriptedLife:
     upload_spawn_takes: float = 0.0
     wait_error: OSError | None = None
     wait_error_at: int = 0
+    kill_error: BaseException | None = None
+    reap_error: BaseException | None = None
     headers_stalled: int = 0
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
@@ -154,6 +156,8 @@ class ScriptedLife:
 
     def kill(self) -> None:
         self.events.append("kill")
+        if self.kill_error is not None:
+            raise self.kill_error
 
     def wait_within(self, seconds: float) -> int | None:
         self.events.append("wait-within")
@@ -179,6 +183,8 @@ class ScriptedLife:
 
     def wait(self) -> int:
         self.events.append("wait")
+        if self.reap_error is not None:
+            raise self.reap_error
         return self.exit_status
 
     def clock(self) -> float:

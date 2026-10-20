@@ -1,5 +1,6 @@
 """The wire child's gate judgement and its idle entry."""
 
+import errno
 import os
 import runpy
 import socket
@@ -7,9 +8,12 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from types import SimpleNamespace
 
 import pytest
 
+from presentator.adapters.build_wire import StepHeader, write_record
+from presentator.contracts.decks import StepKind
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
 from presentator.host.worker import create_request_record
@@ -267,6 +271,34 @@ def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_repl
     assert client.recv(64) == b""
     assert os.pread(record, 4096, 0) == b'{"step":"export","slug":"my-deck"}'
     assert os.lseek(record, 0, os.SEEK_CUR) == 0
+
+
+def test_the_upload_entry_decodes_the_record_and_answers_status_exiting_uploaded(
+    client_and_descriptor: tuple[socket.socket, int], record: int
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+
+    assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.UPLOADED
+    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_a_refused_memfd_surfaces_as_the_kernels_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def memfd_failure(*_call: object) -> int:
+        return -1
+
+    def refusing_libc(*_arguments: object, **_keywords: object) -> SimpleNamespace:
+        return SimpleNamespace(memfd_create=memfd_failure)
+
+    monkeypatch.setattr(worker.ctypes, "CDLL", refusing_libc)
+    monkeypatch.setattr(worker.ctypes, "get_errno", lambda: errno.EMFILE)
+
+    with pytest.raises(OSError, match="memfd_create failed") as refused:
+        create_request_record()
+
+    assert refused.value.errno == errno.EMFILE
 
 
 def test_the_entry_closes_when_the_client_hung_up_before_status(

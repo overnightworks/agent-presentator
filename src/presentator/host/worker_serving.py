@@ -141,9 +141,19 @@ def _released(child: WireChild) -> bool:
 
 
 def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
-    child.kill()
-    child.wait()
+    try:
+        child.kill()
+    finally:
+        child.wait()
     return life_end
+
+
+def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+    try:
+        _killed(child, None)
+    except BaseException as cleanup_failure:
+        logger.exception("child not killed and reaped")
+        original.add_note(f"killing and reaping the child failed: {cleanup_failure!r}")
 
 
 @dataclass(frozen=True)
@@ -187,8 +197,8 @@ def _run_gated(
         return _ChildRun(None, LifeEnd.SPAWN)
     try:
         return _released_run(child, serving, role, ends_at, expired)
-    except BaseException:
-        _killed(child, None)
+    except BaseException as original:
+        _killed_noting_failure(child, original)
         raise
     finally:
         child.close_gate()

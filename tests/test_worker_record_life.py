@@ -266,12 +266,30 @@ def test_the_controllers_record_descriptor_is_closed_when_the_re_arm_raises(
 
 
 @pytest.mark.parametrize("role_index", [0, 1], ids=["idle", "upload"])
-def test_a_child_is_killed_and_reaped_when_its_wait_raises(
-    connection: socket.socket, role_index: int
+@pytest.mark.parametrize(
+    ("cleanup_fault", "cleanup_failure"),
+    [
+        ({}, None),
+        ({"kill_error": OSError("kill failed")}, "kill failed"),
+        ({"reap_error": KeyboardInterrupt("reap failed")}, "reap failed"),
+    ],
+    ids=["clean", "kill-fails", "reap-fails"],
+)
+def test_a_child_is_killed_and_reaped_and_the_original_error_survives_a_failing_cleanup(
+    connection: socket.socket,
+    role_index: int,
+    cleanup_fault: dict[str, BaseException],
+    cleanup_failure: str | None,
 ) -> None:
-    life = accepted_life(wait_error=OSError("wait failed"), wait_error_at=role_index)
+    life = accepted_life(
+        wait_error=OSError("wait failed"), wait_error_at=role_index, **cleanup_fault
+    )
+    serving = life.serving()
 
-    with pytest.raises(OSError, match="wait failed"):
-        hand_over(connection, life.serving(), ACCEPT_TIME)
+    with pytest.raises(OSError, match="wait failed") as raised:
+        hand_over(connection, serving, ACCEPT_TIME)
 
     assert life.events[-3:] == ["kill", "wait", "close-gate"]
+    notes = getattr(raised.value, "__notes__", [])
+    assert len(notes) == (cleanup_failure is not None)
+    assert all(cleanup_failure in note for note in notes)
