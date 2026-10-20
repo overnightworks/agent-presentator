@@ -1,0 +1,8 @@
+claim_id = "58fe0d0280b2490e8516e75bdaf9482f"
+agent = "claude"
+role = "builder"
+base = "f9ea3e9e6fdd0f3e678a68a8bca3efc3b096dc73"
+branch = "claude/issue-312-build-worker-a4b-framing-hello"
+scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/test_worker_serving.py", "tests/test_worker_wire.py"]
+opened_commit = "d799a4107a0793dbe9439663623f6c4c16d7bbff"
+whole_reason = "One framing owner and its only caller: a codec with no wire child to read it would be code ahead of its caller, and the idle answer has nothing to parse with without it."
