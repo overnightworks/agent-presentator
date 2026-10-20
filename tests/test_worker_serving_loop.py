@@ -251,6 +251,11 @@ LIFE_ENDS = {
         LifeEnd.WIRE_EXIT,
         ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
     ),
+    "an accepted step": (
+        lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
+        LifeEnd.STEP_ACCEPTED,
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
+    ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),
         LifeEnd.SWEEP,
@@ -311,8 +316,12 @@ def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life(
         daemon=True,
     )
     thread.start()
-    connect_when_bound(volume, thread).close()
-    thread.join(WAIT_SECONDS)
+    try:
+        connect_when_bound(volume, thread).close()
+        thread.join(WAIT_SECONDS)
+    finally:
+        life.spawn_error = OSError("stop")
+        wake_until_ended(volume, thread)
 
     assert outcome == [0]
     assert f"life ended: {life_end}" in caplog.text
