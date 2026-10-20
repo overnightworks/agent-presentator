@@ -28,7 +28,7 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
-from tests.worker_support import wake_until_ended
+from tests.worker_support import NeverArmed, nothing, wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -62,6 +62,8 @@ serving = worker_serving.Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=lambda _record: None,
+    open_deck=lambda: None,
+    close_deck=lambda: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     build_timeout_seconds=300.0,
@@ -150,6 +152,8 @@ def serving_with(
         sweep=lambda _deadline: quiet,
         create_record=worker.create_request_record,
         seal=worker.seal_record,
+        open_deck=nothing,
+        close_deck=nothing,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         build_timeout_seconds=300.0,
@@ -162,16 +166,6 @@ def accept_time() -> float:
 
 def real_serving() -> Serving:
     return worker.real_serving(WorkerSettings(build_timeout_seconds=300.0))
-
-
-class NeverArmed:
-    """A watchdog that must not arm a real timer inside pytest."""
-
-    def arm(self, remaining: float) -> None:
-        pass
-
-    def cancel(self) -> None:
-        pass
 
 
 def open_descriptor_count() -> int:
@@ -577,7 +571,7 @@ def test_a_valid_step_is_answered_with_status_by_the_upload_child_and_ends_the_l
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
     with dripped_header(socket_directory) as run:
-        reply = run.serving.exchange(run.thread, VALID_STEP)
+        reply = run.serving.exchange(run.thread, VALID_STEP + b"\x03" + bytes(12))
         run.thread.join(WAIT_SECONDS)
 
     assert reply.received == STATUS

@@ -9,6 +9,7 @@ from enum import IntEnum, StrEnum
 from presentator.adapters.build_wire import (
     EmptyHeader,
     WireRefusedError,
+    read_end,
     read_record,
     read_request,
     send_status,
@@ -47,6 +48,7 @@ def _idle(connection: socket.socket, record_fd: int) -> WireExit:
 def _upload(connection: socket.socket, record_fd: int) -> WireExit:
     read_record(record_fd)
     send_status(connection)
+    read_end(connection)
     return WireExit.UPLOADED
 
 
@@ -54,7 +56,7 @@ _ROLES = {WireRole.IDLE: _idle, WireRole.UPLOAD: _upload}
 
 
 def main(argv: Sequence[str]) -> int:
-    """Run the role: idle answers or accepts, upload decodes the record and answers."""
+    """Run the role: idle answers or accepts, upload decodes, answers and reads END."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", type=WireRole, choices=list(WireRole), required=True)
     parser.add_argument("--connection-fd", type=int, required=True)

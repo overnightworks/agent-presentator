@@ -13,6 +13,7 @@ from presentator.contracts.decks import StepKind, is_a_plain_folder_name
 MAGIC = b"PBW"
 VERSION = 1
 LENGTH = struct.Struct(">H")
+END_COUNTS = struct.Struct(">IQ")
 MINIMUM_HEADER_BYTES = 2
 MAXIMUM_HEADER_BYTES = 4096
 
@@ -25,8 +26,16 @@ class MessageKind(IntEnum):
     STATUS = 3
 
 
+class RecordTag(IntEnum):
+    """The tags of the upload records that follow a STATUS."""
+
+    DIR = 1
+    FILE = 2
+    END = 3
+
+
 class WireRefusedError(Exception):
-    """The peer sent something other than a valid HELLO or STEP."""
+    """The peer sent something other than a valid HELLO, STEP or END."""
 
 
 class EmptyHeader(BaseModel, extra="forbid", strict=True):
@@ -116,3 +125,12 @@ def read_record(descriptor: int) -> StepHeader:
         return StepHeader.model_validate_json(record)
     except ValidationError as error:
         raise WireRefusedError from error
+
+
+def read_end(connection: socket.socket) -> None:
+    """Read the END record; entries arrive later, so only an empty one is accepted."""
+    if _read_exactly(connection, 1)[0] != RecordTag.END:
+        raise WireRefusedError
+    count, total = END_COUNTS.unpack(_read_exactly(connection, END_COUNTS.size))
+    if count or total:
+        raise WireRefusedError

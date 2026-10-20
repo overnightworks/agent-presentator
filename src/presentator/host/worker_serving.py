@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from typing import Protocol
 
 from presentator.host.worker_termination import (
@@ -67,6 +68,7 @@ class LifeEnd(StrEnum):
     ACCEPT = "accept"
     SEAL_FAILED = "seal-failed"
     UPLOAD_EXPIRED = "upload-expired"
+    DECK_FAILED = "deck-failed"
 
 
 class WireChild(Protocol):
@@ -120,6 +122,8 @@ class Serving:
     sweep: Callable[[float], bool]
     create_record: Callable[[], int]
     seal: Callable[[int], None]
+    open_deck: Callable[[], None]
+    close_deck: Callable[[], None]
     watchdog: Watchdog
     clock: Callable[[], float]
     build_timeout_seconds: float
@@ -148,12 +152,20 @@ def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
     return life_end
 
 
-def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+def _noting_cleanup_failure(
+    cleanup: Callable[[], object], original: BaseException, what: str
+) -> None:
     try:
-        _killed(child, None)
+        cleanup()
     except (Exception, KeyboardInterrupt) as cleanup_failure:
-        logger.exception("child not killed and reaped")
-        original.add_note(f"killing and reaping the child failed: {cleanup_failure!r}")
+        logger.exception("%s failed", what)
+        original.add_note(f"{what} failed: {cleanup_failure!r}")
+
+
+def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+    _noting_cleanup_failure(
+        partial(_killed, child, None), original, "killing and reaping the child"
+    )
 
 
 @dataclass(frozen=True)
@@ -240,18 +252,41 @@ def _sealed(serving: Serving, record: int) -> bool:
     return True
 
 
+def _opened_deck(serving: Serving) -> bool:
+    try:
+        serving.open_deck()
+    except OSError:
+        logger.exception("deck not opened")
+        return False
+    return True
+
+
+def _run_upload_with_deck(
+    serving: Serving, descriptors: tuple[int, int], upload_ends_at: float
+) -> _ChildRun:
+    try:
+        upload = _run_gated(
+            serving,
+            WireRole.UPLOAD,
+            descriptors,
+            upload_ends_at,
+            LifeEnd.UPLOAD_EXPIRED,
+        )
+    except BaseException as original:
+        _noting_cleanup_failure(serving.close_deck, original, "closing the deck")
+        raise
+    serving.close_deck()
+    return upload
+
+
 def _hand_over_upload(
     connection: int, serving: Serving, record: int, upload_ends_at: float
 ) -> LifeEnd | None:
     if not _sealed(serving, record):
         return LifeEnd.SEAL_FAILED
-    upload = _run_gated(
-        serving,
-        WireRole.UPLOAD,
-        (connection, record),
-        upload_ends_at,
-        LifeEnd.UPLOAD_EXPIRED,
-    )
+    if not _opened_deck(serving):
+        return LifeEnd.DECK_FAILED
+    upload = _run_upload_with_deck(serving, (connection, record), upload_ends_at)
     if upload.exit_status is None:
         return upload.life_end
     if upload.exit_status == WireExit.UPLOADED:

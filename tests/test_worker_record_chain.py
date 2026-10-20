@@ -9,9 +9,11 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing, suppress
+from contextlib import ExitStack, closing, suppress
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -22,7 +24,7 @@ from presentator.adapters.worker_children import (
 )
 from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd, Serving, hand_over
-from tests.worker_support import RecordingCreation, connect
+from tests.worker_support import NeverArmed, RecordingCreation, connect
 
 OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
@@ -30,6 +32,7 @@ PATH = "/usr/bin:/bin"
 STATUS = b"PBW\x01\x03\x00\x02{}"
 STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
 VALID_STEP = b"PBW\x01\x02" + len(STEP_HEADER).to_bytes(2, "big") + STEP_HEADER
+END = b"\x03" + bytes(12)
 HELLO = b"PBW\x01\x01\x00\x02{}"
 FORGER = """
 import os, sys
@@ -99,28 +102,56 @@ class Life:
     spawn: ChainSpawn
 
 
-class NeverArmed:
-    """A watchdog that must not arm a real timer inside pytest."""
-
-    def arm(self, remaining: float) -> None:
-        pass
-
-    def cancel(self) -> None:
-        pass
-
-
 def read_to_end(client: socket.socket) -> bytes:
     received = b""
-    while chunk := client.recv(4096):
-        received += chunk
+    with suppress(ConnectionResetError):
+        while chunk := client.recv(4096):
+            received += chunk
     return received
+
+
+@dataclass(frozen=True)
+class LifeScenario:
+    """What a life runs on besides the spawn: the record effects and the deck."""
+
+    seal: Callable[[int], None] = worker.seal_record
+    create_record: Callable[[], int] = worker.create_request_record
+    deck: Path | None = None
 
 
 def run_life(
     sent: bytes,
     spawn: ChainSpawn,
-    seal: Callable[[int], None] = worker.seal_record,
-    create_record: Callable[[], int] = worker.create_request_record,
+    scenario: LifeScenario | None = None,
+    converse: Callable[[socket.socket], None] = lambda _client: None,
+) -> Life:
+    scenario = scenario or LifeScenario()
+    with ExitStack() as cleanup:
+        deck = (
+            scenario.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
+        )
+        return _run_life_at(deck, sent, spawn, scenario, converse)
+
+
+def _end_life(
+    spawn: ChainSpawn, thread: threading.Thread, client: socket.socket
+) -> None:
+    try:
+        client.close()
+    finally:
+        try:
+            spawn.kill_and_reap()
+        finally:
+            thread.join(WAIT_SECONDS)
+            assert not thread.is_alive(), "the controller outlived its life"
+
+
+def _run_life_at(
+    deck: Path,
+    sent: bytes,
+    spawn: ChainSpawn,
+    scenario: LifeScenario,
+    converse: Callable[[socket.socket], None],
 ) -> Life:
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
@@ -128,8 +159,10 @@ def run_life(
         spawn=spawn,
         gate_admits=lambda _status: True,
         sweep=lambda _deadline: True,
-        create_record=create_record,
-        seal=seal,
+        create_record=scenario.create_record,
+        seal=scenario.seal,
+        open_deck=partial(worker.open_deck, deck),
+        close_deck=partial(worker.close_deck, deck),
         watchdog=NeverArmed(),
         clock=time.monotonic,
         build_timeout_seconds=300.0,
@@ -143,14 +176,15 @@ def run_life(
     )
     with closing(controller_end), closing(client):
         try:
-            client.sendall(sent)
             thread.start()
+            client.sendall(sent)
+            converse(client)
             thread.join(WAIT_SECONDS)
-            assert not thread.is_alive()
+            controller_end.close()
+            reply = read_to_end(client)
         finally:
-            spawn.kill_and_reap()
-        controller_end.close()
-        return Life(outcome[0], read_to_end(client), spawn)
+            _end_life(spawn, thread, client)
+        return Life(outcome[0], reply, spawn)
 
 
 @pytest.fixture
@@ -166,7 +200,11 @@ def test_the_upload_child_answers_status_from_the_record_the_idle_child_wrote() 
         worker.seal_record(record)
         written.append(os.pread(record, 4096, 0))
 
-    life = run_life(VALID_STEP, ChainSpawn(), seal_then_read_as_the_test)
+    life = run_life(
+        VALID_STEP + END,
+        ChainSpawn(),
+        LifeScenario(seal=seal_then_read_as_the_test),
+    )
 
     assert life.reply == STATUS
     assert life.life_end == LifeEnd.STEP_ACCEPTED
@@ -202,7 +240,7 @@ def test_a_failing_seal_closes_without_status_and_spawns_no_upload_child() -> No
     def refuse(_record: int) -> None:
         raise OSError(errno.EBUSY, "a writable shared mapping exists")
 
-    life = run_life(VALID_STEP, ChainSpawn(), refuse)
+    life = run_life(VALID_STEP, ChainSpawn(), LifeScenario(seal=refuse))
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.SEAL_FAILED
@@ -234,7 +272,7 @@ def test_the_next_life_does_not_hold_the_record_of_the_one_before() -> None:
         life = run_life(
             b"",
             ChainSpawn(programs={"idle": [INODES_REPORTER]}),
-            create_record=creation,
+            LifeScenario(create_record=creation),
         )
         records.append(creation.identity)
         held_by_child.append({tuple(held) for held in json.loads(life.reply)})
@@ -279,6 +317,8 @@ serving = Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=worker.seal_record,
+    open_deck=lambda: None,
+    close_deck=lambda: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     build_timeout_seconds=1.0,

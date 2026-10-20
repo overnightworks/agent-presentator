@@ -30,6 +30,12 @@ FOREIGN_UID = OWN_UID + 1
 PRIVATE_MODE = 0o700
 
 
+DECK_OPEN_MODE = 0o1777
+
+
+DECK_CLOSED_MODE = 0o755
+
+
 CONNECTIONS = 2
 
 
@@ -81,6 +87,20 @@ class RecordingCreation:
         return (held.st_dev, held.st_ino) != self.identity
 
 
+class NeverArmed:
+    """A watchdog that must not arm a real timer inside pytest."""
+
+    def arm(self, remaining: float) -> None:
+        pass
+
+    def cancel(self) -> None:
+        pass
+
+
+def nothing() -> None:
+    """A deck effect for tests that never reach /work."""
+
+
 @dataclass
 class ScriptedLife:
     """One serving life's effects and its wire child, recorded in order."""
@@ -96,6 +116,8 @@ class ScriptedLife:
     upload_spawn_error: OSError | None = None
     upload_gate_admits: bool = True
     seal_error: OSError | None = None
+    deck_open_error: OSError | None = None
+    deck_close_error: OSError | None = None
     arm_takes: float = 0.0
     seal_takes: float = 0.0
     upload_spawn_takes: float = 0.0
@@ -214,6 +236,16 @@ class ScriptedLife:
         if self.seal_error is not None:
             raise self.seal_error
 
+    def open_deck(self) -> None:
+        self.events.append("open-deck")
+        if self.deck_open_error is not None:
+            raise self.deck_open_error
+
+    def close_deck(self) -> None:
+        self.events.append("close-deck")
+        if self.deck_close_error is not None:
+            raise self.deck_close_error
+
     def cancel(self) -> None:
         self.events.append("cancel")
 
@@ -224,6 +256,8 @@ class ScriptedLife:
             sweep=self.sweep,
             create_record=self.creation,
             seal=self.seal,
+            open_deck=self.open_deck,
+            close_deck=self.close_deck,
             watchdog=self,
             clock=self.clock,
             build_timeout_seconds=self.build_timeout_seconds,
