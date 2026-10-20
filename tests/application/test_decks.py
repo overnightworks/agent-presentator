@@ -32,7 +32,6 @@ from presentator.contracts.decks import (
     DeckState,
     ListedDeck,
     ListedSource,
-    SecretLocation,
     Source,
     SourceDeck,
     SourceRemoval,
@@ -72,7 +71,6 @@ def a_source(name: str, *, identifier: str) -> Source:
         name=name,
         url=f"git@example.invalid:{name}.git",
         ref="main",
-        secret_location=None,
         owner_id=_OWNER,
     )
 
@@ -84,7 +82,6 @@ _HTTPS_SOURCE = Source(
     name="tokens",
     url="https://git.example.invalid/tokens.git",
     ref="main",
-    secret_location=None,
     owner_id=_OWNER,
 )
 _A_DECK = frozenset({MANIFEST_FILE, SLIDES_FILE})
@@ -1145,7 +1142,6 @@ def test_adding_a_source_stores_it_fetches_it_and_returns_a_webhook_secret() -> 
     assert added.source.name == "talks"
     assert added.source.url == _HTTPS_URL
     assert added.source.ref == "main"
-    assert added.source.secret_location is SecretLocation.STORED
     assert added.source.owner_id == _OWNER
     assert len(added.webhook_secret) >= _MINIMUM_WEBHOOK_SECRET_LENGTH
     assert set(added.webhook_secret) <= set(string.ascii_letters + string.digits + "-_")
@@ -1536,7 +1532,6 @@ def test_a_different_spelling_of_an_existing_local_source_is_a_duplicate_url() -
         name="talks",
         url=f"{LOCAL_MOUNT_EXAMPLE}/talks.git",
         ref="main",
-        secret_location=None,
         owner_id=_OWNER,
     )
     decks = decks_over(sources=having(existing))
@@ -1550,17 +1545,6 @@ def test_a_different_spelling_of_an_existing_local_source_is_a_duplicate_url() -
     )
 
     assert refused is SourceRefusal.DUPLICATE_URL
-
-
-def test_adding_a_source_does_not_rewrite_an_existing_sources_secret() -> None:
-    existing = a_source("decks", identifier="the-existing-source")
-    store = having(existing)
-
-    added = _add(decks_over(sources=store))
-
-    assert isinstance(added, AddedSource)
-    kept = next(source for source in store.all() if source.id == existing.id)
-    assert kept.secret_location is None
 
 
 def test_a_hook_call_with_the_stored_secret_refreshes_that_source() -> None:
@@ -1629,7 +1613,6 @@ def test_the_source_page_names_state_newest_runs_and_the_decks_from_here() -> No
     assert page.name == _SOURCE.name
     assert page.url == _SOURCE.url
     assert page.state is SourceState.REACHABLE
-    assert page.secret_missing is True
     assert page.runs[0].commit == _SHORT_COMMIT
     assert page.runs[-1].reason is SourceRunFailure.UNREACHABLE
     assert len(page.runs) == RECENT_SOURCE_RUNS
@@ -1649,7 +1632,6 @@ def test_renewing_the_access_secret_stores_the_new_value() -> None:
 
     assert decks.renew_access(_HTTPS_SOURCE.name, "the-new-token")
     assert store.secrets[_HTTPS_SOURCE.id] == "the-new-token"
-    assert store.all()[0].secret_location is SecretLocation.STORED
 
 
 def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
@@ -1657,7 +1639,6 @@ def test_a_blank_access_renewal_is_refused_and_stores_nothing() -> None:
 
     assert not decks_over(sources=store).renew_access(_HTTPS_SOURCE.name, "  ")
     assert store.secrets == {}
-    assert store.all()[0].secret_location is None
 
 
 def test_renewing_an_ssh_sources_deploy_key_needs_no_input_or_remote_operation() -> (

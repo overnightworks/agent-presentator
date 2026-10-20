@@ -48,17 +48,6 @@ def talk_address(slug: str) -> str:
     return f"{DECK_PATH}/{slug}/"
 
 
-class SecretLocation(StrEnum):
-    """Where a source's read-only secret stands, never the secret itself.
-
-    A row is the truth about its own secret. The one place is the encrypted
-    column: a source whose row carries ciphertext is stored, and a source
-    whose row does not has no secret this instance can hand to git.
-    """
-
-    STORED = "stored"
-
-
 # The Source board draws three runs, and that page is the first reader of the
 # log, so the table keeps the same three: older rows have no caller.
 RECENT_SOURCE_RUNS: Final = 3
@@ -203,7 +192,6 @@ class Source:
     name: str
     url: str
     ref: str
-    secret_location: SecretLocation | None
     owner_id: str
     public_key: str | None = None
 
@@ -466,7 +454,6 @@ class SourcePage:
     access: AccessKind | None
     state: SourceState
     age: timedelta | None
-    secret_missing: bool
     public_key: str | None
     runs: tuple[ShownSourceRun, ...]
     decks: tuple[SourceDeck, ...]

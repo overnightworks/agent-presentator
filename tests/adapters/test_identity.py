@@ -281,6 +281,15 @@ def test_deleting_sessions_for_nobody_drops_nothing(database: Path) -> None:
             " REFERENCES users(id), last_seen TEXT NOT NULL);",
             id="sessions-without-created-at",
         ),
+        pytest.param(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL,"
+            " role TEXT NOT NULL, password_hash TEXT NOT NULL);"
+            "CREATE TABLE sources (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " url TEXT NOT NULL, credential_reference TEXT, encrypted_secret BLOB);"
+            "INSERT INTO sources (id, name, url, credential_reference)"
+            " VALUES ('s', 'talks', 'https://example.test/talks.git', 'TOKEN');",
+            id="before-encryption-a-source-seeded-from-the-environment",
+        ),
     ],
 )
 def test_a_file_from_an_older_version_is_refused_and_left_untouched(

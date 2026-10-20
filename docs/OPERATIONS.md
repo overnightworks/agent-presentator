@@ -144,10 +144,9 @@ directory it removes in a `finally`, and runs `ssh` against it alone
 (`IdentitiesOnly=yes`), with the host key pinned on first contact
 (`StrictHostKeyChecking=accept-new`) and refused if it ever changes.
 
-A source that still names only an environment variable — a row written before
-this instance stored secrets itself — stays listed and keeps its decks. Fetch
-fails until the operator opens that source's page and presses *Renew secret*.
-`PRESENTATOR_SOURCE_URL`, `_REF`, `_NAME`, `_CREDENTIAL` and `_HOOK_SECRET` are
+A source row always carries its encrypted secret. A database from before
+sources stored secrets themselves also holds the password-era tables, so the
+start refuses it (see "Starting over from an old database"). `PRESENTATOR_SOURCE_URL`, `_REF`, `_NAME`, `_CREDENTIAL` and `_HOOK_SECRET` are
 not settings; leaving them in the environment does nothing.
 
 The source's own page is `/settings/sources/<name>`: state and fetched age,
@@ -356,8 +355,8 @@ docker compose start
 Those files restore nothing by themselves. `PRESENTATOR_SECRET_KEY` belongs
 with them, because the sources' stored secrets are encrypted with a derivation
 of it — a restored instance without that key lists its decks and can pull none
-of them. A row that still names an environment variable is not restored by
-`.env`; it needs *Renew secret* on the source page.
+of them. Environment variables do not restore a source's secret; *Renew secret* on the
+source page replaces an unreadable one.
 
 ## Building the decks
 
