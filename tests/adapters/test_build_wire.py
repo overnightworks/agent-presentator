@@ -1,5 +1,6 @@
 """The build wire's framing: what a HELLO or STEP may look like and what STATUS is."""
 
+import json
 import socket
 from collections.abc import Iterator
 from contextlib import closing
@@ -72,14 +73,27 @@ def step_message(header: bytes, kind: int = 2) -> bytes:
     return b"PBW\x01" + bytes([kind]) + len(header).to_bytes(2, "big") + header
 
 
+STEP_SLUGS = {
+    "a plain slug": "my-deck",
+    "a unicode slug": "décor",
+    "a mixed script slug": "décor-漢字",
+    "a slug filling the longest step header to 4096 bytes": "a"
+    * (4096 - len(b'{"step":"export","slug":""}')),
+}
+
+
+@pytest.mark.parametrize("slug", STEP_SLUGS.values(), ids=STEP_SLUGS.keys())
 @pytest.mark.parametrize("step", list(StepKind))
 def test_a_valid_step_header_is_read_with_its_step_and_slug(
-    wire: tuple[socket.socket, socket.socket], step: StepKind
+    wire: tuple[socket.socket, socket.socket], step: StepKind, slug: str
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(step_message(b'{"step":"%s","slug":"my-deck"}' % step.encode()))
+    header = json.dumps(
+        {"step": step.value, "slug": slug}, ensure_ascii=False, separators=(",", ":")
+    )
+    writing_end.sendall(step_message(header.encode()))
 
-    assert read_request(reading_end) == StepHeader(step=step, slug="my-deck")
+    assert read_request(reading_end) == StepHeader(step=step, slug=slug)
 
 
 BAD_STEP_HEADERS = {

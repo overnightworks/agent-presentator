@@ -227,7 +227,7 @@ def test_the_entry_exits_accepted_on_a_valid_step_and_replies_nothing(
     client.sendall(VALID_STEP)
 
     assert run_entry(client, descriptor) == WireExit.ACCEPTED
-    assert read_to_end_or_reset(client) == b""
+    assert client.recv(64) == b""
 
 
 def test_the_entry_closes_when_the_client_hung_up_before_status(

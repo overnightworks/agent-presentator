@@ -559,6 +559,7 @@ def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
         run.thread.join(WAIT_SECONDS)
 
     assert reply.received == b""
+    assert not reply.ended_by_reset
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
     assert run.serving.sweep_deadlines == []
