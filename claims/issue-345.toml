@@ -1,8 +1,0 @@
-claim_id = "611db62280404e87b4e29f14730c61fe"
-agent = "claude"
-role = "builder"
-base = "c9fafcd23b4f173aeaedfed3b985d4162e82e65b"
-branch = "claude/issue-345-copresenter-claude-token-dir"
-scope = ["copresenter/README.md", "copresenter/src/copresenter/config.py", "copresenter/tests/test_answer_child.py", "copresenter/tests/test_start.py", "docs/OPERATIONS.md"]
-opened_commit = "c7fe29acc7ae6987a3477658432b1c8d0e7e0d01"
-whole_reason = "One ruled path: the default, its two test pins and the two runbooks that name it change together."
