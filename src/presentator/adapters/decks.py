@@ -607,9 +607,7 @@ class SourceMirrors:
                 url=url,
                 ref=source.ref,
                 # The source's own id is the anchor, because the row is what
-                # knows whether a secret stands; the resolver reads it there.
-                # A row without ciphertext leaves the pull unresolvable
-                # rather than an anonymous fetch that would look like success.
+                # holds the secret; the resolver reads it there.
                 credential=CredentialReference(name=source.id),
             ),
             directory=self._directory_of(source),

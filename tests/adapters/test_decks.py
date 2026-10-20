@@ -703,6 +703,18 @@ def test_a_stored_secret_stands_in_its_row_as_ciphertext_and_comes_back(
     )
 
 
+def test_a_source_this_instance_no_longer_carries_resolves_to_nothing(
+    tmp_path: Path,
+) -> None:
+    database = an_instance_that_was_set_up(tmp_path)
+
+    resolved = a_resolver(database).resolve(
+        CredentialReference(name="no source of this name"),
+    )
+
+    assert resolved is None
+
+
 def test_a_secret_another_instance_key_wrote_is_refused_rather_than_answered(
     tmp_path: Path,
 ) -> None:
