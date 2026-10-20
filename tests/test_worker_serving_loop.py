@@ -12,7 +12,7 @@ from typing import ClassVar, NoReturn, overload
 import pytest
 
 from presentator.host import worker, worker_serving
-from presentator.host.worker_serving import LifeEnd
+from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd
 from presentator.host.worker_termination import SWEEP_SECONDS, SweepEffects, sweep
 from presentator.host.worker_wire import WireExit
 from tests.worker_support import (
@@ -30,6 +30,7 @@ from tests.worker_support import (
     connect_when_bound,
     listening_with,
     serving,
+    wake_until_ended,
 )
 
 
@@ -101,18 +102,18 @@ def test_a_foreign_peer_is_reset_unread_and_never_spawns_a_child(
     assert life.spawned == []
 
 
-def test_a_connection_without_readable_credentials_is_closed_and_the_error_surfaces(
+def test_a_connection_without_readable_credentials_is_closed_and_ends_the_life(
     volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     life = ScriptedLife()
     monkeypatch.setattr(UnidentifiableConnection, "accepted", [])
     with listening_with(volume, 1, UnidentifiableListener) as listener:
         connect(volume)
-        with pytest.raises(OSError, match="no peer credentials"):
-            accept_from(life, listener, OWN_UID)
+        outcome = accept_from(life, listener, OWN_UID)
 
+    assert outcome == LifeEnd.ACCEPT
     assert life.spawned == []
-    assert "cancel" not in life.events
+    assert life.events == ["arm 7.0"]
     assert [
         connection.fileno() for connection in UnidentifiableConnection.accepted
     ] == [-1]
@@ -161,7 +162,7 @@ def test_a_kept_life_connection_is_handed_to_a_gated_child_then_swept(
         "spawn",
         "status",
         "release",
-        "wait",
+        "wait-within",
         "close-gate",
         "sweep 104.0",
         "cancel",
@@ -243,12 +244,12 @@ LIFE_ENDS = {
     "an exit status outside the kept set": (
         lambda: ScriptedLife(exit_status=1),
         LifeEnd.WIRE_EXIT,
-        ["arm 7.0", "spawn", "status", "release", "wait", "close-gate"],
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
     ),
     "a child killed by a signal": (
         lambda: ScriptedLife(exit_status=-9),
         LifeEnd.WIRE_EXIT,
-        ["arm 7.0", "spawn", "status", "release", "wait", "close-gate"],
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
     ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),
@@ -258,7 +259,7 @@ LIFE_ENDS = {
             "spawn",
             "status",
             "release",
-            "wait",
+            "wait-within",
             "close-gate",
             "sweep 104.0",
         ],
@@ -329,16 +330,47 @@ def test_a_sweep_that_fails_for_another_reason_surfaces_with_its_error(
     assert "cancel" not in life.events
 
 
-def test_the_watchdog_is_armed_before_the_peer_check_and_left_armed_when_it_fails(
+class FailingAcceptListener(BoundedListener):
+    """A listener whose accept fails as an exhausted descriptor table does."""
+
+    def accept(self) -> NoReturn:
+        raise OSError(errno.EMFILE, "too many open files")
+
+
+def test_a_failing_accept_ends_the_life_before_anything_is_armed_spawned_or_swept(
     volume: Path,
 ) -> None:
     life = ScriptedLife()
-    with listening_with(volume, 1, UnidentifiableListener) as listener:
-        connect(volume)
-        with pytest.raises(OSError, match="no peer credentials"):
-            accept_from(life, listener, OWN_UID)
+    with listening_with(volume, 0, FailingAcceptListener) as listener:
+        outcome = accept_from(life, listener, OWN_UID)
 
-    assert life.events == ["arm 7.0"]
+    assert outcome == LifeEnd.ACCEPT
+    assert life.events == []
+
+
+def test_serve_returns_zero_and_names_the_accept_fault(
+    volume: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bind_socket = worker.bind_socket
+
+    def bind_failing_accept(
+        directory: Path, controller_uid: int, controller_gid: int
+    ) -> FailingAcceptListener:
+        plain = bind_socket(directory, controller_uid, controller_gid)
+        return FailingAcceptListener(fileno=plain.detach())
+
+    monkeypatch.setattr(worker, "bind_socket", bind_failing_accept)
+
+    status = worker.serve(
+        volume,
+        controller_uid=OWN_UID,
+        controller_gid=OWN_GID,
+        runtime_uid=OWN_UID,
+        serving=ScriptedLife().serving(),
+    )
+
+    assert status == 0
+    assert f"life ended: {LifeEnd.ACCEPT}" in caplog.text
 
 
 def test_the_runtime_uid_gets_one_gated_child_per_connection(volume: Path) -> None:
@@ -418,3 +450,171 @@ def test_a_body_failure_carries_the_serving_error_as_a_note(
 
     assert surfaced.value is body_failure
     assert any("serving broke" in note for note in body_failure.__notes__)
+
+
+CUT_OFF_HEADER = [
+    "arm 7.0",
+    "spawn",
+    "status",
+    "release",
+    "wait-within",
+    "kill",
+    "wait",
+    "close-gate",
+    "sweep 104.0",
+    "cancel",
+]
+ANSWERED_HEADER = [
+    "arm 7.0",
+    "spawn",
+    "status",
+    "release",
+    "wait-within",
+    "close-gate",
+    "sweep 104.0",
+    "cancel",
+]
+EXPIRED_BEFORE_RELEASE = [
+    "arm 7.0",
+    "spawn",
+    "status",
+    "kill",
+    "wait",
+    "close-gate",
+    "sweep 104.0",
+]
+EXPIRED_AT_RELEASE = [
+    "arm 7.0",
+    "spawn",
+    "status",
+    "release",
+    "kill",
+    "wait",
+    "close-gate",
+    "sweep 104.0",
+]
+
+
+def accept_twice_from(life: ScriptedLife, volume: Path) -> list[bytes]:
+    with listening_with(volume, accepts=2) as listener:
+        clients = [connect(volume), connect(volume)]
+        with pytest.raises(StopServingError):
+            accept_from(life, listener, OWN_UID)
+        return [client.recv(1) for client in clients]
+
+
+def test_a_header_that_outlasts_its_budget_is_cut_off_and_the_next_connection_is_served(
+    volume: Path,
+) -> None:
+    life = ScriptedLife(headers_stalled=1)
+
+    replies = accept_twice_from(life, volume)
+
+    assert replies == [b"", b""]
+    assert life.budgets_waited == [HEADER_SECONDS, HEADER_SECONDS]
+    assert life.events == CUT_OFF_HEADER + ANSWERED_HEADER
+
+
+def test_a_stalled_header_never_ends_the_life_while_the_sweep_is_quiet(
+    volume: Path,
+) -> None:
+    life = ScriptedLife(headers_stalled=2)
+    with listening_with(volume, accepts=2) as listener:
+        connect(volume)
+        connect(volume)
+        with pytest.raises(StopServingError):
+            accept_from(life, listener, OWN_UID)
+
+    assert life.events == 2 * CUT_OFF_HEADER
+
+
+def test_serve_cuts_a_stalled_header_off_and_serves_the_next_connection_in_one_life(
+    volume: Path,
+) -> None:
+    life = ScriptedLife(headers_stalled=1, connections_served_before_sweep_fails=2)
+    outcome: list[int] = []
+    thread = threading.Thread(
+        target=lambda: outcome.append(
+            worker.serve(
+                volume,
+                controller_uid=OWN_UID,
+                controller_gid=OWN_GID,
+                runtime_uid=OWN_UID,
+                serving=life.serving(),
+            )
+        ),
+        daemon=True,
+    )
+    thread.start()
+    try:
+        first = connect_when_bound(volume, thread)
+        assert first.recv(1) == b""
+        second = connect(volume)
+        assert second.recv(1) == b""
+        thread.join(WAIT_SECONDS)
+    finally:
+        life.spawn_error = OSError("stop")
+        wake_until_ended(volume, thread)
+
+    assert outcome == [0]
+    assert life.events[: len(CUT_OFF_HEADER)] == CUT_OFF_HEADER
+    assert life.events.count("kill") == 1
+
+
+@pytest.mark.parametrize(
+    ("inspection_takes", "release_takes", "events", "budgets"),
+    [
+        (HEADER_SECONDS, 0.0, [*EXPIRED_BEFORE_RELEASE, "cancel"], []),
+        (HEADER_SECONDS + 1, 0.0, [*EXPIRED_BEFORE_RELEASE, "cancel"], []),
+        (0.0, HEADER_SECONDS, [*EXPIRED_AT_RELEASE, "cancel"], []),
+        (HEADER_SECONDS * 0.25, 0.0, ANSWERED_HEADER, [HEADER_SECONDS * 0.75]),
+    ],
+    ids=[
+        "an inspection that spends the whole budget",
+        "an inspection that overruns the budget",
+        "a release that spends the rest of the budget",
+        "an inspection that leaves a quarter of the budget spent",
+    ],
+)
+def test_the_header_budget_covers_the_gate_and_the_release_as_well_as_the_wait(
+    volume: Path,
+    inspection_takes: float,
+    release_takes: float,
+    events: list[str],
+    budgets: list[float],
+) -> None:
+    life = ScriptedLife(inspection_takes=inspection_takes, release_takes=release_takes)
+    with listening_with(volume, accepts=1) as listener:
+        client = connect(volume)
+        with pytest.raises(StopServingError):
+            accept_from(life, listener, OWN_UID)
+        assert client.recv(1) == b""
+
+    assert life.events == events
+    assert life.budgets_waited == budgets
+
+
+@pytest.mark.parametrize("sweep_quiet", [True, False], ids=["quiet", "not quiet"])
+def test_the_life_is_kept_after_an_expiry_only_when_the_sweep_is_quiet(
+    volume: Path, *, sweep_quiet: bool
+) -> None:
+    life = ScriptedLife(inspection_takes=HEADER_SECONDS, sweep_quiet=sweep_quiet)
+    with listening_with(volume, accepts=1) as listener:
+        connect(volume)
+        if sweep_quiet:
+            with pytest.raises(StopServingError):
+                accept_from(life, listener, OWN_UID)
+        else:
+            assert accept_from(life, listener, OWN_UID) == LifeEnd.SWEEP
+
+    assert ("cancel" in life.events) == sweep_quiet
+
+
+def test_a_gate_mismatch_is_a_gate_end_whatever_the_clock_says(volume: Path) -> None:
+    life = ScriptedLife(gate_admits=False, inspection_takes=HEADER_SECONDS)
+    with listening_with(volume, accepts=1) as listener:
+        connect(volume)
+        outcome = accept_from(life, listener, OWN_UID)
+
+    assert outcome == LifeEnd.GATE
+    assert "release" not in life.events

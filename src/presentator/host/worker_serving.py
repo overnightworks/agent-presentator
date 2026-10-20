@@ -1,5 +1,6 @@
 """The build worker's serving loop: accept, check the peer, hand over, sweep."""
 
+import logging
 import os
 import socket
 import struct
@@ -16,7 +17,10 @@ from presentator.host.worker_termination import (
 )
 from presentator.host.worker_wire import KEPT_LIFE_EXITS
 
+logger = logging.getLogger(__name__)
+
 PEER_CREDENTIALS = struct.Struct("3i")
+HEADER_SECONDS = 2.0
 
 
 def peer_admitted(peer_uid: int, runtime_uid: int) -> bool:
@@ -39,6 +43,7 @@ class LifeEnd(StrEnum):
     GATE = "gate"
     WIRE_EXIT = "wire-exit"
     SWEEP = "sweep"
+    ACCEPT = "accept"
 
 
 class WireChild(Protocol):
@@ -58,6 +63,10 @@ class WireChild(Protocol):
 
     def wait(self) -> int:
         """Wait for the child and return its exit status."""
+        ...
+
+    def wait_within(self, seconds: float) -> int | None:
+        """Wait at most the seconds; None when the child is still running."""
         ...
 
     def close_gate(self) -> None:
@@ -90,17 +99,35 @@ class Serving:
     clock: Callable[[], float]
 
 
-def _released_as_gated(child: WireChild, serving: Serving) -> bool:
+def _admitted_at_gate(child: WireChild, serving: Serving) -> bool:
     try:
-        if not serving.gate_admits(child.status_text()):
-            return False
+        return serving.gate_admits(child.status_text())
+    except OSError:
+        return False
+
+
+def _released(child: WireChild) -> bool:
+    try:
         child.release()
     except OSError:
         return False
     return True
 
 
-def hand_over(connection: socket.socket, serving: Serving) -> LifeEnd | None:
+def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
+    child.kill()
+    child.wait()
+    return life_end
+
+
+def _header_expired(child: WireChild) -> None:
+    logger.warning("header deadline")
+    _killed(child, None)
+
+
+def hand_over(
+    connection: socket.socket, serving: Serving, header_ends_at: float
+) -> LifeEnd | None:
     """Give the connection to a gated wire child; None keeps the life."""
     descriptor = connection.fileno()
     command = [
@@ -118,11 +145,17 @@ def hand_over(connection: socket.socket, serving: Serving) -> LifeEnd | None:
     except OSError:
         return LifeEnd.SPAWN
     try:
-        if not _released_as_gated(child, serving):
-            child.kill()
-            child.wait()
-            return LifeEnd.GATE
-        return None if child.wait() in KEPT_LIFE_EXITS else LifeEnd.WIRE_EXIT
+        if not _admitted_at_gate(child, serving):
+            return _killed(child, LifeEnd.GATE)
+        if serving.clock() >= header_ends_at:
+            return _header_expired(child)
+        if not _released(child):
+            return _killed(child, LifeEnd.GATE)
+        remaining = header_ends_at - serving.clock()
+        exit_status = child.wait_within(remaining) if remaining > 0 else None
+        if exit_status is None:
+            return _header_expired(child)
+        return None if exit_status in KEPT_LIFE_EXITS else LifeEnd.WIRE_EXIT
     finally:
         child.close_gate()
 
@@ -132,12 +165,25 @@ def accept_connections(
 ) -> LifeEnd:
     """Serve each connection in turn; return what ended the life."""
     while True:
-        connection, _address = listener.accept()
+        try:
+            connection, _address = listener.accept()
+        except OSError:
+            logger.exception("accept failed")
+            return LifeEnd.ACCEPT
         accepted_at = serving.clock()
         serving.watchdog.arm(accepted_at + WATCHDOG_SECONDS - serving.clock())
         with connection:
-            admitted = peer_admitted(_peer_uid(connection), runtime_uid)
-            life_end = hand_over(connection, serving) if admitted else None
+            try:
+                peer_uid = _peer_uid(connection)
+            except OSError:
+                logger.exception("peer credentials unreadable")
+                return LifeEnd.ACCEPT
+            admitted = peer_admitted(peer_uid, runtime_uid)
+            life_end = (
+                hand_over(connection, serving, accepted_at + HEADER_SECONDS)
+                if admitted
+                else None
+            )
         if life_end is not None:
             return life_end
         if not serving.sweep(accepted_at + SWEEP_SECONDS):

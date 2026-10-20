@@ -65,6 +65,11 @@ class ScriptedLife:
     gate_admits: bool = True
     release_error: OSError | None = None
     exit_status: int = WireExit.CLOSED
+    headers_stalled: int = 0
+    clock_now: float = ACCEPT_TIME
+    inspection_takes: float = 0.0
+    release_takes: float = 0.0
+    budgets_waited: list[float] = field(default_factory=list[float])
     sweep_error: OSError | None = None
     sweep_quiet: bool = True
     connections_served_before_sweep_fails: int | None = None
@@ -85,21 +90,33 @@ class ScriptedLife:
 
     def status_text(self) -> str:
         self.events.append("status")
+        self.clock_now += self.inspection_takes
         if isinstance(self.status, OSError):
             raise self.status
         return self.status
 
     def release(self) -> None:
         self.events.append("release")
+        self.clock_now += self.release_takes
         if self.release_error is not None:
             raise self.release_error
 
     def kill(self) -> None:
         self.events.append("kill")
 
+    def wait_within(self, seconds: float) -> int | None:
+        self.events.append("wait-within")
+        self.budgets_waited.append(seconds)
+        if len(self.budgets_waited) <= self.headers_stalled:
+            return None
+        return self.exit_status
+
     def wait(self) -> int:
         self.events.append("wait")
         return self.exit_status
+
+    def clock(self) -> float:
+        return self.clock_now
 
     def close_gate(self) -> None:
         self.events.append("close-gate")
@@ -126,7 +143,7 @@ class ScriptedLife:
             gate_admits=lambda _status: self.gate_admits,
             sweep=self.sweep,
             watchdog=self,
-            clock=lambda: ACCEPT_TIME,
+            clock=self.clock,
         )
 
 

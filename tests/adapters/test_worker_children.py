@@ -2,13 +2,14 @@
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import closing
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -19,12 +20,19 @@ import pytest
 from presentator.adapters import worker_children
 from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
 from presentator.host import worker, worker_serving
-from presentator.host.worker_serving import LifeEnd, Serving, WireChild
+from presentator.host.worker_serving import (
+    HEADER_SECONDS,
+    LifeEnd,
+    Serving,
+    WireChild,
+)
 from presentator.host.worker_termination import SWEEP_SECONDS
+from tests.worker_support import wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
 OWN_IDENTITY = ChildIdentity(OWN_UID, OWN_GID, extra_groups=None)
+REAL_SPAWN = partial(spawn_gated, identity=OWN_IDENTITY)
 WAIT_SECONDS = 10
 WATCHDOG_WINDOW = (6.0, 8.0)
 INHERITED_DESCRIPTORS = {0, 1, 2}
@@ -32,6 +40,7 @@ RELEASED_UMASK = 0o022
 CURRENT_DIRECTORY_KEY = "PWD"
 PATH = "/usr/bin:/bin"
 SECOND_CONNECTION = 2
+SHORT_BUDGET_SECONDS = 0.05
 STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
@@ -130,6 +139,10 @@ def serving_with(
     )
 
 
+def header_ends_at() -> float:
+    return time.monotonic() + HEADER_SECONDS
+
+
 class NeverArmed:
     """A watchdog that must not arm a real timer inside pytest."""
 
@@ -179,7 +192,9 @@ def hand_over_probe(
 ) -> ProbeReport:
     monkeypatch.setenv("PATH", PATH)
     connection, client = connection_pair
-    kept = worker_serving.hand_over(connection, serving_with(spawn_probe(PROBE)))
+    kept = worker_serving.hand_over(
+        connection, serving_with(spawn_probe(PROBE)), header_ends_at()
+    )
     connection.close()
     assert kept is None
     return ProbeReport(**json.loads(read_to_end(client)))
@@ -220,7 +235,7 @@ def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_repl
     connection, client = connection_pair
 
     refused = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE), admits=False)
+        connection, serving_with(spawn_probe(PROBE), admits=False), header_ends_at()
     )
     connection.close()
 
@@ -259,6 +274,38 @@ def test_a_line_releases_the_program(tmp_path: Path) -> None:
 
     assert child.wait() == 0
     assert marker.read_text() == "ran"
+
+
+def sleeping_child() -> GatedChild:
+    return spawn_gated(
+        [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+        identity=OWN_IDENTITY,
+        environment={"PATH": PATH},
+        pass_fds=(),
+    )
+
+
+def test_waiting_within_a_budget_returns_none_and_leaves_the_released_child_alive() -> (
+    None
+):
+    child = sleeping_child()
+    child.release()
+    child.close_gate()
+    try:
+        assert child.wait_within(SHORT_BUDGET_SECONDS) is None
+    finally:
+        child.kill()
+    assert child.wait() == -signal.SIGKILL
+
+
+def test_waiting_within_a_budget_returns_the_status_of_a_child_that_exited() -> None:
+    child = spawn_gated(
+        ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
+    )
+    child.release()
+    child.close_gate()
+
+    assert child.wait_within(WAIT_SECONDS) == 0
 
 
 def test_a_dead_child_breaks_the_release_pipe_and_has_no_readable_status() -> None:
@@ -377,6 +424,7 @@ class RealServing:
 
     directory: Path
     connections: int
+    spawn: Callable[..., WireChild] = REAL_SPAWN
     sweep_deadlines: list[float] = field(default_factory=list[float])
     watchdog: RecordingWatchdog = field(default_factory=RecordingWatchdog)
     outcome: list[int] = field(default_factory=list[int])
@@ -392,7 +440,7 @@ class RealServing:
 
     def start(self) -> threading.Thread:
         serving = Serving(
-            spawn=partial(spawn_gated, identity=OWN_IDENTITY),
+            spawn=self.spawn,
             gate_admits=lambda _status: True,
             sweep=self.sweep,
             watchdog=self.watchdog,
@@ -428,7 +476,6 @@ class RealServing:
 HELLO = b"PBW\x01\x01\x00\x02{}"
 STATUS = b"PBW\x01\x03\x00\x02{}"
 STEP_PREAMBLE_AND_HEADER = b"PBW\x01\x02\x00\x02{}"
-HEADER_DEADLINE_SECONDS = 2.0
 
 
 def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_deadline(
@@ -446,7 +493,7 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
 
         assert reply.received == STATUS
         assert not reply.ended_by_reset
-        assert after - before < HEADER_DEADLINE_SECONDS
+        assert after - before < HEADER_SECONDS
         assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
         assert serving.sweep_deadlines[-1] <= after + SWEEP_SECONDS
     thread.join(WAIT_SECONDS)
@@ -470,6 +517,130 @@ def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
 
     assert serving.outcome == [0]
     assert len(serving.sweep_deadlines) == SECOND_CONNECTION
+
+
+HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = HELLO[:7] + HELLO[7:8]
+THREE_PREAMBLE_BYTES = HELLO[:3]
+
+
+@dataclass
+class RecordingSpawn:
+    """The real gated spawn that remembers every child and can be made to fail."""
+
+    children: list[GatedChild] = field(default_factory=list[GatedChild])
+    stopped: bool = False
+
+    def __call__(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+    ) -> GatedChild:
+        if self.stopped:
+            reason = "the test stopped the serving loop"
+            raise OSError(reason)
+        child = spawn_gated(
+            command, identity=OWN_IDENTITY, environment=environment, pass_fds=pass_fds
+        )
+        self.children.append(child)
+        return child
+
+    def still_running(self) -> list[GatedChild]:
+        return [child for child in self.children if child.wait_within(0.0) is None]
+
+    def kill_and_reap(self) -> None:
+        for child in self.children:
+            child.kill()
+            child.wait()
+
+
+@dataclass
+class DrippedHeader:
+    """A serving loop over the real wire entry, always stopped and cleaned up."""
+
+    serving: RealServing
+    spawns: RecordingSpawn
+    thread: threading.Thread
+    clients: list[socket.socket] = field(default_factory=list[socket.socket])
+
+    def drip_then_stop_writing(self, dripped: bytes) -> bytes:
+        client = connect_when_bound(self.serving.directory, self.thread.is_alive)
+        self.clients.append(client)
+        client.sendall(dripped)
+        return client.recv(64)
+
+    def stop(self) -> None:
+        self.spawns.stopped = True
+        wake_until_ended(self.serving.directory, self.thread)
+        for client in self.clients:
+            client.close()
+
+
+@contextmanager
+def dripped_header(directory: Path) -> Generator[DrippedHeader]:
+    spawns = RecordingSpawn()
+    serving = RealServing(directory, connections=SECOND_CONNECTION, spawn=spawns)
+    run = DrippedHeader(serving, spawns, serving.start())
+    try:
+        yield run
+    finally:
+        run.stop()
+        survivors = spawns.still_running()
+        spawns.kill_and_reap()
+        assert not run.thread.is_alive()
+        assert survivors == []
+
+
+@pytest.mark.parametrize(
+    "dripped",
+    [HELLO_PREAMBLE_AND_ONE_HEADER_BYTE, THREE_PREAMBLE_BYTES],
+    ids=["a valid preamble and one header byte", "three preamble bytes"],
+)
+def test_a_header_that_stops_midway_is_cut_off_at_the_deadline_and_serving_goes_on(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch, dripped: bytes
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    with dripped_header(socket_directory) as run:
+        received = run.drip_then_stop_writing(dripped)
+        ended_at = time.monotonic()
+        run.serving.await_sweep()
+        [sweep_deadline] = run.serving.sweep_deadlines
+        accepted_at = sweep_deadline - SWEEP_SECONDS
+        second_reply = run.serving.exchange(run.thread, HELLO)
+        run.thread.join(WAIT_SECONDS)
+
+    assert received == b""
+    assert accepted_at + HEADER_SECONDS <= ended_at < sweep_deadline
+    assert second_reply.received == STATUS
+    assert run.serving.watchdog.events == ["arm", "cancel", "arm"]
+    assert run.serving.outcome == [0]
+
+
+class ForcedFailureError(Exception):
+    """Fails a test between its two connections."""
+
+
+def fail_between_the_connections(directory: Path, started: list[DrippedHeader]) -> None:
+    with dripped_header(directory) as run:
+        started.append(run)
+        run.drip_then_stop_writing(THREE_PREAMBLE_BYTES)
+        run.serving.await_sweep()
+        raise ForcedFailureError
+
+
+def test_a_failure_between_the_two_connections_leaves_neither_thread_nor_child(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    started: list[DrippedHeader] = []
+
+    with pytest.raises(ForcedFailureError):
+        fail_between_the_connections(socket_directory, started)
+
+    [run] = started
+    assert not run.thread.is_alive()
+    assert run.spawns.still_running() == []
 
 
 def connect_when_bound(
