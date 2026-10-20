@@ -49,7 +49,7 @@ stores, the Argon2id hasher, first-start `/setup`, the 302 to `/login` for every
 unauthenticated HTML address, the static and armed-hook exemptions, and the
 one catalog sentence for a refused login. The library owns the mechanism: HMAC
 cookie signing, `judge_credentials` / `login_attempt_budget`, and
-`IdleWindowLiveness` over `last_seen`. Cookie flags stay this host's
+the session lifetime policy. Cookie flags stay this host's
 (`SameSite=Lax`, `HttpOnly`, `Secure` iff HTTPS); `issue_session_cookies` hardcodes
 `Strict` and is not called. Cross-site POST refusal stays this host's Origin and
 `Sec-Fetch-Site` check against the request's own origin; the library's CSRF
@@ -130,6 +130,31 @@ hasher stored (Argon2id at 64 MiB, t=3, p=4) is not that profile, so a login
 against it fails loudly with `UnknownHashFormatError` instead of reading as a
 wrong password, and the password has to be set again.
 
+### Amendment 2026-10-20 — `admit_session` decides, the sessions table holds no client detail
+
+Authority: [#322](https://github.com/overnightworks/agent-presentator/issues/322)
+(K13-1a of [#242](https://github.com/overnightworks/agent-presentator/issues/242)),
+and ruling E3 (b) of [#293](https://github.com/overnightworks/agent-presentator/issues/293).
+
+`webauth` v0.18.0 is pinned, with `cryptography` 50.0.2 that it requires.
+`admit_session` is the one authority that decides whether a session id names a
+person, for the HTTP guard and for the co-presenter's WebSocket alike; it
+supersedes the earlier statements that `Identity.signed_in_user` is that
+authority, and the idle-window policy over `last_seen`. The host configures
+`SessionLifetime(idle, cap)` from one constant, 12 hours for both, so the idle
+window slides but never past the cap. The WebSocket Origin check stays this
+host's own and runs before admission, because `admit_session` checks no
+Origin.
+
+The `sessions` table is `id, user_id, created_at, expires_at`: the library
+writes the expiry, the store computes none and keeps no `last_seen`, IP address
+or user agent. `load` joins the account, so a session whose account row is gone
+is refused. `admit_session` never commits and the stores are autocommit, so
+there is no transaction to finish; `touch` stays a conditional `UPDATE` that
+reports whether it renewed a row. A refused session is no longer deleted on
+read; its row stays until the purge that follows this change. The allowed
+hosts are the public origin's host, because the library refuses an empty list.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as
@@ -171,7 +196,7 @@ From `agent_providers`: `ProviderRuntimeConfig`, `SecretEnvKeys`,
 `ToolExecutor`, and `ToolCatalog`. `McpServerSpec` and `ImagePolicy` go unused —
 this product runs no MCP server and generates no images.
 
-From `webauth`: `WebAuthConfig`, `UserStore`, `SessionRecordStore`, and
+From `webauth`: `WebAuthConfig`, `SessionRecordStore`, and
 `LoginAttemptStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
