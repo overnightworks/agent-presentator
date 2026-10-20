@@ -1,8 +1,0 @@
-claim_id = "f86622b9d6dd49b48adbdf5bba8daafe"
-agent = "claude"
-role = "builder"
-base = "cd835d05c5f9db3e05d6e564acbe1782f62e26eb"
-branch = "claude/issue-341-k13-s5-logout-ends-keycloak"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "frontend/tests/presenter-controls.browser.test.ts", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/api/pages.py", "src/presentator/api/templates/datenschutz.html", "src/presentator/api/templates/header.html", "src/presentator/host/main.py", "src/presentator/host/oidc.py", "tests/api/lobby.py", "tests/api/test_auth.py", "tests/api/test_built_talk_hosts.py", "tests/api/test_copresenter.py", "tests/api/test_logout.py", "tests/api/test_preferences.py", "tests/api/test_sources.py", "tests/test_host.py", "tests/test_oidc.py", "tests/test_sign_in_callback.py"]
-opened_commit = "ebf3967c6b9fe8898a39faa350c0c444e02d9f4a"
-whole_reason = "The CSP must name the end-session origin the same moment the logout redirects there, and the Datenschutz sentences and the status docs become false in the PR that changes the logout; the templates' path literals are the same logout's entry, and pages.py owns the template environment."
