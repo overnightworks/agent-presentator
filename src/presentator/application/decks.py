@@ -186,7 +186,6 @@ def _refusal_for(
     *,
     name: str,
     url: str,
-    proven: bool,
     existing: tuple[Source, ...],
 ) -> SourceRefusal | None:
     """The reason this draft cannot be stored, or nothing when it can.
@@ -217,7 +216,6 @@ def _refusal_for(
             access_kind_of(url) is not None and urlparse(url).password is not None,
             SourceRefusal.USERINFO,
         ),
-        (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
     )
@@ -335,7 +333,6 @@ class Decks:
             access=listed.access,
             state=listed.state,
             age=listed.age,
-            secret_missing=source.secret_location is None,
             public_key=source.public_key,
             runs=tuple(
                 ShownSourceRun(
@@ -557,7 +554,6 @@ class Decks:
             draft,
             name=named,
             url=address,
-            proven=True,
             existing=existing,
         )
         if preflight is not None:

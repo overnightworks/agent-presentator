@@ -36,7 +36,6 @@ from presentator.contracts.decks import (
     Deck,
     DeckFolder,
     DeployKeyDraft,
-    SecretLocation,
     Source,
     SourcePoll,
     SourceRun,
@@ -55,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sources (
     name TEXT NOT NULL UNIQUE,
     url TEXT NOT NULL UNIQUE,
     ref TEXT NOT NULL,
-    encrypted_secret BLOB,
+    encrypted_secret BLOB NOT NULL,
     hook_secret_hash BLOB,
     owner_id TEXT NOT NULL REFERENCES users(id),
     ssh_public_key TEXT
@@ -102,7 +101,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 _HOOK_HASH_BY_NAME: Final = "SELECT hook_secret_hash FROM sources WHERE name = ?"
 _ALL_SOURCES: Final = """
-SELECT id, name, url, ref, encrypted_secret, owner_id, ssh_public_key
+SELECT id, name, url, ref, owner_id, ssh_public_key
 FROM sources
 """
 _REMOVE_SOURCE: Final = "DELETE FROM sources WHERE id = ?"
@@ -144,7 +143,7 @@ _PUT_HOOK_HASH: Final = "UPDATE sources SET hook_secret_hash = ? WHERE name = ?"
 _ONE_ROW: Final = 1
 # What a pull needs and nothing else: the ciphertext this instance can open.
 _SOURCE_ANCHOR: Final = "SELECT encrypted_secret FROM sources WHERE id = ?"
-_SourceRow = tuple[str, str, str, str, bytes | None, str, str | None]
+_SourceRow = tuple[str, str, str, str, str, str | None]
 # Nothing a build wrote is touched by this statement, on purpose: taking a deck
 # in again must not unpresent the talk that already stands, nor take away the
 # PDF that is already downloadable (line 16). Whether the row is marked removed
@@ -324,7 +323,6 @@ class SqliteSourceStore:
             name=write.name,
             url=write.url,
             ref=write.ref,
-            secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
             public_key=write.public_key,
         )
@@ -368,7 +366,6 @@ class SqliteSourceStore:
             name=write.name,
             url=write.url,
             ref=write.ref,
-            secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
             public_key=draft.public_key,
         )
@@ -522,8 +519,7 @@ class SqliteSourceKeyDrafts:
 class SourceCredentials:
     """Answers with the secret the source's own row stores, at the pull.
 
-    The one place a secret stands is the ciphertext column. A row without
-    ciphertext answers with nothing until a secret is written into it.
+    The one place a secret stands is the ciphertext column.
     """
 
     database: Path
@@ -533,16 +529,14 @@ class SourceCredentials:
         """The secret of the source that reference anchors, or nothing.
 
         Nothing is the honest answer to a source this instance no longer
-        carries, to a row holding no ciphertext, and to ciphertext another
-        instance key wrote; the pull that asked reads all three as a
-        credential it cannot resolve.
+        carries and to ciphertext another instance key wrote; the pull that
+        asked reads both as a credential it cannot resolve.
         """
         with rows(self.database) as cursor:
             found = cursor.execute(_SOURCE_ANCHOR, (reference.name,)).fetchone()
         if found is None:
             return None
-        encrypted: bytes | None = found[0]
-        return None if encrypted is None else self.box.decrypt(encrypted)
+        return self.box.decrypt(found[0])
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -931,13 +925,12 @@ class SqliteSourceRunStore:
 
 
 def _source(row: _SourceRow) -> Source:
-    identifier, name, url, ref, encrypted, owner_id, public_key = row
+    identifier, name, url, ref, owner_id, public_key = row
     return Source(
         id=identifier,
         name=name,
         url=url,
         ref=ref,
-        secret_location=_where_the_secret_stands(encrypted),
         owner_id=owner_id,
         public_key=public_key,
     )
@@ -955,13 +948,6 @@ def _draft(row: _DraftRow, *, box: SecretBox) -> DeployKeyDraft | None:
         private_key=private_key,
         created_at=datetime.fromisoformat(created_at),
     )
-
-
-def _where_the_secret_stands(encrypted: bytes | None) -> SecretLocation | None:
-    """Stored when the row carries ciphertext; nothing while it does not."""
-    if encrypted is not None:
-        return SecretLocation.STORED
-    return None
 
 
 def _deck(row: _DeckRow) -> Deck:

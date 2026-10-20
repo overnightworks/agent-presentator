@@ -479,9 +479,6 @@ msgstr "Renew secret"
 msgid "source_secret_dots"
 msgstr "••••••••••••••••••"
 
-msgid "source_secret_missing"
-msgstr "This source has no stored secret. Fetch fails until you renew it."
-
 msgid "source_access_renew_info"
 msgstr ""
 "Stored encrypted and never shown again since entry. Renewing replaces it "
