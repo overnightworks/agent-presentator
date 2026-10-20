@@ -17,10 +17,12 @@ from presentator.adapters.build_wire import (
 )
 from presentator.contracts.decks import StepKind
 from presentator.host import worker
-from presentator.host.worker_serving import create_request_record
+from presentator.host.worker import create_request_record
 
 # SEAL, SHRINK, GROW and WRITE as linux/fcntl.h defines them.
 KERNEL_ALL_FOUR_SEALS = 0b1111
+# F_GET_SEALS as linux/fcntl.h defines it.
+F_GET_SEALS = 1034
 VALID_RECORD = b'{"step":"build","slug":"my-deck"}'
 REFUSED_RECORDS = {
     "empty": b"",
@@ -73,10 +75,14 @@ def test_a_record_that_is_not_a_valid_header_is_refused(
         read_record(record)
 
 
+def test_a_created_record_is_close_on_exec(record: int) -> None:
+    assert fcntl.fcntl(record, fcntl.F_GETFD) & fcntl.FD_CLOEXEC
+
+
 def test_the_production_seal_sets_all_four_seals_on_a_fresh_memfd(record: int) -> None:
     worker.seal_record(record)
 
-    assert fcntl.fcntl(record, worker.F_GET_SEALS) == KERNEL_ALL_FOUR_SEALS
+    assert fcntl.fcntl(record, F_GET_SEALS) == KERNEL_ALL_FOUR_SEALS
 
 
 TAMPERS: dict[str, Callable[[int], object]] = {

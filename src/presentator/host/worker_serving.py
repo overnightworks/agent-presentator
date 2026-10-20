@@ -1,6 +1,5 @@
 """The build worker's serving loop: accept, check the peer, hand over, sweep."""
 
-import ctypes
 import logging
 import os
 import socket
@@ -20,8 +19,6 @@ from presentator.host.worker_wire import KEPT_LIFE_EXITS, WireExit, WireRole
 
 logger = logging.getLogger(__name__)
 
-MFD_CLOEXEC = 1
-MFD_ALLOW_SEALING = 2
 PEER_CREDENTIALS = struct.Struct("3i")
 HEADER_SECONDS = 2.0
 UPLOAD_SECONDS = 60.0
@@ -121,6 +118,7 @@ class Serving:
     spawn: Spawn
     gate_admits: Callable[[str], bool]
     sweep: Callable[[float], bool]
+    create_record: Callable[[], int]
     seal: Callable[[int], None]
     watchdog: Watchdog
     clock: Callable[[], float]
@@ -188,19 +186,32 @@ def _run_gated(
     except OSError:
         return _ChildRun(None, LifeEnd.SPAWN)
     try:
-        if not _admitted_at_gate(child, serving):
-            return _ChildRun(None, _killed(child, LifeEnd.GATE))
-        if serving.clock() >= ends_at:
-            return _ChildRun(None, _expired(child, role, expired))
-        if not _released(child):
-            return _ChildRun(None, _killed(child, LifeEnd.GATE))
-        remaining = ends_at - serving.clock()
-        exit_status = child.wait_within(remaining) if remaining > 0 else None
-        if exit_status is None:
-            return _ChildRun(None, _expired(child, role, expired))
-        return _ChildRun(exit_status)
+        return _released_run(child, serving, role, ends_at, expired)
+    except BaseException:
+        _killed(child, None)
+        raise
     finally:
         child.close_gate()
+
+
+def _released_run(
+    child: WireChild,
+    serving: Serving,
+    role: WireRole,
+    ends_at: float,
+    expired: LifeEnd | None,
+) -> _ChildRun:
+    if not _admitted_at_gate(child, serving):
+        return _ChildRun(None, _killed(child, LifeEnd.GATE))
+    if serving.clock() >= ends_at:
+        return _ChildRun(None, _expired(child, role, expired))
+    if not _released(child):
+        return _ChildRun(None, _killed(child, LifeEnd.GATE))
+    remaining = ends_at - serving.clock()
+    exit_status = child.wait_within(remaining) if remaining > 0 else None
+    if exit_status is None:
+        return _ChildRun(None, _expired(child, role, expired))
+    return _ChildRun(exit_status)
 
 
 def _expired(
@@ -259,22 +270,11 @@ def _hand_over_with_record(
     return _hand_over_upload(connection, serving, record, upload_ends_at)
 
 
-def create_request_record() -> int:
-    """A sealable, close-on-exec memfd; the standalone Python has no os.memfd_create."""
-    libc = ctypes.CDLL(None, use_errno=True)
-    libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
-    libc.memfd_create.restype = ctypes.c_int
-    descriptor = libc.memfd_create(b"request-record", MFD_CLOEXEC | MFD_ALLOW_SEALING)
-    if descriptor < 0:
-        raise OSError(ctypes.get_errno(), "memfd_create failed")
-    return descriptor
-
-
 def hand_over(
     connection: socket.socket, serving: Serving, accepted_at: float
 ) -> LifeEnd | None:
     """Give the connection to gated wire children; None keeps the life."""
-    record = create_request_record()
+    record = serving.create_record()
     try:
         return _hand_over_with_record(connection.fileno(), serving, accepted_at, record)
     finally:

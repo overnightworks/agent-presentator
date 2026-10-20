@@ -14,7 +14,8 @@ import pytest
 
 from presentator.adapters.build_wire import read_request
 from presentator.host import worker
-from presentator.host.worker_serving import Serving, create_request_record
+from presentator.host.worker import create_request_record
+from presentator.host.worker_serving import Serving
 from presentator.host.worker_wire import WireExit
 
 OWN_UID = os.getuid()
@@ -97,6 +98,9 @@ class ScriptedLife:
     seal_error: OSError | None = None
     arm_takes: float = 0.0
     seal_takes: float = 0.0
+    upload_spawn_takes: float = 0.0
+    wait_error: OSError | None = None
+    wait_error_at: int = 0
     headers_stalled: int = 0
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
@@ -109,6 +113,7 @@ class ScriptedLife:
     connections_served_before_sweep_fails: int | None = None
     spawned: list[Spawned] = field(default_factory=list[Spawned])
     sealed_descriptors: list[int] = field(default_factory=list[int])
+    creation: RecordingCreation = field(default_factory=RecordingCreation)
 
     def spawn(
         self,
@@ -121,8 +126,10 @@ class ScriptedLife:
         self.events.append("spawn")
         if self.spawn_error is not None:
             raise self.spawn_error
-        if self.uploading and self.upload_spawn_error is not None:
-            raise self.upload_spawn_error
+        if self.uploading:
+            self.clock_now += self.upload_spawn_takes
+            if self.upload_spawn_error is not None:
+                raise self.upload_spawn_error
         return self
 
     @property
@@ -151,6 +158,11 @@ class ScriptedLife:
     def wait_within(self, seconds: float) -> int | None:
         self.events.append("wait-within")
         self.budgets_waited.append(seconds)
+        if (
+            self.wait_error is not None
+            and len(self.budgets_waited) == self.wait_error_at + 1
+        ):
+            raise self.wait_error
         if self.uploading:
             return None if self.upload_stalled else self.upload_exit_status
         if len(self.budgets_waited) <= self.headers_stalled:
@@ -204,6 +216,7 @@ class ScriptedLife:
             spawn=self.spawn,
             gate_admits=self.admits,
             sweep=self.sweep,
+            create_record=self.creation,
             seal=self.seal,
             watchdog=self,
             clock=self.clock,

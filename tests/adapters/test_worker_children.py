@@ -37,7 +37,6 @@ REAL_SPAWN = partial(spawn_gated, identity=OWN_IDENTITY)
 WAIT_SECONDS = 10
 WATCHDOG_WINDOW = (6.0, 8.0)
 INHERITED_DESCRIPTORS = {0, 1, 2}
-CHILD_DESCRIPTORS = 2
 RELEASED_UMASK = 0o022
 CURRENT_DIRECTORY_KEY = "PWD"
 PATH = "/usr/bin:/bin"
@@ -61,6 +60,7 @@ serving = worker_serving.Serving(
     spawn=stall,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
+    create_record=worker.create_request_record,
     seal=lambda _record: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
@@ -79,6 +79,7 @@ sys.exit(
 PROBE = """
 import json, os, sys
 descriptor = int(sys.argv[1])
+record = int(sys.argv[2])
 open_descriptors = sorted(
     int(name)
     for name in os.listdir("/proc/self/fd")
@@ -88,6 +89,7 @@ report = {
     "stdin": os.readlink("/proc/self/fd/0"),
     "descriptors": open_descriptors,
     "connection": descriptor,
+    "record": record,
     "working_directory": os.getcwd(),
     "umask": os.umask(0),
     "session_leader": os.getsid(0) == os.getpid(),
@@ -111,7 +113,15 @@ def marker_writer(marker: Path) -> GatedChild:
 
 def run_program(source: str, command: Sequence[str]) -> list[str]:
     connection_flag = command.index("--connection-fd")
-    return [sys.executable, "-I", "-c", source, command[connection_flag + 1]]
+    record_flag = command.index("--record-fd")
+    return [
+        sys.executable,
+        "-I",
+        "-c",
+        source,
+        command[connection_flag + 1],
+        command[record_flag + 1],
+    ]
 
 
 def spawn_probe(source: str) -> Callable[..., WireChild]:
@@ -138,6 +148,7 @@ def serving_with(
         spawn=spawn,
         gate_admits=lambda _status: admits,
         sweep=lambda _deadline: quiet,
+        create_record=worker.create_request_record,
         seal=worker.seal_record,
         watchdog=NeverArmed(),
         clock=time.monotonic,
@@ -189,6 +200,7 @@ class ProbeReport:
     stdin: str
     descriptors: list[int]
     connection: int
+    record: int
     working_directory: str
     umask: int
     session_leader: bool
@@ -217,7 +229,10 @@ def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
     report = hand_over_probe(connection_pair, monkeypatch)
 
     assert report.stdin == "/dev/null"
-    assert len(set(report.descriptors) - INHERITED_DESCRIPTORS) == CHILD_DESCRIPTORS
+    assert set(report.descriptors) == INHERITED_DESCRIPTORS | {
+        report.connection,
+        report.record,
+    }
     assert report.working_directory == "/"
     assert report.umask == RELEASED_UMASK
     assert report.session_leader

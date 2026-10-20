@@ -604,7 +604,8 @@ def serve(
 
 # The Python standard library lacks these Linux constants (linux/fcntl.h).
 F_ADD_SEALS = 1033
-F_GET_SEALS = 1034
+MFD_CLOEXEC = 1
+MFD_ALLOW_SEALING = 2
 
 
 class RecordSeal(IntFlag):
@@ -617,6 +618,17 @@ class RecordSeal(IntFlag):
 
 
 RECORD_SEALS = RecordSeal.WRITE | RecordSeal.GROW | RecordSeal.SHRINK | RecordSeal.SEAL
+
+
+def create_request_record() -> int:
+    """A sealable, close-on-exec memfd; the standalone Python has no os.memfd_create."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
+    libc.memfd_create.restype = ctypes.c_int
+    descriptor = libc.memfd_create(b"request-record", MFD_CLOEXEC | MFD_ALLOW_SEALING)
+    if descriptor < 0:
+        raise OSError(ctypes.get_errno(), "memfd_create failed")
+    return descriptor
 
 
 def seal_record(descriptor: int) -> None:
@@ -641,6 +653,7 @@ def real_serving(settings: WorkerSettings) -> Serving:
                 sleep=time.sleep,
             ),
         ),
+        create_record=create_request_record,
         seal=seal_record,
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,

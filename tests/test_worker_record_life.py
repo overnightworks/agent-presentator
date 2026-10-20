@@ -10,7 +10,7 @@ from dataclasses import replace
 
 import pytest
 
-from presentator.host import worker, worker_serving
+from presentator.host import worker
 from presentator.host.worker_serving import (
     UPLOAD_SECONDS,
     LifeEnd,
@@ -20,13 +20,6 @@ from presentator.host.worker_wire import WireExit
 from tests.worker_support import ACCEPT_TIME, RecordingCreation, ScriptedLife
 
 ACCEPTED_ARM = "arm 447.0"
-
-
-@pytest.fixture
-def created(monkeypatch: pytest.MonkeyPatch) -> RecordingCreation:
-    creation = RecordingCreation()
-    monkeypatch.setattr(worker_serving, "create_request_record", creation)
-    return creation
 
 
 @pytest.fixture
@@ -58,6 +51,7 @@ def test_the_watchdog_is_re_armed_before_the_record_is_sealed_and_passed_unread(
 CONSUMERS = {
     "the re-arm": {"arm_takes": 0.3},
     "the seal": {"seal_takes": 0.4},
+    "the upload child's spawn": {"upload_spawn_takes": 0.35},
     "the upload child's gate check": {"inspection_takes": 0.5},
     "the upload child's release": {"release_takes": 0.25},
 }
@@ -181,11 +175,10 @@ def forbid_reads_of(
 
 def test_the_controller_reads_no_byte_of_the_record_over_a_whole_accepted_life(
     connection: socket.socket,
-    created: RecordingCreation,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    forbid_reads_of(monkeypatch, created)
     life = accepted_life()
+    forbid_reads_of(monkeypatch, life.creation)
 
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
 
@@ -195,12 +188,11 @@ def test_the_controller_reads_no_byte_of_the_record_over_a_whole_accepted_life(
 @pytest.mark.parametrize("read", CONTROLLER_READS.values(), ids=CONTROLLER_READS.keys())
 def test_a_controller_that_reads_the_record_by_any_call_fails_the_interception(
     connection: socket.socket,
-    created: RecordingCreation,
     monkeypatch: pytest.MonkeyPatch,
     read: Callable[[int], object],
 ) -> None:
-    forbid_reads_of(monkeypatch, created)
     life = accepted_life()
+    forbid_reads_of(monkeypatch, life.creation)
     serving = replace(life.serving(), seal=read)
 
     with pytest.raises(AssertionError, match="read the record"):
@@ -251,21 +243,35 @@ PATHS = {
 @pytest.mark.parametrize(("make_life", "life_end"), PATHS.values(), ids=PATHS.keys())
 def test_the_controllers_record_descriptor_is_closed_on_every_path(
     connection: socket.socket,
-    created: RecordingCreation,
     make_life: Callable[[], ScriptedLife],
     life_end: LifeEnd | None,
 ) -> None:
-    assert hand_over(connection, make_life().serving(), ACCEPT_TIME) == life_end
+    life = make_life()
 
-    assert created.is_closed()
+    assert hand_over(connection, life.serving(), ACCEPT_TIME) == life_end
+
+    assert life.creation.is_closed()
 
 
 def test_the_controllers_record_descriptor_is_closed_when_the_re_arm_raises(
-    connection: socket.socket, created: RecordingCreation
+    connection: socket.socket,
 ) -> None:
-    serving = replace(accepted_life().serving(), watchdog=ArmFails())
+    life = accepted_life()
+    serving = replace(life.serving(), watchdog=ArmFails())
 
     with pytest.raises(RuntimeError):
         hand_over(connection, serving, ACCEPT_TIME)
 
-    assert created.is_closed()
+    assert life.creation.is_closed()
+
+
+@pytest.mark.parametrize("role_index", [0, 1], ids=["idle", "upload"])
+def test_a_child_is_killed_and_reaped_when_its_wait_raises(
+    connection: socket.socket, role_index: int
+) -> None:
+    life = accepted_life(wait_error=OSError("wait failed"), wait_error_at=role_index)
+
+    with pytest.raises(OSError, match="wait failed"):
+        hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert life.events[-3:] == ["kill", "wait", "close-gate"]

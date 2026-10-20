@@ -120,6 +120,7 @@ def run_life(
     sent: bytes,
     spawn: ChainSpawn,
     seal: Callable[[int], None] = worker.seal_record,
+    create_record: Callable[[], int] = worker.create_request_record,
 ) -> Life:
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
@@ -127,6 +128,7 @@ def run_life(
         spawn=spawn,
         gate_admits=lambda _status: True,
         sweep=lambda _deadline: True,
+        create_record=create_record,
         seal=seal,
         watchdog=NeverArmed(),
         clock=time.monotonic,
@@ -224,15 +226,16 @@ def test_a_stalled_upload_child_is_killed_at_the_end_of_its_budget_and_reaped(
 
 
 @pytest.mark.usefixtures("path")
-def test_the_next_life_does_not_hold_the_record_of_the_one_before(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_next_life_does_not_hold_the_record_of_the_one_before() -> None:
     creation = RecordingCreation()
-    monkeypatch.setattr(worker_serving, "create_request_record", creation)
     records: list[tuple[int, int]] = []
     held_by_child: list[set[tuple[int, int]]] = []
     for _life in range(2):
-        life = run_life(b"", ChainSpawn(programs={"idle": [INODES_REPORTER]}))
+        life = run_life(
+            b"",
+            ChainSpawn(programs={"idle": [INODES_REPORTER]}),
+            create_record=creation,
+        )
         records.append(creation.identity)
         held_by_child.append({tuple(held) for held in json.loads(life.reply)})
         assert creation.is_closed()
@@ -274,6 +277,7 @@ serving = Serving(
     spawn=spawn,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
+    create_record=worker.create_request_record,
     seal=worker.seal_record,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,

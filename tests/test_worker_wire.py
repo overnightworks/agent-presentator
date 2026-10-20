@@ -12,7 +12,7 @@ import pytest
 
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
-from presentator.host.worker_serving import create_request_record
+from presentator.host.worker import create_request_record
 from presentator.host.worker_wire import WireExit, WireRole
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
