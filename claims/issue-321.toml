@@ -1,8 +1,0 @@
-claim_id = "a3eb6d1cb6a642dc86351c9c85c91e0a"
-agent = "claude"
-role = "builder"
-base = "12cca92910e9c297279178573e672ad3a1f9765e"
-branch = "claude/issue-321-build-worker-a5b1-step-header"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/adapters/builds.py", "src/presentator/contracts/decks.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/test_worker_serving_loop.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "a373dad6e6dd409b16a33a36c7cdc34327707809"
-whole_reason = "The STEP grammar, its exit status and the controller's reading of that status are one rule that must exist together, or a valid STEP is parsed with nobody to act on it; StepKind moves to contracts/decks.py so the wire child, the step launcher and the web client share one owner of the two step tokens without the wire child importing adapters/builds.py."
