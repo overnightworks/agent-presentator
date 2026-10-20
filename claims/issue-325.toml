@@ -1,0 +1,8 @@
+claim_id = "3a6bb65646844921b5ab848c77c7a53f"
+agent = "claude"
+role = "builder"
+base = "116ea19a9a5bd7ca7ec35ba9656cfc2346cab12b"
+branch = "claude/issue-325-build-worker-a5b2-settings-rearm"
+scope = ["src/presentator/host/config.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "tests/adapters/test_worker_children.py", "tests/test_worker.py", "tests/test_worker_serving_loop.py", "tests/test_worker_settings.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
+opened_commit = "48b998eda9f20958728259682f5c770a75ef14b4"
+whole_reason = "The bound, its input and its refusal are one rule that must exist together: a re-arm needs B, B needs a validated setting loaded after the start-up protection, and the same function names the variable for the predicate-6 allowlist and for the refusal."
