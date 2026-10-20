@@ -1,0 +1,8 @@
+claim_id = "1028ef8c21804f9ca20b8ed0e686ece5"
+agent = "claude"
+role = "builder"
+base = "b7fe4a902752f635cddb3de858809f0519a8482f"
+branch = "claude/issue-115-copresenter-agent-providers-0-4-0"
+scope = ["copresenter/README.md", "copresenter/pyproject.toml", "copresenter/scripts/prove_loop.py", "copresenter/src/copresenter/answer.py", "copresenter/src/copresenter/app.py", "copresenter/src/copresenter/config.py", "copresenter/src/copresenter/main.py", "copresenter/tests/test_answer_child.py", "copresenter/tests/test_ask.py", "copresenter/tests/test_prove_loop.py", "copresenter/tests/test_start.py", "copresenter/uv.lock", "docs/OPERATIONS.md"]
+opened_commit = "2c3f2c966215c723cec4f49292bf0d4f9d3f51cd"
+whole_reason = "The pin, the config construction and its settings change at one import (v0.4.0 removes every field the old construction sets), so no part-way tree starts; the pin is a file of its own."
