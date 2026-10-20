@@ -22,7 +22,9 @@ A signed-out visitor is sent through `/login/oidc` to Keycloak and signs in at
 Keycloak's discovery document: the token's `iss` is compared with it
 character for character, nothing is normalised, and an explicit port stays part
 of it. A sign-in writes an INFO log line when it creates an account or changes
-its role (event kind, Keycloak subject id, role). A session ends
+its role (event kind, Keycloak subject id, role). Keycloak's groups mapper
+must send full paths (`full.path` on): with bare group names nobody matches
+`/apps/presentator` and every sign-in shows "No access". A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
 Logging out deletes the row. The Keycloak client must register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as its post-logout redirect URI, or Keycloak shows an error page at every logout. A session past its expiry is refused, and a sweep of its own deletes

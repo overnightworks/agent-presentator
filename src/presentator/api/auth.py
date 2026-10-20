@@ -10,7 +10,7 @@ import posixpath
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Final, cast
+from typing import Final, assert_never, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -27,9 +27,10 @@ from webauth.dependencies import (
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
-from webauth.oidc import OidcRelyingParty
+from webauth.oidc import OidcRefusal, OidcRelyingParty
 from webauth.oidc_login import (
     AdmissionConfig,
+    AdmissionRefusal,
     AdmittedLogin,
     finish_login,
     log_out,
@@ -312,9 +313,19 @@ class _Surfaces:
             lock=self.auth.lock,
             audit=self.auth.audit,
         )
-        if isinstance(outcome, AdmittedLogin):
-            return self._signed_in(request, answer, outcome)
-        return self._login_failed(request, kept=answer)
+        match outcome:
+            case AdmittedLogin():
+                return self._signed_in(request, answer, outcome)
+            case AdmissionRefusal.NOT_A_MEMBER:
+                return self._refusal(request, "no_access.html", kept=answer)
+            case (
+                OidcRefusal()
+                | AdmissionRefusal.FOREIGN_ISSUER
+                | AdmissionRefusal.USERNAME_TAKEN
+            ):
+                return self._refusal(request, "login_failed.html", kept=answer)
+            case _:
+                assert_never(outcome)
 
     def _signed_in(
         self,
@@ -337,11 +348,11 @@ class _Surfaces:
         answer.headers["location"] = login.return_to or _LOBBY
         return answer
 
-    def _login_failed(self, request: Request, *, kept: Response) -> Response:
-        """The page every failed sign-in shows, with the cookies the library kept."""
+    def _refusal(self, request: Request, template: str, *, kept: Response) -> Response:
+        """The page a refused sign-in shows, with the cookies the library kept."""
         page = self.pages.page(
             request,
-            "login_failed.html",
+            template,
             status=HTTPStatus.FORBIDDEN,
             start_sign_in=_START_SIGN_IN,
         )

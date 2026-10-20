@@ -29,6 +29,9 @@ class LobbyText:
     login_failed_title: str
     login_failed_explanation: str
     login_failed_retry: str
+    no_access_title: str
+    no_access_explanation: str
+    no_access_back: str
     footer_impressum: str
     footer_datenschutz: str
     legal_back_to_login: str
