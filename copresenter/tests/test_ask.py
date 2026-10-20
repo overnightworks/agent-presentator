@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import AsyncIterator
 
 import httpx
+from agent_providers.errors import (
+    ContainmentLost,
+    ProviderUnavailableError,
+    RetainedGroup,
+    SafeRouteReasonCode,
+    normalize_route_failure,
+)
+from fastapi.testclient import TestClient
 
 from copresenter.answer import CannedAnswerer, user_message
 from copresenter.app import create_app
 from copresenter.config import Settings
+from copresenter.deck import Deck
 from copresenter.speech import LocalSpeech
 
 from .conftest import ALLOWED_ORIGIN
@@ -41,6 +52,68 @@ def test_ask_streams_sentences_and_audio(client, fake_speech) -> None:
     assert fake_speech.spoken
     assert all(language == "de" for _text, language in fake_speech.spoken)
     assert "Folie 1" in body
+
+
+class FailingAnswerer(CannedAnswerer):
+    """An answerer whose Claude turn ends in the given provider failure after a first word."""
+
+    def __init__(self, failure: Exception) -> None:
+        self.failure = failure
+
+    async def stream(self, *, said: str, slide: int, deck: Deck) -> AsyncIterator[str]:
+        yield "Das ist"
+        raise self.failure
+
+
+def ask_and_read_body(example_deck, fake_speech, failure: Exception) -> str:
+    app = create_app(
+        Settings(allowed_origin=ALLOWED_ORIGIN, deck=example_deck.source.parent),
+        deck=example_deck,
+        speech=fake_speech,
+        answerer=FailingAnswerer(failure),
+    )
+    with TestClient(app, headers={"Origin": ALLOWED_ORIGIN}).stream(
+        "POST",
+        "/ask",
+        json={"said": "Was steht hier?", "slide": 1, "language": "de"},
+    ) as response:
+        return "".join(response.iter_text())
+
+
+def test_ask_answers_with_the_error_event_and_names_the_lost_group_in_the_log(
+    example_deck,
+    fake_speech,
+    caplog,
+) -> None:
+    caplog.set_level(logging.ERROR, logger="copresenter")
+
+    body = ask_and_read_body(
+        example_deck,
+        fake_speech,
+        ContainmentLost(RetainedGroup(pgid=424242, generation=1)),
+    )
+
+    assert "event: error" in body
+    assert "event: done" not in body
+    (record,) = [entry for entry in caplog.records if entry.levelno == logging.ERROR]
+    assert "424242" in record.getMessage()
+    assert "restart presentator-copresenter.service" in record.getMessage()
+
+
+def test_ask_answers_with_the_error_event_when_the_provider_refuses_the_turn(
+    example_deck,
+    fake_speech,
+) -> None:
+    refusal = ProviderUnavailableError(
+        "claude",
+        "cli",
+        normalize_route_failure(SafeRouteReasonCode.CLI_LOGIN_NOT_CONFIGURED),
+    )
+
+    body = ask_and_read_body(example_deck, fake_speech, refusal)
+
+    assert "event: error" in body
+    assert "event: done" not in body
 
 
 def test_ask_reports_an_empty_speech_response_instead_of_an_empty_audio_event(example_deck) -> None:

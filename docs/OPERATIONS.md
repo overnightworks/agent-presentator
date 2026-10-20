@@ -518,9 +518,9 @@ sixteen-page PDF.
 
 The voice that answers beside a talk is two host processes on the machine that
 holds the GPU: the speech service on `127.0.0.1:8090` (`speech/`, never
-exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the installed
-`claude` executable with the operator's own login, so only the admin role may
-use it. Speech starts first and is
+exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the
+`claude` executable on `COPRESENTER_CLI_SEARCH_PATH` with the shared setup token
+in `~/.secrets/agent-service/claude.token`, so only the admin role may use it. Speech starts first and is
 ready when `GET /health` says both models are; the co-presenter is pointed at
 the deck folder it should know, that speech address, and one private Unix
 socket directory. Both host processes and the Presentator container use the
@@ -537,6 +537,19 @@ The socket has no authentication layer of its own; filesystem access under the
 shared UID is its only authority. The Presentator container, every host process
 under that operator UID, and root can therefore spend the operator's Claude
 login and card. Do not run untrusted workloads under that authority.
+
+The shared token file belongs to every app on the machine, not to the
+co-presenter. Create it once: run `claude setup-token`, write the one line to
+`~/.secrets/agent-service/claude.token` and set mode `0600`; to renew it, write
+a file beside it and `mv -T` it over. The unit needs no `UnsetEnvironment=`
+line for the login, and old CLI copies under `~/.claude` can be purged. Each
+turn's home lives below `COPRESENTER_CLI_WORKING_ROOT` and is removed when the
+turn ends. When the log says a turn's process group is not confirmed gone, that
+turn's home stays under the root until `presentator-copresenter.service`
+restarts.
+
+After an upgrade, restart `presentator-copresenter.service`, then ask one
+question on stage to see the answer arrive.
 
 ```sh
 # speech/, then copresenter/, each as a user unit with these values

@@ -1,4 +1,4 @@
-"""Start the co-presenter against the operator's Claude login and local speech."""
+"""Start the co-presenter against the shared Claude login file and local speech."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import uvicorn
 
-from copresenter.answer import ClaudeAnswerer
+from copresenter.answer import ClaudeAnswerer, provider_runtime
 from copresenter.app import compose
 from copresenter.config import Settings, Transport, load_settings
 
@@ -27,7 +27,7 @@ _LOCK_SUFFIX = ".lock"
 
 
 def main() -> None:
-    """Serve. Answering is the `claude` executable on PATH."""
+    """Serve. Answering is the `claude` executable on the configured search path."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(message)s",
@@ -35,7 +35,15 @@ def main() -> None:
         stream=sys.stderr,
     )
     settings = load_settings()
-    answerer = ClaudeAnswerer(model=settings.claude_model)
+    _prepare_directory(settings.cli_working_root)
+    answerer = ClaudeAnswerer(
+        model=settings.claude_model,
+        runtime=provider_runtime(
+            token_file=settings.claude_token_file,
+            search_path=settings.cli_search_path,
+            working_root=settings.cli_working_root,
+        ),
+    )
     app = compose(settings, answerer=answerer)
     _log.info(
         "answering with %s via claude CLI, speech at %s, deck %s",
@@ -114,17 +122,19 @@ def _release_start_lock(fd: int) -> None:
 
 
 def _prepare_directory(directory: Path) -> None:
-    with suppress(FileExistsError):
-        directory.mkdir(mode=_DIRECTORY_MODE)
+    for level in reversed([directory, *directory.parents]):
+        if not level.exists(follow_symlinks=False):
+            with suppress(FileExistsError):
+                level.mkdir(mode=_DIRECTORY_MODE)
     status = directory.lstat()
     if not stat.S_ISDIR(status.st_mode):
-        message = f"socket directory is not a directory: {directory}"
+        message = f"private path is not a directory: {directory}"
         raise RuntimeError(message)
     if status.st_uid != os.geteuid():
-        message = f"socket directory belongs to another uid: {directory}"
+        message = f"private directory belongs to another uid: {directory}"
         raise RuntimeError(message)
     if stat.S_IMODE(status.st_mode) != _DIRECTORY_MODE:
-        message = f"socket directory must have mode 0700: {directory}"
+        message = f"private directory must have mode 0700: {directory}"
         raise RuntimeError(message)
 
 

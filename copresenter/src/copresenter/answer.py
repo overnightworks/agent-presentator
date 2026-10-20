@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import base64
-import tempfile
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Protocol
 
 from agent_providers.claude.adapter import stream_claude_turn
-from agent_providers.config import ProviderRuntimeConfig, configure
+from agent_providers.config import (
+    ClaudeCliRuntime,
+    ProviderRuntimeConfig,
+    TurnRuntimeConfig,
+    configure,
+    current_claude_runtime,
+)
+from agent_providers.errors import ProviderUnavailableError, SafeRouteReasonCode
 from agent_providers.events import AssistantTextEvent
 
 from copresenter.deck import Deck, Slide
@@ -29,9 +36,7 @@ SYSTEM_PROMPT = (
 
 _CLAUDE_CLI_BINARY = "claude"
 _CLAUDE_TURN_USER = "copresenter"
-_CODEX_MAX_CONCURRENT_PROCESSES = 1
-_CODEX_MAX_CONCURRENT_IMAGE_RUNS = 1
-_SCRUBBED_SECRET_KEYS = ("ANTHROPIC_API_KEY",)
+_log = logging.getLogger("copresenter")
 
 
 class Answerer(Protocol):
@@ -68,56 +73,57 @@ def _page(slide: Slide, *, current_mark: bool = False) -> str:
     return f"Slide {slide.number}{mark}: {slide.title}\n{slide.body}{notes}"
 
 
-def provider_runtime(model: str) -> ProviderRuntimeConfig:
+def provider_runtime(
+    *,
+    token_file: Path,
+    search_path: tuple[Path, ...],
+    working_root: Path,
+) -> ProviderRuntimeConfig:
     """The agent-providers runtime this process installs once.
 
-    Answering is the installed `claude` CLI and the operator's login. The
-    optional API key stays empty. Codex caps are required by the config shape
-    and unused here, so each bound is 1. Secret names are still scrubbed from
-    the child environment.
+    Answering is the `claude` CLI found only on `search_path`. Its login is the
+    setup token in `token_file`, which the library hands the child as
+    `CLAUDE_CODE_OAUTH_TOKEN` and nowhere else. Each turn gets a fresh home
+    below `working_root`, which must already be a private directory.
     """
-    unused = Path(tempfile.gettempdir()) / "copresenter-unused"
-    unused.mkdir(parents=True, exist_ok=True)
     return ProviderRuntimeConfig(
-        claude_chat_model=model,
-        anthropic_api_key=None,
-        claude_cli_binary=_CLAUDE_CLI_BINARY,
-        grok_cli_binary="grok",
-        codex_cli_binary="codex",
-        grok_cli_auth_file=unused / "grok-auth",
-        grok_cli_session_root=unused,
-        codex_cli_auth_file=unused / "codex-auth",
-        codex_code_mode_host_binary=unused / "codex-host",
-        codex_resources_directory=unused,
-        codex_max_concurrent_processes=_CODEX_MAX_CONCURRENT_PROCESSES,
-        codex_max_concurrent_image_runs=_CODEX_MAX_CONCURRENT_IMAGE_RUNS,
-        cli_working_directory_root=unused,
-        cli_prompt_file_prefix="copresenter-prompt-",
-        cli_prompt_file_placeholder="PROMPT_FILE",
-        secret_env_keys=_SCRUBBED_SECRET_KEYS,
-        mcp_server=None,
+        claude=ClaudeCliRuntime(binary=_CLAUDE_CLI_BINARY, token_file=token_file),
+        cli_binary_search_path=search_path,
+        cli_working_directory_root=working_root,
+        turns=TurnRuntimeConfig(mcp_server=None),
     )
 
 
 class ClaudeAnswerer:
     """One Claude turn through the installed CLI, streaming text deltas."""
 
-    def __init__(self, *, model: str) -> None:
+    def __init__(self, *, model: str, runtime: ProviderRuntimeConfig) -> None:
         """Install the provider runtime once. No API key is stored."""
         self.provider = "claude"
         self.model = model
-        configure(provider_runtime(model))
+        configure(runtime)
 
     async def stream(self, *, said: str, slide: int, deck: Deck) -> AsyncIterator[str]:
         """Yield Claude's text as it arrives."""
-        async for event in stream_claude_turn(
-            user_id=_CLAUDE_TURN_USER,
-            system=SYSTEM_PROMPT,
-            model=self.model,
-            messages=[{"role": "user", "content": user_message(said, slide, deck)}],
-        ):
-            if isinstance(event, AssistantTextEvent) and event.text:
-                yield event.text
+        try:
+            async for event in stream_claude_turn(
+                user_id=_CLAUDE_TURN_USER,
+                system=SYSTEM_PROMPT,
+                model=self.model,
+                messages=[{"role": "user", "content": user_message(said, slide, deck)}],
+            ):
+                if isinstance(event, AssistantTextEvent) and event.text:
+                    yield event.text
+        except ProviderUnavailableError as unavailable:
+            if (
+                unavailable.reason is not None
+                and unavailable.reason.code is SafeRouteReasonCode.CLI_LOGIN_NOT_CONFIGURED
+            ):
+                _log.error(  # the path only, never the file's content
+                    "Claude login file missing or refused: %s",
+                    current_claude_runtime().token_file,
+                )
+            raise
 
 
 class CannedAnswerer:

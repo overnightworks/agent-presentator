@@ -68,7 +68,6 @@ _DATA = b"data"
 _RATE_AT = 24
 _RATE_BYTES = 4
 _CHUNK_HEADER_BYTES = 8
-_NESTED_SESSION_ENV_PREFIXES = ("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID", "AI_AGENT")
 CHROME_ARGS = (
     "--headless=new",
     "--autoplay-policy=no-user-gesture-required",
@@ -660,15 +659,6 @@ def _who(present_url: str, talk_origin: str) -> dict[str, object]:
     return response.json()
 
 
-def _scrub_nested_session_env(env: dict[str, str]) -> dict[str, str]:
-    """Drop this runner's agent-session vars so the CLI child is a plain shell."""
-    return {
-        key: value
-        for key, value in env.items()
-        if not any(key.startswith(prefix) for prefix in _NESTED_SESSION_ENV_PREFIXES)
-    }
-
-
 def _start_copresenter(
     host: str,
     port: int,
@@ -676,7 +666,7 @@ def _start_copresenter(
     talk_origin: str,
     log_file: IO[str],
 ) -> subprocess.Popen[bytes]:
-    env = _scrub_nested_session_env(os.environ.copy())
+    env = os.environ.copy()
     env["COPRESENTER_HOST"] = host
     env["COPRESENTER_PORT"] = str(port)
     env["COPRESENTER_SPEECH_URL"] = speech_url
@@ -754,7 +744,8 @@ def _run_standin() -> int:
             speech_server.should_exit = True
 
 
-def _real_preflight(speech_url: str) -> str | None:
+def _real_preflight(settings: Settings) -> str | None:
+    speech_url = settings.speech_url.rstrip("/")
     ready, health = _speech_ready(speech_url)
     if not ready:
         return f"real mode needs a ready speech service at {speech_url}: {health}"
@@ -764,8 +755,9 @@ def _real_preflight(speech_url: str) -> str | None:
             f"model is the stand-in ({_STANDIN_SPEAKING_MODEL!r}/"
             f"{_STANDIN_HEARING_MODEL!r}) at {speech_url}: {health}"
         )
-    if shutil.which("claude") is None:
-        return "real mode needs the claude executable on PATH"
+    search_path = os.pathsep.join(str(entry) for entry in settings.cli_search_path)
+    if shutil.which("claude", path=search_path) is None:
+        return f"real mode needs claude on COPRESENTER_CLI_SEARCH_PATH: {search_path}"
     return None
 
 
@@ -789,8 +781,9 @@ def _run_real() -> int:
     present_port = _free_port()
     talk_port = _free_port()
     talk_origin = f"http://{host}:{talk_port}"
-    speech_url = Settings(allowed_origin=talk_origin).speech_url.rstrip("/")
-    blocked = _real_preflight(speech_url)
+    settings = Settings(allowed_origin=talk_origin)
+    speech_url = settings.speech_url.rstrip("/")
+    blocked = _real_preflight(settings)
     if blocked is not None:
         sys.stderr.write(f"{blocked}\n")
         return 1
