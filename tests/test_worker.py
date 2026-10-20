@@ -12,6 +12,11 @@ from types import SimpleNamespace
 import pytest
 
 from presentator.host import worker
+from presentator.host.config import (
+    ConfigurationError,
+    WorkerSettings,
+    worker_settings_variables,
+)
 from presentator.host.worker import (
     Boundary,
     Identity,
@@ -224,14 +229,24 @@ FAILURES = {
 }
 
 
+LOADED_SETTINGS = WorkerSettings(build_timeout_seconds=45.0)
+
+
 def boundary_over(
-    snapshot: Snapshot, events: list[str], served: dict[str, int] | None = None
+    snapshot: Snapshot,
+    events: list[str],
+    served: dict[str, object] | None = None,
+    load_settings: Callable[[], WorkerSettings] = lambda: LOADED_SETTINGS,
 ) -> Boundary:
     def read_snapshot() -> Snapshot:
         events.append("read")
         return snapshot
 
-    def serve(**arguments: int) -> int:
+    def settings() -> WorkerSettings:
+        events.append("settings")
+        return load_settings()
+
+    def serve(**arguments: object) -> int:
         events.append("serve")
         if served is not None:
             served.update(arguments)
@@ -241,6 +256,7 @@ def boundary_over(
         set_non_dumpable=lambda: events.append("prctl"),
         set_umask=lambda: events.append("umask"),
         read_snapshot=read_snapshot,
+        load_settings=settings,
         serve=serve,
     )
 
@@ -277,12 +293,16 @@ def test_sealed_start_serves_and_returns_the_serving_status() -> None:
 
 
 def test_start_serves_for_the_runtime_uid_and_the_controller_group() -> None:
-    served: dict[str, int] = {}
+    served: dict[str, object] = {}
     snapshot = with_identity(runtime_uid=1001)(sealed_snapshot())
 
     worker.main([], boundary_over(snapshot, [], served))
 
-    assert served == {"controller_gid": 1000, "runtime_uid": 1001}
+    assert served == {
+        "controller_gid": 1000,
+        "runtime_uid": 1001,
+        "settings": LOADED_SETTINGS,
+    }
 
 
 def test_refusal_exits_two_and_logs_the_predicate_without_environment_values(
@@ -306,6 +326,49 @@ def test_start_up_makes_the_process_non_dumpable_before_reading_anything() -> No
     worker.main(["--check"], boundary_over(sealed_snapshot(), events))
 
     assert events == ["prctl", "umask", "read"]
+
+
+def test_a_start_loads_the_settings_after_the_self_check_and_before_serving() -> None:
+    events: list[str] = []
+
+    worker.main([], boundary_over(sealed_snapshot(), events))
+
+    assert events == ["prctl", "umask", "read", "settings", "serve"]
+
+
+def test_a_refused_self_check_never_loads_the_settings() -> None:
+    events: list[str] = []
+    snapshot = with_fields(pid=7)(sealed_snapshot())
+
+    assert (
+        worker.main([], boundary_over(snapshot, events)) == worker.REFUSAL_EXIT_STATUS
+    )
+    assert "settings" not in events
+
+
+def test_an_invalid_setting_refuses_by_variable_name_without_serving(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events: list[str] = []
+
+    def refusing() -> WorkerSettings:
+        message = "PRESENTATOR_BUILD_TIMEOUT_SECONDS: not a number"
+        raise ConfigurationError(message)
+
+    status = worker.main([], boundary_over(sealed_snapshot(), events, None, refusing))
+
+    assert status == worker.REFUSAL_EXIT_STATUS
+    assert events[-1] == "settings"
+    assert "PRESENTATOR_BUILD_TIMEOUT_SECONDS" in caplog.text
+    assert worker.StartRefusal.SETTINGS in caplog.text
+
+
+def test_the_settings_keys_pass_the_environment_predicate() -> None:
+    snapshot = with_fields(environment_keys=worker_settings_variables())(
+        sealed_snapshot()
+    )
+
+    assert worker.first_failing_predicate(snapshot) is None
 
 
 def test_failing_prctl_refuses_before_reading_anything() -> None:

@@ -220,6 +220,44 @@ def test_a_sweep_that_is_quiet_only_after_its_deadline_ends_the_life_armed(
     assert "cancel" not in life.events
 
 
+ACCEPTED_REARMS = {
+    "the design's 300 s build, observed at the accept": (300.0, 0.0, 447.0),
+    "the design's 1 s build, observed at the accept": (1.0, 0.0, 148.0),
+    "an observation 1.5 s after the accept shortens it by 1.5 s": (1.0, 1.5, 146.5),
+}
+
+
+@pytest.mark.parametrize(
+    ("build_timeout", "inspection_takes", "rearmed_for"),
+    ACCEPTED_REARMS.values(),
+    ids=ACCEPTED_REARMS.keys(),
+)
+def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_accept(
+    volume: Path,
+    build_timeout: float,
+    inspection_takes: float,
+    rearmed_for: float,
+) -> None:
+    life = ScriptedLife(
+        exit_status=WireExit.ACCEPTED,
+        build_timeout_seconds=build_timeout,
+        inspection_takes=inspection_takes,
+    )
+    with listening_with(volume, accepts=1) as listener:
+        connect(volume)
+        accept_from(life, listener, OWN_UID)
+
+    assert life.events == [
+        "arm 7.0",
+        "spawn",
+        "status",
+        "release",
+        "wait-within",
+        f"arm {rearmed_for}",
+        "close-gate",
+    ]
+
+
 LIFE_ENDS = {
     "a spawn failure": (
         lambda: ScriptedLife(spawn_error=OSError("no process")),
@@ -254,7 +292,15 @@ LIFE_ENDS = {
     "an accepted step": (
         lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
         LifeEnd.STEP_ACCEPTED,
-        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
+        [
+            "arm 7.0",
+            "spawn",
+            "status",
+            "release",
+            "wait-within",
+            "arm 447.0",
+            "close-gate",
+        ],
     ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),

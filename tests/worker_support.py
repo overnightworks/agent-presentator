@@ -69,6 +69,7 @@ class ScriptedLife:
     headers_stalled: int = 0
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
+    build_timeout_seconds: float = 300.0
     release_takes: float = 0.0
     budgets_waited: list[float] = field(default_factory=list[float])
     sweep_error: OSError | None = None
@@ -154,6 +155,7 @@ class ScriptedLife:
             sweep=self.sweep,
             watchdog=self,
             clock=self.clock,
+            build_timeout_seconds=self.build_timeout_seconds,
         )
 
 

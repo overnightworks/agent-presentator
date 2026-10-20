@@ -1,12 +1,13 @@
 """What varies by deployment; everything else is a constant beside its owner."""
 
+import threading
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Final
 from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, Field, SecretStr, ValidationError
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from webauth.proxies import TrustedProxies
 
 # Every secret this instance is handed is at least this many characters, so no
@@ -18,6 +19,13 @@ SECRET_LENGTH: Final = 32
 NO_BOUND_AT_ALL: Final = "none"
 
 _REFUSED: Final = "this environment cannot start an instance"
+
+ENVIRONMENT_PREFIX: Final = "PRESENTATOR_"
+# What the web and the build worker both bound one build step by.
+DEFAULT_BUILD_TIMEOUT_SECONDS: Final = 300.0
+# The watchdog cannot be armed for longer than threading.TIMEOUT_MAX, and the
+# worker's fixed phases and the clock offset come on top of the build step.
+LONGEST_BUILD_TIMEOUT_SECONDS: Final = threading.TIMEOUT_MAX / 2
 
 
 class WhereBuildsRun(StrEnum):
@@ -89,7 +97,7 @@ def _an_absolute_path(given: Path) -> Path:
     return given
 
 
-class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
+class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     """Read from `PRESENTATOR_*` in the environment, or from a local `.env`."""
 
     secret_key: SecretStr = Field(min_length=SECRET_LENGTH)
@@ -105,7 +113,7 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     toolchain: Path = Path("frontend")
     # A build that hangs would hold every later build behind it, so each step
     # of the toolchain is bounded.
-    build_timeout_seconds: float = 300.0
+    build_timeout_seconds: float = DEFAULT_BUILD_TIMEOUT_SECONDS
     # A deck is code, so every build runs in a container of its own: the image
     # the toolchain stands in, and the volume the builds root is a directory
     # of, are what a deployment names for it. Running the toolchain on this
@@ -135,6 +143,42 @@ class Settings(BaseSettings, env_prefix="PRESENTATOR_", env_file=".env"):
     # Empty: the client address is the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
+
+
+class WorkerSettings(BaseSettings):
+    """What the build worker reads of its container's environment, and no file."""
+
+    model_config = SettingsConfigDict(env_prefix=ENVIRONMENT_PREFIX, frozen=True)
+
+    build_timeout_seconds: float = Field(
+        DEFAULT_BUILD_TIMEOUT_SECONDS,
+        gt=0,
+        le=LONGEST_BUILD_TIMEOUT_SECONDS,
+        allow_inf_nan=False,
+    )
+
+
+def _variable_of(field_name: str) -> str:
+    return f"{ENVIRONMENT_PREFIX}{field_name}".upper()
+
+
+def worker_settings_variables() -> frozenset[str]:
+    """The environment variables the worker reads, derived from its fields."""
+    return frozenset(_variable_of(name) for name in WorkerSettings.model_fields)
+
+
+def load_worker_settings() -> WorkerSettings:
+    """Read the worker's settings, refusing a value its watchdog cannot hold."""
+    try:
+        return WorkerSettings.model_validate({})
+    except ValidationError as refused:
+        # `msg` states the rule that failed and never quotes the value.
+        raise cannot_start(
+            ", ".join(
+                f"{_variable_of(str(fault['loc'][0]))}: {fault['msg']}"
+                for fault in refused.errors()
+            )
+        ) from None
 
 
 def cannot_start(reason: str) -> ConfigurationError:

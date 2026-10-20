@@ -21,6 +21,26 @@ logger = logging.getLogger(__name__)
 
 PEER_CREDENTIALS = struct.Struct("3i")
 HEADER_SECONDS = 2.0
+UPLOAD_SECONDS = 60.0
+GATE_SECONDS = 5.0
+QUIESCE_SECONDS = 5.0
+REPLY_SECONDS = 70.0
+# How long a stalled controller is given past the end of the last phase.
+CONTROLLER_STALL_GRACE_SECONDS = 5.0
+
+
+def emergency_end(accepted_at: float, build_timeout_seconds: float) -> float:
+    """The monotonic time past which only the watchdog acts."""
+    phases = (
+        HEADER_SECONDS,
+        UPLOAD_SECONDS,
+        GATE_SECONDS,
+        QUIESCE_SECONDS,
+        REPLY_SECONDS,
+        build_timeout_seconds,
+        CONTROLLER_STALL_GRACE_SECONDS,
+    )
+    return accepted_at + sum(phases)
 
 
 def peer_admitted(peer_uid: int, runtime_uid: int) -> bool:
@@ -98,6 +118,7 @@ class Serving:
     sweep: Callable[[float], bool]
     watchdog: Watchdog
     clock: Callable[[], float]
+    build_timeout_seconds: float
 
 
 def _admitted_at_gate(child: WireChild, serving: Serving) -> bool:
@@ -135,7 +156,7 @@ def _life_end_after(exit_status: int) -> LifeEnd | None:
 
 
 def hand_over(
-    connection: socket.socket, serving: Serving, header_ends_at: float
+    connection: socket.socket, serving: Serving, accepted_at: float
 ) -> LifeEnd | None:
     """Give the connection to a gated wire child; None keeps the life."""
     descriptor = connection.fileno()
@@ -156,6 +177,7 @@ def hand_over(
     try:
         if not _admitted_at_gate(child, serving):
             return _killed(child, LifeEnd.GATE)
+        header_ends_at = accepted_at + HEADER_SECONDS
         if serving.clock() >= header_ends_at:
             return _header_expired(child)
         if not _released(child):
@@ -164,6 +186,11 @@ def hand_over(
         exit_status = child.wait_within(remaining) if remaining > 0 else None
         if exit_status is None:
             return _header_expired(child)
+        if exit_status == WireExit.ACCEPTED:
+            serving.watchdog.arm(
+                emergency_end(accepted_at, serving.build_timeout_seconds)
+                - serving.clock()
+            )
         return _life_end_after(exit_status)
     finally:
         child.close_gate()
@@ -188,11 +215,7 @@ def accept_connections(
                 logger.exception("peer credentials unreadable")
                 return LifeEnd.ACCEPT
             admitted = peer_admitted(peer_uid, runtime_uid)
-            life_end = (
-                hand_over(connection, serving, accepted_at + HEADER_SECONDS)
-                if admitted
-                else None
-            )
+            life_end = hand_over(connection, serving, accepted_at) if admitted else None
         if life_end is not None:
             return life_end
         if not serving.sweep(accepted_at + SWEEP_SECONDS):

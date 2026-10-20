@@ -20,6 +20,7 @@ import pytest
 from presentator.adapters import worker_children
 from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
 from presentator.host import worker, worker_serving
+from presentator.host.config import WorkerSettings
 from presentator.host.worker_serving import (
     HEADER_SECONDS,
     LifeEnd,
@@ -45,6 +46,7 @@ STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
 from presentator.host import worker, worker_serving
+from presentator.host.config import WorkerSettings
 from presentator.host.worker_termination import FaultHandlerWatchdog
 
 def stall(*_arguments, **_keywords):
@@ -61,6 +63,7 @@ serving = worker_serving.Serving(
     sweep=lambda _deadline: True,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
+    build_timeout_seconds=300.0,
 )
 sys.exit(
     worker.serve(
@@ -136,11 +139,16 @@ def serving_with(
         sweep=lambda _deadline: quiet,
         watchdog=NeverArmed(),
         clock=time.monotonic,
+        build_timeout_seconds=300.0,
     )
 
 
-def header_ends_at() -> float:
-    return time.monotonic() + HEADER_SECONDS
+def accept_time() -> float:
+    return time.monotonic()
+
+
+def real_serving() -> Serving:
+    return worker.real_serving(WorkerSettings(build_timeout_seconds=300.0))
 
 
 class NeverArmed:
@@ -193,7 +201,7 @@ def hand_over_probe(
     monkeypatch.setenv("PATH", PATH)
     connection, client = connection_pair
     kept = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE)), header_ends_at()
+        connection, serving_with(spawn_probe(PROBE)), accept_time()
     )
     connection.close()
     assert kept is None
@@ -235,7 +243,7 @@ def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_repl
     connection, client = connection_pair
 
     refused = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE), admits=False), header_ends_at()
+        connection, serving_with(spawn_probe(PROBE), admits=False), accept_time()
     )
     connection.close()
 
@@ -391,7 +399,7 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
     monkeypatch.setattr(worker_children.subprocess, "Popen", RecordedPopen)
 
     with pytest.raises(OSError, match=RecordedPopen.FAILURE):
-        worker.REAL_SERVING.spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
+        real_serving().spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
 
     [(_arguments, keywords)] = RecordedPopen.calls
     wire_id = worker.WIRE_IDENTITY[0]
@@ -464,6 +472,7 @@ class RealServing:
             sweep=self.sweep,
             watchdog=self.watchdog,
             clock=time.monotonic,
+            build_timeout_seconds=300.0,
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
@@ -563,7 +572,7 @@ def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
     assert run.serving.sweep_deadlines == []
-    assert run.serving.watchdog.events == ["arm"]
+    assert run.serving.watchdog.events == ["arm", "arm"]
 
 
 HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = HELLO[:7] + HELLO[7:8]
