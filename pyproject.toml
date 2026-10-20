@@ -107,6 +107,13 @@ convention = "google"
 # gives it a container; both programs are constants resolved on PATH, and every
 # argument is built here out of the deck's own row, never out of a request.
 "src/presentator/adapters/builds.py" = ["S404", "S603"]
+# Spawning the build worker's children is the gate shell and the wire entry,
+# both named here and handed only a descriptor list, never a request.
+"src/presentator/adapters/worker_children.py" = ["S404", "S603"]
+# Runs the gate shell and a stalled controller as real processes.
+"tests/adapters/test_worker_children.py" = ["S404", "S603"]
+# Spawns children of its own to prove which of them the reap collects.
+"tests/test_worker_termination.py" = ["S404", "S603"]
 # Drives that toolchain and that client as the stand-in scripts it puts on PATH.
 "tests/adapters/test_builds.py" = ["S404", "S603"]
 # Builds the temporary git repositories every layer that reads one is proven on.

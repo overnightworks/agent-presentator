@@ -6,15 +6,31 @@ import grp
 import logging
 import os
 import pwd
+import signal
 import socket
 import stat
 import struct
+import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import NoReturn, Protocol
+from typing import Protocol
+
+from presentator.adapters.worker_children import ChildIdentity, spawn_gated
+from presentator.host.worker_termination import (
+    SWEEP_SECONDS,
+    WATCHDOG_SECONDS,
+    FaultHandlerWatchdog,
+    SweepEffects,
+    Watchdog,
+    list_process_ids,
+    reap_children,
+    sweep,
+)
+from presentator.host.worker_wire import WireExit
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +42,7 @@ BUILD_USER = "presentator-build"
 WIRE_USER = "presentator-wire"
 BUILD_IDENTITY = (10001, 10001)
 WIRE_IDENTITY = (10002, 10002)
+NO_CAPABILITIES = "0" * 16
 ROOT_MODE = 0o755
 WORK_MOUNT = "/work"
 SOCKET_DIRECTORY = "/run/presentator-build"
@@ -184,8 +201,8 @@ def _capabilities_sealed(snapshot: Snapshot) -> bool:
     return (
         fields.get("CapEff") == worker
         and fields.get("CapPrm") == worker
-        and fields.get("CapInh") == "0" * 16
-        and fields.get("CapAmb") == "0" * 16
+        and fields.get("CapInh") == NO_CAPABILITIES
+        and fields.get("CapAmb") == NO_CAPABILITIES
         and int(fields.get("CapBnd", "-1"), 16) & ~WORKER_CAPABILITIES == 0
         and fields.get("NoNewPrivs") == "1"
         and fields.get("Seccomp") == "2"
@@ -554,26 +571,134 @@ def _peer_uid(connection: socket.socket) -> int:
     return uid
 
 
-def close_unread(connection: socket.socket) -> None:
-    """Drop an admitted connection without reading it."""
-    connection.close()
+class LifeEnd(StrEnum):
+    """What ended a serving life, named for the log."""
+
+    SPAWN = "spawn"
+    GATE = "gate"
+    WIRE_EXIT = "wire-exit"
+    SWEEP = "sweep"
+
+
+class WireChild(Protocol):
+    """A spawned wire child that waits at its gate."""
+
+    def status_text(self) -> str:
+        """Read the kernel's account of the child."""
+        ...
+
+    def release(self) -> None:
+        """Let the child's program run."""
+        ...
+
+    def kill(self) -> None:
+        """Kill the child."""
+        ...
+
+    def wait(self) -> int:
+        """Wait for the child and return its exit status."""
+        ...
+
+    def close_gate(self) -> None:
+        """Close the controller's end of the gate."""
+        ...
+
+
+class Spawn(Protocol):
+    """Starts a command behind a gate with the given descriptors kept open."""
+
+    def __call__(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+    ) -> WireChild:
+        """Return the gated child."""
+        ...
+
+
+@dataclass(frozen=True)
+class Serving:
+    """The effects a serving life runs through."""
+
+    spawn: Spawn
+    gate_admits: Callable[[str], bool]
+    sweep: Callable[[float], bool]
+    watchdog: Watchdog
+    clock: Callable[[], float]
+
+
+def wire_gate_admits(process_status: str, identity: tuple[int, int]) -> bool:
+    """A wire child may be released only as the identity, unprivileged and sealed."""
+    uid, gid = identity
+    fields = _status_fields(process_status)
+    return (
+        fields.get("Uid", "").split() == [str(uid)] * 4
+        and fields.get("Gid", "").split() == [str(gid)] * 4
+        and fields.get("Groups") == ""
+        and all(
+            fields.get(name) == NO_CAPABILITIES
+            for name in ("CapInh", "CapPrm", "CapEff", "CapAmb")
+        )
+        and fields.get("NoNewPrivs") == "1"
+        and fields.get("Seccomp") == "2"
+    )
+
+
+def _released_as_gated(child: WireChild, serving: Serving) -> bool:
+    try:
+        if not serving.gate_admits(child.status_text()):
+            return False
+        child.release()
+    except OSError:
+        return False
+    return True
+
+
+def hand_over(connection: socket.socket, serving: Serving) -> LifeEnd | None:
+    """Give the connection to a gated wire child; None keeps the life."""
+    descriptor = connection.fileno()
+    command = [
+        sys.executable,
+        "-I",
+        "-m",
+        "presentator.host.worker_wire",
+        "--connection-fd",
+        str(descriptor),
+    ]
+    try:
+        child = serving.spawn(
+            command, environment={"PATH": os.environ["PATH"]}, pass_fds=(descriptor,)
+        )
+    except OSError:
+        return LifeEnd.SPAWN
+    try:
+        if not _released_as_gated(child, serving):
+            child.kill()
+            child.wait()
+            return LifeEnd.GATE
+        return None if child.wait() == WireExit.CLOSED else LifeEnd.WIRE_EXIT
+    finally:
+        child.close_gate()
 
 
 def accept_connections(
-    listener: socket.socket, runtime_uid: int, handle: Callable[[socket.socket], None]
-) -> NoReturn:
-    """Hand each runtime-uid connection to the handler; close every other at once."""
+    listener: socket.socket, runtime_uid: int, serving: Serving
+) -> LifeEnd:
+    """Serve each connection in turn; return what ended the life."""
     while True:
         connection, _address = listener.accept()
-        try:
-            peer_uid = _peer_uid(connection)
-        except OSError:
-            connection.close()
-            raise
-        if peer_admitted(peer_uid, runtime_uid):
-            handle(connection)
-        else:
-            connection.close()
+        accepted_at = serving.clock()
+        serving.watchdog.arm(accepted_at + WATCHDOG_SECONDS - serving.clock())
+        with connection:
+            admitted = peer_admitted(_peer_uid(connection), runtime_uid)
+            life_end = hand_over(connection, serving) if admitted else None
+        if life_end is not None:
+            return life_end
+        if not serving.sweep(accepted_at + SWEEP_SECONDS):
+            return LifeEnd.SWEEP
+        serving.watchdog.cancel()
 
 
 def serve(
@@ -582,24 +707,43 @@ def serve(
     controller_uid: int,
     controller_gid: int,
     runtime_uid: int,
-    handle: Callable[[socket.socket], None],
+    serving: Serving,
 ) -> int:
-    """Run start-up steps 4 to 6, then accept; only a refusal returns."""
+    """Run start-up steps 4 to 6, then accept until the life ends."""
     try:
         prepare_socket_directory(directory, controller_uid, controller_gid)
         listener = bind_socket(directory, controller_uid, controller_gid)
         with listener:
             start_listening(listener)
-            accept_connections(listener, runtime_uid, handle)
+            life_end = accept_connections(listener, runtime_uid, serving)
     except StartRefusedError as refused:
         return _refuse(refused.refusal)
+    logger.error("life ended: %s", life_end)
+    return 0
 
+
+REAL_SERVING = Serving(
+    spawn=partial(spawn_gated, identity=ChildIdentity(*WIRE_IDENTITY, extra_groups=())),
+    gate_admits=partial(wire_gate_admits, identity=WIRE_IDENTITY),
+    sweep=partial(
+        sweep,
+        SweepEffects(
+            kill_all=partial(os.kill, -1, signal.SIGKILL),
+            reap=reap_children,
+            list_process_ids=partial(list_process_ids, Path("/proc")),
+            clock=time.monotonic,
+            sleep=time.sleep,
+        ),
+    ),
+    watchdog=FaultHandlerWatchdog(),
+    clock=time.monotonic,
+)
 
 REAL_BOUNDARY = Boundary(
     _set_non_dumpable,
     _set_umask,
     partial(read_snapshot, Path("/")),
-    partial(serve, Path(SOCKET_DIRECTORY), controller_uid=0, handle=close_unread),
+    partial(serve, Path(SOCKET_DIRECTORY), controller_uid=0, serving=REAL_SERVING),
 )
 
 
