@@ -9,8 +9,10 @@ import pytest
 
 from presentator.adapters.build_wire import (
     EmptyHeader,
+    RecordTag,
     StepHeader,
     WireRefusedError,
+    read_end,
     read_request,
     send_status,
 )
@@ -149,3 +151,37 @@ def test_a_worker_direction_kind_is_refused(
 
     with pytest.raises(WireRefusedError):
         read_request(reading_end)
+
+
+def test_a_thirteen_byte_end_with_no_entries_is_accepted_and_read_no_further(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    reading_end, writing_end = wire
+    writing_end.sendall(b"\x03" + bytes(12) + b"more")
+
+    read_end(reading_end)
+
+    assert reading_end.recv(64) == b"more"
+
+
+END_REFUSALS = {
+    "a short read": b"\x03" + bytes(11),
+    "no bytes": b"",
+    "a directory tag": bytes([RecordTag.DIR]) + bytes(12),
+    "a file tag": bytes([RecordTag.FILE]) + bytes(12),
+    "an unknown tag": b"\x00" + bytes(12),
+    "a non-zero count": b"\x03\x00\x00\x00\x01" + bytes(8),
+    "a non-zero sum": b"\x03" + bytes(11) + b"\x01",
+}
+
+
+@pytest.mark.parametrize("sent", END_REFUSALS.values(), ids=END_REFUSALS.keys())
+def test_an_end_that_is_short_wrongly_tagged_or_not_empty_is_refused(
+    wire: tuple[socket.socket, socket.socket], sent: bytes
+) -> None:
+    reading_end, writing_end = wire
+    writing_end.sendall(sent)
+    writing_end.shutdown(socket.SHUT_WR)
+
+    with pytest.raises(WireRefusedError):
+        read_end(reading_end)

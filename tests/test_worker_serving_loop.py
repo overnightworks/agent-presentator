@@ -256,7 +256,9 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
         *CHILD_LEG,
         f"arm {rearmed_for}",
         "seal",
+        "open-deck",
         *CHILD_LEG,
+        "close-deck",
     ]
 
 
@@ -294,7 +296,15 @@ LIFE_ENDS = {
     "an accepted step": (
         lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
         LifeEnd.STEP_ACCEPTED,
-        ["arm 7.0", *CHILD_LEG, "arm 447.0", "seal", *CHILD_LEG],
+        [
+            "arm 7.0",
+            *CHILD_LEG,
+            "arm 447.0",
+            "seal",
+            "open-deck",
+            *CHILD_LEG,
+            "close-deck",
+        ],
     ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),

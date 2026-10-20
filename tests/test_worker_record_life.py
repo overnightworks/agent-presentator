@@ -78,7 +78,16 @@ def test_an_upload_budget_spent_before_the_release_prevents_the_release(
 
     assert outcome == LifeEnd.UPLOAD_EXPIRED
     upload_leg = life.events[life.events.index("seal") :]
-    assert upload_leg == ["seal", "spawn", "status", "kill", "wait", "close-gate"]
+    assert upload_leg == [
+        "seal",
+        "open-deck",
+        "spawn",
+        "status",
+        "kill",
+        "wait",
+        "close-gate",
+        "close-deck",
+    ]
 
 
 def test_an_upload_budget_spent_during_the_release_is_not_waited_for(
@@ -94,12 +103,14 @@ def test_an_upload_budget_spent_during_the_release_is_not_waited_for(
     upload_leg = life.events[life.events.index("seal") :]
     assert upload_leg == [
         "seal",
+        "open-deck",
         "spawn",
         "status",
         "release",
         "kill",
         "wait",
         "close-gate",
+        "close-deck",
     ]
     assert len(life.budgets_waited) == 1
 
@@ -113,7 +124,7 @@ def test_a_stalled_upload_child_is_waited_for_its_remaining_time_then_killed(
 
     assert outcome == LifeEnd.UPLOAD_EXPIRED
     assert life.budgets_waited[-1] == UPLOAD_SECONDS
-    assert life.events[-3:] == ["kill", "wait", "close-gate"]
+    assert life.events[-4:] == ["kill", "wait", "close-gate", "close-deck"]
 
 
 def test_a_writable_shared_mapping_makes_the_production_seal_fail_before_any_upload(
@@ -289,7 +300,8 @@ def test_a_child_is_killed_and_reaped_and_the_original_error_survives_a_failing_
     with pytest.raises(OSError, match="wait failed") as raised:
         hand_over(connection, serving, ACCEPT_TIME)
 
-    assert life.events[-3:] == ["kill", "wait", "close-gate"]
+    expected = ["kill", "wait", "close-gate", *["close-deck"] * role_index]
+    assert life.events[-len(expected) :] == expected
     notes = getattr(raised.value, "__notes__", [])
     assert len(notes) == (cleanup_failure is not None)
     assert all(cleanup_failure in note for note in notes)

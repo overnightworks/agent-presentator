@@ -636,6 +636,21 @@ def seal_record(descriptor: int) -> None:
     fcntl.fcntl(descriptor, F_ADD_SEALS, RECORD_SEALS)
 
 
+DECK_OPEN_MODE = 0o1777
+
+
+def open_deck() -> None:
+    """Make /work/deck world-writable for the upload child; never reuse one."""
+    path = Path(WORK_MOUNT) / "deck"
+    path.mkdir()
+    path.chmod(DECK_OPEN_MODE)
+
+
+def close_deck() -> None:
+    """Take the deck back to the root mode once the upload child is gone."""
+    (Path(WORK_MOUNT) / "deck").chmod(ROOT_MODE)
+
+
 def real_serving(settings: WorkerSettings) -> Serving:
     """The effects of a serving life on this machine, bounded by the settings."""
     return Serving(
@@ -655,6 +670,8 @@ def real_serving(settings: WorkerSettings) -> Serving:
         ),
         create_record=create_request_record,
         seal=seal_record,
+        open_deck=open_deck,
+        close_deck=close_deck,
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
         build_timeout_seconds=settings.build_timeout_seconds,

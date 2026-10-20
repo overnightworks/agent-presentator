@@ -273,13 +273,25 @@ def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_repl
     assert os.lseek(record, 0, os.SEEK_CUR) == 0
 
 
-def test_the_upload_entry_decodes_the_record_and_answers_status_exiting_uploaded(
+def test_the_upload_entry_answers_status_then_reads_end_exiting_uploaded(
     client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+    client.sendall(b"\x03" + bytes(12))
 
     assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.UPLOADED
+    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
+    client_and_descriptor: tuple[socket.socket, int], record: int
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+    client.shutdown(socket.SHUT_WR)
+
+    assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.CLOSED
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
 
 

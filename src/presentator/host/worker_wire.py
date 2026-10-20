@@ -9,6 +9,7 @@ from enum import IntEnum, StrEnum
 from presentator.adapters.build_wire import (
     EmptyHeader,
     WireRefusedError,
+    read_end,
     read_record,
     read_request,
     send_status,
@@ -47,6 +48,7 @@ def _idle(connection: socket.socket, record_fd: int) -> WireExit:
 def _upload(connection: socket.socket, record_fd: int) -> WireExit:
     read_record(record_fd)
     send_status(connection)
+    read_end(connection)
     return WireExit.UPLOADED
 
 

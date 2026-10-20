@@ -67,6 +67,7 @@ class LifeEnd(StrEnum):
     ACCEPT = "accept"
     SEAL_FAILED = "seal-failed"
     UPLOAD_EXPIRED = "upload-expired"
+    DECK_FAILED = "deck-failed"
 
 
 class WireChild(Protocol):
@@ -120,6 +121,8 @@ class Serving:
     sweep: Callable[[float], bool]
     create_record: Callable[[], int]
     seal: Callable[[int], None]
+    open_deck: Callable[[], None]
+    close_deck: Callable[[], None]
     watchdog: Watchdog
     clock: Callable[[], float]
     build_timeout_seconds: float
@@ -240,18 +243,45 @@ def _sealed(serving: Serving, record: int) -> bool:
     return True
 
 
+def _opened_deck(serving: Serving) -> bool:
+    try:
+        serving.open_deck()
+    except OSError:
+        logger.exception("deck not opened")
+        return False
+    return True
+
+
+def _run_upload_with_deck(
+    serving: Serving, descriptors: tuple[int, int], upload_ends_at: float
+) -> _ChildRun:
+    try:
+        upload = _run_gated(
+            serving,
+            WireRole.UPLOAD,
+            descriptors,
+            upload_ends_at,
+            LifeEnd.UPLOAD_EXPIRED,
+        )
+    except BaseException as original:
+        try:
+            serving.close_deck()
+        except (Exception, KeyboardInterrupt) as cleanup_failure:
+            logger.exception("deck not closed")
+            original.add_note(f"closing the deck failed: {cleanup_failure!r}")
+        raise
+    serving.close_deck()
+    return upload
+
+
 def _hand_over_upload(
     connection: int, serving: Serving, record: int, upload_ends_at: float
 ) -> LifeEnd | None:
     if not _sealed(serving, record):
         return LifeEnd.SEAL_FAILED
-    upload = _run_gated(
-        serving,
-        WireRole.UPLOAD,
-        (connection, record),
-        upload_ends_at,
-        LifeEnd.UPLOAD_EXPIRED,
-    )
+    if not _opened_deck(serving):
+        return LifeEnd.DECK_FAILED
+    upload = _run_upload_with_deck(serving, (connection, record), upload_ends_at)
     if upload.exit_status is None:
         return upload.life_end
     if upload.exit_status == WireExit.UPLOADED:
