@@ -26,6 +26,9 @@ class LobbyText:
     role_user: str
     logged_out_title: str
     log_in: str
+    login_failed_title: str
+    login_failed_explanation: str
+    login_failed_retry: str
     footer_impressum: str
     footer_datenschutz: str
     legal_back_to_login: str

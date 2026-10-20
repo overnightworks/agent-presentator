@@ -51,7 +51,11 @@ Keycloak sign-in is K13
 ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
 `/login` says "You are logged out." with one Log in button and the legal links;
 the button starts the sign-in at `/login/oidc`, which sends the browser to
-Keycloak, and the return at `/auth/callback` is not built yet. A session that SQLite
+Keycloak. The return at `/auth/callback` admits only members of the Keycloak
+group `/apps/presentator` (admins: `/apps/presentator/admin`), opens one
+session, sets the cookies once and lands on the requested path or `/`; every
+refused sign-in shows one "Login failed" page with a Try again link; a failing
+store answers 500. A session that SQLite
 holds is carried by a signed cookie, and the session ends twelve hours after the
 sign-in that opened it, however often it is used. `webauth` v0.18.0 owns the cookie and
 CSRF-origin mechanism and formats the refusal for a missing session; its

@@ -151,6 +151,11 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
         ("PRESENTATOR_OIDC_ISSUER", "https://auth.example.test:bad/r", "oidc_issuer"),
         (
             "PRESENTATOR_OIDC_ISSUER",
+            "https://auth.example.test:/realms/t",
+            "oidc_issuer",
+        ),
+        (
+            "PRESENTATOR_OIDC_ISSUER",
             "HTTPS://auth.example.test/realms/t",
             "oidc_issuer",
         ),
@@ -177,6 +182,7 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
         "newline",
         "port too large",
         "port not a number",
+        "empty port delimiter",
         "upper-case scheme",
         "upper-case host",
         "no client id",
@@ -193,6 +199,15 @@ def test_a_setting_that_is_not_a_sign_in_refuses_to_start_naming_it(
 
     with pytest.raises(ConfigurationError, match=setting):
         load_settings()
+
+
+def test_an_explicit_port_stays_part_of_the_issuer_exactly_as_given(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    ported = "https://auth.example.test:8443/realms/test"
+    environment.setenv("PRESENTATOR_OIDC_ISSUER", ported)
+
+    assert load_settings().oidc_issuer == ported
 
 
 def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None:

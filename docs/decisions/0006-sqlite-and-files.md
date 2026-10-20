@@ -42,6 +42,9 @@ replaceable if this decision's assumption ever stops holding.
 - There is no separate service to start, upgrade, or monitor beside the app.
 - SQLite's single writer is enough for one operator and one run; concurrent
   talks by different users would not be, and that is the trigger to revisit.
+- One process writes the database, and the identity stores' write lock depends on
+  that ([ADR 0003](0003-libraries-for-models-and-auth.md)). A second writer is
+  the trigger to give them a unit of work.
 - The audio cache grows on disk with nothing evicting it until something is
   written to do so.
 - This record does real work when other decisions are taken. In the

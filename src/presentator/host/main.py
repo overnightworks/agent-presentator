@@ -17,6 +17,7 @@ from webauth.config import SessionLifetime, WebAuthConfig
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
+from presentator.adapters.audit import LoggingAuditSink
 from presentator.adapters.builds import (
     ContainerToolchain,
     DaemonRefusedError,
@@ -47,7 +48,9 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     OldDatabaseError,
+    ProcessWriteLock,
     SqliteSessionRecordStore,
+    SqliteSubjectUserStore,
     SystemClock,
     TokenIdentifierFactory,
     create_identity_tables,
@@ -78,7 +81,7 @@ from presentator.host.config import (
     cannot_start,
     load_settings,
 )
-from presentator.host.oidc import relying_party_of
+from presentator.host.oidc import admission_of, relying_party_of
 from presentator.host.polling import Schedule
 
 _WITHOUT_A_SANDBOX = (
@@ -210,6 +213,10 @@ def _installed_auth(settings: Settings) -> InstalledAuth:
             public_origin=settings.public_origin,
         ),
         relying_party=relying_party_of(settings),
+        admission=admission_of(settings),
+        accounts=SqliteSubjectUserStore(settings.database),
+        lock=ProcessWriteLock(),
+        audit=LoggingAuditSink(),
     )
 
 
@@ -297,6 +304,9 @@ def lobby_web_auth_config(
 
 def main() -> None:
     """Serve the lobby with the configuration the environment carries."""
+    # The root logger drops INFO unless configured, and with it the sign-in
+    # audit lines; uvicorn disables propagation only for its own loggers.
+    logging.basicConfig(level=logging.INFO)
     settings = load_settings()
     asyncio.run(_serve(build_instance(settings), settings))
 

@@ -64,11 +64,3 @@ def test_the_signed_out_page_offers_one_log_in_button_that_starts_the_sign_in(
     assert answer.status_code == HTTPStatus.OK
     assert ENGLISH.logged_out_title in answer.text
     assert answer.text.count('data-action data-wide href="/login/oidc">Log in</a>') == 1
-
-
-def test_the_return_from_the_issuer_is_not_sent_back_to_the_start(
-    lobby: Lobby,
-) -> None:
-    answer = lobby.client.get("/auth/callback?code=an-unclaimed-code&state=x")
-
-    assert answer.status_code == HTTPStatus.NOT_FOUND

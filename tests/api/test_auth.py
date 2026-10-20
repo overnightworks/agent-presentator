@@ -8,12 +8,17 @@ import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
-from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME, MAX_SESSION_COOKIE_CHARS
+from webauth.cookies import (
+    DEFAULT_CSRF_COOKIE_NAME,
+    DEFAULT_SESSION_COOKIE_NAME,
+    MAX_SESSION_COOKIE_CHARS,
+)
 from webauth.middleware.security_headers import (
     CONTENT_TYPE_OPTIONS,
     FRAME_OPTIONS,
     REFERRER_POLICY,
 )
+from webauth.oidc import PENDING_LOGIN_MAX_AGE_SECONDS
 from webauth.policies import SecurityHeadersPolicy
 
 from presentator.api.auth import CONTENT_SECURITY_POLICY
@@ -121,13 +126,10 @@ def test_a_seeded_session_opens_the_lobby(lobby: Lobby) -> None:
     assert USERNAME in opened.text
 
 
-def test_the_session_cookie_travels_locked_down(signed_in_lobby: Lobby) -> None:
-    cookie = signed_in_lobby.client.get("/").headers["set-cookie"]
+def test_an_ordinary_signed_in_answer_sets_no_cookie(signed_in_lobby: Lobby) -> None:
+    answer = signed_in_lobby.client.get("/")
 
-    assert "HttpOnly" in cookie
-    assert "SameSite=lax" in cookie
-    assert f"Max-Age={int(SESSION_LIFETIME.total_seconds())}" in cookie
-    assert "Secure" in cookie
+    assert answer.headers.get_list("set-cookie") == []
 
 
 @pytest.mark.parametrize(
@@ -421,9 +423,19 @@ def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
-def test_logging_out_expires_the_cookie_at_once(signed_in_lobby: Lobby) -> None:
-    cleared = signed_in_lobby.client.post("/logout").headers["set-cookie"]
+@pytest.mark.parametrize(
+    "cookie_name", [DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME]
+)
+def test_logging_out_expires_the_session_and_the_csrf_cookie_each_at_once(
+    signed_in_lobby: Lobby, cookie_name: str
+) -> None:
+    deletions = signed_in_lobby.client.post("/logout").headers.get_list("set-cookie")
 
+    (cleared,) = (
+        deletion
+        for deletion in deletions
+        if deletion.split("=", 1)[0].endswith(cookie_name)
+    )
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
 
@@ -515,6 +527,21 @@ def test_the_datenschutz_opens_without_a_session(lobby: Lobby) -> None:
     assert '<a href="/login">' in answer.text
 
 
+def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -> None:
+    document = " ".join(
+        "".join(phrase.words for phrase in paragraph)
+        for section in DATENSCHUTZ.sections
+        for paragraph in section.paragraphs
+    )
+
+    assert "__Secure-oidc_id_token_hint" in document
+    assert "__Host-oidc_pending_" in document
+    assert "ohne Rückfrage" not in document
+    assert "werden danach nicht erneuert" in document
+    assert "mit jeder angemeldeten Antwort erneuert" not in document
+    assert "Keycloak-Subject-ID und Rolle" in document
+
+
 def test_the_datenschutz_renders_every_section_and_links_the_impressum(
     lobby: Lobby,
 ) -> None:
@@ -546,7 +573,36 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
 
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
-    assert f"{session_hours} Stunden im Browser" in page
+    assert f"Cookies nach der Anmeldung sind {session_hours} Stunden gültig" in page
+
+
+@pytest.mark.parametrize(
+    "disclosure",
+    [
+        "vier Cookie-Arten",
+        "bleibt es, bis seine {pending_minutes} Minuten ablaufen",
+        (
+            "Ihre Gruppen und, soweit in Keycloak hinterlegt, Ihren Benutzernamen, "
+            "Ihren Namen und Ihre E-Mail-Adresse"
+        ),
+        (
+            "Beim Abmelden bleibt dieses Cookie im Browser, bis es nach "
+            "{session_hours} Stunden abläuft"
+        ),
+    ],
+)
+def test_the_datenschutz_discloses_the_cookie_kinds_the_token_and_the_hint_at_logout(
+    lobby: Lobby,
+    disclosure: str,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+    session_hours = int(SESSION_LIFETIME.total_seconds()) // 3600
+    pending_minutes = PENDING_LOGIN_MAX_AGE_SECONDS // 60
+
+    assert (
+        disclosure.format(pending_minutes=pending_minutes, session_hours=session_hours)
+        in page
+    )
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])

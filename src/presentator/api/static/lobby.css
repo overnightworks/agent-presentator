@@ -448,6 +448,11 @@ main code {
   gap: 0.5rem;
 }
 
+/* The picture's 16 px gap below a sign-in-state banner. */
+.banner + [data-actions] {
+  margin-top: 16px;
+}
+
 [data-action],
 [data-action]:is(:hover, :active, :focus) {
   background-color: var(--accent);
