@@ -18,8 +18,9 @@ import pytest
 
 from presentator.adapters import worker_children
 from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
-from presentator.host import worker
-from presentator.host.worker import LifeEnd, Serving, WireChild
+from presentator.host import worker, worker_serving
+from presentator.host.worker_serving import LifeEnd, Serving, WireChild
+from presentator.host.worker_termination import SWEEP_SECONDS
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -34,7 +35,7 @@ SECOND_CONNECTION = 2
 STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
-from presentator.host import worker
+from presentator.host import worker, worker_serving
 from presentator.host.worker_termination import FaultHandlerWatchdog
 
 def stall(*_arguments, **_keywords):
@@ -45,7 +46,7 @@ def clock_announcing_each_reading():
     print(reading, flush=True)
     return reading
 
-serving = worker.Serving(
+serving = worker_serving.Serving(
     spawn=stall,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
@@ -178,7 +179,7 @@ def hand_over_probe(
 ) -> ProbeReport:
     monkeypatch.setenv("PATH", PATH)
     connection, client = connection_pair
-    kept = worker.hand_over(connection, serving_with(spawn_probe(PROBE)))
+    kept = worker_serving.hand_over(connection, serving_with(spawn_probe(PROBE)))
     connection.close()
     assert kept is None
     return ProbeReport(**json.loads(read_to_end(client)))
@@ -218,7 +219,7 @@ def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_repl
     monkeypatch.setenv("PATH", PATH)
     connection, client = connection_pair
 
-    refused = worker.hand_over(
+    refused = worker_serving.hand_over(
         connection, serving_with(spawn_probe(PROBE), admits=False)
     )
     connection.close()
@@ -446,8 +447,8 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
         assert reply.received == STATUS
         assert not reply.ended_by_reset
         assert after - before < HEADER_DEADLINE_SECONDS
-        assert before + worker.SWEEP_SECONDS <= serving.sweep_deadlines[-1]
-        assert serving.sweep_deadlines[-1] <= after + worker.SWEEP_SECONDS
+        assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
+        assert serving.sweep_deadlines[-1] <= after + SWEEP_SECONDS
     thread.join(WAIT_SECONDS)
 
     assert serving.outcome == [0]
