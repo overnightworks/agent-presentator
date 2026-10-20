@@ -1,0 +1,8 @@
+claim_id = "e6ef0863ac264a8c8cb72cf8dda51091"
+agent = "claude"
+role = "builder"
+base = "2a1e5f16c5afd7e78e0b2ba5d14c5eec33a4c5a7"
+branch = "claude/issue-319-geheimnis-pfade-loeschen"
+scope = ["src/presentator/adapters/catalogs/en.po", "src/presentator/adapters/decks.py", "src/presentator/api/sources.py", "src/presentator/api/templates/source.html", "src/presentator/application/decks.py", "src/presentator/contracts/decks.py", "src/presentator/contracts/text.py"]
+opened_commit = "d790c34065926c4bb3b55b0091e70fadb17f7748"
+whole_reason = "One dead fact, the NULL secret, threads through the store, the use case, the page and its text; deleting half leaves the other half without a caller."
