@@ -121,13 +121,10 @@ def test_a_seeded_session_opens_the_lobby(lobby: Lobby) -> None:
     assert USERNAME in opened.text
 
 
-def test_the_session_cookie_travels_locked_down(signed_in_lobby: Lobby) -> None:
-    cookie = signed_in_lobby.client.get("/").headers["set-cookie"]
+def test_an_ordinary_signed_in_answer_sets_no_cookie(signed_in_lobby: Lobby) -> None:
+    answer = signed_in_lobby.client.get("/")
 
-    assert "HttpOnly" in cookie
-    assert "SameSite=lax" in cookie
-    assert f"Max-Age={int(SESSION_LIFETIME.total_seconds())}" in cookie
-    assert "Secure" in cookie
+    assert answer.headers.get_list("set-cookie") == []
 
 
 @pytest.mark.parametrize(
@@ -515,6 +512,19 @@ def test_the_datenschutz_opens_without_a_session(lobby: Lobby) -> None:
     assert '<a href="/login">' in answer.text
 
 
+def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -> None:
+    document = " ".join(
+        "".join(phrase.words for phrase in paragraph)
+        for section in DATENSCHUTZ.sections
+        for paragraph in section.paragraphs
+    )
+
+    assert "__Secure-oidc_id_token_hint" in document
+    assert "werden danach nicht erneuert" in document
+    assert "mit jeder angemeldeten Antwort erneuert" not in document
+    assert "Keycloak-Subject-ID und Rolle" in document
+
+
 def test_the_datenschutz_renders_every_section_and_links_the_impressum(
     lobby: Lobby,
 ) -> None:
@@ -546,7 +556,7 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
 
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
-    assert f"{session_hours} Stunden im Browser" in page
+    assert f"drei Cookies sind {session_hours} Stunden gültig" in page
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])

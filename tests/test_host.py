@@ -15,10 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from webauth.config import installed_web_auth_config
-from webauth.cookies import (
-    DEFAULT_CSRF_COOKIE_NAME,
-    DEFAULT_SESSION_COOKIE_NAME,
-)
+from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 
 from presentator.adapters.decks import (
     SqliteDeckStore,
@@ -352,18 +349,11 @@ def test_the_real_stack_keeps_a_seeded_person_in_until_they_sign_out() -> None:
 
 
 @pytest.mark.usefixtures("environment")
-def test_the_cookies_are_secure_and_host_only() -> None:
-    browser = signed_in(a_real_instance())
+def test_the_real_stack_issues_no_cookie_with_an_ordinary_answer() -> None:
+    answered = signed_in(a_real_instance()).get("/")
 
-    answered = browser.get("/")
-
-    cookies = answered.headers.get_list("set-cookie")
-    assert [cookie.split("=", 1)[0] for cookie in cookies] == [
-        DEFAULT_SESSION_COOKIE_NAME,
-        DEFAULT_CSRF_COOKIE_NAME,
-    ]
-    assert all("; Secure" in cookie for cookie in cookies)
     assert answered.is_success
+    assert answered.headers.get_list("set-cookie") == []
 
 
 @pytest.mark.parametrize(

@@ -6,11 +6,15 @@ The stores are this product's implementations of the `webauth` ports
 
 import secrets
 import sqlite3
-from collections.abc import Sequence
-from dataclasses import dataclass
+import threading
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
+
+from webauth.ports import UsernameTakenError
 
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import Role, Session, User
@@ -29,6 +33,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 """
 _IDENTIFIER_BYTES: Final = 32
+_USERNAME_COLUMN: Final = "users.username"
 
 
 class OldDatabaseError(RuntimeError):
@@ -109,6 +114,75 @@ class SystemClock:
     def now(self) -> datetime:
         """Read the current time."""
         return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class SqliteSubjectUserStore:
+    """The accounts table, keyed by the identity provider's subject.
+
+    Ids compare exactly: the column is binary, so a subject that differs only
+    in case is another account. Every call commits on its own.
+    """
+
+    database: Path
+
+    def get(self, user_id: str) -> User | None:
+        """The account whose id is `user_id` character for character."""
+        with rows(self.database) as cursor:
+            row = cursor.execute(
+                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return None if row is None else _user(row)
+
+    def create_for_subject(self, subject: str, username: str, role: str) -> User:
+        """Add the account of `subject`; only a username another holds is 'taken'."""
+        try:
+            with rows(self.database) as cursor:
+                cursor.execute(
+                    "INSERT INTO users (id, username, role) VALUES (?, ?, ?)",
+                    (subject, username, role),
+                )
+        except sqlite3.IntegrityError as refused:
+            if _is_a_taken_username(refused):
+                message = "the username is held by another account"
+                raise UsernameTakenError(message) from None
+            raise
+        return User(id=subject, username=username, role=Role(role))
+
+    def set_role(self, user_id: str, role: str) -> User:
+        """Change the role of one existing account; no such account raises."""
+        with rows(self.database) as cursor:
+            cursor.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            if cursor.rowcount != 1:
+                message = "no account to change the role of"
+                raise LookupError(message)
+            row = cursor.execute(
+                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return _user(row)
+
+
+def _is_a_taken_username(refused: sqlite3.IntegrityError) -> bool:
+    return (
+        refused.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+        and _USERNAME_COLUMN in str(refused)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessWriteLock:
+    """The one lock every write of accounts and sessions takes (ADR 0003).
+
+    Re-entrant, and held only on worker threads, never on the event loop.
+    """
+
+    _lock: threading.RLock = field(default_factory=threading.RLock, init=False)
+
+    @contextmanager
+    def hold(self) -> Generator[None]:
+        """Serialize the check-then-write steps of this process."""
+        with self._lock:
+            yield
 
 
 @dataclass(frozen=True, slots=True)

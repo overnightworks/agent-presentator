@@ -2,7 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — amended 2026-09-07 and 2026-09-08, see below
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08 and 2026-10-20, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -245,6 +245,20 @@ behind Cloudflare Access ([ADR 0007](0007-browser-client-behind-tunnel.md)), and
 M1 calls the Anthropic, OpenAI, and xAI SDKs from an adapter behind the same
 `LlmSession` port. Both are replaced by the library when it lands, and neither
 changes anything above `adapters`.
+
+### Amendment 2026-10-20: autocommit stores and one write lock
+
+`webauth`'s ports assume stores that share one transaction, which the host
+commits. This host keeps autocommit stores instead: each statement commits on
+its own, so there is nothing to commit or roll back. `WriteLock.hold()` takes
+one `threading.RLock` per process. The lock serializes admission,
+`open_session`, `log_out` and the back-channel logout. That suffices because one
+lobby process is the only writer of `users` and `sessions`
+([ADR 0006](0006-sqlite-and-files.md)).
+
+A failure between two statements leaves one of three states: an account without
+a session, a signed-out browser, or ended sessions answered with 400. Each one
+either fails closed or is healed by the next sign-in.
 
 ## Consequences
 

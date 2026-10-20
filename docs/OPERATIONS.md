@@ -17,10 +17,12 @@ without it the process refuses to start. In development it lives in a gitignored
 `.env` at the repository root; on the server it comes from the process
 environment. A refusal names the setting and what is wrong with it, never the
 value it was given, so a mistyped secret does not land in the startup output.
-A signed-out visitor is sent through `/login/oidc` to Keycloak; the return
-(`/auth/callback`) arrives with K13 2b
-([#242](https://github.com/overnightworks/agent-presentator/issues/242)), so
-until then nobody can sign in. A session ends
+A signed-out visitor is sent through `/login/oidc` to Keycloak and signs in at
+`/auth/callback`. Set `PRESENTATOR_OIDC_ISSUER` exactly to the `issuer` of
+Keycloak's discovery document: the token's `iss` is compared with it
+character for character, nothing is normalised, and an explicit port stays part
+of it. A sign-in writes an INFO log line when it creates an account or changes
+its role (event kind, Keycloak subject id, role). A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
 Logging out deletes the row. A session past its expiry is refused, and a sweep of its own deletes

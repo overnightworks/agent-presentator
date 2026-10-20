@@ -91,6 +91,9 @@ LobbyText.legal_back_to_login
 LobbyText.section_decks
 LobbyText.logged_out_title
 LobbyText.log_in
+LobbyText.login_failed_title
+LobbyText.login_failed_explanation
+LobbyText.login_failed_retry
 LobbyText.decks_title
 LobbyText.decks_column_deck
 LobbyText.deck_back

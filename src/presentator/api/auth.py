@@ -28,8 +28,15 @@ from webauth.dependencies import (
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
-from webauth.oidc import OidcRelyingParty
-from webauth.oidc_login import start_login
+from webauth.oidc import OidcRefusal, OidcRelyingParty
+from webauth.oidc_login import (
+    AdmissionConfig,
+    AdmissionRefusal,
+    AdmittedLogin,
+    finish_login,
+    open_session,
+    start_login,
+)
 from webauth.policies import (
     CacheControlRule,
     CspDirective,
@@ -38,7 +45,12 @@ from webauth.policies import (
     SecurityHeadersPolicy,
     default_content_security_policy,
 )
-from webauth.ports import SessionRecordStore
+from webauth.ports import (
+    AuditSink,
+    SessionRecordStore,
+    SubjectUserStore,
+    WriteLock,
+)
 
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_deck_pages
@@ -101,6 +113,12 @@ _SECURITY_HEADERS: Final = SecurityHeadersPolicy(
 )
 
 
+def carry_set_cookies(source: Response, target: Response) -> None:
+    """Copy every `Set-Cookie` of one answer to another, and no other header."""
+    for cookie in source.headers.getlist("set-cookie"):
+        target.headers.append("set-cookie", cookie)
+
+
 def _is_a_stylesheet(path: str) -> bool:
     """Whether the address really stands inside the public stylesheet mount.
 
@@ -161,6 +179,10 @@ class InstalledAuth:
 
     config: WebAuthConfig
     relying_party: OidcRelyingParty
+    admission: AdmissionConfig
+    accounts: SubjectUserStore
+    lock: WriteLock
+    audit: AuditSink
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -189,7 +211,7 @@ class _Surfaces:
     sessions: SessionRecordStore
     decks: Decks
     pages: Pages
-    relying_party: OidcRelyingParty
+    auth: InstalledAuth
 
     async def only_signed_in(
         self,
@@ -213,16 +235,7 @@ class _Surfaces:
             return unauthenticated_response(request, _LOGIN_REDIRECT)
         request.state.signed_in_person = connection.person
         request.state.signed_in_session_id = connection.session_id
-        answer = await call_next(request)
-        # Every authenticated answer re-signs and re-sets the cookie, so an
-        # active talk's idle window keeps sliding on the browser's own copy
-        # too, not only in the session row the store holds.
-        issue_session_cookies(
-            answer,
-            connection.session_id,
-            web_auth_config(request),
-        )
-        return answer
+        return await call_next(request)
 
     def _is_a_call_from_a_source_host(self, request: Request) -> bool:
         """Whether this is the sessionless, cross-origin POST the hook is for.
@@ -269,13 +282,70 @@ class _Surfaces:
         """
         answer = Response(status_code=HTTPStatus.SEE_OTHER)
         answer.headers["location"] = start_login(
-            self.relying_party,
+            self.auth.relying_party,
             request,
             answer,
             web_auth_config(request),
             return_to=request.query_params.get(_LOGIN_REDIRECT.redirect_query_param),
         )
         return answer
+
+    def sign_in_callback(self, request: Request) -> Response:
+        """Complete the sign-in the issuer returns to, or show why it failed.
+
+        The `Response` the library writes its cookies to is the one answered
+        with, so the pending login's clear and the logout hint travel with the
+        session cookies.
+        """
+        config = web_auth_config(request)
+        answer = Response()
+        outcome = finish_login(
+            self.auth.relying_party,
+            request,
+            answer,
+            config,
+            admission=self.auth.admission,
+            accounts=self.auth.accounts,
+            lock=self.auth.lock,
+            audit=self.auth.audit,
+        )
+        match outcome:
+            case AdmittedLogin():
+                return self._signed_in(request, answer, outcome)
+            case OidcRefusal() | AdmissionRefusal():
+                return self._login_failed(request, kept=answer)
+
+    def _signed_in(
+        self,
+        request: Request,
+        answer: Response,
+        login: AdmittedLogin,
+    ) -> Response:
+        """Open the session and send the browser on, with every cookie on `answer`."""
+        config = web_auth_config(request)
+        session = open_session(
+            request,
+            config,
+            login.account,
+            sessions=self.sessions,
+            lock=self.auth.lock,
+            max_sessions=None,
+        )
+        issue_session_cookies(answer, session.id, config)
+        answer.status_code = HTTPStatus.SEE_OTHER
+        answer.headers["location"] = login.return_to or _LOBBY
+        return answer
+
+    def _login_failed(self, request: Request, *, kept: Response) -> Response:
+        """The page every failed sign-in shows, with the cookies the library kept."""
+        page = self.pages.page(
+            request,
+            "login_failed.html",
+            status=HTTPStatus.FORBIDDEN,
+            start_sign_in=_START_SIGN_IN,
+        )
+        carry_set_cookies(kept, page)
+        return page
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
@@ -312,7 +382,7 @@ def create_lobby(
         sessions=sessions,
         decks=decks,
         pages=pages,
-        relying_party=auth.relying_party,
+        auth=auth,
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
@@ -325,6 +395,9 @@ def create_lobby(
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
+    lobby.add_api_route(
+        SIGN_IN_CALLBACK_PATH, surfaces.sign_in_callback, methods=["GET"]
+    )
     lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))

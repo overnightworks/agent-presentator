@@ -7,6 +7,7 @@ from typing import Final
 from pydantic import SecretStr
 from webauth.https_client import fetch_key_set_over_https
 from webauth.oidc import OidcClientConfig, OidcRelyingParty
+from webauth.oidc_login import AdmissionConfig
 from webauth.oidc_transport import post_token_request_over_https
 
 from presentator.api.auth import LOGIN_PATH, LOGOUT_PATH, SIGN_IN_CALLBACK_PATH
@@ -15,6 +16,10 @@ from presentator.host.config import Settings, cannot_start
 _PROTOCOL_PATH: Final = "protocol/openid-connect"
 _SCOPES: Final = ("openid", "profile", "groups")
 _CLOCK_LEEWAY_SECONDS: Final = 30
+# Who may enter is set in Keycloak alone: these two group paths are the
+# product's, not a deployment's.
+_LOGIN_GROUP: Final = "/apps/presentator"
+_ADMIN_GROUP: Final = "/apps/presentator/admin"
 # What the refusals say of the secret file; neither quotes the file or the
 # operating system's words, which may carry what the file holds.
 _UNREADABLE: Final = "oidc_client_secret_file: is a file this instance can read"
@@ -78,3 +83,12 @@ def relying_party_of(settings: Settings) -> OidcRelyingParty:
     """Read the secret file and build the relying party these settings describe."""
     secret = read_client_secret(settings.oidc_client_secret_file)
     return relying_party(oidc_client_config(settings, secret))
+
+
+def admission_of(settings: Settings) -> AdmissionConfig:
+    """Only members of the app's Keycloak group enter, and its admin group admins."""
+    return AdmissionConfig(
+        bound_issuer=settings.oidc_issuer,
+        login_group=_LOGIN_GROUP,
+        admin_group=_ADMIN_GROUP,
+    )

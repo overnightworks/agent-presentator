@@ -48,6 +48,15 @@ msgstr "You are logged out."
 msgid "log_in"
 msgstr "Log in"
 
+msgid "login_failed_title"
+msgstr "Login failed"
+
+msgid "login_failed_explanation"
+msgstr "Sign-in did not work. Please try again."
+
+msgid "login_failed_retry"
+msgstr "Try again"
+
 msgid "footer_impressum"
 msgstr "Impressum"
 

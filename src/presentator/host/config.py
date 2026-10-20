@@ -110,6 +110,9 @@ def _an_https_realm_url(given: str) -> str:
             "is a lower-case https URL without credentials, query or trailing slash"
         )
         raise ValueError(message)
+    if parsed.netloc.endswith(":"):
+        message = "has an invalid port"
+        raise ValueError(message)
     try:
         _port = parsed.port
     except ValueError as refused:

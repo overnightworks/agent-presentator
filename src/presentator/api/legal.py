@@ -107,13 +107,17 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Sitzung und Cookies:",
-                    "Wir setzen zwei Cookies. __Host-session_id ist das "
-                    "Sitzungs-Cookie (HttpOnly, SameSite=Lax, nur über HTTPS, "
+                    "Wir setzen drei Cookies, alle bei der Anmeldung. "
+                    "__Host-session_id ist das Sitzungs-Cookie (HttpOnly, "
+                    "SameSite=Lax, nur über HTTPS, "
                     f"{_SESSION_HOURS} Stunden gültig). __Host-csrf_token ist "
                     "von JavaScript lesbar und dient nur dem Fälschungsschutz "
-                    "(CSRF), nicht dem Tracking; er bleibt wie das Sitzungs-Cookie "
-                    f"{_SESSION_HOURS} Stunden im Browser und wird mit jeder "
-                    "angemeldeten Antwort erneuert. Gespeichert werden "
+                    "(CSRF), nicht dem Tracking. __Secure-oidc_id_token_hint "
+                    "enthält das ID-Token von Keycloak; der Browser sendet es "
+                    "nur beim Abmelden (Pfad /logout, HttpOnly, nur über "
+                    "HTTPS), damit Keycloak Sie ohne Rückfrage abmeldet. Die "
+                    f"drei Cookies sind {_SESSION_HOURS} Stunden gültig und "
+                    "werden danach nicht erneuert. Gespeichert werden "
                     "Sitzungs-ID, Benutzer-ID und der Zeitpunkt der Anmeldung "
                     "und des Ablaufs. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
@@ -174,7 +178,11 @@ DATENSCHUTZ: Final = LegalDocument(
                 _point(
                     "Server-Protokolle:",
                     "Der Server schreibt Zugriffsprotokolle. Darin steht die "
-                    "Adresse des Docker-Gateways, nicht die Ihres Geräts. Eine "
+                    "Adresse des Docker-Gateways, nicht die Ihres Geräts. Wenn "
+                    "ein Konto angelegt wird oder sich seine Rolle ändert, "
+                    "schreibt der Server außerdem eine Prüfzeile mit "
+                    "Ereignisart, Keycloak-Subject-ID und Rolle, nie mit "
+                    "Benutzername oder Token. Eine "
                     "Aufbewahrungsdauer ist nicht festgelegt. Zweck · "
                     "Rechtsgrundlage: Betrieb und Fehlersuche, "
                     f"{_BASIS_INTEREST}.",

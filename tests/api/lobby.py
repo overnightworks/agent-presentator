@@ -18,14 +18,24 @@ from httpx2 import Response as BrowserResponse
 from pydantic import SecretStr
 from webauth.config import WebAuthConfig, installed_web_auth_config
 from webauth.cookies import issue_session_cookies
+from webauth.jwt_verification import KeySetFetch
 from webauth.oidc import (
     OidcRelyingParty,
     TokenEndpointAnswer,
     TokenEndpointError,
     TokenRequest,
+    TokenRequestPost,
+)
+from webauth.ports import (
+    AuditSink,
+    SessionRecordStore,
+    SubjectUserStore,
+    UserRecord,
+    WriteLock,
 )
 
 from gitmirror.model import CredentialReference
+from presentator.adapters.audit import LoggingAuditSink
 from presentator.adapters.builds import (
     ContainerToolchain,
     PackageJsonThemes,
@@ -38,6 +48,7 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import SourceMirrors
+from presentator.adapters.identity import ProcessWriteLock
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -69,7 +80,7 @@ from presentator.contracts.voice import (
 )
 from presentator.host.config import Settings
 from presentator.host.main import lobby_web_auth_config
-from presentator.host.oidc import oidc_client_config
+from presentator.host.oidc import admission_of, oidc_client_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
@@ -250,14 +261,51 @@ def a_settings() -> Settings:
     )
 
 
-def a_relying_party(clock: FrozenClock) -> OidcRelyingParty:
-    """The issuer's client, whose transports reach nobody: no test signs in yet."""
+def a_relying_party(
+    clock: FrozenClock,
+    *,
+    post_token_request: TokenRequestPost = _no_token_endpoint,
+    fetch_key_set: KeySetFetch = _no_key_set,
+) -> OidcRelyingParty:
+    """The issuer's client, whose transports reach nobody unless a test gives some."""
     return OidcRelyingParty(
         oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL)),
-        post_token_request=_no_token_endpoint,
-        fetch_key_set=_no_key_set,
+        post_token_request=post_token_request,
+        fetch_key_set=fetch_key_set,
         wall_clock=lambda: clock.now().timestamp(),
         monotonic_clock=lambda: 0.0,
+    )
+
+
+class NobodySignsIn:
+    """The accounts of a lobby no test signs in to: any use is the test's mistake."""
+
+    def get(self, user_id: str) -> UserRecord | None:
+        raise AssertionError(user_id)
+
+    def create_for_subject(self, subject: str, username: str, role: str) -> UserRecord:
+        raise AssertionError((subject, username, role))
+
+    def set_role(self, user_id: str, role: str) -> UserRecord:
+        raise AssertionError((user_id, role))
+
+
+def an_installed_auth(
+    clock: FrozenClock,
+    *,
+    relying_party: OidcRelyingParty | None = None,
+    accounts: SubjectUserStore | None = None,
+    lock: WriteLock | None = None,
+    audit: AuditSink | None = None,
+) -> InstalledAuth:
+    """The host's sign-in wiring, each part replaceable by the test that proves it."""
+    return InstalledAuth(
+        config=a_web_auth(clock),
+        relying_party=relying_party or a_relying_party(clock),
+        admission=admission_of(a_settings()),
+        accounts=accounts or NobodySignsIn(),
+        lock=lock or ProcessWriteLock(),
+        audit=audit or LoggingAuditSink(),
     )
 
 
@@ -311,12 +359,21 @@ def a_crowd(users: FakeUserStore | None = None) -> FakePeople:
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SigningIn:
+    """The stores and wiring of a lobby a test signs in to through a fake issuer."""
+
+    sessions: SessionRecordStore
+    auth: InstalledAuth
+
+
 def a_lobby_app(
     *,
     people: FakePeople | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     copresenter: CoPresenterSurface | None = None,
+    signing_in: SigningIn | None = None,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     crowd = a_crowd() if people is None else people
@@ -379,7 +436,7 @@ def a_lobby_app(
     if given.folders is not None:
         decks.refresh()
     lobby = create_lobby(
-        sessions=crowd.sessions,
+        sessions=crowd.sessions if signing_in is None else signing_in.sessions,
         decks=decks,
         pages=Pages(
             preferences=Preferences(
@@ -390,10 +447,7 @@ def a_lobby_app(
             age_in_words=age_in_words,
             duration_in_words=duration_in_words,
         ),
-        auth=InstalledAuth(
-            config=a_web_auth(clock),
-            relying_party=a_relying_party(clock),
-        ),
+        auth=an_installed_auth(clock) if signing_in is None else signing_in.auth,
         private=LobbyPrivate(
             copresenter=copresenter,
             voice=(
