@@ -155,20 +155,30 @@ def test_a_logout_form_without_a_token_from_this_origin_is_accepted(
 
 
 @pytest.mark.parametrize(
-    "headers",
+    ("headers", "sends_fetch_site"),
     [
         pytest.param(
             {"origin": "https://another.example", "sec-fetch-site": "cross-site"},
+            True,
             id="foreign-origin",
         ),
-        pytest.param({"sec-fetch-site": "cross-site"}, id="cross-site-fetch"),
+        pytest.param({"sec-fetch-site": "cross-site"}, True, id="cross-site-fetch"),
+        pytest.param(
+            {"origin": "https://another.example"},
+            False,
+            id="foreign-origin-without-fetch-site",
+        ),
     ],
 )
 def test_a_logout_form_another_site_submitted_deletes_nothing_and_goes_nowhere(
     scene: Scene,
     headers: dict[str, str],
+    *,
+    sends_fetch_site: bool,
 ) -> None:
     scene.sign_in()
+    if not sends_fetch_site:
+        del scene.lobby.client.headers["sec-fetch-site"]
 
     refused = scene.lobby.client.post(LOGOUT_PATH, headers={**_A_FORM, **headers})
 
