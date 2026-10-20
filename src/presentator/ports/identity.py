@@ -1,4 +1,4 @@
-"""The capability the login calls out through; an adapter fills it."""
+"""The id minting deck and source creation call out through; an adapter fills it."""
 
 from abc import abstractmethod
 from typing import Protocol

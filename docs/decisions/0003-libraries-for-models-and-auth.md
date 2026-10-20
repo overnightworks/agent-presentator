@@ -141,8 +141,8 @@ and ruling E3 (b) of [#293](https://github.com/overnightworks/agent-presentator/
 person, for the HTTP guard and for the co-presenter's WebSocket alike; it
 supersedes the earlier statements that `Identity.signed_in_user` is that
 authority, and the idle-window policy over `last_seen`. The host configures
-`SessionLifetime(idle, cap)` from one constant, 12 hours for both, so the idle
-window slides but never past the cap. The WebSocket Origin check stays this
+`SessionLifetime(idle, cap)` from one constant, 12 hours for both, so nothing
+slides: the expiry is fixed at sign-in plus 12 hours. The WebSocket Origin check stays this
 host's own and runs before admission, because `admit_session` checks no
 Origin.
 
@@ -196,8 +196,7 @@ From `agent_providers`: `ProviderRuntimeConfig`, `SecretEnvKeys`,
 `ToolExecutor`, and `ToolCatalog`. `McpServerSpec` and `ImagePolicy` go unused —
 this product runs no MCP server and generates no images.
 
-From `webauth`: `WebAuthConfig`, `SessionRecordStore`, and
-`LoginAttemptStore` are implemented on SQLite
+From `webauth`: `WebAuthConfig` and `SessionRecordStore` are implemented on SQLite
 ([ADR 0006](0006-sqlite-and-files.md)). `RateLimitPolicy` is implemented without
 Redis, as is the `RateLimitBackend` port the extraction names. No `SessionCache`
 is implemented here at all — see below. `BodySizePolicy` and `AuditSink` are

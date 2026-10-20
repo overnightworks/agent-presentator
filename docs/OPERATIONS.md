@@ -20,7 +20,7 @@ twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
 Logging out deletes the row. A session past its expiry is refused but its row
 stays until the purge that follows
-([#322](https://github.com/overnightworks/agent-presentator/issues/322) is its
+([#242](https://github.com/overnightworks/agent-presentator/issues/242) is its
 first part).
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
@@ -102,14 +102,14 @@ the tunnel shares one address. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 the per-address rate limit counts the real client instead of the tunnel, and
 the fetch-now hook address the Sources page shows names the https the tunnel
 client saw, not the plain http the app itself is served over. The guard against
-another site's form does not depend on this list: a modern browser's own
-`Sec-Fetch-Site` decides it without reading the connection at all. A client old
-enough, or plain enough, to send neither `Sec-Fetch-Site` nor `Origin` falls
-back to an allowlist that names the host of `PRESENTATOR_PUBLIC_ORIGIN` and
-nothing else (`allowed_hosts_exact`): an `Origin` naming that host is admitted,
-any other `Origin` is refused, and a request with neither is refused — a native
-call to a route that needs a session answers the same way any missing session
-does. `127.0.0.1` is the answer for a direct run, where
+another site's form does not depend on this list: a request carrying
+`Sec-Fetch-Site: cross-site` is refused outright. A request without
+`Sec-Fetch-Site`, or with `same-site`, is judged by its `Origin` (or `Referer`)
+against the host of `PRESENTATOR_PUBLIC_ORIGIN`, the only host the allowlist
+names (`allowed_hosts_exact`): a form that names that host is admitted, any
+other host is refused, and a form carrying neither is refused. A native call to
+a route that needs a session answers the same way any missing session does.
+`127.0.0.1` is the answer for a direct run, where
 the tunnel client and the server share one loopback; a container has a network
 of its own and sees that same client as its gateway, which the section after
 this one names.

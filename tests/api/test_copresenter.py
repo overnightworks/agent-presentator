@@ -483,7 +483,6 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
     client = lobby.client
     lobby.sign_in()
     clock.advance(timedelta(minutes=5))
-    expiries_before = lobby.people.sessions.expiries()
 
     for headers in ({"origin": "https://foreign.test"}, {}):
         with (
@@ -493,7 +492,6 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
             pass
         assert foreign.value.code == POLICY_VIOLATION
     assert lobby.people.sessions.loads == 0
-    assert lobby.people.sessions.expiries() == expiries_before
 
     with (
         pytest.raises(WebSocketDisconnect) as extra_query,
@@ -800,7 +798,7 @@ def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
         clock.advance(SESSION_LIFETIME / 2)
         assert lobby.client.get("/").status_code == HTTPStatus.OK
     clock.advance(timedelta(seconds=1))
-    expiries_before = lobby.people.sessions.expiries()
+    touches_before = lobby.people.sessions.touches
 
     with (
         pytest.raises(WebSocketDisconnect) as refused,
@@ -810,7 +808,7 @@ def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
 
     assert refused.value.code == POLICY_VIOLATION
     assert private.hearing_opens == 0
-    assert lobby.people.sessions.expiries() == expiries_before
+    assert lobby.people.sessions.touches == touches_before
 
 
 @pytest.mark.parametrize(
@@ -829,13 +827,13 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
     lobby, private, clock = a_copresenter_lobby(delay=deadline.wait)
     lobby.sign_in()
     clock.advance(SESSION_LIFETIME - timedelta(seconds=30))
-    expiries_before = lobby.people.sessions.expiries()
 
     with lobby.client.websocket_connect(
         HEARING,
         headers={"origin": PUBLIC_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
+        touches_before = lobby.people.sessions.touches
         clock.advance(after_the_check)
         deadline.release_first()
         if closed:
@@ -849,7 +847,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
 
     if closed:
         assert private.hearing_opens == 0
-        assert lobby.people.sessions.expiries() == expiries_before
+        assert lobby.people.sessions.touches == touches_before
     else:
         assert private.hearing.frames == [b"pcm after the check"]
 

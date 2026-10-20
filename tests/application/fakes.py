@@ -66,6 +66,7 @@ class FakeSessionRecordStore:
     rows: dict[str, Session] = field(default_factory=dict[str, Session])
     minted: int = 0
     loads: int = 0
+    touches: int = 0
 
     def create(self, user_id: str, *, now: datetime, expires_at: datetime) -> Session:
         self.minted += 1
@@ -89,6 +90,7 @@ class FakeSessionRecordStore:
         )
 
     def touch(self, session_id: str, *, expires_at: datetime) -> bool:
+        self.touches += 1
         if session_id not in self.rows:
             return False
         self.rows[session_id] = replace(self.rows[session_id], expires_at=expires_at)
@@ -115,9 +117,6 @@ class FakeSessionRecordStore:
         )
         for session in owned[keep_newest:]:
             del self.rows[session.id]
-
-    def expiries(self) -> dict[str, datetime]:
-        return {session_id: row.expires_at for session_id, row in self.rows.items()}
 
 
 @dataclass(frozen=True)

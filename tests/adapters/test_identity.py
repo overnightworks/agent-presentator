@@ -226,16 +226,30 @@ def test_an_admitted_session_is_renewed_to_the_cap_when_the_window_reaches_it(
     assert stored_expiry(database, session.id) == (_NOW + SESSION_LIFETIME).isoformat()
 
 
+@pytest.mark.parametrize(
+    ("idle_expiry", "refused_at"),
+    [
+        pytest.param(
+            timedelta(hours=1), timedelta(hours=1, seconds=1), id="past-its-expiry"
+        ),
+        pytest.param(
+            SESSION_LIFETIME - timedelta(minutes=1),
+            SESSION_LIFETIME + timedelta(seconds=1),
+            id="past-the-cap",
+        ),
+    ],
+)
 def test_a_refused_session_is_not_renewed(
     database: Path,
     sessions: SqliteSessionRecordStore,
+    idle_expiry: timedelta,
+    refused_at: timedelta,
 ) -> None:
-    session = sessions.create("user-1", now=_NOW, expires_at=_NOW + SESSION_LIFETIME)
+    session = sessions.create("user-1", now=_NOW, expires_at=_NOW + idle_expiry)
     expiry_before = stored_expiry(database, session.id)
-    past_the_cap = _NOW + SESSION_LIFETIME + timedelta(seconds=1)
 
     refused = admit_session(
-        session.id, sessions=sessions, config=a_config_reading(past_the_cap)
+        session.id, sessions=sessions, config=a_config_reading(_NOW + refused_at)
     )
 
     assert refused is ConnectionRefusal.SESSION_ENDED_OR_EXPIRED

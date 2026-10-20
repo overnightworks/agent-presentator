@@ -244,10 +244,10 @@ def test_a_session_in_use_all_day_is_refused_and_not_renewed_just_past_the_cap(
         signed_in_lobby, SESSION_LIFETIME - timedelta(minutes=15)
     )
     signed_in_lobby.clock.advance(timedelta(minutes=15, seconds=1))
-    expiries_before = signed_in_lobby.people.sessions.expiries()
+    touches_before = signed_in_lobby.people.sessions.touches
 
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
-    assert signed_in_lobby.people.sessions.expiries() == expiries_before
+    assert signed_in_lobby.people.sessions.touches == touches_before
 
 
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(
