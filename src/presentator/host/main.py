@@ -13,8 +13,7 @@ from urllib.parse import urlsplit
 import uvicorn
 from fastapi import FastAPI
 from pydantic import SecretStr
-from webauth.config import WebAuthConfig
-from webauth.liveness import IdleWindowLiveness
+from webauth.config import SessionLifetime, WebAuthConfig
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
@@ -47,14 +46,11 @@ from presentator.adapters.decks import (
     create_deck_tables,
 )
 from presentator.adapters.identity import (
-    IdleWindow,
     OldDatabaseError,
     SqliteSessionRecordStore,
-    SqliteUserStore,
     SystemClock,
     TokenIdentifierFactory,
     create_identity_tables,
-    lifetime_policy,
 )
 from presentator.adapters.preferences import (
     SqliteInstanceSettingsStore,
@@ -72,7 +68,7 @@ from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
-from presentator.application.identity import SESSION_LIFETIME, Identity
+from presentator.application.identity import SESSION_LIFETIME
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
@@ -120,25 +116,16 @@ def build_instance(settings: Settings) -> Instance:
         raise cannot_start(str(refused)) from None
     create_preference_tables(settings.database)
     create_deck_tables(settings.database)
-    accounts = SqliteUserStore(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
-    liveness = lifetime_policy(SESSION_LIFETIME)
     web_auth = lobby_web_auth_config(
         settings.secret_key,
-        liveness=liveness,
         trusted_proxies=settings.trusted_proxies,
         public_origin=settings.public_origin,
     )
     # One box for both directions: what the store writes down is what the
     # resolver opens at the pull, and neither picks its own key.
     box = secret_box(settings.secret_key.get_secret_value())
-    identity = Identity(
-        users=accounts,
-        sessions=SqliteSessionRecordStore(settings.database, clock=clock),
-        clock=clock,
-        liveness=IdleWindow(liveness),
-    )
     sources = SqliteSourceStore(
         database=settings.database,
         identifiers=identifiers,
@@ -203,7 +190,7 @@ def build_instance(settings: Settings) -> Instance:
     # the one refresh that runs at a time.
     return Instance(
         lobby=create_lobby(
-            identity=identity,
+            sessions=SqliteSessionRecordStore(settings.database),
             decks=decks,
             pages=pages,
             auth=InstalledAuth(config=web_auth),
@@ -261,24 +248,27 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
 def lobby_web_auth_config(
     secret: SecretStr,
     *,
-    liveness: IdleWindowLiveness,
     trusted_proxies: str,
     public_origin: str,
 ) -> WebAuthConfig:
-    """The library configuration this host runs: no Redis, last_seen.
+    """The library configuration this host runs: no Redis, a 12 hour cap.
 
     The cookies carry `Secure`, and the library's `__Host-` names, exactly when
     the origin people reach the lobby under is https: a browser would not send
-    a `Secure` cookie back over plain http.
+    a `Secure` cookie back over plain http. The only host the lobby answers to
+    is the one people reach it under.
     """
+    lifetime_seconds = int(SESSION_LIFETIME.total_seconds())
     return WebAuthConfig(
         session_secret=secret,
         trusted_proxies=TrustedProxies.parse(trusted_proxies),
         rate_limits=SingleProcessRateLimitBackend(),
-        allowed_hosts_exact=frozenset(),
+        allowed_hosts_exact=frozenset({str(urlsplit(public_origin).hostname)}),
         allowed_hosts_patterns=(),
-        cookie_max_age_seconds=int(SESSION_LIFETIME.total_seconds()),
-        session_liveness=liveness,
+        session_lifetime=SessionLifetime(
+            idle_seconds=lifetime_seconds,
+            absolute_max_age_seconds=lifetime_seconds,
+        ),
         cookie_samesite="lax",
         cookie_secure=urlsplit(public_origin).scheme == "https",
     )

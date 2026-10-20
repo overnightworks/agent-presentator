@@ -28,15 +28,13 @@ class User:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Session:
-    """A live row the idle-window policy reads: identity, origin, created_at, last_seen.
+    """A stored sign-in: who it belongs to and the instants it stands between.
 
-    Whether it still stands is the login library's idle-window policy, not a
-    method here (ADR 0003).
+    Whether it still stands is `webauth`'s `admit_session`, not a method here
+    (ADR 0003).
     """
 
     id: str
-    user_id: str
+    user: User
     created_at: datetime
-    last_seen: datetime
-    ip_address: str = ""
-    user_agent: str = ""
+    expires_at: datetime

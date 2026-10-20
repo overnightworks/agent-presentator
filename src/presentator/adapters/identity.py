@@ -7,16 +7,13 @@ The stores are this product's implementations of the `webauth` ports
 import secrets
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from webauth.liveness import IdleWindowLiveness
-
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import Role, Session, User
-from presentator.ports.clock import Clock
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -28,9 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL,
-    last_seen TEXT NOT NULL,
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT ''
+    expires_at TEXT NOT NULL
 );
 """
 _IDENTIFIER_BYTES: Final = 32
@@ -108,22 +103,6 @@ def _column_names(cursor: sqlite3.Cursor, table: str) -> set[str]:
 
 
 @dataclass(frozen=True, slots=True)
-class SqliteUserStore:
-    """The accounts table."""
-
-    database: Path
-
-    def get(self, user_id: str) -> User | None:
-        """Read the account a live session belongs to."""
-        with rows(self.database) as cursor:
-            row = cursor.execute(
-                "SELECT id, username, role FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-        return None if row is None else _user(row)
-
-
-@dataclass(frozen=True, slots=True)
 class SystemClock:
     """The wall clock, in UTC."""
 
@@ -134,80 +113,62 @@ class SystemClock:
 
 @dataclass(frozen=True, slots=True)
 class SqliteSessionRecordStore:
-    """The sessions table."""
+    """The sessions table, joined to the accounts.
+
+    Instants are stored as UTC ISO 8601 text, so comparing the text orders the
+    instants. Every call commits on its own.
+    """
 
     database: Path
-    clock: Clock = field(default_factory=SystemClock)
 
-    def create(
-        self,
-        user_id: str,
-        expires_at: datetime,
-        *,
-        ip_address: str,
-        user_agent: str,
-    ) -> Session:
-        """Open a session created and last seen now; the policy reads no expiry."""
-        del expires_at
-        opened_at = self.clock.now()
-        session = Session(
-            id=secrets.token_urlsafe(_IDENTIFIER_BYTES),
-            user_id=user_id,
-            created_at=opened_at,
-            last_seen=opened_at,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
+    def create(self, user_id: str, *, now: datetime, expires_at: datetime) -> Session:
+        """Open a session created at `now` that stands until `expires_at`."""
+        session_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
         with rows(self.database) as cursor:
+            account = cursor.execute(
+                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if account is None:
+                message = f"no account {user_id} to open a session for"
+                raise LookupError(message)
             cursor.execute(
-                "INSERT INTO sessions"
-                " (id, user_id, created_at, last_seen, ip_address, user_agent)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    session.id,
-                    session.user_id,
-                    session.created_at.isoformat(),
-                    session.last_seen.isoformat(),
-                    session.ip_address,
-                    session.user_agent,
-                ),
+                "INSERT INTO sessions (id, user_id, created_at, expires_at)"
+                " VALUES (?, ?, ?, ?)",
+                (session_id, user_id, _stored(now), _stored(expires_at)),
             )
-        return session
+        return Session(
+            id=session_id,
+            user=_user(account),
+            created_at=now,
+            expires_at=expires_at,
+        )
 
     def load(self, session_id: str) -> Session | None:
-        """Read the row a cookie points at."""
+        """Read the row a cookie points at with its account; no account, no session."""
         with rows(self.database) as cursor:
             row = cursor.execute(
-                "SELECT id, user_id, created_at, last_seen, ip_address, user_agent"
-                " FROM sessions WHERE id = ?",
+                "SELECT sessions.id, sessions.created_at, sessions.expires_at,"
+                " users.id, users.username, users.role"
+                " FROM sessions JOIN users ON users.id = sessions.user_id"
+                " WHERE sessions.id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        stored_id, user_id, created_at, last_seen, ip_address, user_agent = row
+        stored_id, created_at, expires_at, *account = row
         return Session(
             id=stored_id,
-            user_id=user_id,
+            user=_user(account),
             created_at=datetime.fromisoformat(created_at),
-            last_seen=datetime.fromisoformat(last_seen),
-            ip_address=ip_address,
-            user_agent=user_agent,
+            expires_at=datetime.fromisoformat(expires_at),
         )
 
-    def touch(
-        self,
-        record: Session,
-        *,
-        ip_address: str,
-        user_agent: str,
-        now: datetime,
-    ) -> bool:
+    def touch(self, session_id: str, *, expires_at: datetime) -> bool:
         """Renew the row only while it still stands; a deleted session stays gone."""
         with rows(self.database) as cursor:
             cursor.execute(
-                "UPDATE sessions SET last_seen = ?, ip_address = ?, user_agent = ?"
-                " WHERE id = ?",
-                (now.isoformat(), ip_address, user_agent, record.id),
+                "UPDATE sessions SET expires_at = ? WHERE id = ?",
+                (_stored(expires_at), session_id),
             )
             return cursor.rowcount == 1
 
@@ -222,18 +183,19 @@ class SqliteSessionRecordStore:
             cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             return int(cursor.rowcount)
 
-    def prune_overflow(self, user_id: str, max_sessions: int) -> list[str]:
-        """Drop the oldest sessions above the cap, newest kept."""
+    def prune_overflow(self, user_id: str, keep_newest: int) -> None:
+        """End all but the `keep_newest` newest sessions by creation."""
         with rows(self.database) as cursor:
-            stored = cursor.execute(
+            cursor.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND id NOT IN ("
                 "SELECT id FROM sessions WHERE user_id = ?"
-                " ORDER BY last_seen DESC, id DESC",
-                (user_id,),
-            ).fetchall()
-            dropped = [session_id for (session_id,) in stored[max_sessions:]]
-            for session_id in dropped:
-                cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        return dropped
+                " ORDER BY created_at DESC, id DESC LIMIT ?)",
+                (user_id, user_id, keep_newest),
+            )
+
+
+def _stored(instant: datetime) -> str:
+    return instant.astimezone(UTC).isoformat()
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,33 +205,6 @@ class TokenIdentifierFactory:
     def new_id(self) -> str:
         """Mint one url-safe token."""
         return secrets.token_urlsafe(_IDENTIFIER_BYTES)
-
-
-@dataclass
-class _StoredTimes:
-    """The two fields the idle-window policy reads off a stored record."""
-
-    created_at: datetime
-    last_seen: datetime
-
-
-def lifetime_policy(lifetime: timedelta) -> IdleWindowLiveness:
-    """A sign-in lasts `lifetime` from the moment it opened, used or not."""
-    seconds = int(lifetime.total_seconds())
-    return IdleWindowLiveness(seconds, absolute_max_age_seconds=seconds)
-
-
-@dataclass(frozen=True, slots=True)
-class IdleWindow:
-    """The library's idle window and cap, held so the application never names it."""
-
-    policy: IdleWindowLiveness
-
-    def admits(self, session: Session, *, at: datetime) -> bool:
-        """Alive inside the window and the cap, boundaries included."""
-        return self.policy.admits_stored_session(
-            _StoredTimes(session.created_at, session.last_seen), at
-        )
 
 
 def _user(row: Sequence[str]) -> User:

@@ -20,7 +20,9 @@ from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.cookies import clear_session_cookies, issue_session_cookies
 from webauth.dependencies import (
+    ConnectionRefusal,
     LoginRedirect,
+    admit_session,
     session_id_from_request,
     unauthenticated_response,
 )
@@ -34,7 +36,7 @@ from webauth.policies import (
     SecurityHeadersPolicy,
     default_content_security_policy,
 )
-from webauth.proxies import client_user_agent, resolve_client_ip
+from webauth.ports import SessionRecordStore
 
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_deck_pages
@@ -44,9 +46,8 @@ from presentator.api.pages import Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
-from presentator.application.identity import Identity
 from presentator.application.voice import VoiceStatusUse
-from presentator.contracts.models import User
+from presentator.contracts.models import Role, User
 from presentator.contracts.text import LobbyText
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
@@ -125,18 +126,22 @@ class SignedInConnection:
 
 
 def signed_in_connection(
-    request: HTTPConnection,
-    identity: Identity,
+    connection: HTTPConnection,
+    sessions: SessionRecordStore,
 ) -> SignedInConnection | None:
-    """Resolve one HTTP or WebSocket connection through the existing login owner."""
-    session_id = _session_id_from_cookie(request)
-    person = identity.signed_in_user(
-        session_id,
-        ip_address=resolve_client_ip(request),
-        user_agent=client_user_agent(request),
-    )
-    if person is None:
+    """Resolve one HTTP or WebSocket connection through the library's one decider."""
+    config = web_auth_config(connection)
+    session_id = session_id_from_request(connection, config)
+    if session_id is None:
         return None
+    admitted = admit_session(session_id, sessions=sessions, config=config)
+    if isinstance(admitted, ConnectionRefusal):
+        return None
+    person = User(
+        id=admitted.id,
+        username=admitted.username,
+        role=Role(admitted.role),
+    )
     return SignedInConnection(person=person, session_id=session_id)
 
 
@@ -170,7 +175,7 @@ class DeckRow:
 class _Surfaces:
     """The lobby's HTML answers, each one asking the use cases what is true."""
 
-    identity: Identity
+    sessions: SessionRecordStore
     decks: Decks
     pages: Pages
 
@@ -188,7 +193,7 @@ class _Surfaces:
         ):
             request.state.signed_in_person = None
             return await call_next(request)
-        connection = signed_in_connection(request, self.identity)
+        connection = signed_in_connection(request, self.sessions)
         if connection is None:
             if path in _OPEN_TO_A_SIGNED_OUT_READER:
                 request.state.signed_in_person = None
@@ -246,7 +251,7 @@ class _Surfaces:
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
-        self.identity.log_out(_session_id_from_cookie(request))
+        self.sessions.delete(_session_id_from_cookie(request))
         answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
         clear_session_cookies(answer, web_auth_config(request))
         return answer
@@ -263,7 +268,7 @@ class _Surfaces:
 
 def create_lobby(
     *,
-    identity: Identity,
+    sessions: SessionRecordStore,
     decks: Decks,
     pages: Pages,
     auth: InstalledAuth,
@@ -275,7 +280,7 @@ def create_lobby(
     stored source and its secret is answered alike, and GET stays behind the
     session.
     """
-    surfaces = _Surfaces(identity=identity, decks=decks, pages=pages)
+    surfaces = _Surfaces(sessions=sessions, decks=decks, pages=pages)
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the
@@ -297,6 +302,6 @@ def create_lobby(
         add_copresenter_routes(
             lobby,
             surface=private.copresenter,
-            admission=lambda connection: signed_in_connection(connection, identity),
+            admission=lambda connection: signed_in_connection(connection, sessions),
         )
     return lobby

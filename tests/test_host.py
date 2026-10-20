@@ -28,7 +28,6 @@ from presentator.adapters.decks import (
 )
 from presentator.adapters.identity import (
     SqliteSessionRecordStore,
-    SqliteUserStore,
     TokenIdentifierFactory,
     create_identity_tables,
 )
@@ -159,11 +158,11 @@ def signed_in(
     """A browser at that stack, signed in as the admin the database carries."""
     database = load_settings().database
     seed_user(database, _ADMIN)
+    now = datetime.now(UTC)
     session = SqliteSessionRecordStore(database).create(
         _ADMIN.id,
-        datetime.now(UTC) + SESSION_LIFETIME,
-        ip_address="",
-        user_agent="",
+        now=now,
+        expires_at=now + SESSION_LIFETIME,
     )
     client = TestClient(
         instance.lobby,
@@ -835,11 +834,11 @@ def test_an_instance_restarts_on_a_crash_that_left_only_current_frames_in_the_lo
     def commit_a_person_and_a_session(database: Path) -> None:
         create_identity_tables(database)
         seed_user(database, _ADMIN)
+        now = datetime.now(UTC)
         opened = SqliteSessionRecordStore(database).create(
             _ADMIN.id,
-            datetime.now(UTC) + SESSION_LIFETIME,
-            ip_address="",
-            user_agent="",
+            now=now,
+            expires_at=now + SESSION_LIFETIME,
         )
         session_ids.append(opened.id)
 
@@ -850,8 +849,9 @@ def test_an_instance_restarts_on_a_crash_that_left_only_current_frames_in_the_lo
 
     instance = a_real_instance()
 
-    assert SqliteUserStore(database).get(_ADMIN.id) == _ADMIN
-    assert SqliteSessionRecordStore(database).load(session_ids[0]) is not None
+    survivor = SqliteSessionRecordStore(database).load(session_ids[0])
+    assert survivor is not None
+    assert survivor.user == _ADMIN
     lobby = TestClient(
         instance.lobby,
         base_url=A_BROWSERS_ADDRESS,

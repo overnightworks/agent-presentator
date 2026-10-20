@@ -479,19 +479,21 @@ def test_private_answer_refusal_and_clean_end_do_not_invent_an_answer() -> None:
 
 
 def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, clock = a_copresenter_lobby()
     client = lobby.client
     lobby.sign_in()
+    clock.advance(timedelta(minutes=5))
+    expiries_before = lobby.people.sessions.expiries()
 
-    with (
-        pytest.raises(WebSocketDisconnect) as foreign,
-        client.websocket_connect(
-            HEARING,
-            headers={"origin": "https://foreign.test"},
-        ),
-    ):
-        pass
-    assert foreign.value.code == POLICY_VIOLATION
+    for headers in ({"origin": "https://foreign.test"}, {}):
+        with (
+            pytest.raises(WebSocketDisconnect) as foreign,
+            client.websocket_connect(HEARING, headers=headers),
+        ):
+            pass
+        assert foreign.value.code == POLICY_VIOLATION
+    assert lobby.people.sessions.loads == 0
+    assert lobby.people.sessions.expiries() == expiries_before
 
     with (
         pytest.raises(WebSocketDisconnect) as extra_query,
@@ -798,6 +800,7 @@ def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
         clock.advance(SESSION_LIFETIME / 2)
         assert lobby.client.get("/").status_code == HTTPStatus.OK
     clock.advance(timedelta(seconds=1))
+    expiries_before = lobby.people.sessions.expiries()
 
     with (
         pytest.raises(WebSocketDisconnect) as refused,
@@ -807,7 +810,7 @@ def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
 
     assert refused.value.code == POLICY_VIOLATION
     assert private.hearing_opens == 0
-    assert lobby.people.sessions.rows == {}
+    assert lobby.people.sessions.expiries() == expiries_before
 
 
 @pytest.mark.parametrize(
@@ -826,6 +829,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
     lobby, private, clock = a_copresenter_lobby(delay=deadline.wait)
     lobby.sign_in()
     clock.advance(SESSION_LIFETIME - timedelta(seconds=30))
+    expiries_before = lobby.people.sessions.expiries()
 
     with lobby.client.websocket_connect(
         HEARING,
@@ -845,7 +849,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
 
     if closed:
         assert private.hearing_opens == 0
-        assert lobby.people.sessions.rows == {}
+        assert lobby.people.sessions.expiries() == expiries_before
     else:
         assert private.hearing.frames == [b"pcm after the check"]
 
@@ -871,7 +875,7 @@ def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> Non
 
 
 class RefusingUserStore(FakeUserStore):
-    """A user store that can deactivate a person or fail its read boundary."""
+    """A user store that can lose an account or fail its read boundary."""
 
     refuse_reads: bool = False
     fail_reads: bool = False
@@ -913,14 +917,14 @@ def _complete(check: asyncio.Future[None]) -> None:
         check.set_result(None)
 
 
-@pytest.mark.parametrize("failure", ["deactivated", "store-error"])
+@pytest.mark.parametrize("failure", ["account-gone", "store-error"])
 def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
     users = RefusingUserStore()
     lobby, private, _clock = a_copresenter_lobby(users=users)
     client = lobby.client
     lobby.sign_in(role=Role.ADMIN)
 
-    users.refuse_reads = failure == "deactivated"
+    users.refuse_reads = failure == "account-gone"
     users.fail_reads = failure == "store-error"
     if users.fail_reads:
         with pytest.raises(RuntimeError, match="session store unavailable"):
@@ -980,30 +984,6 @@ def test_session_store_loss_cancels_an_accepted_answer_at_its_deadline() -> None
     assert private.answer_reader_closed_before_context_exit
 
 
-def test_deactivation_closes_an_admitted_hearing_before_private_use() -> None:
-    users = RefusingUserStore()
-
-    async def deactivate(_seconds: float) -> None:
-        users.refuse_reads = True
-        await asyncio.sleep(0)
-
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deactivate)
-    client = lobby.client
-    lobby.sign_in()
-
-    with (
-        client.websocket_connect(
-            HEARING,
-            headers={"origin": PUBLIC_ORIGIN},
-        ) as socket,
-        pytest.raises(WebSocketDisconnect) as ended,
-    ):
-        socket.receive_json()
-
-    assert ended.value.code == POLICY_VIOLATION
-    assert private.hearing_opens == 0
-
-
 def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
     users = RefusingUserStore()
     deadline = ManualDeadline()
@@ -1033,7 +1013,7 @@ def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
     assert private.answer_exits == 1
 
 
-@pytest.mark.parametrize("loss", ["deactivated", "store-error"])
+@pytest.mark.parametrize("loss", ["account-gone", "store-error"])
 def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
     loss: str,
 ) -> None:
@@ -1055,7 +1035,7 @@ def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
         socket.send_bytes(b"before loss")
         assert socket.receive_json()["text"] == "eins"
         frames_before_loss = list(private.hearing.frames)
-        users.refuse_reads = loss == "deactivated"
+        users.refuse_reads = loss == "account-gone"
         users.fail_reads = loss == "store-error"
         deadline.release_first()
         socket.send_bytes(b"after loss")
@@ -1068,7 +1048,7 @@ def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
     assert private.hearing.closed == 1
 
 
-@pytest.mark.parametrize("loss", ["deactivated", "store-error"])
+@pytest.mark.parametrize("loss", ["account-gone", "store-error"])
 def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
     loss: str,
 ) -> None:
@@ -1086,7 +1066,7 @@ def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
         assert deadline.started.wait(timeout=1)
         socket.send_bytes(b"local hearing fails")
         assert socket.receive_json()["error"] == "hearing unavailable"
-        users.refuse_reads = loss == "deactivated"
+        users.refuse_reads = loss == "account-gone"
         users.fail_reads = loss == "store-error"
         deadline.release_first()
         socket.send_bytes(b"busy fallback lease")

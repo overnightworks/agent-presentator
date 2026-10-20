@@ -8,13 +8,13 @@ import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
-from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
+from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME, MAX_SESSION_COOKIE_CHARS
 from webauth.middleware.security_headers import (
     CONTENT_TYPE_OPTIONS,
     FRAME_OPTIONS,
     REFERRER_POLICY,
-    STRICT_TRANSPORT_SECURITY,
 )
+from webauth.policies import SecurityHeadersPolicy
 
 from presentator.api.auth import CONTENT_SECURITY_POLICY
 from presentator.api.hooks import hook_address
@@ -37,6 +37,9 @@ from tests.api.lobby import (
     a_signed_in_lobby_with_a_built_deck,
 )
 
+_STRICT_TRANSPORT_SECURITY = SecurityHeadersPolicy(
+    content_security_policy=CONTENT_SECURITY_POLICY
+).strict_transport_security
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
 # page's own location, only the co-presenter's microphone.
@@ -127,22 +130,36 @@ def test_the_session_cookie_travels_locked_down(signed_in_lobby: Lobby) -> None:
     assert "Secure" in cookie
 
 
-def test_a_doubled_session_cookie_leads_to_the_login(signed_in_lobby: Lobby) -> None:
-    """Two same-named cookies are refused rather than one of them picked.
+@pytest.mark.parametrize(
+    "unusable_cookie",
+    [
+        pytest.param("doubled", id="doubled"),
+        pytest.param("forged", id="forged-signature"),
+        pytest.param("oversized", id="oversized"),
+    ],
+)
+def test_a_cookie_the_library_cannot_read_leads_to_the_login_without_a_store_read(
+    signed_in_lobby: Lobby,
+    unusable_cookie: str,
+) -> None:
+    """A sibling subdomain can plant a second cookie under the session's name.
 
-    A sibling subdomain can plant a second cookie under the session's name;
-    choosing either would let it decide whose account the request runs in.
+    Two same-named cookies are refused rather than one of them picked, and a
+    forged or oversized one never reaches the session store.
     """
     genuine = signed_in_lobby.client.cookies[DEFAULT_SESSION_COOKIE_NAME]
-    doubled = f"{DEFAULT_SESSION_COOKIE_NAME}={genuine}"
+    named = f"{DEFAULT_SESSION_COOKIE_NAME}={genuine}"
+    cookie = {
+        "doubled": f"{named}; {named}",
+        "forged": f"{DEFAULT_SESSION_COOKIE_NAME}={genuine[:-1]}x",
+        "oversized": f"{DEFAULT_SESSION_COOKIE_NAME}={'a' * MAX_SESSION_COOKIE_CHARS}b",
+    }[unusable_cookie]
 
-    answer = signed_in_lobby.client.get(
-        "/",
-        headers={"cookie": f"{doubled}; {doubled}"},
-    )
+    answer = signed_in_lobby.client.get("/", headers={"cookie": cookie})
 
     assert answer.status_code == HTTPStatus.FOUND
     assert answer.headers["location"] == "/login?next=%2F"
+    assert signed_in_lobby.people.sessions.loads == 0
 
 
 @pytest.mark.parametrize("method", ["get", "post"])
@@ -190,6 +207,14 @@ def test_a_login_survives_a_ninety_minute_talk(signed_in_lobby: Lobby) -> None:
         assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
 
 
+def test_a_session_left_alone_for_twelve_hours_still_stands_at_the_cap(
+    signed_in_lobby: Lobby,
+) -> None:
+    signed_in_lobby.clock.advance(SESSION_LIFETIME)
+
+    assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
+
+
 def test_a_session_left_alone_for_twelve_hours_leads_back_to_the_login(
     signed_in_lobby: Lobby,
 ) -> None:
@@ -212,16 +237,17 @@ def test_a_session_in_use_all_day_still_stands_at_the_cap(
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
 
 
-def test_a_session_in_use_all_day_is_refused_and_deleted_just_past_the_cap(
+def test_a_session_in_use_all_day_is_refused_and_not_renewed_just_past_the_cap(
     signed_in_lobby: Lobby,
 ) -> None:
     use_every_quarter_hour_until(
         signed_in_lobby, SESSION_LIFETIME - timedelta(minutes=15)
     )
     signed_in_lobby.clock.advance(timedelta(minutes=15, seconds=1))
+    expiries_before = signed_in_lobby.people.sessions.expiries()
 
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.FOUND
-    assert signed_in_lobby.people.sessions.rows == {}
+    assert signed_in_lobby.people.sessions.expiries() == expiries_before
 
 
 def test_every_answer_from_the_lobby_refuses_the_browser_cache(
@@ -236,7 +262,7 @@ def test_a_lobby_reached_over_https_sends_strict_transport_security(
 ) -> None:
     answer = signed_in_lobby.client.get("/")
 
-    assert answer.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
+    assert answer.headers["strict-transport-security"] == _STRICT_TRANSPORT_SECURITY
 
 
 def test_a_lobby_reached_over_plain_http_sends_no_hsts() -> None:
@@ -262,7 +288,7 @@ def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
     talk = lobby.get(talk_address(A_BUILT_DECK_SLUG))
 
     assert talk.status_code == HTTPStatus.OK
-    assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
+    assert talk.headers["strict-transport-security"] == _STRICT_TRANSPORT_SECURITY
     for name, value in _EVERY_SECURITY_HEADER.items():
         assert talk.headers[name] == value
 
@@ -366,6 +392,14 @@ def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
     assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
+def test_a_form_naming_the_public_host_is_accepted_without_a_fetch_site() -> None:
+    lobby = a_lobby_that_claims_no_origin_of_its_own()
+
+    accepted = submit_the_logout_form(lobby, {"origin": lobby.own_origin()})
+
+    assert accepted.status_code == HTTPStatus.SEE_OTHER
+
+
 def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
     lobby: Lobby,
 ) -> None:
@@ -443,10 +477,7 @@ def test_an_address_that_only_starts_like_a_stylesheet_still_asks_for_the_login(
     walked_out = lobby.client.get("/static/%2e%2e/deck/a-deck/")
 
     assert walked_out.status_code == HTTPStatus.FOUND
-    assert (
-        walked_out.headers["location"]
-        == "/login?next=%2Fstatic%2F..%2Fdeck%2Fa-deck%2F"
-    )
+    assert walked_out.headers["location"] == "/login?next=%2F"
 
 
 def test_no_signed_in_page_carries_a_hex_colour_or_an_inline_style(
@@ -525,6 +556,14 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
     assert f"{session_hours} Stunden im Browser" in page
+
+
+@pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])
+def test_the_datenschutz_names_no_ip_address_and_no_user_agent_as_stored(
+    lobby: Lobby,
+    stored_client_detail: str,
+) -> None:
+    assert stored_client_detail not in lobby.client.get("/datenschutz").text
 
 
 @pytest.mark.parametrize(
