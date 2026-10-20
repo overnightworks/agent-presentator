@@ -142,6 +142,9 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
         ),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}/", "oidc_issuer"),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}?realm=x", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}?", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}#", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}?#", "oidc_issuer"),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER} x", "oidc_issuer"),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}\nx", "oidc_issuer"),
         ("PRESENTATOR_OIDC_ISSUER", "https://auth.example.test:99999/r", "oidc_issuer"),
@@ -167,6 +170,9 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
         "http issuer",
         "trailing slash",
         "query",
+        "empty query",
+        "empty fragment",
+        "empty query and fragment",
         "space",
         "newline",
         "port too large",
@@ -187,6 +193,15 @@ def test_a_setting_that_is_not_a_sign_in_refuses_to_start_naming_it(
 
     with pytest.raises(ConfigurationError, match=setting):
         load_settings()
+
+
+def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None:
+    settings = a_settings().model_copy(update={"oidc_client_id": ""})
+
+    with pytest.raises(ConfigurationError, match="client_id") as refused:
+        oidc_client_config(settings, SecretStr(A_CLIENT_CREDENTIAL))
+
+    assert A_CLIENT_CREDENTIAL not in str(refused.value)
 
 
 @pytest.mark.parametrize(

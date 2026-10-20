@@ -102,8 +102,8 @@ def _an_https_realm_url(given: str) -> str:
         )
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
+        or "?" in given
+        or "#" in given
         or given.endswith("/")
     ):
         message = (

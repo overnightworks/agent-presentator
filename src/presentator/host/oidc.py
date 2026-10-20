@@ -42,20 +42,24 @@ def oidc_client_config(
 ) -> OidcClientConfig:
     """The Keycloak client these settings name, with its endpoints derived."""
     realm = f"{settings.oidc_issuer}/{_PROTOCOL_PATH}"
-    return OidcClientConfig(
-        issuer=settings.oidc_issuer,
-        authorization_endpoint=f"{realm}/auth",
-        token_endpoint=f"{realm}/token",
-        jwks_url=f"{realm}/certs",
-        end_session_endpoint=f"{realm}/logout",
-        client_id=settings.oidc_client_id,
-        client_secret=client_secret,
-        redirect_uri=f"{settings.public_origin}{SIGN_IN_CALLBACK_PATH}",
-        post_logout_redirect_uri=f"{settings.public_origin}{LOGIN_PATH}",
-        logout_path=LOGOUT_PATH,
-        scopes=_SCOPES,
-        leeway_seconds=_CLOCK_LEEWAY_SECONDS,
-    )
+    try:
+        return OidcClientConfig(
+            issuer=settings.oidc_issuer,
+            authorization_endpoint=f"{realm}/auth",
+            token_endpoint=f"{realm}/token",
+            jwks_url=f"{realm}/certs",
+            end_session_endpoint=f"{realm}/logout",
+            client_id=settings.oidc_client_id,
+            client_secret=client_secret,
+            redirect_uri=f"{settings.public_origin}{SIGN_IN_CALLBACK_PATH}",
+            post_logout_redirect_uri=f"{settings.public_origin}{LOGIN_PATH}",
+            logout_path=LOGOUT_PATH,
+            scopes=_SCOPES,
+            leeway_seconds=_CLOCK_LEEWAY_SECONDS,
+        )
+    except ValueError as refused:
+        # webauth's reasons name a field, never its value.
+        raise cannot_start(f"the sign-in client configuration: {refused}") from None
 
 
 def relying_party(config: OidcClientConfig) -> OidcRelyingParty:
