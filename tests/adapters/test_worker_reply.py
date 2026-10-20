@@ -9,14 +9,17 @@ import pytest
 
 from presentator.host.worker_serving import REPLY_SECONDS, LifeEnd, hand_over
 from presentator.host.worker_wire import WireExit
-from tests.worker_support import ACCEPT_TIME, CHILD_LEG, ScriptedLife
+from tests.worker_support import ACCEPT_TIME, CHILD_LEG, ScriptedLife, role_of
 
 SENDER_WAIT = 2
+SOCKET_SECONDS = 10
 
 
 @pytest.fixture
 def connection() -> Iterator[socket.socket]:
     controller_end, client = socket.socketpair()
+    controller_end.settimeout(SOCKET_SECONDS)
+    client.settimeout(SOCKET_SECONDS)
     with closing(controller_end), closing(client):
         yield controller_end
 
@@ -34,9 +37,7 @@ def test_the_sender_runs_after_the_deck_closed_and_its_exit_sent_consumes_the_li
 
     assert outcome == LifeEnd.CONSUMED
     assert life.events[life.events.index("close-deck") :] == ["close-deck", *CHILD_LEG]
-    assert [
-        spawned.command[spawned.command.index("--role") + 1] for spawned in life.spawned
-    ] == [
+    assert [role_of(spawned.command) for spawned in life.spawned] == [
         "idle",
         "upload",
         "send",

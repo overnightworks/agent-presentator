@@ -28,7 +28,8 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
-from tests.worker_support import NeverArmed, nothing, wake_until_ended
+from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
+from tests.worker_support import NeverArmed, nothing, role_of, wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -508,15 +509,8 @@ class RealServing:
             return Reply(received, ended_by_reset=False)
 
 
-HELLO = b"PBW\x01\x01\x00\x02{}"
-STATUS = b"PBW\x01\x03\x00\x02{}"
-OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
-END = b"\x03" + bytes(12)
-STEP_PREAMBLE = b"PBW\x01\x02"
-
-
 def step_message(header: bytes) -> bytes:
-    return STEP_PREAMBLE + len(header).to_bytes(2, "big") + header
+    return b"PBW\x01\x02" + len(header).to_bytes(2, "big") + header
 
 
 VALID_STEP = step_message(b'{"step":"build","slug":"my-deck"}')
@@ -612,7 +606,7 @@ class RecordingSpawn:
             command, identity=OWN_IDENTITY, environment=environment, pass_fds=pass_fds
         )
         self.children.append(child)
-        self.roles.append(command[command.index("--role") + 1])
+        self.roles.append(role_of(command))
         return child
 
     def still_running(self) -> list[GatedChild]:

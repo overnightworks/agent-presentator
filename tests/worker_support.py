@@ -42,6 +42,11 @@ CONNECTIONS = 2
 WAIT_SECONDS = 5
 
 
+def role_of(command: Sequence[str]) -> str:
+    """The wire role a spawned child's command line names."""
+    return command[command.index("--role") + 1]
+
+
 class StopServingError(Exception):
     """Ends an accept loop the test bounds."""
 
@@ -170,8 +175,7 @@ class ScriptedLife:
 
     @property
     def role(self) -> WireRole:
-        command = self.spawned[-1].command
-        return WireRole(command[command.index("--role") + 1])
+        return WireRole(role_of(self.spawned[-1].command))
 
     def admits(self, _status: str) -> bool:
         return {

@@ -1,11 +1,9 @@
 """The reply phase through the real roles as child processes."""
 
-import os
-import signal
 import stat
 import sys
 import time
-from contextlib import closing, suppress
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -25,8 +23,8 @@ from tests.test_worker_record_chain import (
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
-    await_absence,
     connect_when_serving,
+    end_controller,
     read_to_end,
     run_life,
 )
@@ -123,18 +121,11 @@ def test_a_valid_upload_over_a_controller_process_gets_status_failed_end_and_eof
             reply = read_to_end(client)
         exit_status = controller.wait_within(WAIT_SECONDS)
     finally:
-        controller.close_gate()
-        controller.kill()
-        controller.wait()
-        roles_and_ids = [line.split()[1:] for line in log.read_text().splitlines()]
-        for _role, process_id in roles_and_ids:
-            with suppress(ProcessLookupError):
-                os.kill(int(process_id), signal.SIGKILL)
-        await_absence([int(process_id) for _role, process_id in roles_and_ids])
+        lines = end_controller(controller, log)
 
     assert reply == STATUS + OUTCOME_FAILED + END
     assert exit_status == 0
-    assert [role for role, _process_id in roles_and_ids] == ["idle", "upload", "send"]
+    assert [line.split()[1] for line in lines] == ["idle", "upload", "send"]
 
 
 def test_the_deck_a_fake_sender_sees_is_0755_and_its_exit_sent_ends_the_life_consumed(
@@ -154,9 +145,7 @@ def test_an_exit_that_is_not_sent_ends_the_life_wire_exit_with_the_status_only(
 ) -> None:
     spawn = ChainSpawn(programs={"send": ["import sys; sys.exit(1)"]})
 
-    life = run_life(
-        VALID_STEP + END, spawn, LifeScenario(deck=sandbox / "deck", reader=read_to_end)
-    )
+    life = run_life(VALID_STEP + END, spawn, LifeScenario(deck=sandbox / "deck"))
 
     assert life.reply == STATUS
     assert life.life_end == LifeEnd.WIRE_EXIT
@@ -182,9 +171,7 @@ def test_a_stalled_sender_is_killed_at_the_reply_budget_leaving_the_reply_incomp
     deck = sandbox / "deck"
 
     started = time.monotonic()
-    life = run_life(
-        VALID_STEP + END, spawn, LifeScenario(deck=deck, reader=read_to_end)
-    )
+    life = run_life(VALID_STEP + END, spawn, LifeScenario(deck=deck))
     elapsed = time.monotonic() - started
 
     assert life.life_end == LifeEnd.REPLY_EXPIRED

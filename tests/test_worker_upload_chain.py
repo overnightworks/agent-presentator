@@ -6,6 +6,7 @@ import socket
 import stat
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,8 @@ from tests.test_worker_record_chain import (
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
+    read_to_end,
+    read_to_end_or_reset,
     run_life,
 )
 from tests.worker_support import DECK_CLOSED_MODE, DECK_OPEN_MODE, PRIVATE_MODE
@@ -117,7 +120,8 @@ REJECTED_HEADERS = {
 def test_a_rejected_or_answered_header_never_makes_the_deck(
     sandbox: Path, sent: bytes
 ) -> None:
-    life = run_life(sent, ChainSpawn(), on_deck(sandbox))
+    scenario = replace(on_deck(sandbox), reader=read_to_end_or_reset)
+    life = run_life(sent, ChainSpawn(), scenario)
 
     assert life.spawn.roles == ["idle"]
     assert not (sandbox / "deck").exists()
@@ -170,49 +174,49 @@ def drip_past_the_budget(client: socket.socket) -> None:
     client.sendall(END[:1])
 
 
-UPLOAD_FAILURES: dict[
-    str, tuple[Callable[[socket.socket], None], str | None, LifeEnd]
-] = {
-    "a hang-up": (hang_up, None, LifeEnd.WIRE_EXIT),
-    "a half-close before END": (half_close, None, LifeEnd.WIRE_EXIT),
-    "a non-zero END count": (
-        send_after_status(b"\x03\x00\x00\x00\x01" + bytes(8)),
-        None,
-        LifeEnd.WIRE_EXIT,
+@dataclass(frozen=True)
+class UploadFailure:
+    """How the upload fails: what the client does, what the child exits with."""
+
+    converse: Callable[[socket.socket], None]
+    life_end: LifeEnd
+    program: str | None = None
+    reader: Callable[[socket.socket], bytes] = read_to_end
+
+
+UPLOAD_FAILURES = {
+    "a hang-up": UploadFailure(hang_up, LifeEnd.WIRE_EXIT),
+    "a half-close before END": UploadFailure(half_close, LifeEnd.WIRE_EXIT),
+    "a non-zero END count": UploadFailure(
+        send_after_status(b"\x03\x00\x00\x00\x01" + bytes(8)), LifeEnd.WIRE_EXIT
     ),
-    "an unknown tag": (
+    "an unknown tag": UploadFailure(
         send_after_status(b"\x09" + bytes(12)),
-        None,
         LifeEnd.WIRE_EXIT,
+        reader=read_to_end_or_reset,
     ),
-    "a drip past U": (drip_past_the_budget, None, LifeEnd.UPLOAD_EXPIRED),
-    "an exit other than uploaded": (
-        lambda _client: None,
-        EXITING_SEVEN,
-        LifeEnd.WIRE_EXIT,
+    "a drip past U": UploadFailure(drip_past_the_budget, LifeEnd.UPLOAD_EXPIRED),
+    "an exit other than uploaded": UploadFailure(
+        lambda _client: None, LifeEnd.WIRE_EXIT, program=EXITING_SEVEN
     ),
 }
 
 
 @pytest.mark.parametrize(
-    ("converse", "program", "life_end"),
-    UPLOAD_FAILURES.values(),
-    ids=UPLOAD_FAILURES.keys(),
+    "failure", UPLOAD_FAILURES.values(), ids=UPLOAD_FAILURES.keys()
 )
 def test_a_failed_upload_leaves_the_deck_0755_closes_without_reply_and_ends_the_life(
-    sandbox: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    converse: Callable[[socket.socket], None],
-    program: str | None,
-    life_end: LifeEnd,
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch, failure: UploadFailure
 ) -> None:
     monkeypatch.setattr(worker_serving, "UPLOAD_SECONDS", 1.5)
+    program = failure.program
     spawn = ChainSpawn(programs={} if program is None else {"upload": [program]})
 
     started = time.monotonic()
-    life = run_life(VALID_STEP, spawn, on_deck(sandbox), converse)
+    scenario = replace(on_deck(sandbox), reader=failure.reader)
+    life = run_life(VALID_STEP, spawn, scenario, failure.converse)
 
-    assert life.life_end == life_end
+    assert life.life_end == failure.life_end
     assert life.reply == b""
     assert life.spawn.roles == ["idle", "upload"]
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
