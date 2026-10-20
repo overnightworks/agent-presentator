@@ -425,16 +425,28 @@ def test_a_sweep_deletes_a_session_only_when_it_ended_before_the_sweep(
     assert deleted == (0 if stays else 1)
 
 
-def test_a_session_the_sweep_keeps_is_one_the_admission_still_admits(
+@pytest.mark.parametrize(
+    "after_expiry",
+    [timedelta(0), timedelta(milliseconds=500), timedelta(seconds=1)],
+    ids=["at the expiry", "within the second after", "a second after"],
+)
+def test_the_sweep_keeps_exactly_the_sessions_the_admission_admits(
     sessions: SqliteSessionRecordStore,
+    after_expiry: timedelta,
 ) -> None:
-    session = sessions.create("user-1", now=_NOW - SESSION_LIFETIME, expires_at=_NOW)
+    expires_at = _NOW + timedelta(hours=1)
+    admitted_one = sessions.create("user-1", now=_NOW, expires_at=expires_at)
+    swept_one = sessions.create("user-2", now=_NOW, expires_at=expires_at)
+    at = expires_at + after_expiry
 
-    sessions.delete_expired(_NOW)
+    admitted = admit_session(
+        admitted_one.id, sessions=sessions, config=a_config_reading(at)
+    )
+    sessions.delete_expired(at)
 
-    loaded = sessions.load(session.id)
-    assert loaded is not None
-    assert loaded.expires_at == _NOW
+    assert (not isinstance(admitted, ConnectionRefusal)) is (
+        sessions.load(swept_one.id) is not None
+    )
 
 
 def dump_without_sessions(database: Path) -> list[str]:

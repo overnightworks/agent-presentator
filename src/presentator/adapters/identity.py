@@ -184,9 +184,15 @@ class SqliteSessionRecordStore:
             return int(cursor.rowcount)
 
     def delete_expired(self, at: datetime) -> int:
-        """Delete every session that ended before `at`; one ending at `at` stands."""
+        """Delete every session that ended before `at`; one ending at `at` stands.
+
+        `at` is floored to the whole second, because admission decides by whole
+        seconds: a session is still admitted anywhere in the second after its
+        expiry, and a sweep must not delete what admission still admits.
+        """
+        cutoff = _stored(at.replace(microsecond=0))
         with rows(self.database) as cursor:
-            cursor.execute("DELETE FROM sessions WHERE expires_at < ?", (_stored(at),))
+            cursor.execute("DELETE FROM sessions WHERE expires_at < ?", (cutoff,))
             return int(cursor.rowcount)
 
     def prune_overflow(self, user_id: str, keep_newest: int) -> None:

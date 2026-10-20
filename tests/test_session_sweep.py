@@ -2,6 +2,7 @@
 
 import asyncio
 import sqlite3
+import threading
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -73,6 +74,18 @@ def test_the_sweep_runs_while_the_server_serves(
     monkeypatch.setattr(main, "SESSION_SWEEP_INTERVAL", timedelta(0))
     database = load_settings().database
     swept: list[bool] = []
+    deleted_a_session = threading.Event()
+    delete_expired = SqliteSessionRecordStore.delete_expired
+
+    def delete_expired_and_say_so(store: SqliteSessionRecordStore, at: datetime) -> int:
+        deleted = delete_expired(store, at)
+        if deleted:
+            deleted_a_session.set()
+        return deleted
+
+    monkeypatch.setattr(
+        SqliteSessionRecordStore, "delete_expired", delete_expired_and_say_so
+    )
 
     class ServerThatWaitsForTheSweep:
         def __init__(self, config: uvicorn.Config) -> None:
@@ -85,11 +98,7 @@ def test_the_sweep_runs_while_the_server_serves(
                 now=clock.now() - SESSION_LIFETIME,
                 expires_at=clock.now() - timedelta(seconds=1),
             )
-            patience = asyncio.get_running_loop().time() + PATIENCE.total_seconds()
-            while stored_session_ids(database):
-                if asyncio.get_running_loop().time() > patience:
-                    break
-                await asyncio.sleep(0)
+            await asyncio.to_thread(deleted_a_session.wait, PATIENCE.total_seconds())
             swept.append(not stored_session_ids(database))
 
     monkeypatch.setattr(main.uvicorn, "Server", ServerThatWaitsForTheSweep)

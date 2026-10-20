@@ -179,22 +179,13 @@ def build_instance(settings: Settings) -> Instance:
         local_mount=local_mount,
     )
     sessions = SqliteSessionRecordStore(settings.database)
-    pages = Pages(
-        preferences=Preferences(
-            instance=SqliteInstanceSettingsStore(settings.database),
-            people=SqlitePersonPreferencesStore(settings.database),
-            catalogs=load_catalogs(CATALOG_DIRECTORY),
-        ),
-        age_in_words=age_in_words,
-        duration_in_words=duration_in_words,
-    )
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
     return Instance(
         lobby=create_lobby(
             sessions=sessions,
             decks=decks,
-            pages=pages,
+            pages=_pages(settings),
             auth=InstalledAuth(config=web_auth),
             private=LobbyPrivate(
                 copresenter=CoPresenterSurface(
@@ -211,10 +202,27 @@ def build_instance(settings: Settings) -> Instance:
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
-        session_sweep=Schedule(
-            chore=lambda: sessions.delete_expired(clock.now()),
-            interval=SESSION_SWEEP_INTERVAL,
+        session_sweep=_session_sweep(sessions, clock),
+    )
+
+
+def _pages(settings: Settings) -> Pages:
+    return Pages(
+        preferences=Preferences(
+            instance=SqliteInstanceSettingsStore(settings.database),
+            people=SqlitePersonPreferencesStore(settings.database),
+            catalogs=load_catalogs(CATALOG_DIRECTORY),
         ),
+        age_in_words=age_in_words,
+        duration_in_words=duration_in_words,
+    )
+
+
+def _session_sweep(sessions: SqliteSessionRecordStore, clock: SystemClock) -> Schedule:
+    """Delete expired sessions on a schedule, reading the clock on every run."""
+    return Schedule(
+        chore=lambda: sessions.delete_expired(clock.now()),
+        interval=SESSION_SWEEP_INTERVAL,
     )
 
 
