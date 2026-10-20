@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from typing import Protocol
 
 from presentator.host.worker_termination import (
@@ -151,12 +152,20 @@ def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
     return life_end
 
 
-def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+def _noting_cleanup_failure(
+    cleanup: Callable[[], object], original: BaseException, what: str
+) -> None:
     try:
-        _killed(child, None)
+        cleanup()
     except (Exception, KeyboardInterrupt) as cleanup_failure:
-        logger.exception("child not killed and reaped")
-        original.add_note(f"killing and reaping the child failed: {cleanup_failure!r}")
+        logger.exception("%s failed", what)
+        original.add_note(f"{what} failed: {cleanup_failure!r}")
+
+
+def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
+    _noting_cleanup_failure(
+        partial(_killed, child, None), original, "killing and reaping the child"
+    )
 
 
 @dataclass(frozen=True)
@@ -264,11 +273,7 @@ def _run_upload_with_deck(
             LifeEnd.UPLOAD_EXPIRED,
         )
     except BaseException as original:
-        try:
-            serving.close_deck()
-        except (Exception, KeyboardInterrupt) as cleanup_failure:
-            logger.exception("deck not closed")
-            original.add_note(f"closing the deck failed: {cleanup_failure!r}")
+        _noting_cleanup_failure(serving.close_deck, original, "closing the deck")
         raise
     serving.close_deck()
     return upload

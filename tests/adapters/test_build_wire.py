@@ -185,3 +185,13 @@ def test_an_end_that_is_short_wrongly_tagged_or_not_empty_is_refused(
 
     with pytest.raises(WireRefusedError):
         read_end(reading_end)
+
+
+def test_a_lone_wrong_tag_is_refused_without_waiting_for_the_rest(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    reading_end, writing_end = wire
+    writing_end.sendall(bytes([RecordTag.FILE]))
+
+    with pytest.raises(WireRefusedError):
+        read_end(reading_end)

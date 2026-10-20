@@ -35,7 +35,7 @@ class RecordTag(IntEnum):
 
 
 class WireRefusedError(Exception):
-    """The peer sent something other than a valid HELLO or STEP."""
+    """The peer sent something other than a valid HELLO, STEP or END."""
 
 
 class EmptyHeader(BaseModel, extra="forbid", strict=True):
@@ -129,7 +129,8 @@ def read_record(descriptor: int) -> StepHeader:
 
 def read_end(connection: socket.socket) -> None:
     """Read the END record; entries arrive later, so only an empty one is accepted."""
-    tag = _read_exactly(connection, 1)[0]
+    if _read_exactly(connection, 1)[0] != RecordTag.END:
+        raise WireRefusedError
     count, total = END_COUNTS.unpack(_read_exactly(connection, END_COUNTS.size))
-    if tag != RecordTag.END or count or total:
+    if count or total:
         raise WireRefusedError

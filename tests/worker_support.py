@@ -87,6 +87,16 @@ class RecordingCreation:
         return (held.st_dev, held.st_ino) != self.identity
 
 
+class NeverArmed:
+    """A watchdog that must not arm a real timer inside pytest."""
+
+    def arm(self, remaining: float) -> None:
+        pass
+
+    def cancel(self) -> None:
+        pass
+
+
 def nothing() -> None:
     """A deck effect for tests that never reach /work."""
 

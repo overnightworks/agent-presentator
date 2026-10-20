@@ -56,7 +56,7 @@ _ROLES = {WireRole.IDLE: _idle, WireRole.UPLOAD: _upload}
 
 
 def main(argv: Sequence[str]) -> int:
-    """Run the role: idle answers or accepts, upload decodes the record and answers."""
+    """Run the role: idle answers or accepts, upload decodes, answers and reads END."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", type=WireRole, choices=list(WireRole), required=True)
     parser.add_argument("--connection-fd", type=int, required=True)

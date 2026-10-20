@@ -28,7 +28,7 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
-from tests.worker_support import nothing, wake_until_ended
+from tests.worker_support import NeverArmed, nothing, wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -62,7 +62,8 @@ serving = worker_serving.Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=lambda _record: None,
-    open_deck=lambda: None, close_deck=lambda: None,
+    open_deck=lambda: None,
+    close_deck=lambda: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     build_timeout_seconds=300.0,
@@ -165,16 +166,6 @@ def accept_time() -> float:
 
 def real_serving() -> Serving:
     return worker.real_serving(WorkerSettings(build_timeout_seconds=300.0))
-
-
-class NeverArmed:
-    """A watchdog that must not arm a real timer inside pytest."""
-
-    def arm(self, remaining: float) -> None:
-        pass
-
-    def cancel(self) -> None:
-        pass
 
 
 def open_descriptor_count() -> int:

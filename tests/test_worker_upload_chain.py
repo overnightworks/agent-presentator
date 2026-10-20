@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from presentator.host import worker, worker_serving
+from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     END,
@@ -32,12 +32,12 @@ sys.exit(6)
 """
 EXITING_SEVEN = "import sys; sys.exit(7)"
 CONTROLLER_UMASK = 0o077
+CLOSING_SECONDS = 0.3
 
 
 @pytest.fixture
 def sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
     monkeypatch.setenv("PATH", PATH)
-    monkeypatch.setattr(worker, "WORK_MOUNT", str(tmp_path))
     previous = os.umask(CONTROLLER_UMASK)
     try:
         yield tmp_path
@@ -66,7 +66,9 @@ def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_acce
         modes_during_upload.append(deck_mode(sandbox))
         client.sendall(END)
 
-    life = run_life(VALID_STEP, ChainSpawn(), converse=status_then_end)
+    life = run_life(
+        VALID_STEP, ChainSpawn(deck=sandbox / "deck"), converse=status_then_end
+    )
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.STEP_ACCEPTED
@@ -78,12 +80,45 @@ def test_an_end_only_upload_is_answered_with_status_then_ends_the_life_step_acce
 def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
     sandbox: Path,
 ) -> None:
-    spawn = ChainSpawn(programs={"upload": [DECK_MODE_REPORTER, str(sandbox / "deck")]})
+    spawn = ChainSpawn(
+        programs={"upload": [DECK_MODE_REPORTER, str(sandbox / "deck")]},
+        deck=sandbox / "deck",
+    )
 
     life = run_life(VALID_STEP, spawn)
 
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
     assert life.life_end == LifeEnd.STEP_ACCEPTED
+    assert deck_mode(sandbox) == DECK_CLOSED_MODE
+
+
+class ConversationFailedError(Exception):
+    """The client side of a test conversation broke."""
+
+
+class SlowlyClosedDeck(type(Path())):
+    """A deck whose closing takes a moment, as a controller still running would."""
+
+    def chmod(self, mode: int, *, follow_symlinks: bool = True) -> None:
+        if mode == DECK_CLOSED_MODE:
+            time.sleep(CLOSING_SECONDS)
+        super().chmod(mode, follow_symlinks=follow_symlinks)
+
+
+def test_a_failing_conversation_returns_only_after_the_controller_closed_the_deck(
+    sandbox: Path,
+) -> None:
+    def fail_after_status(client: socket.socket) -> None:
+        read_status(client)
+        raise ConversationFailedError
+
+    with pytest.raises(ConversationFailedError):
+        run_life(
+            VALID_STEP,
+            ChainSpawn(deck=SlowlyClosedDeck(sandbox / "deck")),
+            converse=fail_after_status,
+        )
+
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
 
@@ -108,7 +143,7 @@ REJECTED_HEADERS = {
 def test_a_rejected_or_answered_header_never_makes_the_deck(
     sandbox: Path, sent: bytes
 ) -> None:
-    life = run_life(sent, ChainSpawn())
+    life = run_life(sent, ChainSpawn(deck=sandbox / "deck"))
 
     assert life.spawn.roles == ["idle"]
     assert not (sandbox / "deck").exists()
@@ -119,7 +154,7 @@ def test_an_idle_stall_never_makes_the_deck(
 ) -> None:
     monkeypatch.setattr(worker_serving, "HEADER_SECONDS", 0.5)
 
-    life = run_life(b"", ChainSpawn())
+    life = run_life(b"", ChainSpawn(deck=sandbox / "deck"))
 
     assert life.life_end is None
     assert life.spawn.roles == ["idle"]
@@ -130,7 +165,7 @@ def test_a_failing_seal_never_makes_the_deck(sandbox: Path) -> None:
     def refuse(_record: int) -> None:
         raise OSError(errno.EBUSY)
 
-    life = run_life(VALID_STEP, ChainSpawn(), refuse)
+    life = run_life(VALID_STEP, ChainSpawn(deck=sandbox / "deck"), refuse)
 
     assert life.life_end == LifeEnd.SEAL_FAILED
     assert not (sandbox / "deck").exists()
@@ -196,7 +231,10 @@ def test_a_failed_upload_leaves_the_deck_0755_closes_without_reply_and_ends_the_
     life_end: LifeEnd,
 ) -> None:
     monkeypatch.setattr(worker_serving, "UPLOAD_SECONDS", 1.5)
-    spawn = ChainSpawn(programs={} if program is None else {"upload": [program]})
+    spawn = ChainSpawn(
+        programs={} if program is None else {"upload": [program]},
+        deck=sandbox / "deck",
+    )
 
     started = time.monotonic()
     life = run_life(VALID_STEP, spawn, converse=converse)
@@ -213,7 +251,7 @@ def test_an_existing_deck_ends_the_life_before_any_upload_spawn(
 ) -> None:
     (sandbox / "deck").mkdir(mode=PRIVATE_MODE)
 
-    life = run_life(VALID_STEP, ChainSpawn())
+    life = run_life(VALID_STEP, ChainSpawn(deck=sandbox / "deck"))
 
     assert life.life_end == LifeEnd.DECK_FAILED
     assert life.reply == b""

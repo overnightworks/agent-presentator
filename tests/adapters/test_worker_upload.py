@@ -7,6 +7,7 @@ import stat
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -33,8 +34,7 @@ def connection() -> Iterator[socket.socket]:
 
 
 @pytest.fixture
-def deck(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    monkeypatch.setattr(worker, "WORK_MOUNT", str(tmp_path))
+def deck(tmp_path: Path) -> Iterator[Path]:
     previous = os.umask(CONTROLLER_UMASK)
     try:
         yield tmp_path / "deck"
@@ -53,15 +53,15 @@ def accepted_life(**changes: object) -> ScriptedLife:
 def test_the_deck_is_world_writable_and_sticky_despite_the_controllers_umask(
     deck: Path,
 ) -> None:
-    worker.open_deck()
+    worker.open_deck(deck)
 
     assert mode_of(deck) == DECK_OPEN_MODE
 
 
 def test_closing_the_deck_takes_it_back_to_0755(deck: Path) -> None:
-    worker.open_deck()
+    worker.open_deck(deck)
 
-    worker.close_deck()
+    worker.close_deck(deck)
 
     assert mode_of(deck) == DECK_CLOSED_MODE
 
@@ -71,7 +71,7 @@ def test_an_existing_deck_is_never_reused_nor_changed(deck: Path) -> None:
     (deck / "leftover").write_text("kept")
 
     with pytest.raises(FileExistsError):
-        worker.open_deck()
+        worker.open_deck(deck)
 
     assert mode_of(deck) == PRIVATE_MODE
     assert (deck / "leftover").read_text() == "kept"
@@ -85,10 +85,12 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
 
     def close_noting_mode() -> None:
         modes_when_closing.append(mode_of(deck))
-        worker.close_deck()
+        worker.close_deck(deck)
 
     serving = replace(
-        life.serving(), open_deck=worker.open_deck, close_deck=close_noting_mode
+        life.serving(),
+        open_deck=partial(worker.open_deck, deck),
+        close_deck=close_noting_mode,
     )
 
     assert hand_over(connection, serving, ACCEPT_TIME) == LifeEnd.STEP_ACCEPTED

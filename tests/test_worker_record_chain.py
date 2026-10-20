@@ -9,9 +9,11 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing, suppress
+from contextlib import ExitStack, closing, suppress
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -22,7 +24,7 @@ from presentator.adapters.worker_children import (
 )
 from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd, Serving, hand_over
-from tests.worker_support import RecordingCreation, connect
+from tests.worker_support import NeverArmed, RecordingCreation, connect
 
 OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
@@ -58,6 +60,7 @@ class ChainSpawn:
 
     programs: Mapping[str, list[str]] = field(default_factory=dict[str, list[str]])
     roles: list[str] = field(default_factory=list[str])
+    deck: Path | None = None
     children: list[GatedChild] = field(default_factory=list[GatedChild])
     process_ids: list[int] = field(default_factory=list[int])
 
@@ -100,16 +103,6 @@ class Life:
     spawn: ChainSpawn
 
 
-class NeverArmed:
-    """A watchdog that must not arm a real timer inside pytest."""
-
-    def arm(self, remaining: float) -> None:
-        pass
-
-    def cancel(self) -> None:
-        pass
-
-
 def read_to_end(client: socket.socket) -> bytes:
     received = b""
     with suppress(ConnectionResetError):
@@ -125,6 +118,19 @@ def run_life(
     create_record: Callable[[], int] = worker.create_request_record,
     converse: Callable[[socket.socket], None] = lambda _client: None,
 ) -> Life:
+    with ExitStack() as cleanup:
+        deck = spawn.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
+        return _run_life_at(deck, sent, spawn, (seal, create_record), converse)
+
+
+def _run_life_at(
+    deck: Path,
+    sent: bytes,
+    spawn: ChainSpawn,
+    record_effects: tuple[Callable[[int], None], Callable[[], int]],
+    converse: Callable[[socket.socket], None],
+) -> Life:
+    seal, create_record = record_effects
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
     serving = Serving(
@@ -133,8 +139,8 @@ def run_life(
         sweep=lambda _deadline: True,
         create_record=create_record,
         seal=seal,
-        open_deck=worker.open_deck,
-        close_deck=worker.close_deck,
+        open_deck=partial(worker.open_deck, deck),
+        close_deck=partial(worker.close_deck, deck),
         watchdog=NeverArmed(),
         clock=time.monotonic,
         build_timeout_seconds=300.0,
@@ -148,21 +154,24 @@ def run_life(
     )
     with closing(controller_end), closing(client):
         try:
-            client.sendall(sent)
             thread.start()
+            client.sendall(sent)
             converse(client)
             thread.join(WAIT_SECONDS)
-            assert not thread.is_alive()
+        except BaseException:
+            client.close()
+            raise
         finally:
             spawn.kill_and_reap()
+            thread.join(WAIT_SECONDS)
+        assert not thread.is_alive()
         controller_end.close()
         return Life(outcome[0], read_to_end(client), spawn)
 
 
 @pytest.fixture
-def path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", PATH)
-    monkeypatch.setattr(worker, "WORK_MOUNT", str(tmp_path))
 
 
 @pytest.mark.usefixtures("path")
