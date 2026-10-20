@@ -1,8 +1,8 @@
 """Allowlist the repository root.
 
-Owner: marketplace AGENTS.md section "Repository layout". The root holds only
-what a tool must find there and the entry documents; everything else lives next
-to its owner. This script is a CI gate, not a package layer.
+Owner: the global contract, "# Code policy" → "## Repository layout". The root
+holds only what a tool must find there and the entry documents; everything else
+lives next to its owner. This script is a CI gate, not a package layer.
 """
 
 from __future__ import annotations
