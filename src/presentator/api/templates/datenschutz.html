@@ -5,8 +5,6 @@
   {%- for phrase in paragraph -%}
     {%- if phrase.emphasis is sameas emphasis.LABEL -%}
       <b>{{ phrase.words }}</b>
-    {%- elif phrase.emphasis is sameas emphasis.OPEN_POINT -%}
-      <span class="offen">{{ phrase.words }}</span>
     {%- elif phrase.emphasis is sameas emphasis.IMPRESSUM -%}
       <a href="{{ impressum_address }}">{{ phrase.words }}</a>
     {%- else -%}

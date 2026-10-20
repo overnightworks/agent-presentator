@@ -77,15 +77,11 @@ _LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
 # Nothing in the lobby or a built talk needs an inline script, an external
 # script host, or a frame: every asset ships under `/static` or a deck's own
 # build directory, both served from this origin. A built Slidev talk inlines
-# styles and loads its fonts from Google Fonts, which the library's default
-# policy does not admit. The microphone grant is the co-presenter's own: never the
-# camera, never a page's location.
+# styles, which the library's default policy does not admit. The microphone
+# grant is the co-presenter's own: never the camera, never a page's location.
 CONTENT_SECURITY_POLICY: Final = default_content_security_policy(
     [],
-    added_sources={
-        CspDirective.STYLE_SRC: ["'unsafe-inline'", "https://fonts.googleapis.com"],
-        CspDirective.FONT_SRC: ["https://fonts.gstatic.com"],
-    },
+    added_sources={CspDirective.STYLE_SRC: ["'unsafe-inline'"]},
 )
 _SECURITY_HEADERS: Final = SecurityHeadersPolicy(
     content_security_policy=CONTENT_SECURITY_POLICY,
@@ -121,6 +117,11 @@ class SignedInConnection:
 
     person: User
     session_id: str
+
+    @property
+    def is_admin(self) -> bool:
+        """Whether the signed-in person holds the admin role."""
+        return self.person.is_admin
 
 
 def signed_in_connection(

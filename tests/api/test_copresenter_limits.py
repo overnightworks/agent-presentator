@@ -162,6 +162,7 @@ class FixedSession:
     """The admitted session of a browser."""
 
     session_id: str = "session"
+    is_admin: bool = True
 
 
 def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> None:

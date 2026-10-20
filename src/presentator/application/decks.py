@@ -94,7 +94,7 @@ _HASH_LENGTH: Final = 32
 _NO_HASH: Final = bytes(_HASH_LENGTH)
 # A draft nobody creates a source from is discarded after this long (operator
 # ruling 07.09.2026), and reused on every Add opened before then.
-_DRAFT_MAX_AGE: Final = timedelta(days=1)
+DRAFT_MAX_AGE: Final = timedelta(days=1)
 
 
 class SourceRefusal(StrEnum):
@@ -171,6 +171,16 @@ def hash_webhook_secret(secret: str) -> bytes:
     return sha256(secret.encode()).digest()
 
 
+def _access_matches_url(access: str, url: str) -> bool:
+    """Whether the posted access names the kind this URL unambiguously is.
+
+    An unknown access or a URL naming no kind never match, so two "nothing"s
+    cannot agree and let an ambiguous address through.
+    """
+    expected = _EXPECTED_ACCESS_KIND.get(access)
+    return expected is not None and expected is access_kind_of(url)
+
+
 def _refusal_for(
     draft: NewSourceDraft,
     *,
@@ -195,7 +205,7 @@ def _refusal_for(
         # the wrong kind reads that, not a sentence about a field its real
         # kind does not even show.
         (
-            _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(url),
+            not _access_matches_url(access, url),
             SourceRefusal.ACCESS_MISMATCH,
         ),
         (access == _HTTPS_ACCESS and not secret.strip(), SourceRefusal.BLANK_ACCESS),
@@ -203,7 +213,10 @@ def _refusal_for(
             access in (_FILE_ACCESS, _SSH_ACCESS) and bool(secret.strip()),
             SourceRefusal.CREDENTIAL_NOT_ALLOWED,
         ),
-        (urlparse(url).password is not None, SourceRefusal.USERINFO),
+        (
+            access_kind_of(url) is not None and urlparse(url).password is not None,
+            SourceRefusal.USERINFO,
+        ),
         (not proven, SourceRefusal.NOT_CHECKED),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
@@ -464,7 +477,7 @@ class Decks:
         one, so a reachable check and a stored source read alike.
         """
         address = url.strip()
-        if _EXPECTED_ACCESS_KIND.get(access) != access_kind_of(address):
+        if not _access_matches_url(access, address):
             return ConnectionCheckResult(
                 failure=SourceRunFailure.REFUSED,
                 commit=None,
@@ -474,7 +487,7 @@ class Decks:
         if access == _SSH_ACCESS:
             deploy_key = self.key_drafts.unconsumed_for(
                 owner_id,
-                newer_than=self.clock.now() - _DRAFT_MAX_AGE,
+                newer_than=self.clock.now() - DRAFT_MAX_AGE,
             )
             if deploy_key is None or deploy_key.id != key_draft_id:
                 return ConnectionCheckResult(
@@ -512,7 +525,7 @@ class Decks:
         now = self.clock.now()
         return self.key_drafts.get_or_mint(
             owner_id,
-            newer_than=now - _DRAFT_MAX_AGE,
+            newer_than=now - DRAFT_MAX_AGE,
             at=now,
         )
 
@@ -608,7 +621,7 @@ class Decks:
         """The current draft only when it belongs to this account and form."""
         draft = self.key_drafts.unconsumed_for(
             owner_id,
-            newer_than=self.clock.now() - _DRAFT_MAX_AGE,
+            newer_than=self.clock.now() - DRAFT_MAX_AGE,
         )
         return draft if draft is not None and draft.id == draft_id else None
 
@@ -804,7 +817,7 @@ class Decks:
         refresh costs its sources' pull bounds one after another instead of
         opening as many pulls at once as the instance has sources.
         """
-        self.key_drafts.sweep(older_than=self.clock.now() - _DRAFT_MAX_AGE)
+        self.key_drafts.sweep(older_than=self.clock.now() - DRAFT_MAX_AGE)
         for source in self.sources.all():
             self._take_in_and_build_one(source)
 

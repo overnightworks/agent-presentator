@@ -743,7 +743,7 @@ class SlidevBuilds:
                 _UNREADABLE_DECK,
                 deck.slug,
                 deck.commit,
-                "the source no longer resolves under its mount",
+                "the source no longer resolves to a readable repository",
             )
             return False
         try:

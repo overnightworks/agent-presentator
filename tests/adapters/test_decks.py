@@ -416,7 +416,7 @@ def test_a_source_that_cannot_be_read_says_nothing_about_its_folders(
     # A host that never answers, not a local path that merely does not exist:
     # the latter now reads its own reason, `failed`, and this test's own is
     # the one a dead host earns.
-    unreachable = a_source("http://host.example.invalid/repo.git")
+    unreachable = a_source("https://host.example.invalid/repo.git")
 
     with caplog.at_level(logging.WARNING):
         poll = folders_under(tmp_path).folders(unreachable)
@@ -615,6 +615,21 @@ def test_a_file_source_whose_repository_left_the_mount_reads_failed(
     assert poll.folders is None
     assert poll.failure is SourceRunFailure.FAILED
     assert "no longer resolves" in caplog.text
+
+
+class CredentialsThatMustNotBeAsked:
+    """Fails a test if a credential is looked up."""
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        raise AssertionError
+
+
+def test_a_stored_source_whose_url_names_no_access_has_no_mirror(
+    tmp_path: Path,
+) -> None:
+    mirrors = mirrors_under(tmp_path, credentials=CredentialsThatMustNotBeAsked())
+
+    assert mirrors.of(a_source("https://good.example\\@evil.example/r.git")) is None
 
 
 def test_removing_a_sources_mirror_deletes_it_from_disk(

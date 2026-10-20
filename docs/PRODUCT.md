@@ -130,8 +130,15 @@ connection* probes the typed HTTPS token or owned SSH draft before anything is
 stored, and *Create* is refused unless that exact check succeeded. The private
 halves and HTTPS tokens are encrypted and never shown. The name is
 `[a-z0-9][a-z0-9-]{0,63}` and unique, the URL is unique, a URL carrying a
-password in its userinfo is refused, `http://` is refused, and the access kind
-is derived from the URL scheme — a mismatch with the chosen radio is refused.
+password in its userinfo is refused, of remote addresses only
+`https://[user@]host[:port]/…`, `ssh://[user@]host[:port]/…` and
+`user@host:path` are an access — the host a plain name or an IPv6 literal in
+brackets, an `ssh://` path free of `%`, `?`, `#`, `[` and `]`,
+an scp path free of `[` and `]` — and every other
+remote spelling, `http://` and any control character included, is refused
+before any secret is used. The access kind is derived from the URL scheme; an
+unknown radio value, a URL that names no access, or a mismatch with the chosen
+radio is refused.
 A fourth kind reads none at all: a folder made a bare repository under the host
 directory `compose.override.yaml` mounts read-only at `/data/local-sources` is
 added with a `file://` or bare-path address under that mount, "on this box" as
@@ -351,11 +358,13 @@ A sibling process under [`speech/`](../speech/README.md) holds a local speaking
 model and a local hearing model and offers them to the host co-presenter. The
 co-presenter remains a host process but is private to Presentator through a
 same-UID Unix socket. The repository overlay calls relative
-`/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Both
-roles use them through the existing active session; `/ask` requires its CSRF
-token and hearing requires the configured browser Origin. Presentator rechecks
-an answer and hearing lease every second, so session loss stops generation,
-capture, browser fallback and queued or playing audio. Only readiness, question,
+`/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Only
+the admin role may use them, through the existing active session: a signed-in
+person without it gets 403 on `/who` and `/ask` and a 1008 close before accept
+on `/hear`. `/ask` requires its CSRF token and hearing requires the configured
+browser Origin. Presentator rechecks an answer and hearing lease every half second,
+so session loss or loss of the admin role stops generation,
+capture and queued or playing audio. Only readiness, question,
 PCM, transcript and answer events cross the private boundary; browser identity
 and credentials do not. Which speech models run and what they cost on the card
 remain owned by that README.
