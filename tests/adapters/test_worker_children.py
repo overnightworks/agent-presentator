@@ -443,7 +443,8 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
         after = time.monotonic()
         serving.await_sweep()
 
-        assert reply == Reply(STATUS, ended_by_reset=False)
+        assert reply.received == STATUS
+        assert not reply.ended_by_reset
         assert after - before < HEADER_DEADLINE_SECONDS
         assert before + worker.SWEEP_SECONDS <= serving.sweep_deadlines[-1]
         assert serving.sweep_deadlines[-1] <= after + worker.SWEEP_SECONDS
@@ -461,7 +462,9 @@ def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
     thread = serving.start()
 
     assert serving.exchange(thread, STEP_PREAMBLE_AND_HEADER).received == b""
-    assert serving.exchange(thread, HELLO) == Reply(STATUS, ended_by_reset=False)
+    second_reply = serving.exchange(thread, HELLO)
+    assert second_reply.received == STATUS
+    assert not second_reply.ended_by_reset
     thread.join(WAIT_SECONDS)
 
     assert serving.outcome == [0]
