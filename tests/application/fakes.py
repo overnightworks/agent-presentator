@@ -60,80 +60,63 @@ class FakeUserStore:
 
 @dataclass
 class FakeSessionRecordStore:
-    """Session rows in a dictionary."""
+    """Session rows in a dictionary, joined to the accounts like the real table."""
 
+    users: FakeUserStore
     rows: dict[str, Session] = field(default_factory=dict[str, Session])
-    clock: FrozenClock | None = None
     minted: int = 0
+    loads: int = 0
+    touches: int = 0
 
-    def create(
-        self,
-        user_id: str,
-        expires_at: datetime,
-        *,
-        ip_address: str,
-        user_agent: str,
-    ) -> Session:
-        del expires_at
+    def create(self, user_id: str, *, now: datetime, expires_at: datetime) -> Session:
         self.minted += 1
-        assert self.clock is not None
-        opened_at = self.clock.now()
         session = Session(
             id=f"session-{self.minted}",
-            user_id=user_id,
-            created_at=opened_at,
-            last_seen=opened_at,
-            ip_address=ip_address,
-            user_agent=user_agent,
+            user=self.users.users[user_id],
+            created_at=now,
+            expires_at=expires_at,
         )
         self.rows[session.id] = session
         return session
 
     def load(self, session_id: str) -> Session | None:
-        return self.rows.get(session_id)
-
-    def touch(
-        self,
-        record: Session,
-        *,
-        ip_address: str,
-        user_agent: str,
-        now: datetime,
-    ) -> bool:
-        if record.id not in self.rows:
-            return False
-        self.rows[record.id] = replace(
-            record,
-            last_seen=now,
-            ip_address=ip_address,
-            user_agent=user_agent,
+        self.loads += 1
+        session = self.rows.get(session_id)
+        account = None if session is None else self.users.get(session.user.id)
+        return (
+            None
+            if session is None or account is None
+            else replace(session, user=account)
         )
+
+    def touch(self, session_id: str, *, expires_at: datetime) -> bool:
+        self.touches += 1
+        if session_id not in self.rows:
+            return False
+        self.rows[session_id] = replace(self.rows[session_id], expires_at=expires_at)
         return True
 
     def delete(self, session_id: str) -> None:
         self.rows.pop(session_id, None)
 
     def delete_for_user(self, user_id: str) -> int:
-        kept = {
-            session_id: session
+        owned = [
+            session_id
             for session_id, session in self.rows.items()
-            if session.user_id != user_id
-        }
-        dropped = len(self.rows) - len(kept)
-        self.rows.clear()
-        self.rows.update(kept)
-        return dropped
+            if session.user.id == user_id
+        ]
+        for session_id in owned:
+            del self.rows[session_id]
+        return len(owned)
 
-    def prune_overflow(self, user_id: str, max_sessions: int) -> list[str]:
+    def prune_overflow(self, user_id: str, keep_newest: int) -> None:
         owned = sorted(
-            (session for session in self.rows.values() if session.user_id == user_id),
-            key=lambda session: (session.last_seen, session.id),
+            (session for session in self.rows.values() if session.user.id == user_id),
+            key=lambda session: (session.created_at, session.id),
             reverse=True,
         )
-        dropped = [session.id for session in owned[max_sessions:]]
-        for session_id in dropped:
-            self.rows.pop(session_id, None)
-        return dropped
+        for session in owned[keep_newest:]:
+            del self.rows[session.id]
 
 
 @dataclass(frozen=True)
@@ -142,32 +125,17 @@ class FakePeople:
 
     users: FakeUserStore
     sessions: FakeSessionRecordStore
-
-    @property
-    def clock(self) -> FrozenClock:
-        assert self.sessions.clock is not None
-        return self.sessions.clock
+    clock: FrozenClock
 
     def open_session_for(self, person: User) -> str:
         """Seed the person and one live session of theirs, and return its id."""
         self.users.users[person.id] = person
-        opened = self.sessions.create(
+        now = self.clock.now()
+        return self.sessions.create(
             person.id,
-            self.clock.now() + SESSION_LIFETIME,
-            ip_address="",
-            user_agent="",
-        )
-        return opened.id
-
-
-@dataclass(frozen=True, slots=True)
-class MatchingLiveness:
-    """An idle-window rule for exercising `Identity` without a library."""
-
-    window: timedelta = SESSION_LIFETIME
-
-    def admits(self, session: Session, *, at: datetime) -> bool:
-        return (at - session.last_seen).total_seconds() <= self.window.total_seconds()
+            now=now,
+            expires_at=now + SESSION_LIFETIME,
+        ).id
 
 
 @dataclass

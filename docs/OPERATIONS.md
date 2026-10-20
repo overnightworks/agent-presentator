@@ -17,16 +17,20 @@ value it was given, so a mistyped secret does not land in the startup output.
 Signing in arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242));
 until then nobody can sign in and every page leads to `/login`. A session ends
 twelve hours after it opened, however often it is used; the store keeps the
-sign-in time for that. Logging out deletes the row.
+sign-in time and the expiry for that, and no client address or user agent.
+Logging out deletes the row. A session past its expiry is refused but its row
+stays until the purge that follows
+([#242](https://github.com/overnightworks/agent-presentator/issues/242) is its
+first part).
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
-`webauth` v0.17.0's mechanism (`issue_session_cookies` /
+`webauth` v0.18.0's mechanism (`issue_session_cookies` /
 `clear_session_cookies` / `session_id_from_request`), as are the fail-closed
 CSRF-origin policy, the browser-or-JSON answer for a missing session, and the
 refusal of a request that carries the session cookie twice: it is treated as
 signed out rather than letting either copy decide whose account it runs in.
-The host's `Identity` remains the authority that decides whether the cookie's
-session id names a person. A signed-out browser navigation is redirected to
+`webauth`'s `admit_session` is the one authority, for HTTP and WebSocket alike,
+that decides whether the cookie's session id names a person. A signed-out browser navigation is redirected to
 `/login?next=<requested-path-and-query>`; a JSON request receives 401. Every
 mutating path is protected unless it is exempted, and only the sessionless
 webhook prefix `/sources/` is exempt. `Secure` follows
@@ -35,9 +39,10 @@ both cookies `Secure` and gives them the library's host-only names
 `__Host-session_id` and `__Host-csrf_token`, which only this exact host can
 set; an `http://` origin, as in a run from a checkout, drops `Secure` and keeps
 the plain names `session_id` and `csrf_token`, because a browser does not send
-a `Secure` cookie back over plain http. A `same-site` or `none`
+a `Secure` cookie back over plain http. A `cross-site` or `none`
 `Sec-Fetch-Site` POST, and a form POST carrying neither `Sec-Fetch-Site` nor
-`Origin`, are refused.
+`Origin`/`Referer`, are refused; every other POST is judged as described under
+the public origin below.
 
 Every answer, including a login redirect and a refusal, carries `webauth`'s
 `SecurityHeadersMiddleware` headers: `Cache-Control: no-store`, a
@@ -95,16 +100,17 @@ is correct for a direct run. Behind the tunnel of
 connects from localhost, so that peer is `127.0.0.1` and every request through
 the tunnel shares one address. Set `PRESENTATOR_TRUSTED_PROXIES` to that peer
 (`127.0.0.1`) so the library reads `X-Forwarded-For` and `X-Forwarded-Proto`:
-the session records the real client address instead of the tunnel's one, and
+the per-address rate limit counts the real client instead of the tunnel, and
 the fetch-now hook address the Sources page shows names the https the tunnel
 client saw, not the plain http the app itself is served over. The guard against
-another site's form does not depend on this list: a modern browser's own
-`Sec-Fetch-Site` decides it without reading the connection at all. A client old
-enough, or plain enough, to send neither `Sec-Fetch-Site` nor `Origin` falls
-back to an allowlist that names nothing in production (`allowed_hosts_exact`
-and `allowed_hosts_patterns` are both empty), so that request is refused rather
-than admitted — a native call to a route that needs a session answers the same
-way any missing session does. `127.0.0.1` is the answer for a direct run, where
+another site's form does not depend on this list: a request carrying
+`Sec-Fetch-Site: cross-site` is refused outright. A request without
+`Sec-Fetch-Site`, or with `same-site`, is judged by its `Origin` (or `Referer`)
+against the host of `PRESENTATOR_PUBLIC_ORIGIN`, the only host the allowlist
+names (`allowed_hosts_exact`): a form that names that host is admitted, any
+other host is refused, and a form carrying neither is refused. A native call to
+a route that needs a session answers the same way any missing session does.
+`127.0.0.1` is the answer for a direct run, where
 the tunnel client and the server share one loopback; a container has a network
 of its own and sees that same client as its gateway, which the section after
 this one names.
@@ -549,7 +555,7 @@ published. The overlay uses relative `/copresenter` routes; Presentator checks
 its existing active session and the exact WebSocket Origin before opening the
 socket. `/ask` also carries the session's CSRF cookie (`__Host-csrf_token`
 over https, `csrf_token` over plain http) in `x-csrf-token`. Logout, expiry,
-deactivation, or a session-store failure closes the hearing lease and an
+loss of the account row, or a session-store failure closes the hearing lease and an
 ongoing answer within one second.
 
 `/ask` bounds what one session may spend. `said` is at most 2000 characters and

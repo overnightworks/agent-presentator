@@ -31,7 +31,6 @@ from presentator.adapters.catalog import (
     load_catalogs,
 )
 from presentator.adapters.decks import SourceMirrors
-from presentator.adapters.identity import IdleWindow, lifetime_policy
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -40,7 +39,6 @@ from presentator.api.auth import (
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
 from presentator.application.decks import Decks
-from presentator.application.identity import SESSION_LIFETIME, Identity
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
@@ -199,19 +197,20 @@ class Lobby:
         return str(self.client.base_url).rstrip("/")
 
 
-def a_web_auth(*, cookie_secure: bool = True) -> WebAuthConfig:
+def a_web_auth(clock: FrozenClock, *, cookie_secure: bool = True) -> WebAuthConfig:
     """The host's library configuration, as the test origin reaches it.
 
     `cookie_secure` stands in for the production derivation from
     `public_origin`'s scheme: a route test names the origin it wants driven.
+    The library reads its now from the test's clock, the one the session
+    fake is seeded from.
     """
     host_config = lobby_web_auth_config(
         SecretStr("t" * 32),
-        liveness=lifetime_policy(SESSION_LIFETIME),
         trusted_proxies="",
         public_origin=A_BROWSERS_ADDRESS if cookie_secure else AN_INSECURE_ORIGIN,
     )
-    return replace(host_config, allowed_hosts_exact=frozenset({"testserver"}))
+    return replace(host_config, wall_clock=lambda: clock.now().timestamp())
 
 
 def a_configured_source(url: str) -> Source:
@@ -256,9 +255,11 @@ NO_DECKS: Final = GivenDecks()
 
 def a_crowd(users: FakeUserStore | None = None) -> FakePeople:
     """Nobody signed in yet, on a clock only the test moves."""
+    accounts = FakeUserStore() if users is None else users
     return FakePeople(
-        users=FakeUserStore() if users is None else users,
-        sessions=FakeSessionRecordStore(clock=FrozenClock(instant=NOW)),
+        users=accounts,
+        sessions=FakeSessionRecordStore(users=accounts),
+        clock=FrozenClock(instant=NOW),
     )
 
 
@@ -273,12 +274,6 @@ def a_lobby_app(
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     crowd = a_crowd() if people is None else people
     clock = crowd.clock
-    identity = Identity(
-        users=crowd.users,
-        sessions=crowd.sessions,
-        clock=clock,
-        liveness=IdleWindow(lifetime_policy(SESSION_LIFETIME)),
-    )
     stored = (
         list(given.sources)
         if given.sources
@@ -337,7 +332,7 @@ def a_lobby_app(
     if given.folders is not None:
         decks.refresh()
     lobby = create_lobby(
-        identity=identity,
+        sessions=crowd.sessions,
         decks=decks,
         pages=Pages(
             preferences=Preferences(
@@ -349,7 +344,7 @@ def a_lobby_app(
             duration_in_words=duration_in_words,
         ),
         auth=InstalledAuth(
-            config=a_web_auth(cookie_secure=cookie_secure),
+            config=a_web_auth(clock, cookie_secure=cookie_secure),
         ),
         private=LobbyPrivate(
             copresenter=copresenter,

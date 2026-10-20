@@ -110,10 +110,8 @@ DATENSCHUTZ: Final = LegalDocument(
                     "(CSRF), nicht dem Tracking; er bleibt wie das Sitzungs-Cookie "
                     f"{_SESSION_HOURS} Stunden im Browser und wird mit jeder "
                     "angemeldeten Antwort erneuert. Gespeichert werden "
-                    "Sitzungs-ID, Benutzer-ID, IP-Adresse, User-Agent und der "
-                    "Zeitpunkt der Anmeldung und der letzten Aktivität. IP-Adresse "
-                    "und User-Agent der letzten Anfrage werden mit jeder Anfrage "
-                    "gespeichert und derzeit von nichts ausgewertet. Eine "
+                    "Sitzungs-ID, Benutzer-ID und der Zeitpunkt der Anmeldung "
+                    "und des Ablaufs. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
                     "Zweck · Rechtsgrundlage: angemeldet bleiben, "
                     f"{_BASIS_CONTRACT}; die Cookies "
@@ -239,9 +237,10 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Sitzungen:",
-                    "Die Zeile endet beim Abmelden oder wird gelöscht, wenn "
-                    "ihr abgelaufenes Cookie zurückkehrt. Sonst bleibt sie mit "
-                    "IP-Adresse und User-Agent bestehen.",
+                    "Die Zeile endet beim Abmelden. Eine abgelaufene Sitzung "
+                    "lässt sich nicht mehr verwenden, ihre Zeile bleibt aber "
+                    "bestehen, bis sie gelöscht wird; eine automatische "
+                    "Löschung gibt es noch nicht.",
                 ),
                 _point(
                     "Einmalig angezeigte Quellen-Zugriffsschlüssel "
