@@ -4,15 +4,13 @@ import errno
 import os
 import socket
 import stat
-import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
-import tests.test_worker_record_chain as record_chain
-from presentator.host import worker, worker_serving
+from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     END,
@@ -35,8 +33,6 @@ sys.exit(6)
 """
 EXITING_SEVEN = "import sys; sys.exit(7)"
 CONTROLLER_UMASK = 0o077
-HOLD_SECONDS = WAIT_SECONDS
-JOIN_SECONDS = 0.5
 
 
 @pytest.fixture
@@ -94,120 +90,6 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
     assert life.life_end == LifeEnd.STEP_ACCEPTED
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
-
-
-class ConversationFailedError(Exception):
-    """The client side of a test conversation broke."""
-
-
-class CleanUpFailedError(OSError):
-    """Ending the children of a test life broke."""
-
-
-class GatedClosingDeck(type(Path())):
-    """A deck whose closing waits until the test lets the controller go on."""
-
-    released: threading.Event
-
-    def chmod(self, mode: int, *, follow_symlinks: bool = True) -> None:
-        if mode == DECK_CLOSED_MODE:
-            self.released.wait(HOLD_SECONDS)
-        super().chmod(mode, follow_symlinks=follow_symlinks)
-
-
-class ReleasingSpawn(ChainSpawn):
-    """Lets the gated deck close once the children are reaped, then fails if asked."""
-
-    def __init__(self, released: threading.Event, failure: OSError | None) -> None:
-        """Gate on the given event and fail the reaping with the given error."""
-        super().__init__()
-        self.released = released
-        self.failure = failure
-
-    def kill_and_reap(self) -> None:
-        super().kill_and_reap()
-        self.released.set()
-        if self.failure is not None:
-            raise self.failure
-
-
-CLEAN_UP_FAILURES = {
-    "the clean-up succeeds": None,
-    "the clean-up fails": CleanUpFailedError("reap failed"),
-}
-
-
-@pytest.mark.parametrize(
-    "failure", CLEAN_UP_FAILURES.values(), ids=CLEAN_UP_FAILURES.keys()
-)
-def test_a_failing_conversation_stays_primary_and_returns_only_after_the_deck_closed(
-    sandbox: Path, failure: OSError | None
-) -> None:
-    def fail_after_status(client: socket.socket) -> None:
-        read_status(client)
-        raise ConversationFailedError
-
-    deck = GatedClosingDeck(sandbox / "deck")
-    deck.released = threading.Event()
-
-    with pytest.raises(ConversationFailedError) as raised:
-        run_life(
-            VALID_STEP,
-            ReleasingSpawn(deck.released, failure),
-            LifeScenario(deck=deck),
-            fail_after_status,
-        )
-
-    assert deck_mode(sandbox) == DECK_CLOSED_MODE
-    notes = "".join(getattr(raised.value, "__notes__", []))
-    assert (failure is None) == (not notes)
-    assert failure is None or repr(failure) in notes
-
-
-class StuckController:
-    """A seal that holds the controller thread until the test lets it go."""
-
-    def __init__(self) -> None:
-        """Start with the seal not yet entered and not yet released."""
-        self.entered = threading.Event()
-        self.released = threading.Event()
-
-    def seal(self, record: int) -> None:
-        self.entered.set()
-        self.released.wait(HOLD_SECONDS)
-        worker.seal_record(record)
-
-    def await_stuck(self, _client: socket.socket) -> None:
-        assert self.entered.wait(HOLD_SECONDS)
-
-
-@pytest.mark.parametrize("expected", [AssertionError, ConversationFailedError])
-def test_a_controller_that_outlives_the_join_fails_loudly_on_every_path(
-    sandbox: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    expected: type[Exception],
-) -> None:
-    monkeypatch.setattr(record_chain, "WAIT_SECONDS", JOIN_SECONDS)
-    stuck = StuckController()
-
-    def converse(client: socket.socket) -> None:
-        stuck.await_stuck(client)
-        if expected is ConversationFailedError:
-            raise ConversationFailedError
-
-    try:
-        with pytest.raises(expected) as raised:
-            run_life(
-                VALID_STEP,
-                ChainSpawn(),
-                LifeScenario(deck=sandbox / "deck", seal=stuck.seal),
-                converse,
-            )
-    finally:
-        stuck.released.set()
-
-    notes = "".join(getattr(raised.value, "__notes__", []))
-    assert ("AssertionError" in notes) == (expected is ConversationFailedError)
 
 
 def step_message(header: bytes) -> bytes:

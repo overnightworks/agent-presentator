@@ -134,15 +134,16 @@ def run_life(
 
 
 def _end_life(
-    spawn: ChainSpawn, thread: threading.Thread, client: socket.socket | None
+    spawn: ChainSpawn, thread: threading.Thread, client: socket.socket
 ) -> None:
     try:
-        if client is not None:
-            client.close()
-        spawn.kill_and_reap()
+        client.close()
     finally:
-        thread.join(WAIT_SECONDS)
-        assert not thread.is_alive()
+        try:
+            spawn.kill_and_reap()
+        finally:
+            thread.join(WAIT_SECONDS)
+            assert not thread.is_alive(), "the controller outlived its life"
 
 
 def _run_life_at(
@@ -179,17 +180,11 @@ def _run_life_at(
             client.sendall(sent)
             converse(client)
             thread.join(WAIT_SECONDS)
-        except BaseException as conversation_failure:
-            try:
-                _end_life(spawn, thread, client)
-            except (OSError, AssertionError) as cleanup_failure:
-                conversation_failure.add_note(
-                    f"clean-up also failed: {cleanup_failure!r}"
-                )
-            raise
-        _end_life(spawn, thread, None)
-        controller_end.close()
-        return Life(outcome[0], read_to_end(client), spawn)
+            controller_end.close()
+            reply = read_to_end(client)
+        finally:
+            _end_life(spawn, thread, client)
+        return Life(outcome[0], reply, spawn)
 
 
 @pytest.fixture
