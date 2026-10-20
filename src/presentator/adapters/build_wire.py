@@ -1,10 +1,10 @@
-"""The build wire's framing: read a HELLO or STEP request, write a STATUS."""
+"""The build wire's framing: requests and END read, STATUS, OUTCOME and END written."""
 
 import os
 import socket
 import struct
 from enum import IntEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ValidationError
 
@@ -24,6 +24,7 @@ class MessageKind(IntEnum):
     HELLO = 1
     STEP = 2
     STATUS = 3
+    OUTCOME = 5
 
 
 class RecordTag(IntEnum):
@@ -53,6 +54,13 @@ class StepHeader(BaseModel, extra="forbid", strict=True):
 
     step: StepKind
     slug: Annotated[str, AfterValidator(_plain_folder_name)]
+
+
+class FailedOutcome(BaseModel, extra="forbid", strict=True):
+    """The header of an OUTCOME that carries no text: the build failed."""
+
+    outcome: Literal["failed"] = "failed"
+    text: None = None
 
 
 _HEADER_MODELS: dict[int, type[EmptyHeader | StepHeader]] = {
@@ -95,12 +103,25 @@ def read_request(connection: socket.socket) -> EmptyHeader | StepHeader:
         raise WireRefusedError from error
 
 
+def _send_message(connection: socket.socket, kind: MessageKind, header: bytes) -> None:
+    connection.sendall(_preamble(kind) + LENGTH.pack(len(header)) + header)
+
+
 def send_status(connection: socket.socket) -> None:
     """Write the STATUS message: the preamble and the empty header."""
-    header = b"{}"
-    connection.sendall(
-        _preamble(MessageKind.STATUS) + LENGTH.pack(len(header)) + header
+    _send_message(connection, MessageKind.STATUS, b"{}")
+
+
+def send_failed(connection: socket.socket) -> None:
+    """Write the OUTCOME message: the build failed, with no text."""
+    _send_message(
+        connection, MessageKind.OUTCOME, FailedOutcome().model_dump_json().encode()
     )
+
+
+def send_end(connection: socket.socket) -> None:
+    """Write the END record of a reply that carries no entries."""
+    connection.sendall(bytes([RecordTag.END]) + END_COUNTS.pack(0, 0))
 
 
 def encode_record(header: StepHeader) -> bytes:

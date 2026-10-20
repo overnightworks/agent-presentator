@@ -14,6 +14,8 @@ from presentator.adapters.build_wire import (
     WireRefusedError,
     read_end,
     read_request,
+    send_end,
+    send_failed,
     send_status,
 )
 from presentator.contracts.decks import StepKind
@@ -39,6 +41,28 @@ def test_status_is_the_wire_format_bytes(
     send_status(writing_end)
 
     assert reading_end.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_failed_is_an_outcome_message_with_a_null_text(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    reading_end, writing_end = wire
+
+    send_failed(writing_end)
+
+    assert (
+        reading_end.recv(64) == b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
+    )
+
+
+def test_an_end_without_entries_is_thirteen_bytes(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    reading_end, writing_end = wire
+
+    send_end(writing_end)
+
+    assert reading_end.recv(64) == b"\x03" + bytes(12)
 
 
 def test_a_hello_with_the_empty_header_is_read(

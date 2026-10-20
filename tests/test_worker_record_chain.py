@@ -24,12 +24,14 @@ from presentator.adapters.worker_children import (
 )
 from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd, Serving, hand_over
-from tests.worker_support import NeverArmed, RecordingCreation, connect
+from presentator.host.worker_wire import WireExit
+from tests.worker_support import NeverArmed, RecordingCreation, connect, role_of
 
 OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
 PATH = "/usr/bin:/bin"
 STATUS = b"PBW\x01\x03\x00\x02{}"
+OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
 STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
 VALID_STEP = b"PBW\x01\x02" + len(STEP_HEADER).to_bytes(2, "big") + STEP_HEADER
 END = b"\x03" + bytes(12)
@@ -39,6 +41,8 @@ import os, sys
 os.pwrite(int(sys.argv[2]), bytes.fromhex(sys.argv[3]), 0)
 sys.exit(5)
 """
+EXITING_SENT = f"import sys; sys.exit({int(WireExit.SENT)})"
+EXITING_SEVEN = "import sys; sys.exit(7)"
 SLEEPER = "import time; time.sleep(120)"
 INODES_REPORTER = """
 import json, os, sys
@@ -70,7 +74,7 @@ class ChainSpawn:
         environment: Mapping[str, str],
         pass_fds: Sequence[int],
     ) -> GatedChild:
-        role = command[command.index("--role") + 1]
+        role = role_of(command)
         self.roles.append(role)
         program = self.programs.get(role)
         if program is not None:
@@ -87,7 +91,10 @@ class ChainSpawn:
     def kill_and_reap(self) -> None:
         for child in self.children:
             child.kill()
-            child.wait()
+        unreaped = [
+            child for child in self.children if child.wait_within(WAIT_SECONDS) is None
+        ]
+        assert not unreaped, "a killed child was not reaped"
         for process_id in self.process_ids:
             with pytest.raises(ProcessLookupError):
                 os.kill(process_id, 0)
@@ -103,6 +110,15 @@ class Life:
 
 
 def read_to_end(client: socket.socket) -> bytes:
+    """Read until a clean EOF; a reset raises."""
+    received = b""
+    while chunk := client.recv(4096):
+        received += chunk
+    return received
+
+
+def read_to_end_or_reset(client: socket.socket) -> bytes:
+    """Read until EOF or a reset, for refusals that leave bytes unread."""
     received = b""
     with suppress(ConnectionResetError):
         while chunk := client.recv(4096):
@@ -112,11 +128,12 @@ def read_to_end(client: socket.socket) -> bytes:
 
 @dataclass(frozen=True)
 class LifeScenario:
-    """What a life runs on besides the spawn: the record effects and the deck."""
+    """What a life runs on besides the spawn: record effects, deck and reply reader."""
 
     seal: Callable[[int], None] = worker.seal_record
     create_record: Callable[[], int] = worker.create_request_record
     deck: Path | None = None
+    reader: Callable[[socket.socket], bytes] = read_to_end
 
 
 def run_life(
@@ -181,7 +198,7 @@ def _run_life_at(
             converse(client)
             thread.join(WAIT_SECONDS)
             controller_end.close()
-            reply = read_to_end(client)
+            reply = scenario.reader(client)
         finally:
             _end_life(spawn, thread, client)
         return Life(outcome[0], reply, spawn)
@@ -202,13 +219,13 @@ def test_the_upload_child_answers_status_from_the_record_the_idle_child_wrote() 
 
     life = run_life(
         VALID_STEP + END,
-        ChainSpawn(),
+        ChainSpawn(programs={"send": [EXITING_SENT]}),
         LifeScenario(seal=seal_then_read_as_the_test),
     )
 
     assert life.reply == STATUS
-    assert life.life_end == LifeEnd.STEP_ACCEPTED
-    assert life.spawn.roles == ["idle", "upload"]
+    assert life.life_end == LifeEnd.CONSUMED
+    assert life.spawn.roles == ["idle", "upload", "send"]
     assert written == [STEP_HEADER]
 
 
@@ -358,7 +375,6 @@ def test_a_controller_that_stalls_after_the_upload_spawn_dies_at_the_emergency_e
         environment={"PATH": PATH},
         pass_fds=(),
     )
-    upload_process_ids: list[int] = []
     try:
         controller.release()
         with closing(connect_when_serving(volume, controller)) as client:
@@ -366,22 +382,33 @@ def test_a_controller_that_stalls_after_the_upload_spawn_dies_at_the_emergency_e
             exit_status = controller.wait_within(EMERGENCY_END_SECONDS + 30)
             exited_at = time.monotonic()
     finally:
-        controller.close_gate()
-        controller.kill()
-        controller.wait()
-        lines = log.read_text().splitlines()
-        upload_process_ids = [
-            int(line.split()[1]) for line in lines if line.startswith("pid ")
-        ]
-        for process_id in upload_process_ids:
-            with suppress(ProcessLookupError):
-                os.kill(process_id, signal.SIGKILL)
-        await_absence(upload_process_ids)
+        lines = end_controller(controller, log)
+    upload_process_ids = logged_process_ids(lines)
     accepted_at = float(lines[0])
 
     assert len(upload_process_ids) == 1
     assert exit_status == 1
     assert abs(exited_at - accepted_at - EMERGENCY_END_SECONDS) <= TOLERANCE_SECONDS
+
+
+def logged_process_ids(lines: list[str]) -> list[int]:
+    return [int(line.split()[-1]) for line in lines if line.startswith("pid ")]
+
+
+def end_controller(controller: GatedChild, log: Path) -> list[str]:
+    """Stop the controller and SIGKILL every wire child it logged, even on a stall."""
+    try:
+        controller.close_gate()
+        controller.kill()
+        assert controller.wait_within(WAIT_SECONDS) is not None, "controller not reaped"
+    finally:
+        lines = log.read_text().splitlines()
+        process_ids = logged_process_ids(lines)
+        for process_id in process_ids:
+            with suppress(ProcessLookupError):
+                os.kill(process_id, signal.SIGKILL)
+        await_absence(process_ids)
+    return lines
 
 
 def await_absence(process_ids: list[int]) -> None:
