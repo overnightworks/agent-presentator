@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import Protocol
 
 from presentator.adapters.worker_children import ChildIdentity, spawn_gated
+from presentator.host.config import (
+    ConfigurationError,
+    WorkerSettings,
+    load_worker_settings,
+    worker_settings_variables,
+)
 from presentator.host.worker_serving import Serving, accept_connections
 from presentator.host.worker_termination import (
     FaultHandlerWatchdog,
@@ -85,6 +91,7 @@ ALLOWED_ENVIRONMENT_KEYS = frozenset(
         "YARN_VERSION",
         "HOSTNAME",
     }
+    | worker_settings_variables()
 )
 
 PR_GET_DUMPABLE = 3
@@ -111,6 +118,7 @@ class StartRefusal(StrEnum):
     STALE_SOCKET = "stale-socket"
     BIND = "bind"
     LISTEN = "listen"
+    SETTINGS = "settings"
 
 
 class StartRefusedError(Exception):
@@ -169,7 +177,9 @@ class Snapshot:
 class Server(Protocol):
     """Serves the socket for the runtime uid and the controller group."""
 
-    def __call__(self, *, controller_gid: int, runtime_uid: int) -> int:
+    def __call__(
+        self, *, controller_gid: int, runtime_uid: int, settings: WorkerSettings
+    ) -> int:
         """Run until a refusal and return its exit status."""
         ...
 
@@ -181,6 +191,7 @@ class Boundary:
     set_non_dumpable: Callable[[], None]
     set_umask: Callable[[], None]
     read_snapshot: Callable[[], Snapshot]
+    load_settings: Callable[[], WorkerSettings]
     serve: Server
 
 
@@ -590,28 +601,47 @@ def serve(
     return 0
 
 
-REAL_SERVING = Serving(
-    spawn=partial(spawn_gated, identity=ChildIdentity(*WIRE_IDENTITY, extra_groups=())),
-    gate_admits=partial(wire_gate_admits, identity=WIRE_IDENTITY),
-    sweep=partial(
-        sweep,
-        SweepEffects(
-            kill_all=partial(os.kill, -1, signal.SIGKILL),
-            reap=reap_children,
-            list_process_ids=partial(list_process_ids, Path("/proc")),
-            clock=time.monotonic,
-            sleep=time.sleep,
+def real_serving(settings: WorkerSettings) -> Serving:
+    """The effects of a serving life on this machine, bounded by the settings."""
+    return Serving(
+        spawn=partial(
+            spawn_gated, identity=ChildIdentity(*WIRE_IDENTITY, extra_groups=())
         ),
-    ),
-    watchdog=FaultHandlerWatchdog(),
-    clock=time.monotonic,
-)
+        gate_admits=partial(wire_gate_admits, identity=WIRE_IDENTITY),
+        sweep=partial(
+            sweep,
+            SweepEffects(
+                kill_all=partial(os.kill, -1, signal.SIGKILL),
+                reap=reap_children,
+                list_process_ids=partial(list_process_ids, Path("/proc")),
+                clock=time.monotonic,
+                sleep=time.sleep,
+            ),
+        ),
+        watchdog=FaultHandlerWatchdog(),
+        clock=time.monotonic,
+        build_timeout_seconds=settings.build_timeout_seconds,
+    )
+
+
+def _serve_on_this_machine(
+    *, controller_gid: int, runtime_uid: int, settings: WorkerSettings
+) -> int:
+    return serve(
+        Path(SOCKET_DIRECTORY),
+        controller_uid=0,
+        controller_gid=controller_gid,
+        runtime_uid=runtime_uid,
+        serving=real_serving(settings),
+    )
+
 
 REAL_BOUNDARY = Boundary(
     _set_non_dumpable,
     _set_umask,
     partial(read_snapshot, Path("/")),
-    partial(serve, Path(SOCKET_DIRECTORY), controller_uid=0, serving=REAL_SERVING),
+    load_worker_settings,
+    _serve_on_this_machine,
 )
 
 
@@ -638,7 +668,13 @@ def main(argv: Sequence[str] | None = None, boundary: Boundary = REAL_BOUNDARY) 
         return _refuse(failing)
     if arguments.check:
         return 0
+    try:
+        settings = boundary.load_settings()
+    except ConfigurationError:
+        logger.exception("settings refused")
+        return _refuse(StartRefusal.SETTINGS)
     return boundary.serve(
         controller_gid=snapshot.identity.runtime_gid,
         runtime_uid=snapshot.identity.runtime_uid,
+        settings=settings,
     )

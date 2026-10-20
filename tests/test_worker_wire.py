@@ -10,6 +10,7 @@ from contextlib import closing
 import pytest
 
 from presentator.host import worker, worker_wire
+from presentator.host.config import WorkerSettings
 from presentator.host.worker_wire import WireExit
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
@@ -93,8 +94,18 @@ def test_the_gate_judges_against_the_identity_it_is_given() -> None:
 
 
 def test_production_judges_by_the_gate_of_the_wire_identity() -> None:
-    assert worker.REAL_SERVING.gate_admits(status_of())
-    assert not worker.REAL_SERVING.gate_admits(status_of(Groups="0"))
+    serving = worker.real_serving(WorkerSettings(build_timeout_seconds=9.0))
+
+    assert serving.gate_admits(status_of())
+    assert not serving.gate_admits(status_of(Groups="0"))
+
+
+def test_production_carries_the_build_bound_of_the_settings() -> None:
+    settings = WorkerSettings(build_timeout_seconds=9.0)
+
+    serving = worker.real_serving(settings)
+
+    assert serving.build_timeout_seconds == settings.build_timeout_seconds
 
 
 def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:

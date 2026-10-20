@@ -23,6 +23,7 @@ from presentator.contracts.voice import (
     VoiceLoadOutcome,
     VoiceState,
 )
+from presentator.host.config import WorkerSettings
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
@@ -190,3 +191,6 @@ TalkFiles.get_response
 
 # Pydantic runs this `field_validator` on every `AskRequest.language` value.
 AskRequest.empty_language_is_no_language
+
+# pydantic reads a model's `model_config` by name when the class is built.
+WorkerSettings.model_config
