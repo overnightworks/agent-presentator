@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import ClassVar
@@ -37,6 +37,7 @@ REAL_SPAWN = partial(spawn_gated, identity=OWN_IDENTITY)
 WAIT_SECONDS = 10
 WATCHDOG_WINDOW = (6.0, 8.0)
 INHERITED_DESCRIPTORS = {0, 1, 2}
+CHILD_DESCRIPTORS = 2
 RELEASED_UMASK = 0o022
 CURRENT_DIRECTORY_KEY = "PWD"
 PATH = "/usr/bin:/bin"
@@ -60,6 +61,7 @@ serving = worker_serving.Serving(
     spawn=stall,
     gate_admits=lambda _status: True,
     sweep=lambda _deadline: True,
+    seal=lambda _record: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     build_timeout_seconds=300.0,
@@ -136,6 +138,7 @@ def serving_with(
         spawn=spawn,
         gate_admits=lambda _status: admits,
         sweep=lambda _deadline: quiet,
+        seal=worker.seal_record,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         build_timeout_seconds=300.0,
@@ -214,7 +217,7 @@ def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
     report = hand_over_probe(connection_pair, monkeypatch)
 
     assert report.stdin == "/dev/null"
-    assert set(report.descriptors) == INHERITED_DESCRIPTORS | {report.connection}
+    assert len(set(report.descriptors) - INHERITED_DESCRIPTORS) == CHILD_DESCRIPTORS
     assert report.working_directory == "/"
     assert report.umask == RELEASED_UMASK
     assert report.session_leader
@@ -466,13 +469,8 @@ class RealServing:
         assert self.swept.acquire(timeout=WAIT_SECONDS)
 
     def start(self) -> threading.Thread:
-        serving = Serving(
-            spawn=self.spawn,
-            gate_admits=lambda _status: True,
-            sweep=self.sweep,
-            watchdog=self.watchdog,
-            clock=time.monotonic,
-            build_timeout_seconds=300.0,
+        serving = replace(
+            serving_with(self.spawn), sweep=self.sweep, watchdog=self.watchdog
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
@@ -559,7 +557,7 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
 
 
-def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
+def test_a_valid_step_is_answered_with_status_by_the_upload_child_and_ends_the_life(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
@@ -567,7 +565,7 @@ def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
         reply = run.serving.exchange(run.thread, VALID_STEP)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == b""
+    assert reply.received == STATUS
     assert not reply.ended_by_reset
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]

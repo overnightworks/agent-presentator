@@ -1,0 +1,271 @@
+"""The controller's handling of the request record across an accepted step."""
+
+import errno
+import mmap
+import os
+import socket
+from collections.abc import Callable, Iterator
+from contextlib import closing
+from dataclasses import replace
+
+import pytest
+
+from presentator.host import worker, worker_serving
+from presentator.host.worker_serving import (
+    UPLOAD_SECONDS,
+    LifeEnd,
+    hand_over,
+)
+from presentator.host.worker_wire import WireExit
+from tests.worker_support import ACCEPT_TIME, RecordingCreation, ScriptedLife
+
+ACCEPTED_ARM = "arm 447.0"
+
+
+@pytest.fixture
+def created(monkeypatch: pytest.MonkeyPatch) -> RecordingCreation:
+    creation = RecordingCreation()
+    monkeypatch.setattr(worker_serving, "create_request_record", creation)
+    return creation
+
+
+@pytest.fixture
+def connection() -> Iterator[socket.socket]:
+    controller_end, client = socket.socketpair()
+    with closing(controller_end), closing(client):
+        yield controller_end
+
+
+def accepted_life(**changes: object) -> ScriptedLife:
+    return replace(ScriptedLife(exit_status=WireExit.ACCEPTED), **changes)
+
+
+def test_the_watchdog_is_re_armed_before_the_record_is_sealed_and_passed_unread(
+    connection: socket.socket,
+) -> None:
+    life = accepted_life()
+
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert outcome == LifeEnd.STEP_ACCEPTED
+    rearmed = life.events.index(ACCEPTED_ARM)
+    assert life.events[rearmed : rearmed + 2] == [ACCEPTED_ARM, "seal"]
+    idle, upload = life.spawned
+    assert idle.pass_fds == upload.pass_fds
+    assert life.sealed_descriptors == [idle.pass_fds[1]]
+
+
+CONSUMERS = {
+    "the re-arm": {"arm_takes": 0.3},
+    "the seal": {"seal_takes": 0.4},
+    "the upload child's gate check": {"inspection_takes": 0.5},
+    "the upload child's release": {"release_takes": 0.25},
+}
+
+
+@pytest.mark.parametrize("consumed", CONSUMERS.values(), ids=CONSUMERS.keys())
+def test_the_upload_wait_is_what_remains_of_the_budget_taken_at_the_accepted_exit(
+    connection: socket.socket, consumed: dict[str, float]
+) -> None:
+    life = accepted_life(**consumed)
+
+    hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    [taken] = consumed.values()
+    assert life.budgets_waited[-1] == pytest.approx(UPLOAD_SECONDS - taken)
+
+
+def test_an_upload_budget_spent_before_the_release_prevents_the_release(
+    connection: socket.socket,
+) -> None:
+    life = accepted_life(seal_takes=UPLOAD_SECONDS + 1, upload_stalled=True)
+
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert outcome == LifeEnd.UPLOAD_EXPIRED
+    upload_leg = life.events[life.events.index("seal") :]
+    assert upload_leg == ["seal", "spawn", "status", "kill", "wait", "close-gate"]
+
+
+def test_an_upload_budget_spent_during_the_release_is_not_waited_for(
+    connection: socket.socket,
+) -> None:
+    life = accepted_life(
+        release_takes=0.2, seal_takes=UPLOAD_SECONDS - 0.1, upload_stalled=True
+    )
+
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert outcome == LifeEnd.UPLOAD_EXPIRED
+    upload_leg = life.events[life.events.index("seal") :]
+    assert upload_leg == [
+        "seal",
+        "spawn",
+        "status",
+        "release",
+        "kill",
+        "wait",
+        "close-gate",
+    ]
+    assert len(life.budgets_waited) == 1
+
+
+def test_a_stalled_upload_child_is_waited_for_its_remaining_time_then_killed(
+    connection: socket.socket,
+) -> None:
+    life = accepted_life(upload_stalled=True)
+
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert outcome == LifeEnd.UPLOAD_EXPIRED
+    assert life.budgets_waited[-1] == UPLOAD_SECONDS
+    assert life.events[-3:] == ["kill", "wait", "close-gate"]
+
+
+def test_a_writable_shared_mapping_makes_the_production_seal_fail_before_any_upload(
+    connection: socket.socket,
+) -> None:
+    mappings: list[mmap.mmap] = []
+    refusals: list[OSError] = []
+
+    def seal_while_mapped(record: int) -> None:
+        os.ftruncate(record, mmap.PAGESIZE)
+        mappings.append(
+            mmap.mmap(record, mmap.PAGESIZE, mmap.MAP_SHARED, mmap.PROT_WRITE)
+        )
+        try:
+            worker.seal_record(record)
+        except OSError as refused:
+            refusals.append(refused)
+            raise
+
+    life = accepted_life()
+    try:
+        outcome = hand_over(
+            connection, replace(life.serving(), seal=seal_while_mapped), ACCEPT_TIME
+        )
+    finally:
+        for mapping in mappings:
+            mapping.close()
+
+    [refused] = refusals
+    assert refused.errno == errno.EBUSY
+    assert outcome == LifeEnd.SEAL_FAILED
+    assert len(life.spawned) == 1
+
+
+CONTROLLER_READS: dict[str, Callable[[int], object]] = {
+    "read": lambda record: os.read(record, 1),
+    "pread": lambda record: os.pread(record, 1, 0),
+    "readv": lambda record: os.readv(record, [bytearray(1)]),
+    "preadv": lambda record: os.preadv(record, [bytearray(1)], 0),
+}
+
+
+def forbid_reads_of(
+    monkeypatch: pytest.MonkeyPatch, created: RecordingCreation
+) -> None:
+    for name in CONTROLLER_READS:
+        genuine = getattr(os, name)
+
+        def guarded(
+            descriptor: int,
+            *arguments: object,
+            genuine: Callable[..., object] = genuine,
+        ) -> object:
+            assert descriptor != created.descriptor, "the controller read the record"
+            return genuine(descriptor, *arguments)
+
+        monkeypatch.setattr(os, name, guarded)
+
+
+def test_the_controller_reads_no_byte_of_the_record_over_a_whole_accepted_life(
+    connection: socket.socket,
+    created: RecordingCreation,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forbid_reads_of(monkeypatch, created)
+    life = accepted_life()
+
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+
+    assert outcome == LifeEnd.STEP_ACCEPTED
+
+
+@pytest.mark.parametrize("read", CONTROLLER_READS.values(), ids=CONTROLLER_READS.keys())
+def test_a_controller_that_reads_the_record_by_any_call_fails_the_interception(
+    connection: socket.socket,
+    created: RecordingCreation,
+    monkeypatch: pytest.MonkeyPatch,
+    read: Callable[[int], object],
+) -> None:
+    forbid_reads_of(monkeypatch, created)
+    life = accepted_life()
+    serving = replace(life.serving(), seal=read)
+
+    with pytest.raises(AssertionError, match="read the record"):
+        hand_over(connection, serving, ACCEPT_TIME)
+
+
+class ArmFails:
+    """A watchdog whose re-arm raises."""
+
+    def arm(self, remaining: float) -> None:
+        raise RuntimeError(remaining)
+
+    def cancel(self) -> None:
+        pass
+
+
+PATHS = {
+    "a spawn failure": (lambda: ScriptedLife(spawn_error=OSError("no")), LifeEnd.SPAWN),
+    "a gate mismatch": (lambda: ScriptedLife(gate_admits=False), LifeEnd.GATE),
+    "a header expiry": (lambda: ScriptedLife(headers_stalled=1), None),
+    "a HELLO answered": (lambda: ScriptedLife(exit_status=WireExit.ANSWERED), None),
+    "a rejection": (lambda: ScriptedLife(exit_status=WireExit.CLOSED), None),
+    "a wire exit": (lambda: ScriptedLife(exit_status=1), LifeEnd.WIRE_EXIT),
+    "a failing seal": (
+        lambda: accepted_life(seal_error=OSError("no seal")),
+        LifeEnd.SEAL_FAILED,
+    ),
+    "an upload spawn failure": (
+        lambda: accepted_life(upload_spawn_error=OSError("no")),
+        LifeEnd.SPAWN,
+    ),
+    "an upload gate mismatch": (
+        lambda: accepted_life(upload_gate_admits=False),
+        LifeEnd.GATE,
+    ),
+    "an upload expiry": (
+        lambda: accepted_life(upload_stalled=True),
+        LifeEnd.UPLOAD_EXPIRED,
+    ),
+    "an upload wire exit": (
+        lambda: accepted_life(upload_exit_status=WireExit.CLOSED),
+        LifeEnd.WIRE_EXIT,
+    ),
+    "a success": (accepted_life, LifeEnd.STEP_ACCEPTED),
+}
+
+
+@pytest.mark.parametrize(("make_life", "life_end"), PATHS.values(), ids=PATHS.keys())
+def test_the_controllers_record_descriptor_is_closed_on_every_path(
+    connection: socket.socket,
+    created: RecordingCreation,
+    make_life: Callable[[], ScriptedLife],
+    life_end: LifeEnd | None,
+) -> None:
+    assert hand_over(connection, make_life().serving(), ACCEPT_TIME) == life_end
+
+    assert created.is_closed()
+
+
+def test_the_controllers_record_descriptor_is_closed_when_the_re_arm_raises(
+    connection: socket.socket, created: RecordingCreation
+) -> None:
+    serving = replace(accepted_life().serving(), watchdog=ArmFails())
+
+    with pytest.raises(RuntimeError):
+        hand_over(connection, serving, ACCEPT_TIME)
+
+    assert created.is_closed()

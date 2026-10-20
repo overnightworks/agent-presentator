@@ -1,5 +1,6 @@
 """The build wire's framing: read a HELLO or STEP request, write a STATUS."""
 
+import os
 import socket
 import struct
 from enum import IntEnum
@@ -91,3 +92,27 @@ def send_status(connection: socket.socket) -> None:
     connection.sendall(
         _preamble(MessageKind.STATUS) + LENGTH.pack(len(header)) + header
     )
+
+
+def encode_record(header: StepHeader) -> bytes:
+    """The request record: the validated header's JSON."""
+    return header.model_dump_json().encode()
+
+
+def write_record(descriptor: int, header: StepHeader) -> None:
+    """Write the whole record from offset 0, leaving the shared file offset at 0."""
+    record = memoryview(encode_record(header))
+    written = 0
+    while written < len(record):
+        written += os.pwrite(descriptor, record[written:], written)
+
+
+def read_record(descriptor: int) -> StepHeader:
+    """Read the record from offset 0; refuse anything but a valid step header."""
+    record = os.pread(descriptor, MAXIMUM_HEADER_BYTES + 1, 0)
+    if len(record) > MAXIMUM_HEADER_BYTES:
+        raise WireRefusedError
+    try:
+        return StepHeader.model_validate_json(record)
+    except ValidationError as error:
+        raise WireRefusedError from error
