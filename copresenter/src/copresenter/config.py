@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     claude_model: str = "claude-sonnet-4-6"
     language: str = "de"
     claude_token_file: Path = Field(
-        default_factory=lambda: _home_path(".secrets", "agent-service", "claude.token"),
+        default_factory=lambda: _home_path(".secrets", "agent-service", "claude", "token"),
     )
     cli_search_path: Annotated[tuple[Path, ...], NoDecode] = Field(
         default_factory=lambda: (_home_path(".local", "bin"),),

@@ -115,7 +115,7 @@ def build_claude(
     working_root = tmp_path / "root"
     working_root.mkdir(mode=0o700)
     install_fake_claude(tmp_path / "bin", fails=fails)
-    token_file = home / ".secrets/agent-service/claude.token"
+    token_file = home / ".secrets/agent-service/claude/token"
     if login is not None:
         write_token(token_file, *login)
     # Valid tokens beside the shared file: no per-app fallback may pick one up.
