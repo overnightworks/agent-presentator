@@ -63,7 +63,7 @@ def test_settings_default_to_the_shared_login_and_a_private_state_root(
 
     settings = Settings(allowed_origin=ALLOWED_ORIGIN)
 
-    assert settings.claude_token_file == tmp_path / ".secrets/agent-service/claude.token"
+    assert settings.claude_token_file == tmp_path / ".secrets/agent-service/claude/token"
     assert settings.cli_search_path == (tmp_path / ".local/bin",)
     assert settings.cli_working_root == (
         tmp_path / ".local/state/agent-presentator/copresenter-cli"

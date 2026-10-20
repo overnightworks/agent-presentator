@@ -522,7 +522,7 @@ The voice that answers beside a talk is two host processes on the machine that
 holds the GPU: the speech service on `127.0.0.1:8090` (`speech/`, never
 exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the
 `claude` executable on `COPRESENTER_CLI_SEARCH_PATH` with the shared setup token
-in `~/.secrets/agent-service/claude.token`, so only the admin role may use it. Speech starts first and is
+in `~/.secrets/agent-service/claude/token`, so only the admin role may use it. Speech starts first and is
 ready when `GET /health` says both models are; the co-presenter is pointed at
 the deck folder it should know, that speech address, and one private Unix
 socket directory. Both host processes and the Presentator container use the
@@ -542,8 +542,9 @@ login and card. Do not run untrusted workloads under that authority.
 
 The shared token file belongs to every app on the machine, not to the
 co-presenter. Create it once: run `claude setup-token`, write the one line to
-`~/.secrets/agent-service/claude.token` and set mode `0600`; to renew it, write
-a file beside it and `mv -T` it over. The unit needs no `UnsetEnvironment=`
+`token` in the directory `~/.secrets/agent-service/claude/` (mode `0700`, file mode
+`0600`); to renew it, write `token.new` in that directory and run
+`mv -T token.new token`. The unit needs no `UnsetEnvironment=`
 line for the login, and old CLI copies under `~/.claude` can be purged. Each
 turn's home lives below `COPRESENTER_CLI_WORKING_ROOT`; the service tries to
 remove it when the turn ends. When removal fails, for example because the log

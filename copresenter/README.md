@@ -77,7 +77,7 @@ it is removed if that fails too or after a crash.
 
 ```sh
 # the shared token file exists once: `claude setup-token`, one line, mode 0600
-# (default ~/.secrets/agent-service/claude.token); claude is in ~/.local/bin
+# (default ~/.secrets/agent-service/claude/token); claude is in ~/.local/bin
 export COPRESENTER_TRANSPORT=unix
 export COPRESENTER_SOCKET_DIRECTORY=/run/agent-presentator
 export PRESENTATOR_RUNTIME_UID="$(id -u)"
@@ -133,7 +133,7 @@ CSRF reader, which sends the `__Host-csrf_token` cookie first and falls back to
 | `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
 | `COPRESENTER_DECK` | `examples/copresenter-deck` | Folder with `slides.md` |
 | `COPRESENTER_CLAUDE_MODEL` | `claude-sonnet-4-6` | Model name given to agent-providers |
-| `COPRESENTER_CLAUDE_TOKEN_FILE` | `~/.secrets/agent-service/claude.token` | The shared setup-token file: one line from `claude setup-token`, mode `0600`. A missing or refused file fails the turn as `cli_login_not_configured`; there is no per-app fallback. |
+| `COPRESENTER_CLAUDE_TOKEN_FILE` | `~/.secrets/agent-service/claude/token` | The shared setup-token file: one line from `claude setup-token`, mode `0600`, inside a mode-`0700` directory. Renew it by writing `token.new` there and running `mv -T token.new token`. A missing or refused file fails the turn as `cli_login_not_configured`; there is no per-app fallback. |
 | `COPRESENTER_CLI_SEARCH_PATH` | `~/.local/bin` | Directories, joined by `:`, where `claude` is looked up. `PATH` is not consulted. |
 | `COPRESENTER_CLI_WORKING_ROOT` | `~/.local/state/agent-presentator/copresenter-cli` | Created `0700` at start, with missing parents; a root that exists with another mode stops the start. Holds each turn's disposable home. |
 | `COPRESENTER_LANGUAGE` | `de` | Language sent to `/speak` and `/hear` unless the overlay overrides it |
