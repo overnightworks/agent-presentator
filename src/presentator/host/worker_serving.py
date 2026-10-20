@@ -15,7 +15,7 @@ from presentator.host.worker_termination import (
     WATCHDOG_SECONDS,
     Watchdog,
 )
-from presentator.host.worker_wire import KEPT_LIFE_EXITS
+from presentator.host.worker_wire import KEPT_LIFE_EXITS, WireExit
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ class LifeEnd(StrEnum):
 
     SPAWN = "spawn"
     GATE = "gate"
+    STEP_ACCEPTED = "step-accepted"
     WIRE_EXIT = "wire-exit"
     SWEEP = "sweep"
     ACCEPT = "accept"
@@ -125,6 +126,14 @@ def _header_expired(child: WireChild) -> None:
     _killed(child, None)
 
 
+def _life_end_after(exit_status: int) -> LifeEnd | None:
+    if exit_status in KEPT_LIFE_EXITS:
+        return None
+    if exit_status == WireExit.ACCEPTED:
+        return LifeEnd.STEP_ACCEPTED
+    return LifeEnd.WIRE_EXIT
+
+
 def hand_over(
     connection: socket.socket, serving: Serving, header_ends_at: float
 ) -> LifeEnd | None:
@@ -155,7 +164,7 @@ def hand_over(
         exit_status = child.wait_within(remaining) if remaining > 0 else None
         if exit_status is None:
             return _header_expired(child)
-        return None if exit_status in KEPT_LIFE_EXITS else LifeEnd.WIRE_EXIT
+        return _life_end_after(exit_status)
     finally:
         child.close_gate()
 

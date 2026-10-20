@@ -25,6 +25,13 @@ _NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
 _NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
 
 
+class StepKind(StrEnum):
+    """The Slidev commands of one build, in the order they are run."""
+
+    BUILD = "build"
+    EXPORT = "export"
+
+
 def bounded_failure(said: str) -> str:
     """The last of what a build said, short enough for a page to carry."""
     return said[-FAILURE_TEXT_LIMIT:]

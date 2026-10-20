@@ -494,7 +494,19 @@ class RealServing:
 
 HELLO = b"PBW\x01\x01\x00\x02{}"
 STATUS = b"PBW\x01\x03\x00\x02{}"
-STEP_PREAMBLE_AND_HEADER = b"PBW\x01\x02\x00\x02{}"
+STEP_PREAMBLE = b"PBW\x01\x02"
+
+
+def step_message(header: bytes) -> bytes:
+    return STEP_PREAMBLE + len(header).to_bytes(2, "big") + header
+
+
+VALID_STEP = step_message(b'{"step":"build","slug":"my-deck"}')
+REJECTED_STEPS = {
+    "a slug leaving its folder": step_message(b'{"step":"build","slug":"../x"}'),
+    "an unknown step": step_message(b'{"step":"deploy","slug":"x"}'),
+    "an extra key": step_message(b'{"step":"build","slug":"x","more":1}'),
+}
 
 
 def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_deadline(
@@ -520,13 +532,14 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
 
 
-def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("sent", REJECTED_STEPS.values(), ids=REJECTED_STEPS.keys())
+def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch, sent: bytes
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
     with dripped_header(socket_directory) as run:
         serving = run.serving
-        assert serving.exchange(run.thread, STEP_PREAMBLE_AND_HEADER).received == b""
+        assert serving.exchange(run.thread, sent).received == b""
         second_reply = serving.exchange(run.thread, HELLO)
         assert second_reply.received == STATUS
         assert not second_reply.ended_by_reset
@@ -534,10 +547,27 @@ def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
 
     assert serving.outcome == [0]
     assert len(serving.sweep_deadlines) == SECOND_CONNECTION
+    assert serving.watchdog.events == ["arm", "cancel", "arm"]
+
+
+def test_a_valid_step_ends_the_life_with_no_reply_and_no_sweep(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    with dripped_header(socket_directory) as run:
+        reply = run.serving.exchange(run.thread, VALID_STEP)
+        run.thread.join(WAIT_SECONDS)
+
+    assert reply.received == b""
+    assert not run.thread.is_alive()
+    assert run.serving.outcome == [0]
+    assert run.serving.sweep_deadlines == []
+    assert run.serving.watchdog.events == ["arm"]
 
 
 HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = HELLO[:7] + HELLO[7:8]
 THREE_PREAMBLE_BYTES = HELLO[:3]
+STEP_PREAMBLE_AND_ONE_HEADER_BYTE = VALID_STEP[:7] + VALID_STEP[7:8]
 
 
 @dataclass
@@ -611,8 +641,16 @@ def dripped_header(directory: Path) -> Generator[DrippedHeader]:
 
 @pytest.mark.parametrize(
     "dripped",
-    [HELLO_PREAMBLE_AND_ONE_HEADER_BYTE, THREE_PREAMBLE_BYTES],
-    ids=["a valid preamble and one header byte", "three preamble bytes"],
+    [
+        HELLO_PREAMBLE_AND_ONE_HEADER_BYTE,
+        STEP_PREAMBLE_AND_ONE_HEADER_BYTE,
+        THREE_PREAMBLE_BYTES,
+    ],
+    ids=[
+        "a valid preamble and one header byte",
+        "a valid STEP preamble and one header byte",
+        "three preamble bytes",
+    ],
 )
 def test_a_header_that_stops_midway_is_cut_off_at_the_deadline_and_serving_goes_on(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch, dripped: bytes

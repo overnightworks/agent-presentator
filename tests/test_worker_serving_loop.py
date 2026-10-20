@@ -251,6 +251,11 @@ LIFE_ENDS = {
         LifeEnd.WIRE_EXIT,
         ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
     ),
+    "an accepted step": (
+        lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
+        LifeEnd.STEP_ACCEPTED,
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
+    ),
     "a sweep that is not quiet": (
         lambda: ScriptedLife(sweep_quiet=False),
         LifeEnd.SWEEP,
