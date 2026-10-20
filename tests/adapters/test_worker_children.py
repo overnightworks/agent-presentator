@@ -285,17 +285,30 @@ def sleeping_child() -> GatedChild:
     )
 
 
+def release_and_close_gate(child: GatedChild) -> None:
+    try:
+        child.release()
+    finally:
+        child.close_gate()
+
+
+def end_child(child: GatedChild) -> int:
+    try:
+        child.kill()
+    finally:
+        reaped_status = child.wait()
+    return reaped_status
+
+
 def test_waiting_within_a_budget_returns_none_and_leaves_the_released_child_alive() -> (
     None
 ):
     child = sleeping_child()
     try:
-        child.release()
-        child.close_gate()
+        release_and_close_gate(child)
         waited = child.wait_within(SHORT_BUDGET_SECONDS)
     finally:
-        child.kill()
-        reaped_status = child.wait()
+        reaped_status = end_child(child)
 
     assert waited is None
     assert reaped_status == -signal.SIGKILL
@@ -306,12 +319,10 @@ def test_waiting_within_a_budget_returns_the_status_of_a_child_that_exited() -> 
         ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
     )
     try:
-        child.release()
-        child.close_gate()
+        release_and_close_gate(child)
         waited = child.wait_within(WAIT_SECONDS)
     finally:
-        child.kill()
-        child.wait()
+        end_child(child)
 
     assert waited == 0
 
