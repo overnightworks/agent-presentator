@@ -13,8 +13,8 @@ import pytest
 
 from presentator.host import worker
 from presentator.host.config import (
-    ConfigurationError,
     WorkerSettings,
+    load_worker_settings,
     worker_settings_variables,
 )
 from presentator.host.worker import (
@@ -347,21 +347,24 @@ def test_a_refused_self_check_never_loads_the_settings() -> None:
     assert "settings" not in events
 
 
-def test_an_invalid_setting_refuses_by_variable_name_without_serving(
-    caplog: pytest.LogCaptureFixture,
+def test_an_invalid_setting_refuses_by_variable_name_never_the_value(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events: list[str] = []
+    monkeypatch.setenv("PRESENTATOR_BUILD_TIMEOUT_SECONDS", "unique-bad-value-4711")
 
-    def refusing() -> WorkerSettings:
-        message = "PRESENTATOR_BUILD_TIMEOUT_SECONDS: not a number"
-        raise ConfigurationError(message)
-
-    status = worker.main([], boundary_over(sealed_snapshot(), events, None, refusing))
+    status = worker.main(
+        [],
+        boundary_over(
+            sealed_snapshot(), events, None, load_settings=load_worker_settings
+        ),
+    )
 
     assert status == worker.REFUSAL_EXIT_STATUS
     assert events[-1] == "settings"
     assert "PRESENTATOR_BUILD_TIMEOUT_SECONDS" in caplog.text
     assert worker.StartRefusal.SETTINGS in caplog.text
+    assert "unique-bad-value-4711" not in caplog.text
 
 
 def test_the_settings_keys_pass_the_environment_predicate() -> None:
@@ -389,7 +392,11 @@ def test_the_real_boundary_serves_the_socket_directory_bounded_by_the_settings(
 
     assert status == 0
     assert served["directory"] == Path(worker.SOCKET_DIRECTORY)
-    assert (served["controller_gid"], served["runtime_uid"]) == (1000, 1001)
+    assert (
+        served["controller_uid"],
+        served["controller_gid"],
+        served["runtime_uid"],
+    ) == (0, 1000, 1001)
     assert isinstance(served["serving"], Serving)
     assert (
         served["serving"].build_timeout_seconds == LOADED_SETTINGS.build_timeout_seconds

@@ -46,7 +46,6 @@ STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
 from presentator.host import worker, worker_serving
-from presentator.host.config import WorkerSettings
 from presentator.host.worker_termination import FaultHandlerWatchdog
 
 def stall(*_arguments, **_keywords):

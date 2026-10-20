@@ -63,7 +63,9 @@ REFUSED_VALUES = {
     "zero": "0",
     "negative": "-5",
     "beyond what the watchdog holds": "1e300",
-    "just beyond half of what the watchdog holds": str(threading.TIMEOUT_MAX),
+    "just beyond half of what the watchdog holds": repr(
+        threading.TIMEOUT_MAX / 2 * (1 + 1e-9)
+    ),
 }
 
 
