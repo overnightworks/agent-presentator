@@ -1,8 +1,0 @@
-claim_id = "22628eae8a38483891932ecacd52ed25"
-agent = "claude"
-role = "builder"
-base = "146fbbb71edb648ae57a914a845fc7b4da15706c"
-branch = "claude/issue-331-build-worker-a5b3-sealed-record"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_record.py", "tests/test_worker.py", "tests/test_worker_record_chain.py", "tests/test_worker_record_life.py", "tests/test_worker_serving_loop.py", "tests/test_worker_wire.py", "tests/vulture_allowlist.py", "tests/worker_support.py"]
-opened_commit = "070d9e9d4a2dc6d5cfd93ebef3e3c3746b697fe5"
-whole_reason = "The record writer, the seal and the record reader have no caller apart, so a part alone would be test-only code; the slow watchdog proof stays with the seal it bounds (cut-r2)."
