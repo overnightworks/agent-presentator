@@ -1,0 +1,7 @@
+claim_id = "ec4b9e4286ed48e59f37a41d9e6ea176"
+agent = "claude"
+role = "builder"
+base = "89400affc1b622b1709039554b3c1a057e128ef9"
+branch = "claude/issue-315-agents-md-nur-repo-fakten"
+scope = ["AGENTS.md"]
+opened_commit = "40e39eead99f3322882c749a80ba89af0aa495ad"
