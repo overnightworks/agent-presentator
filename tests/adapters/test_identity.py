@@ -82,6 +82,17 @@ def test_a_session_is_read_back_with_the_account_joined_from_the_users(
     assert (loaded.created_at, loaded.expires_at) == (_NOW, expires_at)
 
 
+def test_a_session_for_an_account_that_does_not_exist_is_refused_loudly(
+    database: Path,
+    sessions: SqliteSessionRecordStore,
+) -> None:
+    with pytest.raises(LookupError, match="nobody"):
+        sessions.create("nobody", now=_NOW, expires_at=_NOW)
+
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM sessions").fetchone() == (0,)
+
+
 def test_a_session_nobody_created_reads_as_nothing(
     sessions: SqliteSessionRecordStore,
 ) -> None:
