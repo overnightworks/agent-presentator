@@ -3,7 +3,8 @@
 import runpy
 import socket
 import sys
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
 from contextlib import closing
 
 import pytest
@@ -147,8 +148,30 @@ def client_and_descriptor() -> Iterator[tuple[socket.socket, int]]:
         yield client, child_end.detach()
 
 
-def run_entry(descriptor: int) -> int:
-    return worker_wire.main(["--connection-fd", str(descriptor)])
+def run_bounded(client: socket.socket, entry: Callable[[], object]) -> object:
+    """Fail, after freeing the entry, when it outlasts the wait."""
+    outcome: list[object] = []
+
+    def target() -> None:
+        try:
+            outcome.append(entry())
+        except SystemExit as exited:
+            outcome.append(exited.code)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(SECONDS_TO_WAIT)
+    if thread.is_alive():
+        client.close()
+        thread.join(SECONDS_TO_WAIT)
+        pytest.fail("the entry waited for more input than a HELLO")
+    return outcome[0]
+
+
+def run_entry(client: socket.socket, descriptor: int) -> object:
+    return run_bounded(
+        client, lambda: worker_wire.main(["--connection-fd", str(descriptor)])
+    )
 
 
 def read_to_end_or_reset(client: socket.socket) -> bytes:
@@ -169,7 +192,7 @@ def test_the_entry_closes_a_refused_input_with_no_reply(
     client.sendall(sent)
     client.shutdown(socket.SHUT_WR)
 
-    assert run_entry(descriptor) == WireExit.CLOSED
+    assert run_entry(client, descriptor) == WireExit.CLOSED
     assert read_to_end_or_reset(client) == b""
 
 
@@ -179,7 +202,7 @@ def test_the_entry_answers_a_hello_with_status_and_exits_answered(
     client, descriptor = client_and_descriptor
     client.sendall(HELLO + b"x")
 
-    assert run_entry(descriptor) == WireExit.ANSWERED
+    assert run_entry(client, descriptor) == WireExit.ANSWERED
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
 
 
@@ -190,7 +213,7 @@ def test_the_entry_closes_when_the_client_hung_up_before_status(
     client.sendall(HELLO)
     client.close()
 
-    assert run_entry(descriptor) == WireExit.CLOSED
+    assert run_entry(client, descriptor) == WireExit.CLOSED
 
 
 def test_run_as_a_program_the_entry_answers_a_hello(
@@ -206,8 +229,12 @@ def test_run_as_a_program_the_entry_answers_a_hello(
         )
         monkeypatch.delitem(sys.modules, "presentator.host.worker_wire")
 
-        with pytest.raises(SystemExit) as exited:
-            runpy.run_module("presentator.host.worker_wire", run_name="__main__")
+        exit_code = run_bounded(
+            controller_end,
+            lambda: runpy.run_module(
+                "presentator.host.worker_wire", run_name="__main__"
+            ),
+        )
 
-        assert exited.value.code == WireExit.ANSWERED
+        assert exit_code == WireExit.ANSWERED
         assert controller_end.recv(64) == b"PBW\x01\x03\x00\x02{}"

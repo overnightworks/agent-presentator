@@ -655,7 +655,7 @@ LIFE_ENDS = {
         LifeEnd.GATE,
         ["arm 7.0", "spawn", "status", "release", "kill", "wait", "close-gate"],
     ),
-    "an exit status that is not CLOSED": (
+    "an exit status outside the kept set": (
         lambda: ScriptedLife(exit_status=1),
         LifeEnd.WIRE_EXIT,
         ["arm 7.0", "spawn", "status", "release", "wait", "close-gate"],

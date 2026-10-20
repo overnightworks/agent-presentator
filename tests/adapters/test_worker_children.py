@@ -362,6 +362,14 @@ class RecordingWatchdog:
         self.events.append("cancel")
 
 
+@dataclass(frozen=True)
+class Reply:
+    """What a client read, and whether the stream ended by reset rather than EOF."""
+
+    received: bytes
+    ended_by_reset: bool
+
+
 @dataclass
 class RealServing:
     """A serve loop over the real gated spawn, ending after some connections."""
@@ -404,7 +412,7 @@ class RealServing:
         thread.start()
         return thread
 
-    def exchange(self, thread: threading.Thread, sent: bytes) -> bytes:
+    def exchange(self, thread: threading.Thread, sent: bytes) -> Reply:
         with closing(connect_when_bound(self.directory, thread.is_alive)) as client:
             client.sendall(sent)
             received = b""
@@ -412,8 +420,8 @@ class RealServing:
                 while chunk := client.recv(64):
                     received += chunk
             except ConnectionResetError:
-                pass
-            return received
+                return Reply(received, ended_by_reset=True)
+            return Reply(received, ended_by_reset=False)
 
 
 HELLO = b"PBW\x01\x01\x00\x02{}"
@@ -431,11 +439,11 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
 
     for _ in range(SECOND_CONNECTION):
         before = time.monotonic()
-        received = serving.exchange(thread, HELLO)
+        reply = serving.exchange(thread, HELLO)
         after = time.monotonic()
         serving.await_sweep()
 
-        assert received == STATUS
+        assert reply == Reply(STATUS, ended_by_reset=False)
         assert after - before < HEADER_DEADLINE_SECONDS
         assert before + worker.SWEEP_SECONDS <= serving.sweep_deadlines[-1]
         assert serving.sweep_deadlines[-1] <= after + worker.SWEEP_SECONDS
@@ -452,8 +460,8 @@ def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
     serving = RealServing(socket_directory, connections=SECOND_CONNECTION)
     thread = serving.start()
 
-    assert serving.exchange(thread, STEP_PREAMBLE_AND_HEADER) == b""
-    assert serving.exchange(thread, HELLO) == STATUS
+    assert serving.exchange(thread, STEP_PREAMBLE_AND_HEADER).received == b""
+    assert serving.exchange(thread, HELLO) == Reply(STATUS, ended_by_reset=False)
     thread.join(WAIT_SECONDS)
 
     assert serving.outcome == [0]
