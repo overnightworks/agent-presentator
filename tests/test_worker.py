@@ -24,6 +24,7 @@ from presentator.host.worker import (
     Snapshot,
     Toolchain,
 )
+from presentator.host.worker_serving import Serving
 
 SEALED_STATUS = """Name:\tpresentator-worker
 CapInh:\t0000000000000000
@@ -369,6 +370,30 @@ def test_the_settings_keys_pass_the_environment_predicate() -> None:
     )
 
     assert worker.first_failing_predicate(snapshot) is None
+
+
+def test_the_real_boundary_serves_the_socket_directory_bounded_by_the_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    served: dict[str, object] = {}
+
+    def recording_serve(directory: Path, **arguments: object) -> int:
+        served.update(arguments, directory=directory)
+        return 0
+
+    monkeypatch.setattr(worker, "serve", recording_serve)
+
+    status = worker.REAL_BOUNDARY.serve(
+        controller_gid=1000, runtime_uid=1001, settings=LOADED_SETTINGS
+    )
+
+    assert status == 0
+    assert served["directory"] == Path(worker.SOCKET_DIRECTORY)
+    assert (served["controller_gid"], served["runtime_uid"]) == (1000, 1001)
+    assert isinstance(served["serving"], Serving)
+    assert (
+        served["serving"].build_timeout_seconds == LOADED_SETTINGS.build_timeout_seconds
+    )
 
 
 def test_failing_prctl_refuses_before_reading_anything() -> None:
