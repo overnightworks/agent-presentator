@@ -123,7 +123,7 @@ A_BROWSERS_ADDRESS: Final = "https://testserver"
 A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
 AN_ISSUER: Final = "https://auth.example.test/realms/test"
 A_CLIENT_ID: Final = "presentator-test"
-A_CLIENT_SECRET: Final = "the-secret-only-this-test-has"  # noqa: S105
+A_CLIENT_CREDENTIAL: Final = "the-secret-only-this-test-has"
 
 
 class UnavailableSpeech:
@@ -222,7 +222,7 @@ def a_web_auth(clock: FrozenClock) -> WebAuthConfig:
 def configure_oidc(monkeypatch: pytest.MonkeyPatch, directory: Path) -> Path:
     """Name the issuer, the client and a secret file of a test's own."""
     secret_file = directory / "oidc-client-secret"
-    secret_file.write_text(f"{A_CLIENT_SECRET}\n", encoding="utf-8")
+    secret_file.write_text(f"{A_CLIENT_CREDENTIAL}\n", encoding="utf-8")
     monkeypatch.setenv("PRESENTATOR_OIDC_ISSUER", AN_ISSUER)
     monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_ID", A_CLIENT_ID)
     monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_SECRET_FILE", str(secret_file))
@@ -253,7 +253,7 @@ def a_settings() -> Settings:
 def a_relying_party(clock: FrozenClock) -> OidcRelyingParty:
     """The issuer's client, whose transports reach nobody: no test signs in yet."""
     return OidcRelyingParty(
-        oidc_client_config(a_settings(), SecretStr(A_CLIENT_SECRET)),
+        oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL)),
         post_token_request=_no_token_endpoint,
         fetch_key_set=_no_key_set,
         wall_clock=lambda: clock.now().timestamp(),

@@ -56,10 +56,10 @@ _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
 _INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
-_LOGIN: Final = "/login"
+LOGIN_PATH: Final = "/login"
 _START_SIGN_IN: Final = "/login/oidc"
-_SIGN_IN_CALLBACK: Final = "/auth/callback"
-_LOGOUT: Final = "/logout"
+SIGN_IN_CALLBACK_PATH: Final = "/auth/callback"
+LOGOUT_PATH: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
 # Signing in (its start and the issuer's return) and signing out are the
@@ -69,7 +69,7 @@ _SETUP: Final = "/setup"
 # `/setup` is a retired address: it answers 404 to everyone, so a signed-out
 # reader is not sent to a login for a page that does not exist.
 _WITHOUT_A_SESSION: Final = frozenset(
-    {_LOGIN, _START_SIGN_IN, _SIGN_IN_CALLBACK, _LOGOUT, _SETUP}
+    {LOGIN_PATH, _START_SIGN_IN, SIGN_IN_CALLBACK_PATH, LOGOUT_PATH, _SETUP}
 )
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header and the sliding window
@@ -280,7 +280,7 @@ class _Surfaces:
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
         self.sessions.delete(_session_id_from_cookie(request))
-        answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
+        answer = RedirectResponse(LOGIN_PATH, status_code=HTTPStatus.SEE_OTHER)
         clear_session_cookies(answer, web_auth_config(request))
         return answer
 
@@ -323,9 +323,9 @@ def create_lobby(
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
     lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
-    lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
+    lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
-    lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
+    lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))

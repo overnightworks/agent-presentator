@@ -91,19 +91,30 @@ def _one_public_origin(given: str) -> str:
 
 
 def _an_https_realm_url(given: str) -> str:
-    """Require an https URL to a realm, which ends in no slash."""
+    """Require one canonical https URL to a realm, which ends in no slash."""
     parsed = urlsplit(given)
     if (
-        parsed.scheme != "https"
+        not given.startswith("https://")
         or not parsed.hostname
+        or parsed.netloc != parsed.netloc.lower()
+        or any(
+            character.isspace() or not character.isprintable() for character in given
+        )
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query
         or parsed.fragment
         or given.endswith("/")
     ):
-        message = "is an https URL without credentials, query or trailing slash"
+        message = (
+            "is a lower-case https URL without credentials, query or trailing slash"
+        )
         raise ValueError(message)
+    try:
+        _port = parsed.port
+    except ValueError as refused:
+        message = "has an invalid port"
+        raise ValueError(message) from refused
     return given
 
 

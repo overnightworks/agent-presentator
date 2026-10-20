@@ -13,8 +13,8 @@ from presentator.host.oidc import (
     relying_party_of,
 )
 from tests.api.lobby import (
+    A_CLIENT_CREDENTIAL,
     A_CLIENT_ID,
-    A_CLIENT_SECRET,
     AN_ISSUER,
     a_settings,
     configure_oidc,
@@ -36,7 +36,7 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.Monke
 
 
 def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
-    config = oidc_client_config(a_settings(), SecretStr(A_CLIENT_SECRET))
+    config = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
 
     realm = f"{AN_ISSUER}/protocol/openid-connect"
     assert config.issuer == AN_ISSUER
@@ -83,8 +83,24 @@ def test_the_relying_party_begins_a_login_at_the_issuer_the_settings_name(
 
 @pytest.mark.parametrize(
     ("content", "is_directory"),
-    [(None, False), (None, True), (b"\n", False), (_UNDECODABLE, False)],
-    ids=["missing", "a directory", "empty", "undecodable"],
+    [
+        (None, False),
+        (None, True),
+        (b"\n", False),
+        (b"   \n", False),
+        (b"\t", False),
+        (b"\n\n", False),
+        (_UNDECODABLE, False),
+    ],
+    ids=[
+        "missing",
+        "a directory",
+        "empty",
+        "spaces",
+        "a tab",
+        "blank lines",
+        "undecodable",
+    ],
 )
 def test_a_secret_file_nobody_can_use_refuses_naming_only_the_setting(
     tmp_path: Path,
@@ -126,6 +142,20 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
         ),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}/", "oidc_issuer"),
         ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}?realm=x", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER} x", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", f"{AN_ISSUER}\nx", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", "https://auth.example.test:99999/r", "oidc_issuer"),
+        ("PRESENTATOR_OIDC_ISSUER", "https://auth.example.test:bad/r", "oidc_issuer"),
+        (
+            "PRESENTATOR_OIDC_ISSUER",
+            "HTTPS://auth.example.test/realms/t",
+            "oidc_issuer",
+        ),
+        (
+            "PRESENTATOR_OIDC_ISSUER",
+            "https://AUTH.example.test/realms/t",
+            "oidc_issuer",
+        ),
         ("PRESENTATOR_OIDC_CLIENT_ID", "", "oidc_client_id"),
         (
             "PRESENTATOR_OIDC_CLIENT_SECRET_FILE",
@@ -133,7 +163,19 @@ def test_an_instance_whose_secret_file_is_gone_refuses_to_start(
             "oidc_client_secret_file",
         ),
     ],
-    ids=["http issuer", "trailing slash", "query", "no client id", "relative file"],
+    ids=[
+        "http issuer",
+        "trailing slash",
+        "query",
+        "space",
+        "newline",
+        "port too large",
+        "port not a number",
+        "upper-case scheme",
+        "upper-case host",
+        "no client id",
+        "relative file",
+    ],
 )
 def test_a_setting_that_is_not_a_sign_in_refuses_to_start_naming_it(
     environment: pytest.MonkeyPatch,

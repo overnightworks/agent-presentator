@@ -51,7 +51,7 @@ Every answer, including the sign-in redirect and a refusal, carries `webauth`'s
 `Content-Security-Policy` that admits only this origin's own scripts, styles,
 and connections, and a `Permissions-Policy` that grants `microphone=(self)` for
 the co-presenter deck and nothing else. `Strict-Transport-Security` follows the
-same `PRESENTATOR_PUBLIC_ORIGIN` scheme as `Secure`: it is sent over https.
+always-on `Secure` cookie setting, so it is always sent.
 
 A deck is code, so an instance builds every deck in a container of its own and
 refuses to start where it cannot ("Building the decks"). A run from a checkout,

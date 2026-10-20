@@ -9,13 +9,11 @@ from webauth.https_client import fetch_key_set_over_https
 from webauth.oidc import OidcClientConfig, OidcRelyingParty
 from webauth.oidc_transport import post_token_request_over_https
 
+from presentator.api.auth import LOGIN_PATH, LOGOUT_PATH, SIGN_IN_CALLBACK_PATH
 from presentator.host.config import Settings, cannot_start
 
 _PROTOCOL_PATH: Final = "protocol/openid-connect"
 _SCOPES: Final = ("openid", "profile", "groups")
-_CALLBACK_PATH: Final = "/auth/callback"
-_LOGGED_OUT_PATH: Final = "/login"
-_LOGOUT_PATH: Final = "/logout"
 _CLOCK_LEEWAY_SECONDS: Final = 30
 # What the refusals say of the secret file; neither quotes the file or the
 # operating system's words, which may carry what the file holds.
@@ -34,7 +32,7 @@ def read_client_secret(secret_file: Path) -> SecretStr:
     except (OSError, UnicodeDecodeError):
         raise cannot_start(_UNREADABLE) from None
     secret = content.removesuffix("\n")
-    if not secret:
+    if not secret.strip():
         raise cannot_start(_EMPTY)
     return SecretStr(secret)
 
@@ -52,9 +50,9 @@ def oidc_client_config(
         end_session_endpoint=f"{realm}/logout",
         client_id=settings.oidc_client_id,
         client_secret=client_secret,
-        redirect_uri=f"{settings.public_origin}{_CALLBACK_PATH}",
-        post_logout_redirect_uri=f"{settings.public_origin}{_LOGGED_OUT_PATH}",
-        logout_path=_LOGOUT_PATH,
+        redirect_uri=f"{settings.public_origin}{SIGN_IN_CALLBACK_PATH}",
+        post_logout_redirect_uri=f"{settings.public_origin}{LOGIN_PATH}",
+        logout_path=LOGOUT_PATH,
         scopes=_SCOPES,
         leeway_seconds=_CLOCK_LEEWAY_SECONDS,
     )
