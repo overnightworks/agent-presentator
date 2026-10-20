@@ -1,8 +1,0 @@
-claim_id = "839fb76ab52d4444b772bc69d92f866d"
-agent = "claude"
-role = "builder"
-base = "424f227f196f49f443dfb8aaad808336ef37f89a"
-branch = "claude/issue-339-copresenter-agent-providers-0-5-0"
-scope = ["copresenter/README.md", "copresenter/pyproject.toml", "copresenter/tests/test_answer_child.py", "copresenter/uv.lock", "docs/OPERATIONS.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "src/presentator/api/legal.py", "tests/api/test_auth.py"]
-opened_commit = "6590da46326327220d08b609c6812f88d704e484"
-whole_reason = "The pin makes the Datenschutz sentence false, so the text changes in the PR that makes it false; the boards and the two runbooks repeat it."
