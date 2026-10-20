@@ -24,7 +24,8 @@ class LobbyText:
     theme_dark: str
     role_admin: str
     role_user: str
-    login_title: str
+    logged_out_title: str
+    log_in: str
     footer_impressum: str
     footer_datenschutz: str
     legal_back_to_login: str

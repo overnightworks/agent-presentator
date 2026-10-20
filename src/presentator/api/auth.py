@@ -1,9 +1,9 @@
 """The pages that sign a person in and out, and the guard on everything else.
 
 Every address but signing in, signing out, and the Datenschutzerklärung answers
-the login redirect while nobody is signed in, a form another site submitted is
-refused, and no answer may be replayed from the browser cache (issue #8, lines
-11 to 15).
+the redirect to the start of the sign-in while nobody is signed in, a form
+another site submitted is refused, and no answer may be replayed from the
+browser cache (issue #8, lines 11 to 15).
 """
 
 import posixpath
@@ -28,6 +28,8 @@ from webauth.dependencies import (
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
+from webauth.oidc import OidcRelyingParty
+from webauth.oidc_login import start_login
 from webauth.policies import (
     CacheControlRule,
     CspDirective,
@@ -54,16 +56,21 @@ _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
 _INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
-_LOGIN: Final = "/login"
-_LOGOUT: Final = "/logout"
+LOGIN_PATH: Final = "/login"
+_START_SIGN_IN: Final = "/login/oidc"
+SIGN_IN_CALLBACK_PATH: Final = "/auth/callback"
+LOGOUT_PATH: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
-# Signing in and signing out are the addresses the guard leaves
-# alone; logging out ends a session rather than using one. The theme
-# stylesheet has to render the open pages themselves, so it is public too.
+# Signing in (its start and the issuer's return) and signing out are the
+# addresses the guard leaves alone; logging out ends a session rather than
+# using one. The theme stylesheet has to render the open pages themselves, so
+# it is public too.
 # `/setup` is a retired address: it answers 404 to everyone, so a signed-out
 # reader is not sent to a login for a page that does not exist.
-_WITHOUT_A_SESSION: Final = frozenset({_LOGIN, _LOGOUT, _SETUP})
+_WITHOUT_A_SESSION: Final = frozenset(
+    {LOGIN_PATH, _START_SIGN_IN, SIGN_IN_CALLBACK_PATH, LOGOUT_PATH, _SETUP}
+)
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header and the sliding window
 # there like on every other page.
@@ -74,7 +81,10 @@ _CSRF_POLICY: Final = CsrfPolicy(
 _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
 )
-_LOGIN_REDIRECT: Final = LoginRedirect(path=_LOGIN, redirect_query_param="next")
+_LOGIN_REDIRECT: Final = LoginRedirect(
+    path=_START_SIGN_IN,
+    redirect_query_param="next",
+)
 # Nothing in the lobby or a built talk needs an inline script, an external
 # script host, or a frame: every asset ships under `/static` or a deck's own
 # build directory, both served from this origin. A built Slidev talk inlines
@@ -150,6 +160,7 @@ class InstalledAuth:
     """The library configuration this host runs the lobby with."""
 
     config: WebAuthConfig
+    relying_party: OidcRelyingParty
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -178,6 +189,7 @@ class _Surfaces:
     sessions: SessionRecordStore
     decks: Decks
     pages: Pages
+    relying_party: OidcRelyingParty
 
     async def only_signed_in(
         self,
@@ -246,13 +258,29 @@ class _Surfaces:
         )
 
     def login_page(self, request: Request) -> Response:
-        """Show the sign-in page, which offers no way in yet."""
-        return self.pages.page(request, "login.html")
+        """Show the signed-out page, whose one button starts the sign-in."""
+        return self.pages.page(request, "login.html", start_sign_in=_START_SIGN_IN)
+
+    def start_sign_in(self, request: Request) -> Response:
+        """Send the browser to the issuer, remembering where it was headed.
+
+        `next` is only a request to return somewhere: the library keeps it
+        when it is a path of this app and drops anything else.
+        """
+        answer = Response(status_code=HTTPStatus.SEE_OTHER)
+        answer.headers["location"] = start_login(
+            self.relying_party,
+            request,
+            answer,
+            web_auth_config(request),
+            return_to=request.query_params.get(_LOGIN_REDIRECT.redirect_query_param),
+        )
+        return answer
 
     def log_out(self, request: Request) -> Response:
         """End the session and take the cookie away."""
         self.sessions.delete(_session_id_from_cookie(request))
-        answer = RedirectResponse(_LOGIN, status_code=HTTPStatus.SEE_OTHER)
+        answer = RedirectResponse(LOGIN_PATH, status_code=HTTPStatus.SEE_OTHER)
         clear_session_cookies(answer, web_auth_config(request))
         return answer
 
@@ -280,7 +308,12 @@ def create_lobby(
     stored source and its secret is answered alike, and GET stays behind the
     session.
     """
-    surfaces = _Surfaces(sessions=sessions, decks=decks, pages=pages)
+    surfaces = _Surfaces(
+        sessions=sessions,
+        decks=decks,
+        pages=pages,
+        relying_party=auth.relying_party,
+    )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     # The outermost middleware is added last: every answer, including the
@@ -290,8 +323,9 @@ def create_lobby(
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
     lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
-    lobby.add_api_route(_LOGIN, surfaces.login_page, methods=["GET"])
-    lobby.add_api_route(_LOGOUT, surfaces.log_out, methods=["POST"])
+    lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
+    lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
+    lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))

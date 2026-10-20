@@ -5,8 +5,11 @@ Audience: whoever administers this repository and the machines it runs on.
 ## Running an instance
 
 Every run names `PRESENTATOR_SECRET_KEY` (at least 32 bytes), one canonical
-`PRESENTATOR_PUBLIC_ORIGIN`, and the absolute private co-presenter and speech
-socket paths.
+https `PRESENTATOR_PUBLIC_ORIGIN`, the absolute private co-presenter and speech
+socket paths, and the sign-in: `PRESENTATOR_OIDC_ISSUER` (the https URL of the
+Keycloak realm, without a trailing slash), `PRESENTATOR_OIDC_CLIENT_ID`, and
+`PRESENTATOR_OIDC_CLIENT_SECRET_FILE` (the absolute path of a file holding the
+client secret, which is read once at start, minus one trailing newline).
 `webauth`
 signs the session cookie with it, and, through a derivation of its own,
 encrypts what a source's row holds ([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md));
@@ -14,8 +17,10 @@ without it the process refuses to start. In development it lives in a gitignored
 `.env` at the repository root; on the server it comes from the process
 environment. A refusal names the setting and what is wrong with it, never the
 value it was given, so a mistyped secret does not land in the startup output.
-Signing in arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242));
-until then nobody can sign in and every page leads to `/login`. A session ends
+A signed-out visitor is sent through `/login/oidc` to Keycloak; the return
+(`/auth/callback`) arrives with K13 2b
+([#242](https://github.com/overnightworks/agent-presentator/issues/242)), so
+until then nobody can sign in. A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
 Logging out deletes the row. A session past its expiry is refused, and a sweep of its own deletes
@@ -29,34 +34,38 @@ refusal of a request that carries the session cookie twice: it is treated as
 signed out rather than letting either copy decide whose account it runs in.
 `webauth`'s `admit_session` is the one authority, for HTTP and WebSocket alike,
 that decides whether the cookie's session id names a person. A signed-out browser navigation is redirected to
-`/login?next=<requested-path-and-query>`; a JSON request receives 401. Every
+`/login/oidc?next=<requested-path-and-query>`, which answers 303 to the issuer
+with PKCE, `state` and `nonce`; a JSON request receives 401. Every
 mutating path is protected unless it is exempted, and only the sessionless
-webhook prefix `/sources/` is exempt. `Secure` follows
-`PRESENTATOR_PUBLIC_ORIGIN`, not the connection: an `https://` origin marks
-both cookies `Secure` and gives them the library's host-only names
+webhook prefix `/sources/` is exempt. The public origin is https, so both
+cookies are `Secure` and carry the library's host-only names
 `__Host-session_id` and `__Host-csrf_token`, which only this exact host can
-set; an `http://` origin, as in a run from a checkout, drops `Secure` and keeps
-the plain names `session_id` and `csrf_token`, because a browser does not send
-a `Secure` cookie back over plain http. A `cross-site` or `none`
+set; an `http://` origin refuses the start, because a browser does not send a
+`Secure` cookie back over plain http. A `cross-site` or `none`
 `Sec-Fetch-Site` POST, and a form POST carrying neither `Sec-Fetch-Site` nor
 `Origin`/`Referer`, are refused; every other POST is judged as described under
 the public origin below.
 
-Every answer, including a login redirect and a refusal, carries `webauth`'s
+Every answer, including the sign-in redirect and a refusal, carries `webauth`'s
 `SecurityHeadersMiddleware` headers: `Cache-Control: no-store`, a
 `Content-Security-Policy` that admits only this origin's own scripts, styles,
 and connections, and a `Permissions-Policy` that grants `microphone=(self)` for
 the co-presenter deck and nothing else. `Strict-Transport-Security` follows the
-same `PRESENTATOR_PUBLIC_ORIGIN` scheme as `Secure`: an `https://` origin sends
-it, an `http://` origin does not.
+always-on `Secure` cookie setting, so it is always sent.
 
 A deck is code, so an instance builds every deck in a container of its own and
 refuses to start where it cannot ("Building the decks"). A run from a checkout,
-on a machine whose decks are all your own, is the one place that says otherwise:
+on a machine whose decks are all your own, is the one place that says otherwise.
+It needs an https public origin and the three sign-in settings; served over
+plain http it shows the signed-out pages only, because a browser does not send
+a `Secure` cookie back over http, so a local sign-in needs an https front:
 
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
-export PRESENTATOR_PUBLIC_ORIGIN=http://127.0.0.1:8000
+export PRESENTATOR_PUBLIC_ORIGIN=https://presentator.example.test
+export PRESENTATOR_OIDC_ISSUER=https://auth.example.test/realms/example
+export PRESENTATOR_OIDC_CLIENT_ID=presentator
+export PRESENTATOR_OIDC_CLIENT_SECRET_FILE=/run/user/"$(id -u)"/agent-presentator/oidc-client-secret
 export PRESENTATOR_COPRESENTER_SOCKET=/run/user/"$(id -u)"/agent-presentator/copresenter.sock
 export PRESENTATOR_BUILD_RUNNER=host
 uv run agent-presentator
@@ -252,7 +261,7 @@ docker compose ps -q presentator | xargs docker inspect \
 
 An instance without a source runs and lists nothing; the settings above say
 what each further variable does and what a refused one costs. Signing in
-arrives with Keycloak ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+is Keycloak's ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
 
 A source need not leave this machine at all: a folder becomes one by being a
 bare git repository under a host directory mounted read-only into the
@@ -551,8 +560,8 @@ Compose mounts that directory read-write at `/run/presentator-copresenter` and
 hands Presentator the fixed `copresenter.sock` path. Only `127.0.0.1:8000` is
 published. The overlay uses relative `/copresenter` routes; Presentator checks
 its existing active session and the exact WebSocket Origin before opening the
-socket. `/ask` also carries the session's CSRF cookie (`__Host-csrf_token`
-over https, `csrf_token` over plain http) in `x-csrf-token`. Logout, expiry,
+socket. `/ask` also carries the session's CSRF cookie (`__Host-csrf_token`)
+in `x-csrf-token`. Logout, expiry,
 loss of the account row, or a session-store failure closes the hearing lease and an
 ongoing answer within one second.
 

@@ -89,7 +89,8 @@ LobbyText.legal_back_to_login
 # missing any field of `LobbyText`; that a page renders them is proven by the
 # route tests.
 LobbyText.section_decks
-LobbyText.login_title
+LobbyText.logged_out_title
+LobbyText.log_in
 LobbyText.decks_title
 LobbyText.decks_column_deck
 LobbyText.deck_back

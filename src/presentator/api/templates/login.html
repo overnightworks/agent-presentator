@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ text.login_title }}{% endblock %}
+{% block title %}{{ text.logged_out_title }}{% endblock %}
 {% block body %}
 <main data-column>
   <p>{{ text.wordmark }}</p>
-  <h1>{{ text.login_title }}</h1>
+  <h1>{{ text.logged_out_title }}</h1>
+  <a data-action data-wide href="{{ start_sign_in }}">{{ text.log_in }}</a>
 </main>
 {% endblock %}

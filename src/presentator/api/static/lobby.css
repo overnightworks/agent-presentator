@@ -459,6 +459,13 @@ main code {
   text-decoration: none;
 }
 
+/* The signed-out board draws its one button across the whole card. */
+[data-action][data-wide] {
+  display: block;
+  text-align: center;
+  width: 100%;
+}
+
 /* The picture fills one way in — the presenter view, what the speaker opens —
  * and outlines the other, so the two do not compete for the eye.
  */
