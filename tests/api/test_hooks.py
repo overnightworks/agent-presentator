@@ -27,7 +27,6 @@ def a_source(name: str, *, identifier: str, url: str) -> Source:
         name=name,
         url=url,
         ref="main",
-        secret_location=None,
         owner_id=ADMIN,
     )
 

@@ -25,6 +25,13 @@ _NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
 _NEVER_IN_A_FOLDER_NAME: Final = frozenset('/\\"')
 
 
+class StepKind(StrEnum):
+    """The Slidev commands of one build, in the order they are run."""
+
+    BUILD = "build"
+    EXPORT = "export"
+
+
 def bounded_failure(said: str) -> str:
     """The last of what a build said, short enough for a page to carry."""
     return said[-FAILURE_TEXT_LIMIT:]
@@ -46,17 +53,6 @@ def talk_address(slug: str) -> str:
     build is given and the address the lobby delivers it at are the one value.
     """
     return f"{DECK_PATH}/{slug}/"
-
-
-class SecretLocation(StrEnum):
-    """Where a source's read-only secret stands, never the secret itself.
-
-    A row is the truth about its own secret. The one place is the encrypted
-    column: a source whose row carries ciphertext is stored, and a source
-    whose row does not has no secret this instance can hand to git.
-    """
-
-    STORED = "stored"
 
 
 # The Source board draws three runs, and that page is the first reader of the
@@ -203,7 +199,6 @@ class Source:
     name: str
     url: str
     ref: str
-    secret_location: SecretLocation | None
     owner_id: str
     public_key: str | None = None
 
@@ -466,7 +461,6 @@ class SourcePage:
     access: AccessKind | None
     state: SourceState
     age: timedelta | None
-    secret_missing: bool
     public_key: str | None
     runs: tuple[ShownSourceRun, ...]
     decks: tuple[SourceDeck, ...]

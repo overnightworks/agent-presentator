@@ -46,6 +46,7 @@ from presentator.contracts.decks import (
     BuildFailure,
     Deck,
     Source,
+    StepKind,
     bounded_failure,
     talk_address,
 )
@@ -266,13 +267,6 @@ class _HowItWent:
     said: bytes
     refused: BuildFailure | None
     in_time: bool
-
-
-class StepKind(StrEnum):
-    """The Slidev commands of one build, in the order they are run."""
-
-    BUILD = "build"
-    EXPORT = "export"
 
 
 def slidev_arguments(

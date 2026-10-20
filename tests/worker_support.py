@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from presentator.adapters.build_wire import read_hello
+from presentator.adapters.build_wire import read_request
 from presentator.host import worker
 from presentator.host.worker_serving import Serving
 from presentator.host.worker_wire import WireExit
@@ -118,7 +118,7 @@ class ScriptedLife:
     def write_answer_after_hello(self, connection_fd: int) -> None:
         with socket.socket(fileno=os.dup(connection_fd)) as connection:
             connection.settimeout(WAIT_SECONDS)
-            read_hello(connection)
+            read_request(connection)
         os.write(connection_fd, self.answer)
 
     def wait(self) -> int:

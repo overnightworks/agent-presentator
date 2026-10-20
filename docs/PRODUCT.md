@@ -209,10 +209,8 @@ decks. Renewing the webhook secret shows the new value exactly once to the
 session that created or renewed it, and never again; HTTPS renewal takes a new
 value and shows nothing back. A source's secret stands in one place, the
 encrypted column, opened with a key derived from `PRESENTATOR_SECRET_KEY`
-([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)). A row
-that still names only an environment variable stays listed and keeps its built
-talks; fetch fails with a typed reason until Renew. Remove, at the bottom of
-the page, asks once for a confirm naming the source's decks and runs, then
+([ADR 0013](decisions/0013-secrets-at-rest-and-credential-delivery.md)).
+Remove, at the bottom of the page, asks once for a confirm naming the source's decks and runs, then
 deletes the source row, its runs, its decks, its mirror, and every built talk
 those decks left on disk, so the same URL can be added again straight after,
 as a new source with a fresh secret.

@@ -313,6 +313,15 @@ def test_a_fresh_database_stores_no_password_no_login_attempts_and_no_client_add
             _A_SESSIONS_TABLE_OF_THE_PREVIOUS_VERSION,
             id="sessions-with-last-seen-and-a-client-address",
         ),
+        pytest.param(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL,"
+            " role TEXT NOT NULL, password_hash TEXT NOT NULL);"
+            "CREATE TABLE sources (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " url TEXT NOT NULL, credential_reference TEXT, encrypted_secret BLOB);"
+            "INSERT INTO sources (id, name, url, credential_reference)"
+            " VALUES ('s', 'talks', 'https://example.test/talks.git', 'TOKEN');",
+            id="before-encryption-a-source-seeded-from-the-environment",
+        ),
     ],
 )
 def test_a_file_from_an_older_version_is_refused_and_left_untouched(

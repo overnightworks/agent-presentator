@@ -163,7 +163,6 @@ class LobbyText:
     source_later: str
     source_renew: str
     source_secret_dots: str
-    source_secret_missing: str
     source_access_renew_info: str
     source_deploy_key_info: str
     source_public_key: str

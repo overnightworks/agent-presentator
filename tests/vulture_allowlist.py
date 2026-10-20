@@ -48,7 +48,6 @@ SourceView.access
 SourceView.state
 SourceView.state_word
 SourceView.fetched
-SourceView.secret_missing
 SourceView.address
 SourceView.webhook_secret
 SourceView.webhook_secret_held_elsewhere
@@ -130,7 +129,6 @@ LobbyText.source_push_inbox
 LobbyText.source_later
 LobbyText.source_renew
 LobbyText.source_secret_dots
-LobbyText.source_secret_missing
 LobbyText.source_access_renew_info
 LobbyText.source_deploy_key_info
 LobbyText.source_public_key

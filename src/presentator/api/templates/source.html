@@ -16,11 +16,6 @@
   </p>
   {% include "settings_tabs.html" %}
   {% if refused %}<p role="alert">{{ refused }}</p>{% endif %}
-  {% if source.secret_missing %}
-  <aside data-banner="error" data-secret-missing>
-    <p data-lead>{{ text.source_secret_missing }}</p>
-  </aside>
-  {% endif %}
   <p data-actions>
     <form method="post" action="/settings/sources/{{ source.name }}/fetch">
       <input type="hidden" name="stay" value="page">

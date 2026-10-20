@@ -106,10 +106,14 @@ def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:
 HELLO = b"PBW\x01\x01\x00\x02{}"
 SECONDS_TO_WAIT = 5
 BOM = b"\xef\xbb\xbf"
+STEP = b"PBW\x01\x02"
 
 
 def framed(header: bytes, preamble: bytes = b"PBW\x01\x01") -> bytes:
     return preamble + len(header).to_bytes(2, "big") + header
+
+
+VALID_STEP = framed(b'{"step":"export","slug":"my-deck"}', STEP)
 
 
 REFUSED_INPUTS = {
@@ -123,7 +127,17 @@ REFUSED_INPUTS = {
     "kind STATUS": framed(b"{}", b"PBW\x01\x03"),
     "kind 6": framed(b"{}", b"PBW\x01\x06"),
     "kind 255": framed(b"{}", b"PBW\x01\xff"),
-    "a STEP preamble": framed(b"{}", b"PBW\x01\x02"),
+    "a STEP header with no step": framed(b"{}", STEP),
+    "a STEP header with an extra key": framed(
+        b'{"step":"build","slug":"a","more":1}', STEP
+    ),
+    "a STEP header with an unknown step": framed(b'{"step":"x","slug":"a"}', STEP),
+    "a STEP header with a slug leaving its folder": framed(
+        b'{"step":"build","slug":"../a"}', STEP
+    ),
+    "a STEP header with a null slug": framed(b'{"step":"build","slug":null}', STEP),
+    "a STEP header not UTF-8": framed(b"\xff\xfe", STEP),
+    "a STEP header length 4097": STEP + b"\x10\x01" + b" " * 4097,
     "nothing": b"",
     "EOF inside the preamble": b"PB",
     "header length 0": b"PBW\x01\x01\x00\x00",
@@ -204,6 +218,16 @@ def test_the_entry_answers_a_hello_with_status_and_exits_answered(
 
     assert run_entry(client, descriptor) == WireExit.ANSWERED
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+
+
+def test_the_entry_exits_accepted_on_a_valid_step_and_replies_nothing(
+    client_and_descriptor: tuple[socket.socket, int],
+) -> None:
+    client, descriptor = client_and_descriptor
+    client.sendall(VALID_STEP)
+
+    assert run_entry(client, descriptor) == WireExit.ACCEPTED
+    assert client.recv(64) == b""
 
 
 def test_the_entry_closes_when_the_client_hung_up_before_status(

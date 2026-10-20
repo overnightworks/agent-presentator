@@ -61,14 +61,17 @@ import-linter contract keeps `cryptography` out of every layer above
 
 ### The row says where its secret stands
 
-A source's row carries the ciphertext in a nullable column. That is the one
-place a secret stands: the resolver opens it with the box, or answers with
-nothing while the column is empty. A leftover `credential_reference` naming
-an environment variable is not read. Ciphertext another instance key wrote is
+A source's row carries the ciphertext in a `NOT NULL` column. That is the one
+place a secret stands: the resolver opens it with the box, and answers with
+nothing for a source this instance does not carry. A row that stood without
+ciphertext — a source seeded from the environment — was only ever written
+before the environment source went (2026-09-08) and so only into a file that
+also holds the password-era `users` table, which the start probe refuses.
+Ciphertext another instance key wrote is
 refused rather than answered with whatever it decodes to. The pull reads that
 refusal as a credential it cannot resolve, records the run as failed, and
 leaves every deck listed — a source nobody can read says nothing about what it
-carries. Renew on the source page is how a missing or unreadable secret is
+carries. Renew on the source page is how an unreadable secret is
 replaced.
 
 ### Where the plaintext goes
