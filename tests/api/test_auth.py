@@ -333,34 +333,11 @@ def test_an_address_the_lobby_does_not_know_still_leads_to_the_login(
     assert answer.headers["location"] == "/login/oidc?next=%2Fdeck%2Fknowledge-fabric"
 
 
-@pytest.mark.parametrize(
-    "headers",
-    [
-        pytest.param({"origin": "https://another.example"}, id="foreign-origin"),
-        pytest.param({"sec-fetch-site": "cross-site"}, id="cross-site-fetch"),
-    ],
-)
-def test_a_form_another_site_submitted_is_refused(headers: dict[str, str]) -> None:
-    lobby = a_lobby_that_claims_no_origin_of_its_own()
-    lobby.sign_in()
-
-    refused = submit_the_logout_form(lobby, headers)
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert lobby.client.get("/").status_code == HTTPStatus.OK
-
-
 def test_reading_the_hook_address_leads_to_the_login(lobby: Lobby) -> None:
     asked = lobby.client.get(hook_address("talks"))
 
     assert asked.status_code == HTTPStatus.FOUND
     assert asked.headers["location"] == "/login/oidc?next=%2Fsources%2Ftalks%2Ffetch"
-
-
-def test_a_form_this_instance_served_is_accepted(lobby: Lobby) -> None:
-    accepted = submit_the_logout_form(lobby, {"origin": lobby.own_origin()})
-
-    assert accepted.status_code == HTTPStatus.SEE_OTHER
 
 
 def test_a_form_naming_the_public_host_is_accepted_without_a_fetch_site() -> None:

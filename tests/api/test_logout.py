@@ -1,8 +1,8 @@
 """Logging out ends the Keycloak session too, and clears every cookie of the sign-in."""
 
-import re
 from http import HTTPStatus
 from http.cookiejar import Cookie
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -51,11 +51,10 @@ def _set_hint(scene: Scene, value: str | None, *, path: str = LOGOUT_PATH) -> No
 
 
 def _arrange(scene: Scene, *, session: bool, hint: str) -> str | None:
-    """Sign in, then leave the browser with the session and hint a cell names.
+    """Leave a signed-in browser with the session and hint a cell names.
 
     Returns the hint value the library is expected to forward, or None.
     """
-    scene.sign_in()
     forwarded: str | None = None
     issued = _issued_hint(scene)
     assert issued.value is not None
@@ -76,10 +75,15 @@ def _arrange(scene: Scene, *, session: bool, hint: str) -> str | None:
     return forwarded
 
 
-def _cleared(cookies: list[str], name: str) -> str:
-    (cookie,) = (cookie for cookie in cookies if name in cookie.split("=", 1)[0])
-    assert "Max-Age=0" in cookie
-    return cookie
+def _cleared_paths(set_cookie_headers: list[str]) -> dict[str, str]:
+    """Each cookie a logout deleted with Max-Age=0, by exact name, to its path."""
+    deletions: dict[str, str] = {}
+    for header in set_cookie_headers:
+        for name, morsel in SimpleCookie(header).items():
+            assert morsel["max-age"] == "0"
+            assert name not in deletions
+            deletions[name] = morsel["path"]
+    return deletions
 
 
 def _logout(scene: Scene) -> tuple[HTTPStatus, dict[str, list[str]], list[str], str]:
@@ -103,6 +107,8 @@ def test_logging_out_goes_to_the_end_session_endpoint_and_clears_the_sign_in(
     session: bool,
     hint: str,
 ) -> None:
+    scene.sign_in()
+    hint_name = _issued_hint(scene).name
     sent = _arrange(scene, session=session, hint=hint)
     sessions_before = scene.count("sessions")
 
@@ -115,9 +121,11 @@ def test_logging_out_goes_to_the_end_session_endpoint_and_clears_the_sign_in(
     assert urlsplit(query["post_logout_redirect_uri"][0]).path == LOGIN_PATH
     assert query.get("id_token_hint") == (None if sent is None else [sent])
     assert scene.count("sessions") == sessions_before - (1 if session else 0)
-    assert re.search(r"Path=/(;|$)", _cleared(cookies, DEFAULT_SESSION_COOKIE_NAME))
-    assert re.search(r"Path=/(;|$)", _cleared(cookies, DEFAULT_CSRF_COOKIE_NAME))
-    assert f"Path={LOGOUT_PATH}" in _cleared(cookies, _HINT_NAME)
+    assert _cleared_paths(cookies) == {
+        DEFAULT_SESSION_COOKIE_NAME: "/",
+        DEFAULT_CSRF_COOKIE_NAME: "/",
+        hint_name: LOGOUT_PATH,
+    }
 
 
 def test_the_session_cookie_of_a_logged_out_browser_cannot_come_back(

@@ -97,8 +97,8 @@ _LOGIN_REDIRECT: Final = LoginRedirect(
     redirect_query_param="next",
 )
 # Jinja's stubs type the globals as its own defaults only, so the dict is
-# named for what it holds.
-cast("dict[str, str]", TEMPLATES.env.globals).update(
+# named as the mixed bag it is.
+cast("dict[str, object]", TEMPLATES.env.globals).update(
     login_path=LOGIN_PATH,
     logout_path=LOGOUT_PATH,
 )
