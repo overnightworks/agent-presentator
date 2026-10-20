@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import ClassVar
@@ -349,48 +349,126 @@ def socket_directory(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]
     os.umask(before)
 
 
-def test_the_real_entry_resets_a_client_that_wrote_a_byte_twice_in_one_process(
+@dataclass
+class RecordingWatchdog:
+    """Records arm and cancel without ever arming a real timer."""
+
+    events: list[str] = field(default_factory=list[str])
+
+    def arm(self, remaining: float) -> None:
+        self.events.append("arm")
+
+    def cancel(self) -> None:
+        self.events.append("cancel")
+
+
+@dataclass(frozen=True)
+class Reply:
+    """What a client read, and whether the stream ended by reset rather than EOF."""
+
+    received: bytes
+    ended_by_reset: bool
+
+
+@dataclass
+class RealServing:
+    """A serve loop over the real gated spawn, ending after some connections."""
+
+    directory: Path
+    connections: int
+    sweep_deadlines: list[float] = field(default_factory=list[float])
+    watchdog: RecordingWatchdog = field(default_factory=RecordingWatchdog)
+    outcome: list[int] = field(default_factory=list[int])
+    swept: threading.Semaphore = field(default_factory=lambda: threading.Semaphore(0))
+
+    def sweep(self, deadline: float) -> bool:
+        self.sweep_deadlines.append(deadline)
+        self.swept.release()
+        return len(self.sweep_deadlines) < self.connections
+
+    def await_sweep(self) -> None:
+        assert self.swept.acquire(timeout=WAIT_SECONDS)
+
+    def start(self) -> threading.Thread:
+        serving = Serving(
+            spawn=partial(spawn_gated, identity=OWN_IDENTITY),
+            gate_admits=lambda _status: True,
+            sweep=self.sweep,
+            watchdog=self.watchdog,
+            clock=time.monotonic,
+        )
+        thread = threading.Thread(
+            target=lambda: self.outcome.append(
+                worker.serve(
+                    self.directory,
+                    controller_uid=OWN_UID,
+                    controller_gid=OWN_GID,
+                    runtime_uid=OWN_UID,
+                    serving=serving,
+                )
+            ),
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    def exchange(self, thread: threading.Thread, sent: bytes) -> Reply:
+        with closing(connect_when_bound(self.directory, thread.is_alive)) as client:
+            client.sendall(sent)
+            received = b""
+            try:
+                while chunk := client.recv(64):
+                    received += chunk
+            except ConnectionResetError:
+                return Reply(received, ended_by_reset=True)
+            return Reply(received, ended_by_reset=False)
+
+
+HELLO = b"PBW\x01\x01\x00\x02{}"
+STATUS = b"PBW\x01\x03\x00\x02{}"
+STEP_PREAMBLE_AND_HEADER = b"PBW\x01\x02\x00\x02{}"
+HEADER_DEADLINE_SECONDS = 2.0
+
+
+def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_deadline(
     socket_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    sweeps: list[float] = []
-
-    def sweep_then_end_the_second_time(deadline: float) -> bool:
-        sweeps.append(deadline)
-        return len(sweeps) < SECOND_CONNECTION
-
-    entry = partial(spawn_gated, identity=OWN_IDENTITY)
-    serving = Serving(
-        spawn=entry,
-        gate_admits=lambda _status: True,
-        sweep=sweep_then_end_the_second_time,
-        watchdog=NeverArmed(),
-        clock=time.monotonic,
-    )
-    outcome: list[int] = []
-    thread = threading.Thread(
-        target=lambda: outcome.append(
-            worker.serve(
-                socket_directory,
-                controller_uid=OWN_UID,
-                controller_gid=OWN_GID,
-                runtime_uid=OWN_UID,
-                serving=serving,
-            )
-        ),
-        daemon=True,
-    )
-    thread.start()
+    serving = RealServing(socket_directory, connections=SECOND_CONNECTION)
+    thread = serving.start()
 
     for _ in range(SECOND_CONNECTION):
-        with closing(connect_when_bound(socket_directory, thread.is_alive)) as client:
-            client.send(b"x")
-            with pytest.raises(ConnectionResetError):
-                client.recv(1)
+        before = time.monotonic()
+        reply = serving.exchange(thread, HELLO)
+        after = time.monotonic()
+        serving.await_sweep()
+
+        assert reply.received == STATUS
+        assert not reply.ended_by_reset
+        assert after - before < HEADER_DEADLINE_SECONDS
+        assert before + worker.SWEEP_SECONDS <= serving.sweep_deadlines[-1]
+        assert serving.sweep_deadlines[-1] <= after + worker.SWEEP_SECONDS
     thread.join(WAIT_SECONDS)
 
-    assert outcome == [0]
-    assert len(sweeps) == SECOND_CONNECTION
+    assert serving.outcome == [0]
+    assert serving.watchdog.events == ["arm", "cancel", "arm"]
+
+
+def test_a_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", PATH)
+    serving = RealServing(socket_directory, connections=SECOND_CONNECTION)
+    thread = serving.start()
+
+    assert serving.exchange(thread, STEP_PREAMBLE_AND_HEADER).received == b""
+    second_reply = serving.exchange(thread, HELLO)
+    assert second_reply.received == STATUS
+    assert not second_reply.ended_by_reset
+    thread.join(WAIT_SECONDS)
+
+    assert serving.outcome == [0]
+    assert len(serving.sweep_deadlines) == SECOND_CONNECTION
 
 
 def connect_when_bound(
