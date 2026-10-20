@@ -65,6 +65,7 @@ from presentator.adapters.speech import UdsSpeech
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
+    content_security_policy,
     create_lobby,
 )
 from presentator.api.copresenter import CoPresenterSurface
@@ -81,7 +82,12 @@ from presentator.host.config import (
     cannot_start,
     load_settings,
 )
-from presentator.host.oidc import admission_of, relying_party_of
+from presentator.host.oidc import (
+    admission_of,
+    client_config_of,
+    end_session_origin,
+    relying_party,
+)
 from presentator.host.polling import Schedule
 
 _WITHOUT_A_SANDBOX = (
@@ -206,17 +212,19 @@ def build_instance(settings: Settings) -> Instance:
 
 
 def _installed_auth(settings: Settings) -> InstalledAuth:
+    client = client_config_of(settings)
     return InstalledAuth(
         config=lobby_web_auth_config(
             settings.secret_key,
             trusted_proxies=settings.trusted_proxies,
             public_origin=settings.public_origin,
         ),
-        relying_party=relying_party_of(settings),
+        relying_party=relying_party(client),
         admission=admission_of(settings),
         accounts=SqliteSubjectUserStore(settings.database),
         lock=ProcessWriteLock(),
         audit=LoggingAuditSink(),
+        content_security_policy=content_security_policy(end_session_origin(client)),
     )
 
 

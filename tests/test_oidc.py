@@ -8,9 +8,10 @@ from pydantic import SecretStr
 from presentator.host import main
 from presentator.host.config import ConfigurationError, load_settings
 from presentator.host.oidc import (
+    client_config_of,
     oidc_client_config,
     read_client_secret,
-    relying_party_of,
+    relying_party,
 )
 from tests.api.lobby import (
     A_CLIENT_CREDENTIAL,
@@ -76,7 +77,7 @@ def test_the_relying_party_begins_a_login_at_the_issuer_the_settings_name(
 ) -> None:
     del environment
 
-    started = relying_party_of(load_settings()).begin_login()
+    started = relying_party(client_config_of(load_settings())).begin_login()
 
     assert started.url.startswith(f"{AN_ISSUER}/protocol/openid-connect/auth?")
 

@@ -10,15 +10,14 @@ import posixpath
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import HTTPConnection
-from starlette.responses import RedirectResponse
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
-from webauth.cookies import clear_session_cookies, issue_session_cookies
+from webauth.cookies import issue_session_cookies
 from webauth.dependencies import (
     ConnectionRefusal,
     LoginRedirect,
@@ -33,6 +32,7 @@ from webauth.oidc_login import (
     AdmissionConfig,
     AdmittedLogin,
     finish_login,
+    log_out,
     open_session,
     start_login,
 )
@@ -55,7 +55,7 @@ from presentator.api.copresenter import CoPresenterSurface, add_copresenter_rout
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.legal import DATENSCHUTZ, Emphasis
-from presentator.api.pages import Pages, state_word
+from presentator.api.pages import TEMPLATES, Pages, state_word
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
@@ -96,20 +96,32 @@ _LOGIN_REDIRECT: Final = LoginRedirect(
     path=_START_SIGN_IN,
     redirect_query_param="next",
 )
-# Nothing in the lobby or a built talk needs an inline script, an external
-# script host, or a frame: every asset ships under `/static` or a deck's own
-# build directory, both served from this origin. A built Slidev talk inlines
-# styles, which the library's default policy does not admit. The microphone
-# grant is the co-presenter's own: never the camera, never a page's location.
-CONTENT_SECURITY_POLICY: Final = default_content_security_policy(
-    [],
-    added_sources={CspDirective.STYLE_SRC: ["'unsafe-inline'"]},
+# Jinja's stubs type the globals as its own defaults only, so the dict is
+# named for what it holds.
+cast("dict[str, str]", TEMPLATES.env.globals).update(
+    login_path=LOGIN_PATH,
+    logout_path=LOGOUT_PATH,
 )
-_SECURITY_HEADERS: Final = SecurityHeadersPolicy(
-    content_security_policy=CONTENT_SECURITY_POLICY,
-    permissions_policy="camera=(), microphone=(self), geolocation=()",
-    cache_control_rules=(CacheControlRule(PathRules(prefixes=("/",)), "no-store"),),
-)
+
+
+def content_security_policy(end_session_origin: str) -> str:
+    """The one policy every answer of the lobby carries.
+
+    Nothing in the lobby or a built talk needs an inline script, an external
+    script host, or a frame: every asset ships under `/static` or a deck's own
+    build directory, both served from this origin. A built Slidev talk inlines
+    styles, which the library's default policy does not admit. Signing out is a
+    form the browser follows to the issuer, and Chromium checks `form-action`
+    on that redirect, so the end-session endpoint's origin is the one host a
+    form may reach.
+    """
+    return default_content_security_policy(
+        [],
+        added_sources={
+            CspDirective.STYLE_SRC: ["'unsafe-inline'"],
+            CspDirective.FORM_ACTION: [end_session_origin],
+        },
+    )
 
 
 def carry_set_cookies(source: Response, target: Response) -> None:
@@ -128,15 +140,6 @@ def _is_a_stylesheet(path: str) -> bool:
     return path.startswith(_INSIDE_STATIC) and posixpath.normpath(path).startswith(
         _INSIDE_STATIC,
     )
-
-
-def _session_id_from_cookie(connection: HTTPConnection) -> str:
-    """The raw session id the one signed cookie names, or "" for none.
-
-    A forged, oversized, or doubled cookie names none either: the library
-    refuses to pick between two same-named cookies.
-    """
-    return session_id_from_request(connection, web_auth_config(connection)) or ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -182,6 +185,7 @@ class InstalledAuth:
     accounts: SubjectUserStore
     lock: WriteLock
     audit: AuditSink
+    content_security_policy: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -345,10 +349,20 @@ class _Surfaces:
         return page
 
     def log_out(self, request: Request) -> Response:
-        """End the session and take the cookie away."""
-        self.sessions.delete(_session_id_from_cookie(request))
-        answer = RedirectResponse(LOGIN_PATH, status_code=HTTPStatus.SEE_OTHER)
-        clear_session_cookies(answer, web_auth_config(request))
+        """End the session here and at the issuer, and clear the sign-in's cookies.
+
+        The answer is one `Response`, never a `RedirectResponse`, so the
+        library's cookie deletions survive the redirect it points at the issuer.
+        """
+        answer = Response(status_code=HTTPStatus.SEE_OTHER)
+        answer.headers["location"] = log_out(
+            self.auth.relying_party,
+            request,
+            answer,
+            web_auth_config(request),
+            sessions=self.sessions,
+            lock=self.auth.lock,
+        )
         return answer
 
     def datenschutz_page(self, request: Request) -> Response:
@@ -388,7 +402,16 @@ def create_lobby(
     lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
     lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
     lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
-    lobby.add_middleware(SecurityHeadersMiddleware, policy=_SECURITY_HEADERS)
+    lobby.add_middleware(
+        SecurityHeadersMiddleware,
+        policy=SecurityHeadersPolicy(
+            content_security_policy=auth.content_security_policy,
+            permissions_policy="camera=(), microphone=(self), geolocation=()",
+            cache_control_rules=(
+                CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
+            ),
+        ),
+    )
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
