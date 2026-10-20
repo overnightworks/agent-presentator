@@ -144,7 +144,6 @@ class SourceView:
     state: str
     state_word: str
     fetched: str | None
-    secret_missing: bool
     address: str
     webhook_secret: str | None
     webhook_secret_held_elsewhere: bool
@@ -507,7 +506,6 @@ class _Surfaces:
                 if shown.age is None
                 else self.pages.age_in_words(shown.age, text.language_tag)
             ),
-            secret_missing=shown.secret_missing,
             address=self._hook_url(request, shown.name),
             webhook_secret=webhook_secret,
             webhook_secret_held_elsewhere=webhook_secret_held_elsewhere,

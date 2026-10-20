@@ -22,7 +22,6 @@ from presentator.contracts.decks import (
     Deck,
     DeckFolder,
     DeployKeyDraft,
-    SecretLocation,
     Source,
     SourcePoll,
     SourceRun,
@@ -234,7 +233,6 @@ class FakeSourceStore:
             name=write.name,
             url=write.url,
             ref=write.ref,
-            secret_location=SecretLocation.STORED,
             owner_id=write.owner_id,
             public_key=write.public_key,
         )
@@ -259,12 +257,6 @@ class FakeSourceStore:
 
     def put_credential(self, source_id: str, secret: str) -> None:
         self.secrets[source_id] = secret
-        self.sources = [
-            replace(source, secret_location=SecretLocation.STORED)
-            if source.id == source_id
-            else source
-            for source in self.sources
-        ]
 
     def renew_deploy_key(self, source_id: str) -> bool:
         source = next(
@@ -280,11 +272,6 @@ class FakeSourceStore:
                     f"ssh-ed25519 AAAAtestkey{self.minted} presentator"
                     if existing.id == source_id
                     else existing.public_key
-                ),
-                secret_location=(
-                    SecretLocation.STORED
-                    if existing.id == source_id
-                    else existing.secret_location
                 ),
             )
             for existing in self.sources

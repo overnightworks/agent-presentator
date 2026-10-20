@@ -447,7 +447,6 @@ def a_source(remote: GitRemote) -> Source:
         name="decks",
         url=remote.url,
         ref=MAIN_BRANCH,
-        secret_location=None,
         owner_id=_OWNER,
     )
 

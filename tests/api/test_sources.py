@@ -74,7 +74,6 @@ def another_source() -> Source:
         name="talks",
         url=_OTHER_ADDRESS,
         ref="main",
-        secret_location=None,
         owner_id=ADMIN,
     )
 
@@ -1240,19 +1239,6 @@ def test_a_failed_run_on_the_source_page_reads_failed_not_error() -> None:
     assert ENGLISH.source_state_failed in page
     assert ENGLISH.source_run_failed in page
     assert 'data-state="failed"' in page
-
-
-def test_a_source_without_a_stored_secret_says_so_on_its_page() -> None:
-    source = a_configured_source(_ADDRESS)
-    page = (
-        a_signed_in_lobby(GivenDecks(source=source))
-        .get(f"{SOURCES}/{source.name}")
-        .text
-    )
-
-    assert ENGLISH.source_secret_missing in page
-    assert "data-secret-missing" in page
-    assert ENGLISH.source_secret_dots in page
 
 
 def test_a_source_on_this_box_offers_neither_dots_nor_renew_on_its_page() -> None:

@@ -104,7 +104,6 @@ def prove_build_and_export(image: str, scratch: Path) -> None:
         name="proof",
         url=repository.as_uri(),
         ref="main",
-        secret_location=None,
         owner_id="proof",
     )
     deck = Deck(
