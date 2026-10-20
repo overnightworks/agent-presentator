@@ -15,6 +15,7 @@ from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     END,
+    EXITING_SENT,
     EXITING_SEVEN,
     HELLO,
     PATH,
@@ -73,7 +74,7 @@ def test_an_end_only_upload_is_answered_with_status_and_a_fake_sender_consumes_t
         modes_during_upload.append(deck_mode(sandbox))
         client.sendall(END)
 
-    spawn = ChainSpawn(programs={"send": [EXITING_SEVEN]})
+    spawn = ChainSpawn(programs={"send": [EXITING_SENT]})
 
     life = run_life(VALID_STEP, spawn, on_deck(sandbox), status_then_end)
 
@@ -89,7 +90,7 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
 ) -> None:
     deck = sandbox / "deck"
     spawn = ChainSpawn(
-        programs={"upload": [DECK_MODE_REPORTER, str(deck)], "send": [EXITING_SEVEN]}
+        programs={"upload": [DECK_MODE_REPORTER, str(deck)], "send": [EXITING_SENT]}
     )
 
     life = run_life(VALID_STEP, spawn, LifeScenario(deck=deck))

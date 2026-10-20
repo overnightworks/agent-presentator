@@ -615,7 +615,8 @@ class RecordingSpawn:
     def kill_and_reap(self) -> None:
         for child in self.children:
             child.kill()
-            child.wait()
+        reaped = [child.wait_within(WAIT_SECONDS) for child in self.children]
+        assert None not in reaped, "a killed child was not reaped"
 
 
 @dataclass
