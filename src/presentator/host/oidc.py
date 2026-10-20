@@ -59,7 +59,8 @@ def oidc_client_config(
         )
     except ValueError as refused:
         # webauth's reasons name a field, never its value.
-        raise cannot_start(f"the sign-in client configuration: {refused}") from None
+        message = f"the sign-in client configuration: {refused}"
+        raise cannot_start(message) from None
 
 
 def relying_party(config: OidcClientConfig) -> OidcRelyingParty:
