@@ -151,7 +151,7 @@ def _killed(child: WireChild, life_end: LifeEnd | None) -> LifeEnd | None:
 def _killed_noting_failure(child: WireChild, original: BaseException) -> None:
     try:
         _killed(child, None)
-    except BaseException as cleanup_failure:
+    except (Exception, KeyboardInterrupt) as cleanup_failure:
         logger.exception("child not killed and reaped")
         original.add_note(f"killing and reaping the child failed: {cleanup_failure!r}")
 
