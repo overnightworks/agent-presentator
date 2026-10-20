@@ -93,18 +93,16 @@ function boxesIntersect(first: { x: number, y: number, width: number, height: nu
     && second.y < first.y + first.height
 }
 
-async function readSameFrameBoxes(page: Page, homeHandle: ElementHandle<Element> | null, aiHandle: ElementHandle<Element> | null) {
-  expect(homeHandle).not.toBeNull()
-  expect(aiHandle).not.toBeNull()
+async function readSameFrameBoxes(page: Page, homeHandle: ElementHandle<Element>, aiHandle: ElementHandle<Element>) {
   return page.evaluate(([home, ai]) => {
     const rectOf = (element: Element) => {
       const { x, y, width, height } = element.getBoundingClientRect()
       return { x, y, width, height }
     }
     return {
-      homeBox: rectOf(home!),
-      aiBox: rectOf(ai!),
-      navWidth: home!.parentElement!.getBoundingClientRect().width,
+      homeBox: rectOf(home),
+      aiBox: rectOf(ai),
+      navWidth: home.parentElement!.getBoundingClientRect().width,
     }
   }, [homeHandle, aiHandle] as const)
 }
