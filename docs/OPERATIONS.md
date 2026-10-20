@@ -547,8 +547,14 @@ a file beside it and `mv -T` it over. The unit needs no `UnsetEnvironment=`
 line for the login, and old CLI copies under `~/.claude` can be purged. Each
 turn's home lives below `COPRESENTER_CLI_WORKING_ROOT` and is removed when the
 turn ends. When the log says a turn's process group is not confirmed gone, that
-turn's home stays under the root until `presentator-copresenter.service`
-restarts.
+turn's home stays under the root until the service stops in an orderly way;
+after a crash, SIGKILL or OOM it stays until removed, so remove leftover homes
+under the root once no process of that turn is left.
+
+No Claude managed-settings file on this host may configure an export
+(`/etc/claude-code/managed-settings.json`, `/etc/claude-code/managed-mcp.json`):
+the Datenschutz says the CLI's own telemetry and nonessential traffic are off,
+and the child's switches do not override a managed export.
 
 After an upgrade, restart `presentator-copresenter.service`, then ask one
 question on stage to see the answer arrive.

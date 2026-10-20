@@ -71,7 +71,8 @@ every app on this machine shares. The process does not take an API key. Each
 turn runs in a fresh home below `COPRESENTER_CLI_WORKING_ROOT` with a closed
 environment: the token reaches the child only as `CLAUDE_CODE_OAUTH_TOKEN`, and
 the home is gone when the turn ends. A turn whose process group cannot be shown
-gone leaves its home until `presentator-copresenter.service` restarts.
+gone leaves its home until the service stops in an orderly way, and after a
+crash until it is removed.
 
 ```sh
 # the shared token file exists once: `claude setup-token`, one line, mode 0600

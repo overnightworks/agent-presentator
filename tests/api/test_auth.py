@@ -605,12 +605,15 @@ def test_the_datenschutz_discloses_the_cookie_kinds_the_token_and_the_hint_at_lo
     )
 
 
-def test_the_datenschutz_says_the_claude_software_keeps_no_session_and_no_old_copy(
+def test_the_datenschutz_says_the_claude_software_keeps_no_conversation_and_no_old_copy(
     lobby: Lobby,
 ) -> None:
     page = lobby.client.get("/datenschutz").text
 
-    assert "keine Sitzung auf der Festplatte" in page
+    assert "keinen Gesprächsverlauf auf der Festplatte" in page
+    assert "Sitzung auf der Festplatte" not in page
+    assert "bis der Dienst geordnet beendet wird" in page
+    assert "bricht der Dienst ab" in page
     assert "die Frage selbst geht weiterhin an Anthropic" in page
     assert "30 Tage" not in page
 

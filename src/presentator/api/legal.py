@@ -287,13 +287,15 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Kopien der Claude-Software:",
                     "Die Claude-Software führt jede Frage in einem eigenen "
                     "privaten Ordner auf dem Server des Betreibers aus, der "
-                    "mit dem Ende der Antwort entfernt wird, und behält keine "
-                    "Sitzung auf der Festplatte. Ihre eigene Telemetrie, ihre "
-                    "Fehlerberichte und ihre nicht notwendigen Verbindungen "
-                    "sind abgeschaltet; die Frage selbst geht weiterhin an "
-                    "Anthropic. Einzige Ausnahme: Lässt sich ein "
-                    "Claude-Prozess nicht beenden, bleibt sein Ordner bis zum "
-                    "Neustart des Dienstes.",
+                    "mit dem Ende der Antwort entfernt wird, und behält "
+                    "keinen Gesprächsverlauf auf der Festplatte. Ihre eigene "
+                    "Telemetrie, ihre Fehlerberichte und ihre nicht "
+                    "notwendigen Verbindungen sind abgeschaltet; die Frage "
+                    "selbst geht weiterhin an Anthropic. Einzige Ausnahme: "
+                    "Lässt sich nicht bestätigen, dass alle Prozesse einer "
+                    "Antwort beendet sind, bleibt ihr Ordner, bis der Dienst "
+                    "geordnet beendet wird; bricht der Dienst ab, kann der "
+                    "Ordner auch länger bleiben, bis er entfernt wird.",
                 ),
                 _point(
                     "CoPresenter-Audio:",
