@@ -1,8 +1,0 @@
-claim_id = "049ffda44b9943539d5830e025804557"
-agent = "claude"
-role = "builder"
-base = "b7fe4a902752f635cddb3de858809f0519a8482f"
-branch = "claude/issue-333-k13-2b-sign-in-callback"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "docs/decisions/0006-sqlite-and-files.md", "docs/mockups/m0-lobby-sheet.png", "docs/mockups/m0-lobby.html", "docs/mockups/m0-lobby/legal-datenschutz-narrow.png", "docs/mockups/m0-lobby/legal-datenschutz.png", "src/presentator/adapters/audit.py", "src/presentator/adapters/catalogs/en.po", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/api/static/lobby.css", "src/presentator/api/templates/login_failed.html", "src/presentator/contracts/text.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "src/presentator/host/oidc.py", "tests/adapters/test_catalog.py", "tests/adapters/test_identity.py", "tests/adapters/test_subject_users.py", "tests/api/fake_issuer.py", "tests/api/lobby.py", "tests/api/test_auth.py", "tests/test_host.py", "tests/test_oidc.py", "tests/test_sign_in_callback.py", "tests/test_sign_in_start.py", "tests/vulture_allowlist.py"]
-opened_commit = "ea16bf64123f01fcc0b3c9064f47c00ac02f6c9f"
-whole_reason = "The subject store, the write lock, the audit sink, the callback route and the refusal page share one end-to-end proof (a fake-issuer sign-in) and none has a production caller alone; cookie-once is the same ruled sentence the callback's cookie issue proves."
