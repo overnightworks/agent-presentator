@@ -1,8 +1,0 @@
-claim_id = "21b3cb7a378649058048a2ce8b96387c"
-agent = "claude"
-role = "builder"
-base = "fd21404ef09278490fccd515da40f0a547b814d8"
-branch = "claude/issue-343-build-worker-a5b5-send-reply"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_reply.py", "tests/adapters/test_worker_upload.py", "tests/test_worker_record_chain.py", "tests/test_worker_record_life.py", "tests/test_worker_reply_chain.py", "tests/test_worker_serving_loop.py", "tests/test_worker_upload_chain.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "25f81150cf37ec1dfc62cee3b1a2ca0ec9d96eb5"
-whole_reason = "The encoders, the send role and the controller's R phase have no caller apart: the role is what makes R's deadline and the consumed exit observable, and the tests of the earlier parts that pin the old STEP_ACCEPTED end must change with it."
