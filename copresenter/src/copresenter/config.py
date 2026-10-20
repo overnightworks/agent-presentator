@@ -1,16 +1,22 @@
-"""What varies by deployment. Credentials are the operator's Claude login."""
+"""What varies by deployment. The Claude login is the shared setup-token file."""
 
 from __future__ import annotations
 
+import os
 import re
 from enum import StrEnum
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _ONE_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?$")
 SOCKET_NAME = "copresenter.sock"
+
+
+def _home_path(*parts: str) -> Path:
+    return Path.home().joinpath(*parts)
 
 
 class Transport(StrEnum):
@@ -42,6 +48,25 @@ class Settings(BaseSettings):
     deck: Path = Path("examples/copresenter-deck")
     claude_model: str = "claude-sonnet-4-6"
     language: str = "de"
+    claude_token_file: Path = Field(
+        default_factory=lambda: _home_path(".secrets", "agent-service", "claude.token"),
+    )
+    cli_search_path: Annotated[tuple[Path, ...], NoDecode] = Field(
+        default_factory=lambda: (_home_path(".local", "bin"),),
+    )
+    cli_working_root: Path = Field(
+        default_factory=lambda: _home_path(
+            ".local", "state", "agent-presentator", "copresenter-cli"
+        ),
+    )
+
+    @field_validator("cli_search_path", mode="before")
+    @classmethod
+    def _split_search_path(cls, value: object) -> object:
+        """The environment names the search path like `PATH`: directories joined by `:`."""
+        if isinstance(value, str):
+            return tuple(Path(entry) for entry in value.split(os.pathsep) if entry)
+        return value
 
     @field_validator("allowed_origin")
     @classmethod

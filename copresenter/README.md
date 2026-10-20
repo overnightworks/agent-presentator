@@ -65,13 +65,17 @@ audio within the one-second session check.
 
 ## How to run it with the speech service
 
-Answering is the installed `claude` executable, using the operator's own
-Claude login on this machine. The process does not take an API key. If
-`ANTHROPIC_API_KEY` happens to be set, it is scrubbed from the CLI child
-environment and never logged.
+Answering is the `claude` executable found on `COPRESENTER_CLI_SEARCH_PATH`,
+logged in by the one setup token in `COPRESENTER_CLAUDE_TOKEN_FILE`, the file
+every app on this machine shares. The process does not take an API key. Each
+turn runs in a fresh home below `COPRESENTER_CLI_WORKING_ROOT` with a closed
+environment: the token reaches the child only as `CLAUDE_CODE_OAUTH_TOKEN`, and
+the home is gone when the turn ends. A turn whose process group cannot be shown
+gone leaves its home until `presentator-copresenter.service` restarts.
 
 ```sh
-# claude on PATH, already logged in (`claude` / `claude login`)
+# the shared token file exists once: `claude setup-token`, one line, mode 0600
+# (default ~/.secrets/agent-service/claude.token); claude is in ~/.local/bin
 export COPRESENTER_TRANSPORT=unix
 export COPRESENTER_SOCKET_DIRECTORY=/run/agent-presentator
 export PRESENTATOR_RUNTIME_UID="$(id -u)"
@@ -127,9 +131,12 @@ CSRF reader, which sends the `__Host-csrf_token` cookie first and falls back to
 | `COPRESENTER_SPEECH_URL` | `http://127.0.0.1:8090` | Local speech service (#74). The stand-in is `:8765` only as an override. |
 | `COPRESENTER_DECK` | `examples/copresenter-deck` | Folder with `slides.md` |
 | `COPRESENTER_CLAUDE_MODEL` | `claude-sonnet-4-6` | Model name given to agent-providers |
+| `COPRESENTER_CLAUDE_TOKEN_FILE` | `~/.secrets/agent-service/claude.token` | The shared setup-token file: one line from `claude setup-token`, mode `0600`. A missing or refused file fails the turn as `cli_login_not_configured`; there is no per-app fallback. |
+| `COPRESENTER_CLI_SEARCH_PATH` | `~/.local/bin` | Directories, joined by `:`, where `claude` is looked up. `PATH` is not consulted. |
+| `COPRESENTER_CLI_WORKING_ROOT` | `~/.local/state/agent-presentator/copresenter-cli` | Created `0700` at start, with missing parents; a root that exists with another mode stops the start. Holds each turn's disposable home. |
 | `COPRESENTER_LANGUAGE` | `de` | Language sent to `/speak` and `/hear` unless the overlay overrides it |
 
-The stage needs `claude` on PATH with a login, and the speech service.
+The stage needs `claude` on the search path, the shared token file, and the speech service.
 
 ## What it does not yet do
 

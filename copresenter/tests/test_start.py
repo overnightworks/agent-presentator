@@ -6,28 +6,119 @@ import fcntl
 import os
 import socket
 import stat
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import uvicorn
+from agent_providers.config import (
+    ClaudeCliRuntime,
+    TurnRuntimeConfig,
+    current_config,
+    reset_config,
+)
 
 from copresenter import main as copresenter_main
 from copresenter.answer import provider_runtime
 from copresenter.config import Settings, Transport
 from copresenter.main import private_listener
 
-from .conftest import ALLOWED_ORIGIN
+from .conftest import ALLOWED_ORIGIN, EXAMPLE_DECK
 
 
-def test_provider_runtime_carries_the_required_codex_bounds() -> None:
-    config = provider_runtime("claude-sonnet-4-6")
+def test_provider_runtime_sets_only_what_a_claude_turn_reads(tmp_path: Path) -> None:
+    token_file = tmp_path / "claude.token"
+    search_path = (tmp_path / "bin",)
+    working_root = tmp_path / "root"
 
-    assert config.codex_max_concurrent_processes == 1
-    assert config.codex_max_concurrent_image_runs == 1
-    assert config.anthropic_api_key is None
-    assert config.secret_env_keys == ("ANTHROPIC_API_KEY",)
-    assert config.mcp_server is None
-    assert config.claude_cli_binary == "claude"
-    assert config.claude_chat_model == "claude-sonnet-4-6"
+    config = provider_runtime(
+        token_file=token_file,
+        search_path=search_path,
+        working_root=working_root,
+    )
+
+    assert config.claude == ClaudeCliRuntime(binary="claude", token_file=token_file)
+    assert config.cli_binary_search_path == search_path
+    assert config.cli_working_directory_root == working_root
+    assert config.turns == TurnRuntimeConfig(mcp_server=None)
+    assert (config.grok, config.codex) == (None, None)
+    assert (config.anthropic_api_key, config.xai_api_key, config.openai_api_key) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_settings_default_to_the_shared_login_and_a_private_state_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for name in (
+        "COPRESENTER_CLAUDE_TOKEN_FILE",
+        "COPRESENTER_CLI_SEARCH_PATH",
+        "COPRESENTER_CLI_WORKING_ROOT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(allowed_origin=ALLOWED_ORIGIN)
+
+    assert settings.claude_token_file == tmp_path / ".secrets/agent-service/claude.token"
+    assert settings.cli_search_path == (tmp_path / ".local/bin",)
+    assert settings.cli_working_root == (
+        tmp_path / ".local/state/agent-presentator/copresenter-cli"
+    )
+
+
+def test_settings_read_the_search_path_like_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
+    monkeypatch.setenv("COPRESENTER_CLI_SEARCH_PATH", "/opt/a:/opt/b")
+
+    assert Settings().cli_search_path == (Path("/opt/a"), Path("/opt/b"))
+
+
+@pytest.fixture
+def unconfigured_provider_runtime() -> Iterator[None]:
+    reset_config()
+    yield
+    reset_config()
+
+
+@pytest.mark.usefixtures("unconfigured_provider_runtime")
+def test_start_makes_the_working_root_and_its_missing_parents_private_in_an_empty_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir(mode=0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
+    monkeypatch.setenv("COPRESENTER_DECK", str(EXAMPLE_DECK))
+    monkeypatch.delenv("COPRESENTER_CLI_WORKING_ROOT", raising=False)
+    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
+
+    copresenter_main.main()
+
+    root = home / ".local/state/agent-presentator/copresenter-cli"
+    for created in (home / ".local", home / ".local/state", root.parent, root):
+        assert stat.S_IMODE(created.lstat().st_mode) == 0o700
+    assert current_config().cli_working_directory_root == root
+
+
+@pytest.mark.usefixtures("unconfigured_provider_runtime")
+def test_start_refuses_a_working_root_with_another_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir(mode=0o755)
+    monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
+    monkeypatch.setenv("COPRESENTER_DECK", str(EXAMPLE_DECK))
+    monkeypatch.setenv("COPRESENTER_CLI_WORKING_ROOT", str(root))
+    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="mode 0700"):
+        copresenter_main.main()
 
 
 def test_settings_default_speech_url_is_the_speech_service_port(

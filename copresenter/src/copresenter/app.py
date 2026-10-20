@@ -9,6 +9,7 @@ import logging
 from collections.abc import AsyncIterator
 
 import httpx
+from agent_providers.errors import ContainmentLost, ProviderError
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -144,7 +145,14 @@ async def _ask_events(
             language=language,
         ):
             yield _sse(kind, payload)
-    except (httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError):
+    except ContainmentLost as lost:
+        _log.error(
+            "process group %d of a Claude turn is not confirmed gone; "
+            "restart presentator-copresenter.service",
+            lost.group.pgid,
+        )
+        yield _sse("error", {"message": "the answer could not be spoken"})
+    except (ProviderError, httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError):
         _log.exception("ask failed")
         yield _sse("error", {"message": "the answer could not be spoken"})
 
