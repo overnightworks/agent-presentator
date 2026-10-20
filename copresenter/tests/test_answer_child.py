@@ -191,24 +191,29 @@ def test_a_turn_that_ends_in_a_provider_error_leaves_no_home_in_the_working_root
     assert list(failing.working_root.iterdir()) == []
 
 
-@pytest.mark.parametrize(
-    "refused_token",
-    [
-        pytest.param(None, id="missing"),
-        pytest.param(
-            ('{"synthetic-json-body": "distinct-json-line"}', 0o600),
-            id="json",
-        ),
-        pytest.param(("sk-ant-api03-distinct-synthetic-line", 0o600), id="api-key"),
-        pytest.param((SYNTHETIC_LOGIN_LINE, 0o644), id="readable-by-others"),
-    ],
-)
+def refused_login(refusal: str) -> tuple[str, int] | None:
+    """The token file content and mode for `refusal`; the content stays out of test arguments."""
+    if refusal == "missing":
+        return None
+    if refusal == "json":
+        return ('{"synthetic-json-body": "distinct-json-line"}', 0o600)
+    if refusal == "api-key":
+        return ("sk-ant-api03-distinct-synthetic-line", 0o600)
+    return (SYNTHETIC_LOGIN_LINE, 0o644)
+
+
+def leaks_refused_login(refusal: str, surfaces: tuple[str, ...]) -> bool:
+    login = refused_login(refusal)
+    return login is not None and any(login[0] in surface for surface in surfaces)
+
+
+@pytest.mark.parametrize("refusal", ["missing", "json", "api-key", "readable-by-others"])
 def test_a_missing_or_refused_shared_token_ends_the_turn_with_no_login_configured(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    refused_token: tuple[str, int] | None,
+    refusal: str,
 ) -> None:
-    claude = build_claude(tmp_path, login=refused_token)
+    claude = build_claude(tmp_path, login=refused_login(refusal))
     caplog.set_level(logging.DEBUG)
 
     with pytest.raises(ProviderUnavailableError) as ended:
@@ -217,9 +222,9 @@ def test_a_missing_or_refused_shared_token_ends_the_turn_with_no_login_configure
     assert ended.value.reason is not None
     assert ended.value.reason.code is SafeRouteReasonCode.CLI_LOGIN_NOT_CONFIGURED
     assert list(claude.working_root.iterdir()) == []
+    if refusal == "missing":
+        assert not claude.token_file.exists()
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert str(claude.token_file) in logged
-    content = refused_token[0] if refused_token is not None else None
     surfaces = (logged, str(ended.value), repr(ended.value))
-    leaked = content is not None and any(content in surface for surface in surfaces)
-    assert not leaked
+    assert not leaks_refused_login(refusal, surfaces)

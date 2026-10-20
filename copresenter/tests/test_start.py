@@ -219,6 +219,7 @@ def test_unix_start_refuses_an_unowned_directory_shape(
         directory.symlink_to(target, target_is_directory=True)
     elif bad_directory == "open-mode":
         directory.mkdir(mode=0o755)
+        directory.chmod(0o755)
     else:
         directory.write_text("not a directory", encoding="utf-8")
 
