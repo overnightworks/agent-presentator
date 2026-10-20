@@ -90,7 +90,10 @@ def test_start_makes_the_working_root_and_its_missing_parents_private_in_an_empt
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     home = tmp_path / "home"
-    home.mkdir(mode=0o755)
+    home.mkdir()
+    home.chmod(0o755)
+    (home / ".local").mkdir()
+    (home / ".local").chmod(0o755)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
     monkeypatch.setenv("COPRESENTER_DECK", str(EXAMPLE_DECK))
@@ -100,8 +103,10 @@ def test_start_makes_the_working_root_and_its_missing_parents_private_in_an_empt
     copresenter_main.main()
 
     root = home / ".local/state/agent-presentator/copresenter-cli"
-    for created in (home / ".local", home / ".local/state", root.parent, root):
+    for created in (home / ".local/state", root.parent, root):
         assert stat.S_IMODE(created.lstat().st_mode) == 0o700
+    for existing in (home, home / ".local"):
+        assert stat.S_IMODE(existing.lstat().st_mode) == 0o755
     assert current_config().cli_working_directory_root == root
 
 
@@ -111,7 +116,8 @@ def test_start_refuses_a_working_root_with_another_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "root"
-    root.mkdir(mode=0o755)
+    root.mkdir()
+    root.chmod(0o755)
     monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
     monkeypatch.setenv("COPRESENTER_DECK", str(EXAMPLE_DECK))
     monkeypatch.setenv("COPRESENTER_CLI_WORKING_ROOT", str(root))
@@ -119,6 +125,25 @@ def test_start_refuses_a_working_root_with_another_mode(
 
     with pytest.raises(RuntimeError, match="mode 0700"):
         copresenter_main.main()
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "COPRESENTER_CLAUDE_TOKEN_FILE",
+        "COPRESENTER_CLI_SEARCH_PATH",
+        "COPRESENTER_CLI_WORKING_ROOT",
+    ],
+)
+def test_settings_refuse_a_relative_path_for_the_login_and_the_cli_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    monkeypatch.setenv("COPRESENTER_ALLOWED_ORIGIN", ALLOWED_ORIGIN)
+    monkeypatch.setenv(variable, "~/.local/state/x")
+
+    with pytest.raises(ValueError, match="not an absolute path"):
+        Settings()
 
 
 def test_settings_default_speech_url_is_the_speech_service_port(

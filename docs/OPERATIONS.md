@@ -548,6 +548,9 @@ turn ends. When the log says a turn's process group is not confirmed gone, that
 turn's home stays under the root until `presentator-copresenter.service`
 restarts.
 
+After an upgrade, restart `presentator-copresenter.service`, then ask one
+question on stage to see the answer arrive.
+
 ```sh
 # speech/, then copresenter/, each as a user unit with these values
 SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090 uv run presentator-speech

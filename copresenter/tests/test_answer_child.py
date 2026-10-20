@@ -20,8 +20,8 @@ from copresenter.deck import load_deck
 
 from .conftest import ALLOWED_ORIGIN, EXAMPLE_DECK
 
-SYNTHETIC_SETUP_TOKEN = "synthetic-setup-token"  # noqa: S105 - a stand-in, not a credential
-FOREIGN_SECRET_NAME = "COPRESENTER_TEST_FOREIGN_SECRET"  # noqa: S105
+SYNTHETIC_LOGIN_LINE = "synthetic-setup-line"
+FOREIGN_VARIABLE = "COPRESENTER_TEST_FOREIGN_SECRET"
 
 # The fake reads its whole stdin as the real one does, announces no tool, and reports only
 # presence flags it computes itself: it never prints the token it received.
@@ -82,7 +82,7 @@ def install_fake_claude(directory: Path, *, fails: bool) -> None:
     fake.write_text(
         FAKE_CLAUDE.format(
             python=sys.executable,
-            foreign_secret=FOREIGN_SECRET_NAME,
+            foreign_secret=FOREIGN_VARIABLE,
             fails=fails,
         ),
         encoding="utf-8",
@@ -90,7 +90,7 @@ def install_fake_claude(directory: Path, *, fails: bool) -> None:
     fake.chmod(0o700)
 
 
-def write_token(path: Path, content: str = SYNTHETIC_SETUP_TOKEN, mode: int = 0o600) -> None:
+def write_token(path: Path, content: str = SYNTHETIC_LOGIN_LINE, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"{content}\n", encoding="utf-8")
     path.chmod(mode)
@@ -100,7 +100,7 @@ def build_claude(
     tmp_path: Path,
     *,
     fails: bool = False,
-    login: tuple[str, int] | None = (SYNTHETIC_SETUP_TOKEN, 0o600),
+    login: tuple[str, int] | None = (SYNTHETIC_LOGIN_LINE, 0o600),
 ) -> Claude:
     """Configure a turn whose shared token file holds `login` (content, mode), or is missing."""
     home = tmp_path / "home"
@@ -154,7 +154,7 @@ def test_child_gets_the_shared_login_only_as_the_oauth_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-api-key")
-    monkeypatch.setenv(FOREIGN_SECRET_NAME, "synthetic-foreign-secret")
+    monkeypatch.setenv(FOREIGN_VARIABLE, "synthetic-foreign-secret")
 
     report = claude.reported()
 
@@ -195,9 +195,12 @@ def test_a_turn_that_ends_in_a_provider_error_leaves_no_home_in_the_working_root
     "refused_token",
     [
         pytest.param(None, id="missing"),
-        pytest.param(("{}", 0o600), id="json"),
-        pytest.param(("sk-ant-api03-synthetic", 0o600), id="api-key"),
-        pytest.param((SYNTHETIC_SETUP_TOKEN, 0o644), id="readable-by-others"),
+        pytest.param(
+            ('{"synthetic-json-body": "distinct-json-line"}', 0o600),
+            id="json",
+        ),
+        pytest.param(("sk-ant-api03-distinct-synthetic-line", 0o600), id="api-key"),
+        pytest.param((SYNTHETIC_LOGIN_LINE, 0o644), id="readable-by-others"),
     ],
 )
 def test_a_missing_or_refused_shared_token_ends_the_turn_with_no_login_configured(
@@ -216,4 +219,7 @@ def test_a_missing_or_refused_shared_token_ends_the_turn_with_no_login_configure
     assert list(claude.working_root.iterdir()) == []
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert str(claude.token_file) in logged
-    assert SYNTHETIC_SETUP_TOKEN not in logged
+    content = refused_token[0] if refused_token is not None else None
+    surfaces = (logged, str(ended.value), repr(ended.value))
+    leaked = content is not None and any(content in surface for surface in surfaces)
+    assert not leaked

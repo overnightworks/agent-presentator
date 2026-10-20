@@ -68,6 +68,17 @@ class Settings(BaseSettings):
             return tuple(Path(entry) for entry in value.split(os.pathsep) if entry)
         return value
 
+    @field_validator("claude_token_file", "cli_search_path", "cli_working_root")
+    @classmethod
+    def _is_absolute(cls, value: Path | tuple[Path, ...]) -> Path | tuple[Path, ...]:
+        """Neither pydantic nor a systemd `Environment=` line expands `~`: refuse it here."""
+        paths = value if isinstance(value, tuple) else (value,)
+        for path in paths:
+            if not path.is_absolute():
+                message = f"{path} is not an absolute path"
+                raise ValueError(message)
+        return value
+
     @field_validator("allowed_origin")
     @classmethod
     def _is_one_origin(cls, value: str | None) -> str | None:
