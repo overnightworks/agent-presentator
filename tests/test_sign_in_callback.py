@@ -4,6 +4,7 @@ The issuer is a fake that signs with a key the test generated; the accounts and
 the sessions are the real SQLite stores on a temporary file.
 """
 
+import asyncio
 import logging
 import sqlite3
 import threading
@@ -40,7 +41,7 @@ from presentator.adapters.identity import (
     SqliteSubjectUserStore,
     create_identity_tables,
 )
-from presentator.api.auth import carry_set_cookies
+from presentator.api.auth import LOGOUT_PATH, carry_set_cookies
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.models import Session
 from presentator.host import main
@@ -66,8 +67,6 @@ _BOUND = 30.0
 _TOO_LONG_FOR_A_COOKIE = 4000
 _COOKIES_OF_A_SIGN_IN = 4
 _HOLDS_OF_A_SIGN_IN = 2
-_NO_ENTRY_WINDOW = 0.2
-_LOGOUT_HINT_PATH = "Path=/logout"
 _LOGOUT_HINT_NAME = "id_token_hint"
 _COUNTS = {
     "users": "SELECT count(*) FROM users",
@@ -87,20 +86,47 @@ class RecordingAudit:
 
 @dataclass
 class WatchedLock:
-    """The real process lock, which also counts and announces each hold."""
+    """The real process lock, which also counts, announces and watches each hold."""
 
     real: ProcessWriteLock = field(default_factory=ProcessWriteLock)
     holds: int = 0
+    most_holders_at_once: int = 0
+    held_on_the_event_loop: bool = False
     attempted: threading.Semaphore = field(
         default_factory=lambda: threading.Semaphore(0)
     )
+    _holders: int = 0
+    _mutex: threading.Lock = field(default_factory=threading.Lock)
 
     @contextmanager
     def hold(self) -> Generator[None]:
-        self.holds += 1
+        with self._mutex:
+            self.holds += 1
         self.attempted.release()
         with self.real.hold():
-            yield
+            self._enter()
+            try:
+                yield
+            finally:
+                self._leave()
+
+    def _enter(self) -> None:
+        with self._mutex:
+            self._holders += 1
+            self.most_holders_at_once = max(self.most_holders_at_once, self._holders)
+            self.held_on_the_event_loop |= _on_an_event_loop()
+
+    def _leave(self) -> None:
+        with self._mutex:
+            self._holders -= 1
+
+
+def _on_an_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 @dataclass
@@ -111,7 +137,6 @@ class GatedAccounts:
     reads: int = 0
     first_read: threading.Event = field(default_factory=threading.Event)
     release_first: threading.Event = field(default_factory=threading.Event)
-    second_read: threading.Event = field(default_factory=threading.Event)
 
     def get(self, user_id: str) -> UserRecord | None:
         found = self.accounts.get(user_id)
@@ -119,8 +144,6 @@ class GatedAccounts:
         if self.reads == 1:
             self.first_read.set()
             assert self.release_first.wait(_BOUND)
-        else:
-            self.second_read.set()
         return found
 
     def create_for_subject(self, subject: str, username: str, role: str) -> UserRecord:
@@ -250,10 +273,12 @@ def test_a_member_signs_in_and_the_303_carries_every_cookie_the_sign_in_needs(
     session = _cookie(answer, DEFAULT_SESSION_COOKIE_NAME)
     assert "HttpOnly" in session
     assert "SameSite=lax" in session
+    assert "HttpOnly" not in _cookie(answer, DEFAULT_CSRF_COOKIE_NAME)
     hint = _cookie(answer, _LOGOUT_HINT_NAME)
-    assert _LOGOUT_HINT_PATH in hint
+    assert f"Path={LOGOUT_PATH}" in hint
     assert lifetime in hint
     assert "Secure" in hint
+    assert "HttpOnly" in hint
     (pending,) = (
         cookie
         for cookie in answer.headers.get_list("set-cookie")
@@ -326,7 +351,7 @@ def test_an_ordinary_answer_refreshes_no_cookie_and_a_later_sign_in_issues_fresh
     first = scene.sign_in()
 
     assert scene.lobby.client.get("/").headers.get_list("set-cookie") == []
-    scene.lobby.client.post("/logout")
+    scene.lobby.client.post(LOGOUT_PATH)
     second = scene.sign_in()
 
     for name in (DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME):
@@ -504,11 +529,10 @@ def test_two_first_sign_ins_of_one_subject_make_one_account_and_two_sessions(
         second = pool.submit(scene.sign_in, scene.browser())
         assert lock.attempted.acquire(timeout=_BOUND)
         assert lock.attempted.acquire(timeout=_BOUND)
-        reached_the_store_meanwhile = accounts.second_read.wait(_NO_ENTRY_WINDOW)
         accounts.release_first.set()
         answers = [first.result(timeout=_BOUND), second.result(timeout=_BOUND)]
 
-    assert not reached_the_store_meanwhile
+    assert lock.most_holders_at_once == 1
     assert [answer.status_code for answer in answers] == [HTTPStatus.SEE_OTHER] * 2
     assert (scene.count("users"), scene.count("sessions")) == (1, 2)
     assert [event.kind for event in scene.audit.events] == [
@@ -525,6 +549,18 @@ def test_one_callback_holds_the_write_lock_once_to_admit_and_once_to_open_the_se
     scene.sign_in()
 
     assert lock.holds == _HOLDS_OF_A_SIGN_IN
+
+
+def test_the_write_lock_is_held_on_worker_threads_and_never_on_the_event_loop(
+    tmp_path: Path,
+) -> None:
+    lock = WatchedLock()
+    scene = a_scene(tmp_path, lock=lock)
+
+    scene.sign_in()
+
+    assert lock.holds == _HOLDS_OF_A_SIGN_IN
+    assert not lock.held_on_the_event_loop
 
 
 def test_a_store_failure_after_the_admission_keeps_the_account_and_sets_no_cookie(

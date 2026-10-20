@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 """
 _IDENTIFIER_BYTES: Final = 32
 _USERNAME_COLUMN: Final = "users.username"
+_SELECT_ACCOUNT: Final = "SELECT id, username, role FROM users WHERE id = ?"
 
 
 class OldDatabaseError(RuntimeError):
@@ -129,9 +130,7 @@ class SqliteSubjectUserStore:
     def get(self, user_id: str) -> User | None:
         """The account whose id is `user_id` character for character."""
         with rows(self.database) as cursor:
-            row = cursor.execute(
-                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
-            ).fetchone()
+            row = cursor.execute(_SELECT_ACCOUNT, (user_id,)).fetchone()
         return None if row is None else _user(row)
 
     def create_for_subject(self, subject: str, username: str, role: str) -> User:
@@ -143,7 +142,7 @@ class SqliteSubjectUserStore:
                     (subject, username, role),
                 )
         except sqlite3.IntegrityError as refused:
-            if _is_a_taken_username(refused):
+            if _is_a_taken_username(refused) and self.get(subject) is None:
                 message = "the username is held by another account"
                 raise UsernameTakenError(message) from None
             raise
@@ -156,9 +155,7 @@ class SqliteSubjectUserStore:
             if cursor.rowcount != 1:
                 message = "no account to change the role of"
                 raise LookupError(message)
-            row = cursor.execute(
-                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
-            ).fetchone()
+            row = cursor.execute(_SELECT_ACCOUNT, (user_id,)).fetchone()
         return _user(row)
 
 
@@ -171,8 +168,9 @@ def _is_a_taken_username(refused: sqlite3.IntegrityError) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class ProcessWriteLock:
-    """The one lock every write of accounts and sessions takes (ADR 0003).
+    """The one lock the sign-in callback takes for admission and `open_session`.
 
+    Logout and the back-channel logout take it when they are built (ADR 0003).
     Re-entrant, and held only on worker threads, never on the event loop.
     """
 
@@ -199,9 +197,7 @@ class SqliteSessionRecordStore:
         """Open a session created at `now` that stands until `expires_at`."""
         session_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
         with rows(self.database) as cursor:
-            account = cursor.execute(
-                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
-            ).fetchone()
+            account = cursor.execute(_SELECT_ACCOUNT, (user_id,)).fetchone()
             if account is None:
                 message = f"no account {user_id} to open a session for"
                 raise LookupError(message)

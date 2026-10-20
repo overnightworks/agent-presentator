@@ -5,7 +5,8 @@
   <p>{{ text.wordmark }}</p>
   <h1>{{ text.login_failed_title }}</h1>
   <aside data-banner="failed">
-    <p>{{ text.login_failed_explanation }}</p>
+    <span aria-hidden="true" style="display: inline-block; width: 0.9em; height: 0.9em; margin-right: 0.4em; background: var(--fail); clip-path: polygon(50% 0%, 100% 100%, 0% 100%);"></span>
+    <p style="display: inline;">{{ text.login_failed_explanation }}</p>
   </aside>
   <a data-action data-wide href="{{ start_sign_in }}">{{ text.login_failed_retry }}</a>
 </main>

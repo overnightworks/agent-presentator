@@ -200,8 +200,9 @@ From `webauth`: `SessionRecordStore` is implemented on SQLite ([ADR
 0006](0006-sqlite-and-files.md)); the host builds `WebAuthConfig` from its
 settings. `RateLimitPolicy` is implemented without Redis, as is the
 `RateLimitBackend` port the extraction names. No `SessionCache` is implemented
-here at all — see below. `BodySizePolicy` and `AuditSink` are taken with their
-defaults and stubbed until something here needs them. `SecurityHeadersPolicy` is
+here at all — see below. `BodySizePolicy` is taken with its
+default and stubbed until something here needs it; `AuditSink` is a logging sink
+that writes one line per account created or role changed. `SecurityHeadersPolicy` is
 mounted: the lobby's `SecurityHeadersMiddleware` sends HSTS, a strict
 `Content-Security-Policy`, and a `Permissions-Policy` that grants only
 `microphone=(self)` — never the camera, which nothing in this product asks for —
@@ -251,8 +252,10 @@ changes anything above `adapters`.
 `webauth`'s ports assume stores that share one transaction, which the host
 commits. This host keeps autocommit stores instead: each statement commits on
 its own, so there is nothing to commit or roll back. `WriteLock.hold()` takes
-one `threading.RLock` per process. The lock serializes admission,
-`open_session`, `log_out` and the back-channel logout. That suffices because one
+one `threading.RLock` per process. The sign-in callback takes it twice, for
+admission and for `open_session`; `log_out` and the back-channel logout take it
+once they exist (they are obligations of the logout and back-channel slices).
+That suffices because one
 lobby process is the only writer of `users` and `sessions`
 ([ADR 0006](0006-sqlite-and-files.md)).
 

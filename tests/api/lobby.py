@@ -301,11 +301,13 @@ def an_installed_auth(
     """The host's sign-in wiring, each part replaceable by the test that proves it."""
     return InstalledAuth(
         config=a_web_auth(clock),
-        relying_party=relying_party or a_relying_party(clock),
+        relying_party=a_relying_party(clock)
+        if relying_party is None
+        else relying_party,
         admission=admission_of(a_settings()),
-        accounts=accounts or NobodySignsIn(),
-        lock=lock or ProcessWriteLock(),
-        audit=audit or LoggingAuditSink(),
+        accounts=NobodySignsIn() if accounts is None else accounts,
+        lock=ProcessWriteLock() if lock is None else lock,
+        audit=LoggingAuditSink() if audit is None else audit,
     )
 
 

@@ -8,7 +8,11 @@ import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
-from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME, MAX_SESSION_COOKIE_CHARS
+from webauth.cookies import (
+    DEFAULT_CSRF_COOKIE_NAME,
+    DEFAULT_SESSION_COOKIE_NAME,
+    MAX_SESSION_COOKIE_CHARS,
+)
 from webauth.middleware.security_headers import (
     CONTENT_TYPE_OPTIONS,
     FRAME_OPTIONS,
@@ -418,9 +422,19 @@ def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
     assert refused.status_code == HTTPStatus.FORBIDDEN
 
 
-def test_logging_out_expires_the_cookie_at_once(signed_in_lobby: Lobby) -> None:
-    cleared = signed_in_lobby.client.post("/logout").headers["set-cookie"]
+@pytest.mark.parametrize(
+    "cookie_name", [DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME]
+)
+def test_logging_out_expires_the_session_and_the_csrf_cookie_each_at_once(
+    signed_in_lobby: Lobby, cookie_name: str
+) -> None:
+    deletions = signed_in_lobby.client.post("/logout").headers.get_list("set-cookie")
 
+    (cleared,) = (
+        deletion
+        for deletion in deletions
+        if deletion.split("=", 1)[0].endswith(cookie_name)
+    )
     assert "SameSite=lax" in cleared
     assert "Max-Age=0" in cleared
 
@@ -520,6 +534,8 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
     )
 
     assert "__Secure-oidc_id_token_hint" in document
+    assert "__Host-oidc_pending_" in document
+    assert "ohne Rückfrage" not in document
     assert "werden danach nicht erneuert" in document
     assert "mit jeder angemeldeten Antwort erneuert" not in document
     assert "Keycloak-Subject-ID und Rolle" in document
@@ -556,7 +572,7 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
 
     assert f"rund {draft_hours} Stunden nach Erzeugung" in page
     assert f"{session_hours} Stunden" in page
-    assert f"drei Cookies sind {session_hours} Stunden gültig" in page
+    assert f"Cookies nach der Anmeldung sind {session_hours} Stunden gültig" in page
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])

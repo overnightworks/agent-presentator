@@ -55,13 +55,15 @@ def test_a_username_another_account_holds_is_refused_as_taken(
     assert accounts.get("subject-2") is None
 
 
+@pytest.mark.parametrize("second_username", ["anna", "felix"])
 def test_a_subject_that_already_has_an_account_is_not_a_taken_username(
     accounts: SqliteSubjectUserStore,
+    second_username: str,
 ) -> None:
     accounts.create_for_subject("subject-1", "felix", "user")
 
     with pytest.raises(sqlite3.IntegrityError) as refused:
-        accounts.create_for_subject("subject-1", "anna", "user")
+        accounts.create_for_subject("subject-1", second_username, "user")
 
     assert not isinstance(refused.value, UsernameTakenError)
 

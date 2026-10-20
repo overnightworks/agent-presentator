@@ -18,6 +18,7 @@ SECRET_LENGTH: Final = 32
 # anybody said.
 NO_BOUND_AT_ALL: Final = "none"
 
+_INVALID_PORT: Final = "has an invalid port"
 _REFUSED: Final = "this environment cannot start an instance"
 
 ENVIRONMENT_PREFIX: Final = "PRESENTATOR_"
@@ -85,7 +86,7 @@ def _one_public_origin(given: str) -> str:
     try:
         _port = parsed.port
     except ValueError as refused:
-        message = "has an invalid port"
+        message = _INVALID_PORT
         raise ValueError(message) from refused
     return given
 
@@ -111,12 +112,12 @@ def _an_https_realm_url(given: str) -> str:
         )
         raise ValueError(message)
     if parsed.netloc.endswith(":"):
-        message = "has an invalid port"
+        message = _INVALID_PORT
         raise ValueError(message)
     try:
         _port = parsed.port
     except ValueError as refused:
-        message = "has an invalid port"
+        message = _INVALID_PORT
         raise ValueError(message) from refused
     return given
 

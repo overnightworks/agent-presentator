@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
+from webauth.oidc import PENDING_LOGIN_MAX_AGE_SECONDS
+
 from presentator.application.decks import DRAFT_MAX_AGE
 from presentator.application.identity import SESSION_LIFETIME, SESSION_SWEEP_INTERVAL
 
@@ -65,6 +67,7 @@ def _point(label: str, *rest: str | Phrase) -> Paragraph:
 
 _IMPRESSUM: Final = Phrase("Impressum", Emphasis.IMPRESSUM)
 _SESSION_HOURS: Final = int(SESSION_LIFETIME.total_seconds()) // _SECONDS_PER_HOUR
+_PENDING_MINUTES: Final = PENDING_LOGIN_MAX_AGE_SECONDS // _SECONDS_PER_MINUTE
 _SWEEP_MINUTES: Final = (
     int(SESSION_SWEEP_INTERVAL.total_seconds()) // _SECONDS_PER_MINUTE
 )
@@ -107,16 +110,25 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Sitzung und Cookies:",
-                    "Wir setzen drei Cookies, alle bei der Anmeldung. "
-                    "__Host-session_id ist das Sitzungs-Cookie (HttpOnly, "
-                    "SameSite=Lax, nur über HTTPS, "
-                    f"{_SESSION_HOURS} Stunden gültig). __Host-csrf_token ist "
-                    "von JavaScript lesbar und dient nur dem Fälschungsschutz "
-                    "(CSRF), nicht dem Tracking. __Secure-oidc_id_token_hint "
-                    "enthält das ID-Token von Keycloak; der Browser sendet es "
-                    "nur beim Abmelden (Pfad /logout, HttpOnly, nur über "
-                    "HTTPS), damit Keycloak Sie ohne Rückfrage abmeldet. Die "
-                    f"drei Cookies sind {_SESSION_HOURS} Stunden gültig und "
+                    "Wir setzen vier Cookies. Beim Start der Anmeldung setzt "
+                    "Presentator __Host-oidc_pending_… (signiert, HttpOnly, "
+                    "nur über HTTPS, "
+                    f"{_PENDING_MINUTES} Minuten gültig): Es hält den Zustand "
+                    "der Anmeldung für die Rückkehr von Keycloak und wird bei "
+                    "der Rückkehr gelöscht. Nach der Anmeldung folgen "
+                    "__Host-session_id als Sitzungs-Cookie (HttpOnly, "
+                    "SameSite=Lax, nur über HTTPS) und __Host-csrf_token, das "
+                    "von JavaScript lesbar ist und nur dem Fälschungsschutz "
+                    "(CSRF) dient, nicht dem Tracking. "
+                    "__Secure-oidc_id_token_hint hält das ID-Token von "
+                    "Keycloak für das Abmelden; der Browser sendet es nur an "
+                    "/logout (Pfad /logout, HttpOnly, nur über HTTPS). Das "
+                    "Token enthält Ihre Subject-ID, Ihren Benutzernamen und "
+                    "Ihre Gruppen, mit dem Profil-Scope möglicherweise auch "
+                    "Ihren Namen. Presentator beendet beim Abmelden nur die "
+                    "Sitzung in Presentator, nicht die bei Keycloak. Die drei "
+                    "Cookies nach der Anmeldung "
+                    f"sind {_SESSION_HOURS} Stunden gültig und "
                     "werden danach nicht erneuert. Gespeichert werden "
                     "Sitzungs-ID, Benutzer-ID und der Zeitpunkt der Anmeldung "
                     "und des Ablaufs. Eine "

@@ -28,10 +28,9 @@ from webauth.dependencies import (
 )
 from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
 from webauth.middleware.security_headers import SecurityHeadersMiddleware
-from webauth.oidc import OidcRefusal, OidcRelyingParty
+from webauth.oidc import OidcRelyingParty
 from webauth.oidc_login import (
     AdmissionConfig,
-    AdmissionRefusal,
     AdmittedLogin,
     finish_login,
     open_session,
@@ -84,8 +83,8 @@ _WITHOUT_A_SESSION: Final = frozenset(
     {LOGIN_PATH, _START_SIGN_IN, SIGN_IN_CALLBACK_PATH, LOGOUT_PATH, _SETUP}
 )
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
-# 0015), yet a reader who is signed in keeps the header and the sliding window
-# there like on every other page.
+# 0015), yet a reader who is signed in keeps the header there like on every
+# other page.
 _OPEN_TO_A_SIGNED_OUT_READER: Final = frozenset({_DATENSCHUTZ})
 _CSRF_POLICY: Final = CsrfPolicy(
     exempt=PathRules(prefixes=(HOOK_CALLS,)),
@@ -218,7 +217,7 @@ class _Surfaces:
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        """Send every address but the open ones to the login, and slide the window."""
+        """Send every address but the open ones to the login."""
         path = request.url.path
         if (
             path in _WITHOUT_A_SESSION
@@ -309,11 +308,9 @@ class _Surfaces:
             lock=self.auth.lock,
             audit=self.auth.audit,
         )
-        match outcome:
-            case AdmittedLogin():
-                return self._signed_in(request, answer, outcome)
-            case OidcRefusal() | AdmissionRefusal():
-                return self._login_failed(request, kept=answer)
+        if isinstance(outcome, AdmittedLogin):
+            return self._signed_in(request, answer, outcome)
+        return self._login_failed(request, kept=answer)
 
     def _signed_in(
         self,
