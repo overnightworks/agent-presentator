@@ -397,9 +397,10 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
 ) -> None:
     monkeypatch.setattr(RecordedPopen, "calls", [])
     monkeypatch.setattr(worker_children.subprocess, "Popen", RecordedPopen)
+    spawn = real_serving().spawn
 
     with pytest.raises(OSError, match=RecordedPopen.FAILURE):
-        real_serving().spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
+        spawn(["wire"], environment={"PATH": PATH}, pass_fds=(7,))
 
     [(_arguments, keywords)] = RecordedPopen.calls
     wire_id = worker.WIRE_IDENTITY[0]
