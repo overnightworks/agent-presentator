@@ -1,8 +1,0 @@
-claim_id = "a7d5f903233b48c2b40a8e04ffea2a0a"
-agent = "claude"
-role = "builder"
-base = "7731036d29831280006ffa41af04512d1e5db876"
-branch = "claude/issue-336-build-worker-a5b4-end-only-upload"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_record.py", "tests/adapters/test_worker_upload.py", "tests/test_worker.py", "tests/test_worker_record_chain.py", "tests/test_worker_record_life.py", "tests/test_worker_serving_loop.py", "tests/test_worker_upload_chain.py", "tests/test_worker_wire.py", "tests/vulture_allowlist.py", "tests/worker_support.py"]
-opened_commit = "6e19974b86645db7f8ade819fa46e6191d3dad88"
-whole_reason = "The END reader, the deck effects and their real wiring have no caller apart: the child's END read is what makes the deck's 01777 window close, and the seams need their production effects in host/worker.py."
