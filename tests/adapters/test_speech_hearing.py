@@ -109,8 +109,10 @@ def _health_with(**changes: object) -> Callable[[], JSONResponse]:
 def test_a_refused_or_malformed_health_is_unavailable(
     tmp_path: Path, health: Callable[[], JSONResponse]
 ) -> None:
+    readiness = _readiness(tmp_path, speech_app(health=health))
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(_readiness(tmp_path, speech_app(health=health)))
+        asyncio.run(readiness)
 
 
 def test_a_missing_socket_is_unavailable_without_a_tcp_retry(
@@ -134,8 +136,12 @@ async def _refuse_missing_socket(tmp_path: Path) -> None:
     with pytest.raises(CoPresenterUnavailableError):
         await speech.readiness()
     with pytest.raises(CoPresenterUnavailableError):
-        async with speech.hear("de"):
-            pytest.fail("missing speech socket yielded a hearing")
+        await _enter_hearing(speech)
+
+
+async def _enter_hearing(speech: UdsSpeechHearing) -> None:
+    async with speech.hear("de"):
+        pytest.fail("missing speech socket yielded a hearing")
 
 
 def test_hearing_passes_pcm_up_and_transcripts_down(tmp_path: Path) -> None:
@@ -211,8 +217,10 @@ def test_a_malformed_transcript_is_unavailable(tmp_path: Path) -> None:
         ):
             await hearing.receive()
 
+    use = _use()
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(_use())
+        asyncio.run(use)
 
 
 def test_a_peer_that_crashes_during_send_is_unavailable(tmp_path: Path) -> None:
@@ -229,8 +237,10 @@ def test_a_peer_that_crashes_during_send_is_unavailable(tmp_path: Path) -> None:
         ):
             await hearing.send_pcm(b"pcm")
 
+    use = _use()
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(_use())
+        asyncio.run(use)
 
 
 def test_a_fault_of_the_caller_is_not_mapped(tmp_path: Path) -> None:
@@ -250,8 +260,10 @@ def test_a_fault_of_the_caller_is_not_mapped(tmp_path: Path) -> None:
             )
             raise _CallerFaultError
 
+    use = _use()
+
     with pytest.raises(ExceptionGroup) as propagated:
-        asyncio.run(_use())
+        asyncio.run(use)
 
     assert propagated.value.subgroup(_CallerFaultError) is not None
 
