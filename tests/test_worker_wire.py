@@ -8,6 +8,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,7 @@ from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
 from presentator.host.worker import create_request_record
 from presentator.host.worker_wire import WireExit, WireRole
+from tests.worker_support import UNUSED_DECK, end_entry, file_entry
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
 GATED_FIELDS = {
@@ -208,7 +210,9 @@ def run_bounded(client: socket.socket, entry: Callable[[], object]) -> object:
     return outcome[0]
 
 
-def entry_arguments(descriptor: int, record: int, role: WireRole) -> list[str]:
+def entry_arguments(
+    descriptor: int, record: int, role: WireRole, deck: Path = UNUSED_DECK
+) -> list[str]:
     return [
         "--role",
         role,
@@ -216,14 +220,21 @@ def entry_arguments(descriptor: int, record: int, role: WireRole) -> list[str]:
         str(descriptor),
         "--record-fd",
         str(record),
+        "--deck",
+        str(deck),
     ]
 
 
 def run_entry(
-    client: socket.socket, descriptor: int, record: int, role: WireRole = WireRole.IDLE
+    client: socket.socket,
+    descriptor: int,
+    record: int,
+    role: WireRole = WireRole.IDLE,
+    deck: Path = UNUSED_DECK,
 ) -> object:
     return run_bounded(
-        client, lambda: worker_wire.main(entry_arguments(descriptor, record, role))
+        client,
+        lambda: worker_wire.main(entry_arguments(descriptor, record, role, deck)),
     )
 
 
@@ -273,25 +284,46 @@ def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_repl
     assert os.lseek(record, 0, os.SEEK_CUR) == 0
 
 
-def test_the_upload_entry_answers_status_then_reads_end_exiting_uploaded(
-    client_and_descriptor: tuple[socket.socket, int], record: int
+def test_the_upload_entry_answers_status_then_receives_into_the_deck_exiting_uploaded(
+    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
-    client.sendall(b"\x03" + bytes(12))
+    client.sendall(file_entry(b"slide.md", b"# hi") + end_entry(1, 4))
 
-    assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.UPLOADED
+    assert (
+        run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
+        == WireExit.UPLOADED
+    )
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert (tmp_path / "slide.md").read_bytes() == b"# hi"
+
+
+def test_the_upload_entry_exits_closed_before_status_when_the_deck_cannot_be_opened(
+    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+    client.sendall(end_entry(0, 0))
+
+    assert (
+        run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path / "missing")
+        == WireExit.CLOSED
+    )
+    assert read_to_end_or_reset(client) == b""
 
 
 def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
-    client_and_descriptor: tuple[socket.socket, int], record: int
+    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
     client.shutdown(socket.SHUT_WR)
 
-    assert run_entry(client, descriptor, record, WireRole.UPLOAD) == WireExit.CLOSED
+    assert (
+        run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
+        == WireExit.CLOSED
+    )
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
 
 

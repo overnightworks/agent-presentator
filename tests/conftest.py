@@ -152,3 +152,24 @@ def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     directory.chmod(0o700)
     yield directory
     os.umask(before)
+
+
+@pytest.fixture
+def wire() -> Iterator[tuple[socket.socket, socket.socket]]:
+    """A connected socket pair whose every wait is bounded."""
+    reading_end, writing_end = socket.socketpair()
+    reading_end.settimeout(WAIT_SECONDS)
+    writing_end.settimeout(WAIT_SECONDS)
+    with closing(reading_end), closing(writing_end):
+        yield reading_end, writing_end
+
+
+@pytest.fixture
+def deck(tmp_path: Path) -> Iterator[int]:
+    """An open descriptor on an empty scratch deck, closed at the end."""
+    (tmp_path / "deck").mkdir()
+    descriptor = os.open(tmp_path / "deck", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        yield descriptor
+    finally:
+        os.close(descriptor)

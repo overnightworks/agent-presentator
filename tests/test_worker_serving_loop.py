@@ -24,6 +24,7 @@ from tests.worker_support import (
     IDLE_LEG,
     OWN_GID,
     OWN_UID,
+    UNUSED_DECK,
     WAIT_SECONDS,
     BoundedListener,
     ScriptedLife,
@@ -194,6 +195,8 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         str(spawned.pass_fds[0]),
         "--record-fd",
         str(spawned.pass_fds[1]),
+        "--deck",
+        str(UNUSED_DECK),
     ]
 
 

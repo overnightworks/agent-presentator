@@ -76,6 +76,7 @@ serving = Serving(
     seal=worker.seal_record,
     open_deck=partial(worker.open_deck, deck),
     close_deck=partial(worker.close_deck, deck),
+    deck=deck,
     watchdog=FaultHandlerWatchdog(),
     clock=__import__("time").monotonic,
     readable=readable_within,

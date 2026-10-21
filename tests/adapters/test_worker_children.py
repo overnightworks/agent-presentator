@@ -72,6 +72,7 @@ serving = worker_serving.Serving(
     seal=lambda _record: None,
     open_deck=lambda: None,
     close_deck=lambda: None,
+    deck=Path("/unused/deck"),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,
@@ -469,7 +470,10 @@ class RealServing:
 
     def start(self) -> threading.Thread:
         serving = replace(
-            serving_with(self.spawn), sweep=self.sweep, watchdog=self.watchdog
+            serving_with(self.spawn),
+            sweep=self.sweep,
+            watchdog=self.watchdog,
+            deck=self.directory,
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
