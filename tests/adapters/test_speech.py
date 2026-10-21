@@ -1,15 +1,12 @@
 """The speech adapter uses its UDS and reports one expected unavailable state."""
 
 import asyncio
-import socket
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from pathlib import Path
 from typing import Self
 
 import httpx2
 import pytest
-import uvicorn
 from fastapi import FastAPI, Request, Response
 from httpcore2._backends.auto import AutoBackend
 
@@ -23,6 +20,7 @@ from presentator.contracts.voice import (
     VoiceSampleBusyError,
     VoiceUnavailableError,
 )
+from tests.adapters.serving import Serving, unix_listener
 
 
 def test_missing_private_socket_never_falls_back_to_tcp(
@@ -70,7 +68,7 @@ async def _read_voice_status(tmp_path: Path) -> None:
 
     app.add_api_route("/voices", voices, methods=["GET"])
     socket_path = tmp_path / "speech.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         snapshot = await UdsSpeech(socket_path).snapshot()
 
     assert snapshot.voices[0].name == "Piper"
@@ -99,7 +97,7 @@ async def _load_voice(tmp_path: Path, expected: VoiceLoadOutcome) -> None:
 
     app.add_api_route("/voices/chatterbox/load", load, methods=["POST"])
     socket_path = tmp_path / "speech.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         outcome = await UdsSpeech(socket_path).load(VoiceId.CHATTERBOX)
 
     assert outcome is expected
@@ -124,7 +122,7 @@ async def _download_qwen(tmp_path: Path, expected: VoiceDownloadOutcome) -> None
 
     app.add_api_route("/voices/qwen3-tts-0.6b/download", download, methods=["POST"])
     socket_path = tmp_path / "speech.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         outcome = await UdsSpeech(socket_path).download_qwen()
 
     assert outcome is expected
@@ -188,7 +186,7 @@ async def _sample_voice(tmp_path: Path) -> None:
 
     app.add_api_route("/voices/piper/sample/en", sample, methods=["POST"])
     socket_path = tmp_path / "speech.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         audio = await UdsSpeech(socket_path).sample(
             VoiceId.PIPER, SampleLanguage.ENGLISH
         )
@@ -210,7 +208,7 @@ async def _sample_busy(tmp_path: Path) -> None:
         methods=["POST"],
     )
     socket_path = tmp_path / "speech.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         speech = UdsSpeech(socket_path)
         with pytest.raises(VoiceSampleBusyError):
             await speech.sample(VoiceId.PIPER, SampleLanguage.GERMAN)
@@ -406,35 +404,3 @@ def test_uds_adapter_maps_private_response_failures_to_unavailable(
             await reader_action(reader)
 
     asyncio.run(verify())
-
-
-class _Serving:
-    """One owned temporary UDS peer that stops with its test."""
-
-    def __init__(self, app: FastAPI, path: Path) -> None:
-        self._app = app
-        self._path = path
-        self._listener: socket.socket | None = None
-        self._server: uvicorn.Server | None = None
-        self._task: asyncio.Task[None] | None = None
-
-    async def __aenter__(self) -> None:
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(str(self._path))
-        listener.listen()
-        listener.settimeout(0.0)
-        server = uvicorn.Server(
-            uvicorn.Config(self._app, log_level="error", proxy_headers=False),
-        )
-        self._listener = listener
-        self._server = server
-        self._task = asyncio.create_task(server.serve(sockets=[listener]))
-
-    async def __aexit__(self, *_error: object) -> None:
-        assert self._server is not None
-        assert self._task is not None
-        assert self._listener is not None
-        await self._server.shutdown(sockets=[self._listener])
-        self._task.cancel()
-        with suppress(asyncio.CancelledError):
-            await self._task
