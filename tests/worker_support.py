@@ -6,17 +6,18 @@ import socket
 import threading
 import time
 import uuid
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from presentator.adapters import worker_children
 from presentator.adapters.build_wire import read_request
 from presentator.host import worker
 from presentator.host.worker import create_request_record
-from presentator.host.worker_serving import Serving
+from presentator.host.worker_serving import Serving, WireChild
 from presentator.host.worker_wire import WireExit, WireRole
 
 OWN_UID = os.getuid()
@@ -449,3 +450,29 @@ def listening_with(
     listener.accepts_left = accepts
     worker.start_listening(listener)
     return listener
+
+
+def serving_with(
+    spawn: Callable[..., WireChild], *, admits: bool = True, quiet: bool = True
+) -> Serving:
+    return Serving(
+        spawn=spawn,
+        gate_admits=lambda _status: admits,
+        sweep=lambda _deadline: quiet,
+        create_record=worker.create_request_record,
+        seal=worker.seal_record,
+        open_deck=nothing,
+        close_deck=nothing,
+        watchdog=NeverArmed(),
+        clock=time.monotonic,
+        readable=worker_children.readable_within,
+        build_timeout_seconds=300.0,
+    )
+
+
+def accept_time() -> float:
+    return time.monotonic()
+
+
+def open_descriptor_count() -> int:
+    return len(list(Path("/proc/self/fd").iterdir()))

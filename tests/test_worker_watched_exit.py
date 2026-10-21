@@ -29,6 +29,10 @@ FLOOD = 10_000
 QUEUED_WAKES = 2
 
 
+class BlockingAcceptError(AssertionError):
+    """A side connection was accepted on a listener that could block."""
+
+
 class SideConnectionReadError(AssertionError):
     """A side connection was read, which the controller must never do."""
 
@@ -58,6 +62,8 @@ class RecordingListener(socket.socket):
 
     def accept(self) -> tuple[socket.socket, object]:
         self.accept_calls += 1
+        if self.gettimeout() != 0.0:
+            raise BlockingAcceptError
         if self.refusal is not None:
             raise self.refusal
         connection, address = super().accept()
@@ -205,11 +211,12 @@ def test_a_side_connection_is_closed_even_when_the_listener_cannot_be_restored(
     life = accepted_life(listener_wakes=1)
     side_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     side_client.settimeout(WAIT_SECONDS)
+    serving = life.serving()
     with closing(side_client):
         side_client.connect(recording.getsockname())
 
         with pytest.raises(OSError, match="bad file descriptor"):
-            hand_over(connection, life.serving(), ACCEPT_TIME, listener=recording)
+            hand_over(connection, serving, ACCEPT_TIME, listener=recording)
 
         assert side_client.recv(1) == b""
     assert [side.fileno() for side in recording.accepted] == [-1]

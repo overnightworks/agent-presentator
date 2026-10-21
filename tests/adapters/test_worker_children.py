@@ -28,13 +28,14 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
-from tests.adapters.worker_children_support import (
+from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
+from tests.worker_support import (
     accept_time,
     open_descriptor_count,
+    role_of,
     serving_with,
+    wake_until_ended,
 )
-from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
-from tests.worker_support import role_of, wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()

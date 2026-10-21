@@ -15,11 +15,6 @@ from presentator.adapters import worker_children
 from presentator.adapters.worker_children import GatedChild, readable_within
 from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd, hand_over
 from tests.adapters.test_worker_children import OWN_IDENTITY, PATH
-from tests.adapters.worker_children_support import (
-    accept_time,
-    open_descriptor_count,
-    serving_with,
-)
 from tests.test_worker_record_chain import (
     EXITING_SEVEN,
     SLEEPER,
@@ -27,8 +22,10 @@ from tests.test_worker_record_chain import (
     ChainSpawn,
     await_absence,
 )
+from tests.worker_support import accept_time, open_descriptor_count, serving_with
 
 SHORT_SECONDS = 0.05
+POLL_SECONDS = 0.01
 
 
 def true_child() -> GatedChild:
@@ -51,8 +48,17 @@ def reaped_by_process_id(process_ids: list[int]) -> None:
     for process_id in process_ids:
         with suppress(ProcessLookupError):
             os.kill(process_id, signal.SIGKILL)
-        with suppress(ChildProcessError):
-            os.waitpid(process_id, 0)
+        deadline = time.monotonic() + WAIT_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                reaped, _status = os.waitpid(process_id, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if reaped:
+                break
+            time.sleep(POLL_SECONDS)
+        else:
+            pytest.fail(f"child {process_id} was not reaped within the bound")
 
 
 def is_closed(descriptor: int) -> bool:
