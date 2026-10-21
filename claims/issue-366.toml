@@ -1,8 +1,0 @@
-claim_id = "c51db256db284e2ea25c91dbea3ee122"
-agent = "claude"
-role = "builder"
-base = "fa32122732d51c4fd2ffcdfb60e4dfa38897e6de"
-branch = "claude/issue-366-a3c-2-presentator-h-rt-und-meldet-bereit"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "frontend/tests/presenter-controls.browser.test.ts", "src/presentator/adapters/copresenter.py", "src/presentator/adapters/speech.py", "src/presentator/api/copresenter.py", "src/presentator/application/copresenter.py", "src/presentator/contracts/copresenter.py", "src/presentator/host/main.py", "src/presentator/ports/copresenter.py", "tests/adapters/test_copresenter.py", "tests/adapters/test_speech_hearing.py", "tests/api/test_copresenter.py", "tests/api/test_copresenter_limits.py", "tests/application/test_copresenter.py", "tests/contracts/test_copresenter.py"]
-opened_commit = "36edaf525df03b0ecea014bec586a53c524e0b83"
-whole_reason = "presentator's co-presenter hearing and readiness move from the co-presenter socket to speech.sock"
