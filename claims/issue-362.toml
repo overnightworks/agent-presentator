@@ -1,8 +1,0 @@
-claim_id = "4a2d13c15f7943e6a1ac22a57fb18ef2"
-agent = "claude"
-role = "builder"
-base = "a35820a02d5b58524d1192346d44106669e7b267"
-branch = "claude/issue-362-build-worker-a5c-das-upload-kind-empf-ng"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_build_wire_receive.py", "tests/adapters/test_worker_children.py", "tests/conftest.py", "tests/test_worker_entries_chain.py", "tests/test_worker_record_chain.py", "tests/test_worker_reply_chain.py", "tests/test_worker_serving_loop.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "6f53f407cbc0fc80d08a6626270be06e8b3d0607"
-whole_reason = "The receiver has no caller apart from the upload role, and the deck path reaches that role only through Serving and the argv, so the codec, the role and the controller's field land together with the tests that pin the old END-only reader and the old argv."
