@@ -1,6 +1,9 @@
 """Spawns the build worker's children behind a gate shell that waits for a release."""
 
+import ctypes
+import math
 import os
+import select
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -26,10 +29,16 @@ class ChildIdentity:
 class GatedChild:
     """A started gate shell that holds its program until it is released."""
 
-    def __init__(self, process: "subprocess.Popen[bytes]", gate_write: int) -> None:
-        """Take over the process and the write end of its gate pipe."""
+    def __init__(
+        self,
+        process: "subprocess.Popen[bytes]",
+        gate_write: int,
+        exit_descriptor: int,
+    ) -> None:
+        """Take over the process, its gate pipe's write end and its pidfd."""
         self._process = process
         self._gate_write = gate_write
+        self.exit_descriptor = exit_descriptor
 
     def status_text(self) -> str:
         """Read the kernel's account of the child; an unreadable one raises."""
@@ -54,9 +63,48 @@ class GatedChild:
         except subprocess.TimeoutExpired:
             return None
 
-    def close_gate(self) -> None:
-        """Close the write end of the gate; the caller closes it once."""
-        os.close(self._gate_write)
+    def close(self) -> None:
+        """Close the gate's write end, then the pidfd; the caller closes once."""
+        try:
+            os.close(self._gate_write)
+        finally:
+            os.close(self.exit_descriptor)
+
+
+def readable_within(descriptors: Sequence[int], seconds: float) -> frozenset[int]:
+    """The descriptors that are readable within the seconds; none when it runs out."""
+    poller = select.poll()
+    for descriptor in descriptors:
+        poller.register(descriptor, select.POLLIN)
+    return frozenset(
+        descriptor
+        for descriptor, _events in poller.poll(math.ceil(max(seconds, 0.0) * 1000))
+    )
+
+
+def open_pidfd(process_id: int) -> int:
+    """A close-on-exec pidfd; the standalone Python has no os.pidfd_open."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.pidfd_open.argtypes = [ctypes.c_int, ctypes.c_uint]
+    libc.pidfd_open.restype = ctypes.c_int
+    descriptor = libc.pidfd_open(process_id, 0)
+    if descriptor < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return descriptor
+
+
+def _gated_child(process: "subprocess.Popen[bytes]", gate_write: int) -> GatedChild:
+    try:
+        exit_descriptor = open_pidfd(process.pid)
+    except BaseException:
+        try:
+            process.kill()
+            process.wait()
+        finally:
+            os.close(gate_write)
+        raise
+    return GatedChild(process, gate_write, exit_descriptor)
 
 
 def spawn_gated(
@@ -88,4 +136,4 @@ def spawn_gated(
         raise
     finally:
         os.close(gate_read)
-    return GatedChild(process, gate_write)
+    return _gated_child(process, gate_write)

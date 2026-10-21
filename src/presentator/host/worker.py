@@ -18,7 +18,11 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from presentator.adapters.worker_children import ChildIdentity, spawn_gated
+from presentator.adapters.worker_children import (
+    ChildIdentity,
+    readable_within,
+    spawn_gated,
+)
 from presentator.host.config import (
     ConfigurationError,
     WorkerSettings,
@@ -674,6 +678,7 @@ def real_serving(settings: WorkerSettings) -> Serving:
         close_deck=partial(close_deck, deck),
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
+        readable=readable_within,
         build_timeout_seconds=settings.build_timeout_seconds,
     )
 

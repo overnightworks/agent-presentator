@@ -2,14 +2,18 @@
 
 import os
 import shutil
+import socket
 import stat
 import subprocess
 from collections.abc import Iterator, Mapping
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+
+from tests.worker_support import listening_socket
 
 EXAMPLE_DECK = Path(__file__).parents[1] / "examples" / "hello-deck"
 EXAMPLE_SLUG = EXAMPLE_DECK.name
@@ -120,6 +124,21 @@ def remote(tmp_path: Path) -> GitRemote:
 def another_remote(tmp_path: Path) -> GitRemote:
     """A second one, for what two sources of one instance do to one another."""
     return _a_remote(tmp_path, "another-remote")
+
+
+@pytest.fixture
+def listener() -> Iterator[socket.socket]:
+    """A listening socket for the worker's phases, closed at teardown."""
+    with listening_socket() as listening:
+        yield listening
+
+
+@pytest.fixture
+def connection() -> Iterator[socket.socket]:
+    """The controller's end of an accepted connection, with its client kept open."""
+    controller_end, client = socket.socketpair()
+    with closing(controller_end), closing(client):
+        yield controller_end
 
 
 @pytest.fixture

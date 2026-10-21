@@ -78,7 +78,7 @@ def test_an_existing_deck_is_never_reused_nor_changed(deck: Path) -> None:
 
 
 def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
-    connection: socket.socket, deck: Path
+    connection: socket.socket, listener: socket.socket, deck: Path
 ) -> None:
     life = accepted_life()
     modes_when_closing: list[int] = []
@@ -93,24 +93,28 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
         close_deck=close_noting_mode,
     )
 
-    assert hand_over(connection, serving, ACCEPT_TIME) == LifeEnd.CONSUMED
+    assert (
+        hand_over(connection, serving, ACCEPT_TIME, listener=listener)
+        == LifeEnd.CONSUMED
+    )
     assert modes_when_closing == [DECK_OPEN_MODE]
     assert mode_of(deck) == DECK_CLOSED_MODE
 
 
 def test_the_deck_is_opened_after_the_seal_and_closed_after_the_upload_waited(
     connection: socket.socket,
+    listener: socket.socket,
 ) -> None:
     life = accepted_life()
 
-    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.CONSUMED
     names = [event.split()[0] for event in life.events]
     opened = names.index("open-deck")
     assert names[opened - 1] == "seal"
     assert names[opened + 1] == "spawn"
-    assert names.index("close-deck") > names.index("wait-within", opened)
+    assert names.index("close-deck") > names.index("wait", opened)
 
 
 DECK_FAILURES = {
@@ -121,30 +125,34 @@ DECK_FAILURES = {
 
 @pytest.mark.parametrize("failure", DECK_FAILURES.values(), ids=DECK_FAILURES.keys())
 def test_a_deck_that_cannot_be_opened_ends_the_life_before_any_upload_spawn(
-    connection: socket.socket, failure: OSError
+    connection: socket.socket, listener: socket.socket, failure: OSError
 ) -> None:
     life = accepted_life(deck_open_error=failure)
 
-    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.DECK_FAILED
     assert len(life.spawned) == 1
     assert "close-deck" not in life.events
 
 
-def test_a_failing_seal_never_opens_the_deck(connection: socket.socket) -> None:
+def test_a_failing_seal_never_opens_the_deck(
+    connection: socket.socket, listener: socket.socket
+) -> None:
     life = accepted_life(seal_error=OSError("no seal"))
 
-    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.SEAL_FAILED
     assert "open-deck" not in life.events
 
 
-def test_a_rejected_header_never_opens_the_deck(connection: socket.socket) -> None:
+def test_a_rejected_header_never_opens_the_deck(
+    connection: socket.socket, listener: socket.socket
+) -> None:
     life = ScriptedLife(exit_status=WireExit.CLOSED)
 
-    assert hand_over(connection, life.serving(), ACCEPT_TIME) is None
+    assert hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener) is None
     assert "open-deck" not in life.events
 
 
@@ -160,11 +168,14 @@ UPLOAD_ENDS = {
     ("changes", "life_end"), UPLOAD_ENDS.values(), ids=UPLOAD_ENDS.keys()
 )
 def test_the_deck_is_closed_after_every_way_the_upload_run_ends(
-    connection: socket.socket, changes: dict[str, object], life_end: LifeEnd
+    connection: socket.socket,
+    listener: socket.socket,
+    changes: dict[str, object],
+    life_end: LifeEnd,
 ) -> None:
     life = accepted_life(**changes)
 
-    outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
+    outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == life_end
     assert life.events.count("open-deck") == life.events.count("close-deck") == 1
@@ -172,13 +183,14 @@ def test_the_deck_is_closed_after_every_way_the_upload_run_ends(
 
 def test_the_deck_is_closed_when_the_upload_run_raises_and_the_original_propagates(
     connection: socket.socket,
+    listener: socket.socket,
 ) -> None:
     life = accepted_life(wait_error=OSError("lost"), wait_error_at=1)
 
     serving = life.serving()
 
     with pytest.raises(OSError, match="lost") as raised:
-        hand_over(connection, serving, ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME, listener=listener)
 
     assert life.events.index("close-deck") > life.events.index("kill")
     assert not getattr(raised.value, "__notes__", [])
@@ -186,6 +198,7 @@ def test_the_deck_is_closed_when_the_upload_run_raises_and_the_original_propagat
 
 def test_a_deck_that_cannot_be_closed_is_not_swallowed_after_the_original_is_noted(
     connection: socket.socket,
+    listener: socket.socket,
 ) -> None:
     life = accepted_life(
         wait_error=OSError("lost"),
@@ -196,17 +209,18 @@ def test_a_deck_that_cannot_be_closed_is_not_swallowed_after_the_original_is_not
     serving = life.serving()
 
     with pytest.raises(OSError, match="lost") as raised:
-        hand_over(connection, serving, ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME, listener=listener)
 
     assert any("no chmod" in note for note in raised.value.__notes__)
 
 
 def test_a_deck_that_cannot_be_closed_after_a_clean_run_raises(
     connection: socket.socket,
+    listener: socket.socket,
 ) -> None:
     life = accepted_life(deck_close_error=OSError("no chmod"))
 
     serving = life.serving()
 
     with pytest.raises(OSError, match="no chmod"):
-        hand_over(connection, serving, ACCEPT_TIME)
+        hand_over(connection, serving, ACCEPT_TIME, listener=listener)

@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack, closing, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,12 +20,19 @@ import pytest
 from presentator.adapters.worker_children import (
     ChildIdentity,
     GatedChild,
+    readable_within,
     spawn_gated,
 )
 from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd, Serving, hand_over
 from presentator.host.worker_wire import WireExit
-from tests.worker_support import NeverArmed, RecordingCreation, connect, role_of
+from tests.worker_support import (
+    NeverArmed,
+    RecordingCreation,
+    connect,
+    listening_socket,
+    role_of,
+)
 
 OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
@@ -134,6 +141,7 @@ class LifeScenario:
     create_record: Callable[[], int] = worker.create_request_record
     deck: Path | None = None
     reader: Callable[[socket.socket], bytes] = read_to_end
+    listener: socket.socket | None = None
 
 
 def run_life(
@@ -147,7 +155,10 @@ def run_life(
         deck = (
             scenario.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
         )
-        return _run_life_at(deck, sent, spawn, scenario, converse)
+        listener = scenario.listener or cleanup.enter_context(listening_socket())
+        return _run_life_at(
+            sent, spawn, replace(scenario, deck=deck, listener=listener), converse
+        )
 
 
 def _end_life(
@@ -164,12 +175,14 @@ def _end_life(
 
 
 def _run_life_at(
-    deck: Path,
     sent: bytes,
     spawn: ChainSpawn,
     scenario: LifeScenario,
     converse: Callable[[socket.socket], None],
 ) -> Life:
+    deck, listener = scenario.deck, scenario.listener
+    assert deck is not None
+    assert listener is not None
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
     serving = Serving(
@@ -182,12 +195,13 @@ def _run_life_at(
         close_deck=partial(worker.close_deck, deck),
         watchdog=NeverArmed(),
         clock=time.monotonic,
+        readable=readable_within,
         build_timeout_seconds=300.0,
     )
     outcome: list[LifeEnd | None] = []
     thread = threading.Thread(
         target=lambda: outcome.append(
-            hand_over(controller_end, serving, time.monotonic())
+            hand_over(controller_end, serving, time.monotonic(), listener=listener)
         ),
         daemon=True,
     )
@@ -305,7 +319,11 @@ STALLED_AFTER_UPLOAD_SPAWN = """
 import ctypes, os, sys, time
 from functools import partial
 from pathlib import Path
-from presentator.adapters.worker_children import ChildIdentity, spawn_gated
+from presentator.adapters.worker_children import (
+    ChildIdentity,
+    readable_within,
+    spawn_gated,
+)
 from presentator.host import worker
 from presentator.host.worker_serving import Serving
 from presentator.host.worker_termination import FaultHandlerWatchdog
@@ -338,6 +356,7 @@ serving = Serving(
     close_deck=lambda: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
+    readable=readable_within,
     build_timeout_seconds=1.0,
 )
 sys.exit(
@@ -398,7 +417,7 @@ def logged_process_ids(lines: list[str]) -> list[int]:
 def end_controller(controller: GatedChild, log: Path) -> list[str]:
     """Stop the controller and SIGKILL every wire child it logged, even on a stall."""
     try:
-        controller.close_gate()
+        controller.close()
         controller.kill()
         assert controller.wait_within(WAIT_SECONDS) is not None, "controller not reaped"
     finally:
