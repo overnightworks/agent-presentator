@@ -78,6 +78,41 @@ describe('source-new.js', () => {
   })
 })
 
+describe('history-back.js', () => {
+  const markup = '<a href="/login" data-history-back>Back</a>'
+
+  function stubHistory(length: number) {
+    const history = { length, back: vi.fn() }
+    vi.stubGlobal('history', history)
+    return history
+  }
+
+  function clickBack() {
+    // A cancelable click returns false from dispatchEvent when the default was prevented.
+    return !element('[data-history-back]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  }
+
+  it('goes back in the history instead of following the link when there is a page to return to', async () => {
+    const history = stubHistory(2)
+    await runScript('history-back', markup)
+
+    const navigationPrevented = clickBack()
+
+    expect(history.back).toHaveBeenCalledOnce()
+    expect(navigationPrevented).toBe(true)
+  })
+
+  it('follows the link when the history holds only this page', async () => {
+    const history = stubHistory(1)
+    await runScript('history-back', markup)
+
+    const navigationPrevented = clickBack()
+
+    expect(history.back).not.toHaveBeenCalled()
+    expect(navigationPrevented).toBe(false)
+  })
+})
+
 describe('voice-sample.js', () => {
   const markup = `
     <section data-sample-player data-voice="qwen3-tts-0.6b" data-play="Play" data-stop="Stop" data-loading="Loading" data-waiting="Waiting">
