@@ -49,6 +49,9 @@ branch = true
 [tool.coverage.report]
 fail_under = 100
 show_missing = true
+# assert_never marks an exhaustiveness guard that pyright proves unreachable;
+# excluding the whole `case _:` arm also drops the arc into it.
+exclude_also = ["case _:\\n\\s+assert_never\\("]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
