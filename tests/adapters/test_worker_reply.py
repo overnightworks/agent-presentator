@@ -1,8 +1,6 @@
 """The reply phase R: the sender's spawn, deadline and the life it ends."""
 
 import socket
-from collections.abc import Iterator
-from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -12,16 +10,6 @@ from presentator.host.worker_wire import WireExit
 from tests.worker_support import ACCEPT_TIME, CHILD_LEG, ScriptedLife, role_of
 
 SENDER_WAIT = 2
-SOCKET_SECONDS = 10
-
-
-@pytest.fixture
-def connection() -> Iterator[socket.socket]:
-    controller_end, client = socket.socketpair()
-    controller_end.settimeout(SOCKET_SECONDS)
-    client.settimeout(SOCKET_SECONDS)
-    with closing(controller_end), closing(client):
-        yield controller_end
 
 
 def accepted_life(**changes: object) -> ScriptedLife:

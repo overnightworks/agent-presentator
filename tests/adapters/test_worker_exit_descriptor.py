@@ -2,9 +2,11 @@
 
 import errno
 import os
+import signal
 import socket
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import replace
 
 import pytest
@@ -12,9 +14,8 @@ import pytest
 from presentator.adapters import worker_children
 from presentator.adapters.worker_children import GatedChild, readable_within
 from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd, hand_over
-from tests.adapters.test_worker_children import (
-    OWN_IDENTITY,
-    PATH,
+from tests.adapters.test_worker_children import OWN_IDENTITY, PATH
+from tests.adapters.worker_children_support import (
     accept_time,
     open_descriptor_count,
     serving_with,
@@ -36,6 +37,24 @@ def true_child() -> GatedChild:
     )
 
 
+def end_child(child: GatedChild) -> None:
+    """Kill the child, reap it within the bound and close it, whatever fails."""
+    try:
+        child.kill()
+        assert child.wait_within(WAIT_SECONDS) is not None, "the child was not reaped"
+    finally:
+        child.close()
+
+
+def reaped_by_process_id(process_ids: list[int]) -> None:
+    """Take down children the production clean-up left behind."""
+    for process_id in process_ids:
+        with suppress(ProcessLookupError):
+            os.kill(process_id, signal.SIGKILL)
+        with suppress(ChildProcessError):
+            os.waitpid(process_id, 0)
+
+
 def is_closed(descriptor: int) -> bool:
     try:
         os.fstat(descriptor)
@@ -52,9 +71,7 @@ def test_a_childs_exit_descriptor_is_readable_only_once_it_exited() -> None:
         after_the_exit = readable_within([child.exit_descriptor], WAIT_SECONDS)
         status = child.wait_within(WAIT_SECONDS)
     finally:
-        child.kill()
-        child.wait()
-        child.close()
+        end_child(child)
 
     assert before_the_release == frozenset()
     assert after_the_exit == {child.exit_descriptor}
@@ -76,10 +93,13 @@ def test_a_refused_pidfd_kills_and_reaps_the_child_and_closes_both_gate_ends(
     monkeypatch.setattr(worker_children, "open_pidfd", refused_pidfd(process_ids))
     before = open_descriptor_count()
 
-    with pytest.raises(OSError, match="too many open files"):
-        true_child()
+    try:
+        with pytest.raises(OSError, match="too many open files"):
+            true_child()
 
-    await_absence(process_ids)
+        await_absence(process_ids)
+    finally:
+        reaped_by_process_id(process_ids)
     assert len(process_ids) == 1
     assert open_descriptor_count() == before
 
@@ -93,11 +113,14 @@ def test_a_refused_pidfd_ends_the_life_as_spawn_with_nothing_released(
     monkeypatch.setattr(worker_children, "open_pidfd", refused_pidfd(process_ids))
     spawn = ChainSpawn(programs={"idle": [SLEEPER]})
 
-    life_end = hand_over(
-        connection, serving_with(spawn), accept_time(), listener=listener
-    )
+    try:
+        life_end = hand_over(
+            connection, serving_with(spawn), accept_time(), listener=listener
+        )
 
-    await_absence(process_ids)
+        await_absence(process_ids)
+    finally:
+        reaped_by_process_id(process_ids)
     assert life_end == LifeEnd.SPAWN
     assert spawn.children == []
 
@@ -108,10 +131,8 @@ def test_closing_a_child_closes_its_pidfd_once_and_leaves_no_descriptor_behind()
     before = open_descriptor_count()
     child = true_child()
     exit_descriptor = child.exit_descriptor
-    child.kill()
-    child.wait()
 
-    child.close()
+    end_child(child)
 
     assert is_closed(exit_descriptor)
     assert open_descriptor_count() == before
@@ -168,3 +189,10 @@ def test_readiness_returns_the_ready_descriptor_and_none_for_a_quiet_one() -> No
     assert ready == {ready_read}
     assert nothing_ready == frozenset()
     assert waited >= SHORT_SECONDS
+
+
+def test_the_real_libc_refuses_a_pidfd_for_no_process_with_its_error() -> None:
+    with pytest.raises(OSError, match="Invalid argument") as refusal:
+        worker_children.open_pidfd(-1)
+
+    assert refusal.value.errno == errno.EINVAL

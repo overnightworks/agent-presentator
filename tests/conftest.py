@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.worker_support import listening_socket
+from tests.worker_support import WAIT_SECONDS, listening_socket
 
 EXAMPLE_DECK = Path(__file__).parents[1] / "examples" / "hello-deck"
 EXAMPLE_SLUG = EXAMPLE_DECK.name
@@ -130,6 +130,7 @@ def another_remote(tmp_path: Path) -> GitRemote:
 def listener() -> Iterator[socket.socket]:
     """A listening socket for the worker's phases, closed at teardown."""
     with listening_socket() as listening:
+        listening.settimeout(WAIT_SECONDS)
         yield listening
 
 
@@ -137,6 +138,8 @@ def listener() -> Iterator[socket.socket]:
 def connection() -> Iterator[socket.socket]:
     """The controller's end of an accepted connection, with its client kept open."""
     controller_end, client = socket.socketpair()
+    controller_end.settimeout(WAIT_SECONDS)
+    client.settimeout(WAIT_SECONDS)
     with closing(controller_end), closing(client):
         yield controller_end
 

@@ -49,6 +49,12 @@ class RecordingListener(socket.socket):
     accept_calls = 0
     accepted: list[UnreadConnection]
     refusal: OSError | None = None
+    restore_failure: OSError | None = None
+
+    def settimeout(self, value: float | None) -> None:
+        if value is None and self.restore_failure is not None:
+            raise self.restore_failure
+        super().settimeout(value)
 
     def accept(self) -> tuple[socket.socket, object]:
         self.accept_calls += 1
@@ -190,6 +196,23 @@ def test_a_failing_accept_is_logged_once_ends_the_listening_for_that_wait_only(
     assert len([record for record in caplog.records if record.exc_info]) == len(
         BOTH_PHASES
     )
+
+
+def test_a_side_connection_is_closed_even_when_the_listener_cannot_be_restored(
+    connection: socket.socket, recording: RecordingListener
+) -> None:
+    recording.restore_failure = OSError(errno.EBADF, "bad file descriptor")
+    life = accepted_life(listener_wakes=1)
+    side_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    side_client.settimeout(WAIT_SECONDS)
+    with closing(side_client):
+        side_client.connect(recording.getsockname())
+
+        with pytest.raises(OSError, match="bad file descriptor"):
+            hand_over(connection, life.serving(), ACCEPT_TIME, listener=recording)
+
+        assert side_client.recv(1) == b""
+    assert [side.fileno() for side in recording.accepted] == [-1]
 
 
 @pytest.mark.parametrize("role", BOTH_PHASES)

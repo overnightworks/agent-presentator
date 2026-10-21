@@ -5,7 +5,6 @@ import os
 import socket
 import stat
 from collections.abc import Iterator
-from contextlib import closing
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -24,13 +23,6 @@ from tests.worker_support import (
 )
 
 CONTROLLER_UMASK = 0o077
-
-
-@pytest.fixture
-def connection() -> Iterator[socket.socket]:
-    controller_end, client = socket.socketpair()
-    with closing(controller_end), closing(client):
-        yield controller_end
 
 
 @pytest.fixture

@@ -260,10 +260,11 @@ def _side_connection_closed(listener: socket.socket) -> bool:
     except OSError:
         logger.exception("side connection accept failed")
         return False
+    else:
+        with side_connection:
+            return True
     finally:
         listener.settimeout(None)
-    side_connection.close()
-    return True
 
 
 def _watched_exit(

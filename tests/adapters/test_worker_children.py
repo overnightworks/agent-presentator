@@ -28,8 +28,13 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
+from tests.adapters.worker_children_support import (
+    accept_time,
+    open_descriptor_count,
+    serving_with,
+)
 from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
-from tests.worker_support import NeverArmed, nothing, role_of, wake_until_ended
+from tests.worker_support import role_of, wake_until_ended
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -146,34 +151,8 @@ def spawn_probe(source: str) -> Callable[..., WireChild]:
     return spawn
 
 
-def serving_with(
-    spawn: Callable[..., WireChild], *, admits: bool = True, quiet: bool = True
-) -> Serving:
-    return Serving(
-        spawn=spawn,
-        gate_admits=lambda _status: admits,
-        sweep=lambda _deadline: quiet,
-        create_record=worker.create_request_record,
-        seal=worker.seal_record,
-        open_deck=nothing,
-        close_deck=nothing,
-        watchdog=NeverArmed(),
-        clock=time.monotonic,
-        readable=worker_children.readable_within,
-        build_timeout_seconds=300.0,
-    )
-
-
-def accept_time() -> float:
-    return time.monotonic()
-
-
 def real_serving() -> Serving:
     return worker.real_serving(WorkerSettings(build_timeout_seconds=300.0))
-
-
-def open_descriptor_count() -> int:
-    return len(list(Path("/proc/self/fd").iterdir()))
 
 
 def read_to_end(client: socket.socket) -> bytes:
@@ -183,12 +162,15 @@ def read_to_end(client: socket.socket) -> bytes:
     return received
 
 
+ConnectionPair = tuple[socket.socket, socket.socket, socket.socket]
+
+
 @pytest.fixture
-def connection_pair() -> Iterator[tuple[socket.socket, socket.socket]]:
+def connection_pair(listener: socket.socket) -> Iterator[ConnectionPair]:
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
     with closing(controller_end), closing(client):
-        yield controller_end, client
+        yield controller_end, client, listener
 
 
 @dataclass(frozen=True)
@@ -206,27 +188,36 @@ class ProbeReport:
     oom_score_adj: str
 
 
-def hand_over_probe(
-    connection_pair: tuple[socket.socket, socket.socket],
-    listener: socket.socket,
+def hand_over_to_probe(
+    connection_pair: ConnectionPair,
     monkeypatch: pytest.MonkeyPatch,
-) -> ProbeReport:
+    *,
+    admits: bool = True,
+) -> tuple[LifeEnd | None, bytes]:
     monkeypatch.setenv("PATH", PATH)
-    connection, client = connection_pair
-    kept = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE)), accept_time(), listener=listener
+    connection, client, listener = connection_pair
+    life_end = worker_serving.hand_over(
+        connection,
+        serving_with(spawn_probe(PROBE), admits=admits),
+        accept_time(),
+        listener=listener,
     )
     connection.close()
-    assert kept is None
-    return ProbeReport(**json.loads(read_to_end(client)))
+    return life_end, read_to_end(client)
+
+
+def hand_over_probe(
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
+) -> ProbeReport:
+    life_end, report = hand_over_to_probe(connection_pair, monkeypatch)
+    assert life_end is None
+    return ProbeReport(**json.loads(report))
 
 
 def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
-    connection_pair: tuple[socket.socket, socket.socket],
-    listener: socket.socket,
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    report = hand_over_probe(connection_pair, listener, monkeypatch)
+    report = hand_over_probe(connection_pair, monkeypatch)
 
     assert report.stdin == "/dev/null"
     assert set(report.descriptors) == INHERITED_DESCRIPTORS | {
@@ -240,13 +231,11 @@ def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
 
 
 def test_a_released_child_holds_nothing_of_the_controllers_environment(
-    connection_pair: tuple[socket.socket, socket.socket],
-    listener: socket.socket,
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SECRET_FOR_THE_CONTROLLER", "leak")
 
-    environment = hand_over_probe(connection_pair, listener, monkeypatch).environment
+    environment = hand_over_probe(connection_pair, monkeypatch).environment
 
     assert set(environment) <= {"PATH", CURRENT_DIRECTORY_KEY, "LC_CTYPE"}
     assert environment["PATH"] == PATH
@@ -254,23 +243,12 @@ def test_a_released_child_holds_nothing_of_the_controllers_environment(
 
 
 def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_reply(
-    connection_pair: tuple[socket.socket, socket.socket],
-    listener: socket.socket,
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("PATH", PATH)
-    connection, client = connection_pair
+    life_end, reply = hand_over_to_probe(connection_pair, monkeypatch, admits=False)
 
-    refused = worker_serving.hand_over(
-        connection,
-        serving_with(spawn_probe(PROBE), admits=False),
-        accept_time(),
-        listener=listener,
-    )
-    connection.close()
-
-    assert refused == LifeEnd.GATE
-    assert read_to_end(client) == b""
+    assert life_end == LifeEnd.GATE
+    assert reply == b""
 
 
 @pytest.mark.parametrize(

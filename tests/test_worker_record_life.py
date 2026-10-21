@@ -4,8 +4,7 @@ import errno
 import mmap
 import os
 import socket
-from collections.abc import Callable, Iterator
-from contextlib import closing
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
@@ -20,13 +19,6 @@ from presentator.host.worker_wire import WireExit
 from tests.worker_support import ACCEPT_TIME, RecordingCreation, ScriptedLife
 
 ACCEPTED_ARM = "arm 447.0"
-
-
-@pytest.fixture
-def connection() -> Iterator[socket.socket]:
-    controller_end, client = socket.socketpair()
-    with closing(controller_end), closing(client):
-        yield controller_end
 
 
 def accepted_life(**changes: object) -> ScriptedLife:
