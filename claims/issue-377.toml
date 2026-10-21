@@ -1,8 +1,0 @@
-claim_id = "cd4aa467e02f4b4cb2a3e50fac34f7da"
-agent = "claude"
-role = "builder"
-base = "39cd60757f541da0e54384cdbcb830e41014cd5a"
-branch = "claude/issue-377-build-worker-a5d2-die-worker-tests-teile"
-scope = ["tests/adapters/test_build_wire.py", "tests/adapters/test_build_wire_receive.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_upload.py", "tests/test_worker_entries_chain.py", "tests/test_worker_record_chain.py", "tests/test_worker_reply_chain.py", "tests/test_worker_serving_loop.py", "tests/test_worker_side_chain.py", "tests/test_worker_upload_chain.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "86746f5ac5e80fb9f0101475663c5b34e5d4c3f4"
-whole_reason = "The literals, the framing helper and the connect helper move to one new home that eight importers read, so a partial move leaves two homes; the rest are one-file edits in the same files."
