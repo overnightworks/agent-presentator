@@ -17,7 +17,8 @@ from webauth.cookies import (
 from presentator.api.auth import LOGIN_PATH, LOGOUT_PATH, content_security_policy
 from presentator.host.oidc import end_session_origin, oidc_client_config
 from tests.api.lobby import A_CLIENT_CREDENTIAL, a_settings
-from tests.test_sign_in_callback import Scene, WatchedLock, a_scene
+from tests.sign_in_support import Scene, a_scene
+from tests.test_sign_in_callback import WatchedLock
 
 _HINT_NAME = "id_token_hint"
 _A_FORM = {"content-type": "application/x-www-form-urlencoded"}

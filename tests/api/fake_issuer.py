@@ -43,8 +43,13 @@ class FakeIssuer:
         self._client_id = client_id
         self._now = now
         self._tokens_by_code: dict[str, str] = {}
+        self._refresh_token: str | None = None
         self.token_endpoint_is_down = False
         self.key_set_is_down = False
+
+    def issue_refresh_token(self, token: str) -> None:
+        """Answer every later code exchange with this refresh token too."""
+        self._refresh_token = token
 
     def mint(
         self,
@@ -99,6 +104,8 @@ class FakeIssuer:
             message = "the token endpoint of a test issuer is down"
             raise TokenEndpointError(message)
         document = {"id_token": self._tokens_by_code[request.form["code"]]}
+        if self._refresh_token is not None:
+            document["refresh_token"] = self._refresh_token
         return TokenEndpointAnswer(HTTPStatus.OK, json.dumps(document).encode())
 
     def fetch_key_set(self, url: str) -> bytes:

@@ -14,10 +14,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+from pydantic import SecretStr
 from webauth.ports import UsernameTakenError
 
 from presentator.adapters.sqlite import apply_schema, rows
-from presentator.contracts.models import Role, Session, User
+from presentator.contracts.models import Role, User
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
+    expires_at TEXT NOT NULL,
+    refresh_token TEXT
 );
 """
 _IDENTIFIER_BYTES: Final = 32
@@ -185,17 +187,40 @@ class ProcessWriteLock:
             yield
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StoredSession:
+    """A stored sign-in: its account, its instants and its login's refresh token.
+
+    Whether it still stands is `webauth`'s `admit_session`, not a method here
+    (ADR 0003).
+    """
+
+    id: str
+    user: User
+    created_at: datetime
+    expires_at: datetime
+    refresh_token: SecretStr | None
+
+
 @dataclass(frozen=True, slots=True)
 class SqliteSessionRecordStore:
     """The sessions table, joined to the accounts.
 
     Instants are stored as UTC ISO 8601 text, so comparing the text orders the
-    instants. Every call commits on its own.
+    instants. Every call commits on its own. The refresh token sits in plain
+    text in the session's row and leaves with it (ADR 0013).
     """
 
     database: Path
 
-    def create(self, user_id: str, *, now: datetime, expires_at: datetime) -> Session:
+    def create(
+        self,
+        user_id: str,
+        *,
+        now: datetime,
+        expires_at: datetime,
+        refresh_token: SecretStr | None,
+    ) -> StoredSession:
         """Open a session created at `now` that stands until `expires_at`."""
         session_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
         with rows(self.database) as cursor:
@@ -204,35 +229,44 @@ class SqliteSessionRecordStore:
                 message = f"no account {user_id} to open a session for"
                 raise LookupError(message)
             cursor.execute(
-                "INSERT INTO sessions (id, user_id, created_at, expires_at)"
-                " VALUES (?, ?, ?, ?)",
-                (session_id, user_id, _stored(now), _stored(expires_at)),
+                "INSERT INTO sessions"
+                " (id, user_id, created_at, expires_at, refresh_token)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    user_id,
+                    _stored(now),
+                    _stored(expires_at),
+                    None if refresh_token is None else refresh_token.get_secret_value(),
+                ),
             )
-        return Session(
+        return StoredSession(
             id=session_id,
             user=_user(account),
             created_at=now,
             expires_at=expires_at,
+            refresh_token=refresh_token,
         )
 
-    def load(self, session_id: str) -> Session | None:
+    def load(self, session_id: str) -> StoredSession | None:
         """Read the row a cookie points at with its account; no account, no session."""
         with rows(self.database) as cursor:
             row = cursor.execute(
                 "SELECT sessions.id, sessions.created_at, sessions.expires_at,"
-                " users.id, users.username, users.role"
+                " sessions.refresh_token, users.id, users.username, users.role"
                 " FROM sessions JOIN users ON users.id = sessions.user_id"
                 " WHERE sessions.id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        stored_id, created_at, expires_at, *account = row
-        return Session(
+        stored_id, created_at, expires_at, refresh_token, *account = row
+        return StoredSession(
             id=stored_id,
             user=_user(account),
             created_at=datetime.fromisoformat(created_at),
             expires_at=datetime.fromisoformat(expires_at),
+            refresh_token=None if refresh_token is None else SecretStr(refresh_token),
         )
 
     def touch(self, session_id: str, *, expires_at: datetime) -> bool:
@@ -241,6 +275,20 @@ class SqliteSessionRecordStore:
             cursor.execute(
                 "UPDATE sessions SET expires_at = ? WHERE id = ?",
                 (_stored(expires_at), session_id),
+            )
+            return cursor.rowcount == 1
+
+    def replace_refresh_token(
+        self,
+        session_id: str,
+        *,
+        refresh_token: SecretStr,
+    ) -> bool:
+        """Replace the token only while the row stands; a deleted session stays gone."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "UPDATE sessions SET refresh_token = ? WHERE id = ?",
+                (refresh_token.get_secret_value(), session_id),
             )
             return cursor.rowcount == 1
 

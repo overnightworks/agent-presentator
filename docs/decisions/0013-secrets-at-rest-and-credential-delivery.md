@@ -119,6 +119,24 @@ field, no template context, no log record and no exception message.
 - Backing up the database is not enough to restore a working instance; the
   instance key belongs in the same backup discipline.
 
+### Amendment 2026-10-21 — the session's refresh token at rest
+
+Authority: [#365](https://github.com/overnightworks/agent-presentator/issues/365),
+operator ruling of 21.10.2026.
+
+The refresh token Keycloak issues at sign-in is stored in plain text in the
+session's row, for every member, and leaves with the row; the access token is
+never stored. A copy of the file alone yields nothing usable, because Keycloak
+renews the token only with the client secret, which stays outside the database,
+so the bar above holds. Not encrypted under the instance key: that would cost a
+decrypt-refusal path and the host's wiring for little against a backup that
+carries the instance key too. Residuals:
+
+- A database copy together with the client secret renews the person's access
+  token until the SSO session ends (at most 30 days); deleting the row revokes
+  nothing at Keycloak.
+- SQLite's freed pages and the `-wal` may keep an ended session's token.
+
 ## Rejected alternatives
 
 - **PyNaCl.** No OpenSSH private-key serialisation, so the deploy key would

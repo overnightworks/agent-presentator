@@ -16,9 +16,9 @@ from webauth.middleware.security_headers import (
     CONTENT_TYPE_OPTIONS,
     FRAME_OPTIONS,
     REFERRER_POLICY,
+    STRICT_TRANSPORT_SECURITY,
 )
 from webauth.oidc import PENDING_LOGIN_MAX_AGE_SECONDS
-from webauth.policies import SecurityHeadersPolicy
 
 from presentator.api.hooks import hook_address
 from presentator.api.legal import DATENSCHUTZ
@@ -40,9 +40,6 @@ from tests.api.lobby import (
     a_signed_in_lobby_with_a_built_deck,
 )
 
-_STRICT_TRANSPORT_SECURITY = SecurityHeadersPolicy(
-    content_security_policy=a_content_security_policy()
-).strict_transport_security
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 # The lobby's own policy (`presentator.api.auth`): never the camera, never a
 # page's own location, only the co-presenter's microphone.
@@ -80,14 +77,27 @@ def test_a_signed_out_browser_keeps_its_requested_path_and_query_at_login(
     )
 
 
-def test_a_signed_out_json_request_is_refused_without_a_redirect(lobby: Lobby) -> None:
-    refused = lobby.client.get(
-        "/settings/sources?tab=recent",
-        headers={"accept": "application/json"},
+@pytest.mark.parametrize(
+    ("accept", "status"),
+    [
+        pytest.param("Text/HTML", HTTPStatus.FOUND, id="html in other case"),
+        pytest.param("application/json", HTTPStatus.UNAUTHORIZED, id="json"),
+        pytest.param(
+            "text/html;Q=0, application/json;q=0.5",
+            HTTPStatus.UNAUTHORIZED,
+            id="html refused by an uppercase Q",
+        ),
+    ],
+)
+def test_a_signed_out_request_is_redirected_or_refused_by_what_it_accepts(
+    lobby: Lobby, accept: str, status: HTTPStatus
+) -> None:
+    answer = lobby.client.get(
+        "/settings/sources?tab=recent", headers={"accept": accept}
     )
 
-    assert refused.status_code == HTTPStatus.UNAUTHORIZED
-    assert refused.headers.get("location") is None
+    assert answer.status_code == status
+    assert (answer.headers.get("location") is not None) is (status == HTTPStatus.FOUND)
 
 
 def test_an_unlisted_mutating_route_refuses_a_foreign_form() -> None:
@@ -263,7 +273,7 @@ def test_a_lobby_reached_over_https_sends_strict_transport_security(
 ) -> None:
     answer = signed_in_lobby.client.get("/")
 
-    assert answer.headers["strict-transport-security"] == _STRICT_TRANSPORT_SECURITY
+    assert answer.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
 
 
 def test_the_permissions_policy_admits_only_the_copresenters_own_microphone(
@@ -280,7 +290,7 @@ def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
     talk = lobby.get(talk_address(A_BUILT_DECK_SLUG))
 
     assert talk.status_code == HTTPStatus.OK
-    assert talk.headers["strict-transport-security"] == _STRICT_TRANSPORT_SECURITY
+    assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
     for name, value in _EVERY_SECURITY_HEADER.items():
         assert talk.headers[name] == value
 
@@ -469,6 +479,21 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
     assert "werden danach nicht erneuert" in document
     assert "mit jeder angemeldeten Antwort erneuert" not in document
     assert "Keycloak-Subject-ID und Rolle" in document
+
+
+def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+
+    assert (
+        "Gespeichert werden Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
+        "und des Ablaufs sowie das Erneuerungs-Token (Refresh-Token), das Keycloak "
+        "bei der Anmeldung ausstellt. Es liegt unverschlüsselt in der "
+        "Sitzungszeile, ist ohne das Client-Geheimnis von Presentator bei Keycloak "
+        "nicht verwendbar und wird mit der Sitzung gelöscht. Das Zugriffstoken der "
+        "Anmeldung wird nicht gespeichert."
+    ) in page
 
 
 def test_the_datenschutz_renders_every_section_and_links_the_impressum(

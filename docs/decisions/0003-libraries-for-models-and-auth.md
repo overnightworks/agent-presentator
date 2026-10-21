@@ -155,6 +155,24 @@ reports whether it renewed a row. A refused session is no longer deleted on
 read; its row stays until the purge that follows this change. The allowed
 hosts are the public origin's host, because the library refuses an empty list.
 
+### Amendment 2026-10-21 — the session row holds the refresh token, on webauth v0.20.1
+
+Authority: [#365](https://github.com/overnightworks/agent-presentator/issues/365)
+(A3b(1) of [#355](https://github.com/overnightworks/agent-presentator/issues/355)).
+
+`webauth` v0.20.1 is pinned. The `sessions` table gains a nullable
+`refresh_token` column, written by `create` from the code exchange and replaced
+only through the update-only `replace_refresh_token`, which reports whether the
+row still stood, like `touch`. The access token is never stored. The library no
+longer asks the store for a hold on `load`, `touch` or `replace_refresh_token`:
+each is one statement in an autocommit store, so it renews or replaces only a
+row that still exists, and the host's `WriteLock` stays with the check-then-write
+sequences. The session record is the identity adapter's own, with the token as a
+`SecretStr`, because a third-party type lives only in the adapter that owns it
+(ADR 0001); `contracts` no longer has a `Session`. A file with the earlier
+four-column `sessions` table is refused untouched like every older shape: no
+operated database has it, so there is no in-place migration.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as

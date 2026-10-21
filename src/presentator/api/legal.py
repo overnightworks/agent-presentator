@@ -72,7 +72,7 @@ _SWEEP_MINUTES: Final = (
     int(SESSION_SWEEP_INTERVAL.total_seconds()) // _SECONDS_PER_MINUTE
 )
 _DRAFT_HOURS: Final = int(DRAFT_MAX_AGE.total_seconds()) // _SECONDS_PER_HOUR
-_STAND: Final = "20. Oktober 2026"
+_STAND: Final = "21. Oktober 2026"
 _BASIS_CONTRACT: Final = "Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f)"
 _BASIS_INTEREST: Final = "Art. 6 Abs. 1 lit. f DSGVO"
 
@@ -141,8 +141,14 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Cookies nach der Anmeldung "
                     f"sind {_SESSION_HOURS} Stunden gültig und "
                     "werden danach nicht erneuert. Gespeichert werden "
-                    "Sitzungs-ID, Benutzer-ID und der Zeitpunkt der Anmeldung "
-                    "und des Ablaufs. Eine "
+                    "Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
+                    "und des Ablaufs sowie das Erneuerungs-Token "
+                    "(Refresh-Token), das Keycloak bei der Anmeldung "
+                    "ausstellt. Es liegt unverschlüsselt in der "
+                    "Sitzungszeile, ist ohne das Client-Geheimnis von "
+                    "Presentator bei Keycloak nicht verwendbar und wird mit "
+                    "der Sitzung gelöscht. Das Zugriffstoken der Anmeldung "
+                    "wird nicht gespeichert. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
                     "Zweck · Rechtsgrundlage: angemeldet bleiben, "
                     f"{_BASIS_CONTRACT}; die Cookies "
