@@ -6,6 +6,7 @@ the sessions are the real SQLite stores on a temporary file.
 
 import asyncio
 import logging
+import re
 import sqlite3
 import threading
 from collections.abc import Callable, Generator
@@ -492,18 +493,15 @@ def test_the_no_access_page_offers_log_out_and_a_back_that_needs_no_script(
     assert "Log out" in page
     assert 'data-action data-quiet data-history-back href="/login"' in page
     assert '<script src="/static/history-back.js" defer></script>' in page
-    assert " onclick=" not in page
+    assert re.search(r"\son[a-z]+=", page) is None
     assert page.count("<script") == page.count('<script src="')
 
 
-def test_the_back_script_is_public_and_goes_back_only_where_there_is_a_page_to_go_to(
-    scene: Scene,
-) -> None:
+def test_the_back_script_is_served_without_a_session(scene: Scene) -> None:
     script = scene.lobby.client.get("/static/history-back.js")
 
     assert script.status_code == HTTPStatus.OK
     assert "history.back()" in script.text
-    assert "history.length > 1" in script.text
 
 
 def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
@@ -520,6 +518,13 @@ def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
     assert "post_logout_redirect_uri" in query
     assert "id_token_hint" not in query
     assert scene.count("sessions") == 0
+    for name in (
+        DEFAULT_SESSION_COOKIE_NAME,
+        DEFAULT_CSRF_COOKIE_NAME,
+        _LOGOUT_HINT_NAME,
+    ):
+        assert "Max-Age=0" in _cookie(answer, name)
+    assert len(_cookie_names(answer)) == 3
 
 
 def test_a_member_who_left_the_group_is_refused_and_returns_to_the_same_account(

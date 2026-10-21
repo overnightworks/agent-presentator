@@ -187,17 +187,21 @@ def test_a_logout_form_another_site_submitted_deletes_nothing_and_goes_nowhere(
     assert scene.count("sessions") == 1
 
 
+@pytest.mark.parametrize("signed_in", [True, False], ids=["signed-in", "signed-out"])
 def test_a_logout_form_with_no_origin_signal_deletes_nothing_and_goes_nowhere(
     scene: Scene,
+    *,
+    signed_in: bool,
 ) -> None:
-    scene.sign_in()
+    if signed_in:
+        scene.sign_in()
     del scene.lobby.client.headers["sec-fetch-site"]
 
     refused = scene.lobby.client.post(LOGOUT_PATH, headers=_A_FORM)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert "location" not in refused.headers
-    assert scene.count("sessions") == 1
+    assert scene.count("sessions") == (1 if signed_in else 0)
 
 
 def test_a_logout_holds_the_write_lock_once_on_a_worker_thread(
