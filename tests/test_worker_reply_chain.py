@@ -13,22 +13,24 @@ from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
 from tests.test_worker_record_chain import (
-    END,
-    OUTCOME_FAILED,
     OWN_IDENTITY,
     PATH,
     SLEEPER,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
-    connect_when_serving,
     end_controller,
     read_to_end,
     run_life,
 )
-from tests.worker_support import DECK_CLOSED_MODE
+from tests.worker_support import (
+    DECK_CLOSED_MODE,
+    END,
+    OUTCOME_FAILED,
+    STATUS,
+    VALID_STEP,
+    connect_when_bound,
+)
 
 REPLY_BUDGET_SECONDS = 1.0
 DECK_MODE_REPORTER_EXITING_SENT = f"""
@@ -123,7 +125,13 @@ def test_a_valid_upload_over_a_controller_process_gets_status_failed_end_and_eof
     )
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
+        with closing(
+            connect_when_bound(
+                volume,
+                lambda: controller.wait_within(0.05) is None,
+                timeout=WAIT_SECONDS,
+            )
+        ) as client:
             client.sendall(VALID_STEP + END)
             reply = read_to_end(client)
         exit_status = controller.wait_within(WAIT_SECONDS)

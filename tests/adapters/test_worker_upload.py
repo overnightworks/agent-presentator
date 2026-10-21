@@ -25,7 +25,7 @@ CONTROLLER_UMASK = 0o077
 
 
 @pytest.fixture
-def deck(tmp_path: Path) -> Iterator[Path]:
+def deck_path(tmp_path: Path) -> Iterator[Path]:
     previous = os.umask(CONTROLLER_UMASK)
     try:
         yield tmp_path / "deck"
@@ -42,34 +42,34 @@ def accepted_life(**changes: object) -> ScriptedLife:
 
 
 def test_the_deck_is_world_writable_and_sticky_despite_the_controllers_umask(
-    deck: Path,
+    deck_path: Path,
 ) -> None:
-    worker.open_deck(deck)
+    worker.open_deck(deck_path)
 
-    assert mode_of(deck) == DECK_OPEN_MODE
-
-
-def test_closing_the_deck_takes_it_back_to_0755(deck: Path) -> None:
-    worker.open_deck(deck)
-
-    worker.close_deck(deck)
-
-    assert mode_of(deck) == DECK_CLOSED_MODE
+    assert mode_of(deck_path) == DECK_OPEN_MODE
 
 
-def test_an_existing_deck_is_never_reused_nor_changed(deck: Path) -> None:
-    deck.mkdir(mode=PRIVATE_MODE)
-    (deck / "leftover").write_text("kept")
+def test_closing_the_deck_takes_it_back_to_0755(deck_path: Path) -> None:
+    worker.open_deck(deck_path)
+
+    worker.close_deck(deck_path)
+
+    assert mode_of(deck_path) == DECK_CLOSED_MODE
+
+
+def test_an_existing_deck_is_never_reused_nor_changed(deck_path: Path) -> None:
+    deck_path.mkdir(mode=PRIVATE_MODE)
+    (deck_path / "leftover").write_text("kept")
 
     with pytest.raises(FileExistsError):
-        worker.open_deck(deck)
+        worker.open_deck(deck_path)
 
-    assert mode_of(deck) == PRIVATE_MODE
-    assert (deck / "leftover").read_text() == "kept"
+    assert mode_of(deck_path) == PRIVATE_MODE
+    assert (deck_path / "leftover").read_text() == "kept"
 
 
 def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
-    connection: socket.socket, listener: socket.socket, deck: Path
+    connection: socket.socket, listener: socket.socket, deck_path: Path
 ) -> None:
     life = accepted_life()
     modes_when_closing: list[int] = []
@@ -80,7 +80,7 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
 
     serving = replace(
         life.serving(),
-        deck=deck,
+        deck=deck_path,
         open_deck=worker.open_deck,
         close_deck=close_noting_mode,
     )
@@ -90,7 +90,7 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
         == LifeEnd.CONSUMED
     )
     assert modes_when_closing == [DECK_OPEN_MODE]
-    assert mode_of(deck) == DECK_CLOSED_MODE
+    assert mode_of(deck_path) == DECK_CLOSED_MODE
 
 
 def test_the_deck_is_opened_after_the_seal_and_closed_after_the_upload_waited(

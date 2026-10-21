@@ -15,15 +15,11 @@ from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
     EXITING_SENT,
-    OUTCOME_FAILED,
     OWN_IDENTITY,
     PATH,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
-    connect_when_serving,
     end_controller,
     read_to_end,
     read_to_end_or_reset,
@@ -31,8 +27,13 @@ from tests.test_worker_record_chain import (
 )
 from tests.test_worker_reply_chain import CONSUMING_CONTROLLER
 from tests.worker_support import (
+    BULK_SEND_SECONDS,
     DECK_CLOSED_MODE,
+    OUTCOME_FAILED,
     OWN_UID,
+    STATUS,
+    VALID_STEP,
+    connect_when_bound,
     directory_entry,
     end_entry,
     entries_at_the_maximum,
@@ -40,7 +41,6 @@ from tests.worker_support import (
     file_header,
 )
 
-BULK_SEND_SECONDS = 60
 CONTROLLER_UMASK = 0o077
 DIRECTORY_MODE = 0o755
 FILE_MODE = 0o644
@@ -152,7 +152,13 @@ def assert_refused_upload_closes(
     controller = spawn_controller(volume, log, tmp_path / "deck")
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
+        with closing(
+            connect_when_bound(
+                volume,
+                lambda: controller.wait_within(0.05) is None,
+                timeout=WAIT_SECONDS,
+            )
+        ) as client:
             client.settimeout(BULK_SEND_SECONDS)
             client.sendall(VALID_STEP + refused)
             client.settimeout(WAIT_SECONDS)
@@ -174,7 +180,13 @@ def test_a_nested_upload_over_a_controller_gets_status_failed_end_and_eof(
     controller = spawn_controller(volume, log, tmp_path / "deck")
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
+        with closing(
+            connect_when_bound(
+                volume,
+                lambda: controller.wait_within(0.05) is None,
+                timeout=WAIT_SECONDS,
+            )
+        ) as client:
             client.sendall(VALID_STEP + NESTED_UPLOAD)
             reply = read_to_end(client)
         exit_status = controller.wait_within(WAIT_SECONDS)

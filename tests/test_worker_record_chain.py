@@ -26,22 +26,22 @@ from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import LifeEnd, Serving, hand_over
 from presentator.host.worker_wire import WireExit
 from tests.worker_support import (
+    END,
+    STATUS,
+    STEP_HEADER,
+    VALID_STEP,
     NeverArmed,
     RecordingCreation,
-    connect,
+    assert_gone,
+    connect_when_bound,
     listening_socket,
+    process_id_of,
     role_of,
 )
 
 OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
 PATH = "/usr/bin:/bin"
-STATUS = b"PBW\x01\x03\x00\x02{}"
-OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
-STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
-VALID_STEP = b"PBW\x01\x02" + len(STEP_HEADER).to_bytes(2, "big") + STEP_HEADER
-END = b"\x03" + bytes(12)
-HELLO = b"PBW\x01\x01\x00\x02{}"
 FORGER = """
 import os, sys
 os.pwrite(int(sys.argv[2]), bytes.fromhex(sys.argv[3]), 0)
@@ -90,8 +90,7 @@ class ChainSpawn:
             command, identity=OWN_IDENTITY, environment=environment, pass_fds=pass_fds
         )
         self.children.append(child)
-        status = child.status_text()
-        self.process_ids.append(int(status.split("Pid:")[1].split()[0]))
+        self.process_ids.append(process_id_of(child))
         return child
 
     def kill_and_reap(self) -> None:
@@ -101,9 +100,7 @@ class ChainSpawn:
             child for child in self.children if child.wait_within(WAIT_SECONDS) is None
         ]
         assert not unreaped, "a killed child was not reaped"
-        for process_id in self.process_ids:
-            with pytest.raises(ProcessLookupError):
-                os.kill(process_id, 0)
+        assert_gone(self.process_ids)
 
 
 @dataclass
@@ -376,16 +373,6 @@ EMERGENCY_END_SECONDS = 148.0
 TOLERANCE_SECONDS = 1.0
 
 
-def connect_when_serving(volume: Path, controller: GatedChild) -> socket.socket:
-    deadline = time.monotonic() + WAIT_SECONDS
-    while controller.wait_within(0.05) is None and time.monotonic() < deadline:
-        try:
-            return connect(volume)
-        except (FileNotFoundError, ConnectionRefusedError):
-            continue
-    pytest.fail("the controller did not start serving")
-
-
 def test_a_controller_that_stalls_after_the_upload_spawn_dies_at_the_emergency_end(
     volume: Path, tmp_path: Path
 ) -> None:
@@ -399,7 +386,13 @@ def test_a_controller_that_stalls_after_the_upload_spawn_dies_at_the_emergency_e
     )
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
+        with closing(
+            connect_when_bound(
+                volume,
+                lambda: controller.wait_within(0.05) is None,
+                timeout=WAIT_SECONDS,
+            )
+        ) as client:
             client.sendall(VALID_STEP)
             exit_status = controller.wait_within(EMERGENCY_END_SECONDS + 30)
             exited_at = time.monotonic()

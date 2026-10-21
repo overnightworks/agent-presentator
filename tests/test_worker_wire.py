@@ -19,7 +19,18 @@ from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
 from presentator.host.worker import create_request_record
 from presentator.host.worker_wire import WireExit, WireRole
-from tests.worker_support import UNUSED_DECK, end_entry, file_entry, file_header
+from tests.worker_support import (
+    END,
+    HELLO,
+    OUTCOME_FAILED,
+    STATUS,
+    STEP_PREAMBLE,
+    UNUSED_DECK,
+    end_entry,
+    file_entry,
+    file_header,
+    framed,
+)
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
 GATED_FIELDS = {
@@ -130,17 +141,11 @@ def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:
         assert status not in range(128, 256)
 
 
-HELLO = b"PBW\x01\x01\x00\x02{}"
 SECONDS_TO_WAIT = 5
 BOM = b"\xef\xbb\xbf"
-STEP = b"PBW\x01\x02"
 
 
-def framed(header: bytes, preamble: bytes = b"PBW\x01\x01") -> bytes:
-    return preamble + len(header).to_bytes(2, "big") + header
-
-
-VALID_STEP = framed(b'{"step":"export","slug":"my-deck"}', STEP)
+EXPORT_STEP = framed(b'{"step":"export","slug":"my-deck"}', STEP_PREAMBLE)
 
 
 REFUSED_INPUTS = {
@@ -154,17 +159,21 @@ REFUSED_INPUTS = {
     "kind STATUS": framed(b"{}", b"PBW\x01\x03"),
     "kind 6": framed(b"{}", b"PBW\x01\x06"),
     "kind 255": framed(b"{}", b"PBW\x01\xff"),
-    "a STEP header with no step": framed(b"{}", STEP),
+    "a STEP header with no step": framed(b"{}", STEP_PREAMBLE),
     "a STEP header with an extra key": framed(
-        b'{"step":"build","slug":"a","more":1}', STEP
+        b'{"step":"build","slug":"a","more":1}', STEP_PREAMBLE
     ),
-    "a STEP header with an unknown step": framed(b'{"step":"x","slug":"a"}', STEP),
+    "a STEP header with an unknown step": framed(
+        b'{"step":"x","slug":"a"}', STEP_PREAMBLE
+    ),
     "a STEP header with a slug leaving its folder": framed(
-        b'{"step":"build","slug":"../a"}', STEP
+        b'{"step":"build","slug":"../a"}', STEP_PREAMBLE
     ),
-    "a STEP header with a null slug": framed(b'{"step":"build","slug":null}', STEP),
-    "a STEP header not UTF-8": framed(b"\xff\xfe", STEP),
-    "a STEP header length 4097": STEP + b"\x10\x01" + b" " * 4097,
+    "a STEP header with a null slug": framed(
+        b'{"step":"build","slug":null}', STEP_PREAMBLE
+    ),
+    "a STEP header not UTF-8": framed(b"\xff\xfe", STEP_PREAMBLE),
+    "a STEP header length 4097": STEP_PREAMBLE + b"\x10\x01" + b" " * 4097,
     "nothing": b"",
     "EOF inside the preamble": b"PB",
     "header length 0": b"PBW\x01\x01\x00\x00",
@@ -282,7 +291,7 @@ def test_the_entry_answers_a_hello_with_status_and_exits_answered(
     client.sendall(HELLO + b"x")
 
     assert run_entry(client, descriptor, record) == WireExit.ANSWERED
-    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert client.recv(64) == STATUS
     assert os.fstat(record).st_size == 0
 
 
@@ -290,7 +299,7 @@ def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_repl
     client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
-    client.sendall(VALID_STEP)
+    client.sendall(EXPORT_STEP)
 
     assert run_entry(client, descriptor, record) == WireExit.ACCEPTED
     assert client.recv(64) == b""
@@ -309,7 +318,7 @@ def test_the_upload_entry_answers_status_then_receives_into_the_deck_exiting_upl
         run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
         == WireExit.UPLOADED
     )
-    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert client.recv(64) == STATUS
     assert (tmp_path / "slide.md").read_bytes() == b"# hi"
 
 
@@ -329,7 +338,7 @@ def test_the_upload_entry_enforces_the_megabytes_of_its_argument(
         )
         == WireExit.CLOSED
     )
-    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert client.recv(64) == STATUS
     assert not (tmp_path / "f").exists()
 
 
@@ -384,7 +393,7 @@ def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
         run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
         == WireExit.CLOSED
     )
-    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert client.recv(64) == STATUS
 
 
 def test_the_send_entry_writes_outcome_failed_and_end_exiting_sent(
@@ -393,9 +402,7 @@ def test_the_send_entry_writes_outcome_failed_and_end_exiting_sent(
     client, descriptor = client_and_descriptor
 
     assert run_entry(client, descriptor, record, WireRole.SEND) == WireExit.SENT
-    assert client.recv(64) == (
-        b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}' + b"\x03" + bytes(12)
-    )
+    assert client.recv(64) == OUTCOME_FAILED + END
 
 
 def test_the_send_entry_exits_closed_when_the_peer_has_hung_up(
@@ -458,4 +465,4 @@ def test_run_as_a_program_the_entry_answers_a_hello(
         )
 
         assert exit_code == WireExit.ANSWERED
-        assert controller_end.recv(64) == b"PBW\x01\x03\x00\x02{}"
+        assert controller_end.recv(64) == STATUS

@@ -21,9 +21,11 @@ from tests.worker_support import (
     CHILD_LEG,
     CONNECTIONS,
     FOREIGN_UID,
+    HELLO,
     IDLE_LEG,
     OWN_GID,
     OWN_UID,
+    STATUS,
     UNUSED_DECK,
     WAIT_SECONDS,
     BoundedListener,
@@ -410,7 +412,7 @@ def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life(
     )
     thread.start()
     try:
-        connect_when_bound(volume, thread).close()
+        connect_when_bound(volume, thread.is_alive).close()
         thread.join(WAIT_SECONDS)
     finally:
         life.spawn_error = OSError("stop")
@@ -490,7 +492,7 @@ def test_serve_binds_listens_and_hands_over_connections_until_the_life_ends(
 ) -> None:
     with serving(volume, OWN_UID, admitted=CONNECTIONS) as (thread, handled, outcome):
         for _ in range(CONNECTIONS):
-            client = connect_when_bound(volume, thread)
+            client = connect_when_bound(volume, thread.is_alive)
             assert client.recv(1) == b""
             client.close()
         thread.join(WAIT_SECONDS)
@@ -554,8 +556,6 @@ def test_a_body_failure_carries_the_serving_error_as_a_note(
     assert any("serving broke" in note for note in body_failure.__notes__)
 
 
-HELLO_FRAME = b"PBW\x01\x01\x00\x02{}"
-STATUS_FRAME = b"PBW\x01\x03\x00\x02{}"
 CUT_OFF_HEADER = [
     "arm 7.0",
     "spawn",
@@ -638,7 +638,7 @@ def test_serve_cuts_a_stalled_header_off_and_serves_the_next_connection_in_one_l
     life = ScriptedLife(
         headers_stalled=1,
         connections_served_before_sweep_fails=2,
-        answer=STATUS_FRAME,
+        answer=STATUS,
     )
     outcome: list[int] = []
     thread = threading.Thread(
@@ -655,11 +655,11 @@ def test_serve_cuts_a_stalled_header_off_and_serves_the_next_connection_in_one_l
     )
     thread.start()
     try:
-        first = connect_when_bound(volume, thread)
+        first = connect_when_bound(volume, thread.is_alive)
         assert first.recv(1) == b""
         second = connect(volume)
-        second.sendall(HELLO_FRAME)
-        assert second.recv(len(STATUS_FRAME)) == STATUS_FRAME
+        second.sendall(HELLO)
+        assert second.recv(len(STATUS)) == STATUS
         thread.join(WAIT_SECONDS)
     finally:
         life.spawn_error = OSError("stop")

@@ -14,13 +14,9 @@ import pytest
 from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
-    END,
     EXITING_SENT,
     EXITING_SEVEN,
-    HELLO,
     PATH,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
@@ -28,7 +24,17 @@ from tests.test_worker_record_chain import (
     read_to_end_or_reset,
     run_life,
 )
-from tests.worker_support import DECK_CLOSED_MODE, DECK_OPEN_MODE, PRIVATE_MODE
+from tests.worker_support import (
+    DECK_CLOSED_MODE,
+    DECK_OPEN_MODE,
+    END,
+    HELLO,
+    PRIVATE_MODE,
+    STATUS,
+    STEP_PREAMBLE,
+    VALID_STEP,
+    framed,
+)
 
 DECK_MODE_REPORTER = """
 import os, stat, sys
@@ -100,19 +106,15 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
 
-def step_message(header: bytes) -> bytes:
-    return b"PBW\x01\x02" + len(header).to_bytes(2, "big") + header
-
-
 REJECTED_HEADERS = {
     "bad magic": b"X" + VALID_STEP[1:],
     "bad version": VALID_STEP[:3] + b"\x09" + VALID_STEP[4:],
     "unknown kind": VALID_STEP[:4] + b"\x09" + VALID_STEP[5:],
-    "too short a length": step_message(b"{"),
+    "too short a length": framed(b"{", STEP_PREAMBLE),
     "too long a length": VALID_STEP[:5] + b"\x10\x01",
-    "not JSON": step_message(b"nope"),
-    "unknown step": step_message(b'{"step":"x","slug":"my-deck"}'),
-    "slug ..": step_message(b'{"step":"build","slug":".."}'),
+    "not JSON": framed(b"nope", STEP_PREAMBLE),
+    "unknown step": framed(b'{"step":"x","slug":"my-deck"}', STEP_PREAMBLE),
+    "slug ..": framed(b'{"step":"build","slug":".."}', STEP_PREAMBLE),
     "a HELLO": HELLO,
 }
 
