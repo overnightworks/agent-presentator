@@ -17,6 +17,7 @@ from presentator.adapters import worker_children
 from presentator.adapters.build_wire import (
     END_COUNTS,
     LENGTH,
+    MAXIMUM_ENTRIES,
     SIZE,
     RecordTag,
     read_request,
@@ -66,6 +67,18 @@ def file_entry(path: bytes, content: bytes) -> bytes:
         + path
         + SIZE.pack(len(content))
         + content
+    )
+
+
+def file_header(path: bytes, size: int) -> bytes:
+    """A FILE record up to its declared size, with no payload."""
+    return file_entry(path, b"")[: -SIZE.size] + SIZE.pack(size)
+
+
+def entries_at_the_maximum() -> bytes:
+    """MAXIMUM_ENTRIES entries: a directory and empty files below it."""
+    return directory_entry(b"d") + b"".join(
+        file_entry(b"d/%05d" % number, b"") for number in range(MAXIMUM_ENTRIES - 1)
     )
 
 
@@ -149,7 +162,7 @@ class NeverArmed:
         pass
 
 
-def nothing() -> None:
+def nothing(_deck: Path) -> None:
     """A deck effect for tests that never reach /work."""
 
 
@@ -196,6 +209,9 @@ class ScriptedLife:
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
     build_timeout_seconds: float = 300.0
+    build_output_megabytes: int = 300
+    deck: Path = UNUSED_DECK
+    decks_handled: list[Path] = field(default_factory=list[Path])
     release_takes: float = 0.0
     budgets_waited: list[float] = field(default_factory=list[float])
     sweep_error: OSError | None = None
@@ -352,13 +368,15 @@ class ScriptedLife:
         if self.seal_error is not None:
             raise self.seal_error
 
-    def open_deck(self) -> None:
+    def open_deck(self, deck: Path) -> None:
         self.events.append("open-deck")
+        self.decks_handled.append(deck)
         if self.deck_open_error is not None:
             raise self.deck_open_error
 
-    def close_deck(self) -> None:
+    def close_deck(self, deck: Path) -> None:
         self.events.append("close-deck")
+        self.decks_handled.append(deck)
         if self.deck_close_error is not None:
             raise self.deck_close_error
 
@@ -374,11 +392,12 @@ class ScriptedLife:
             seal=self.seal,
             open_deck=self.open_deck,
             close_deck=self.close_deck,
-            deck=UNUSED_DECK,
+            deck=self.deck,
             watchdog=self,
             clock=self.clock,
             readable=self.readable,
             build_timeout_seconds=self.build_timeout_seconds,
+            build_output_megabytes=self.build_output_megabytes,
         )
 
 
@@ -499,6 +518,7 @@ def serving_with(
         clock=time.monotonic,
         readable=worker_children.readable_within,
         build_timeout_seconds=300.0,
+        build_output_megabytes=300,
     )
 
 

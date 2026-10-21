@@ -46,6 +46,7 @@ class WireArguments:
 
     record_fd: int
     deck: Path
+    megabytes: int
 
 
 KEPT_LIFE_EXITS = frozenset({WireExit.CLOSED, WireExit.ANSWERED})
@@ -67,7 +68,7 @@ def _upload(connection: socket.socket, arguments: WireArguments) -> WireExit:
     )
     try:
         send_status(connection)
-        receive_entries(connection, deck)
+        receive_entries(connection, deck, arguments.megabytes)
     finally:
         os.close(deck)
     return WireExit.UPLOADED
@@ -89,11 +90,13 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--connection-fd", type=int, required=True)
     parser.add_argument("--record-fd", type=int, required=True)
     parser.add_argument("--deck", type=Path, required=True)
+    parser.add_argument("--megabytes", type=int, required=True)
     arguments = parser.parse_args(argv)
     with socket.socket(fileno=arguments.connection_fd) as connection:
         try:
             return _ROLES[arguments.role](
-                connection, WireArguments(arguments.record_fd, arguments.deck)
+                connection,
+                WireArguments(arguments.record_fd, arguments.deck, arguments.megabytes),
             )
         except (WireRefusedError, OSError):
             return WireExit.CLOSED

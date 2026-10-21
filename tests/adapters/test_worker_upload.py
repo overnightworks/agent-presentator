@@ -6,7 +6,6 @@ import socket
 import stat
 from collections.abc import Iterator
 from dataclasses import replace
-from functools import partial
 from pathlib import Path
 
 import pytest
@@ -75,13 +74,14 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
     life = accepted_life()
     modes_when_closing: list[int] = []
 
-    def close_noting_mode() -> None:
-        modes_when_closing.append(mode_of(deck))
-        worker.close_deck(deck)
+    def close_noting_mode(closed: Path) -> None:
+        modes_when_closing.append(mode_of(closed))
+        worker.close_deck(closed)
 
     serving = replace(
         life.serving(),
-        open_deck=partial(worker.open_deck, deck),
+        deck=deck,
+        open_deck=worker.open_deck,
         close_deck=close_noting_mode,
     )
 

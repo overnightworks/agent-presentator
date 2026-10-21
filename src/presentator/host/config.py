@@ -24,6 +24,8 @@ _REFUSED: Final = "this environment cannot start an instance"
 ENVIRONMENT_PREFIX: Final = "PRESENTATOR_"
 # What the web and the build worker both bound one build step by.
 DEFAULT_BUILD_TIMEOUT_SECONDS: Final = 300.0
+# What the web and the build worker both bound one build's output by.
+DEFAULT_BUILD_OUTPUT_MEGABYTES: Final = 300
 # The watchdog cannot be armed for longer than threading.TIMEOUT_MAX, and the
 # worker's fixed phases and the clock offset come on top of the build step.
 LONGEST_BUILD_TIMEOUT_SECONDS: Final = threading.TIMEOUT_MAX / 2
@@ -159,7 +161,7 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # storage driver will not hold a container's own filesystem to one.
     build_memory: str = "4g"
     build_disk: Annotated[str | None, AfterValidator(_a_size_or_none)] = "8g"
-    build_output_megabytes: int = 300
+    build_output_megabytes: int = DEFAULT_BUILD_OUTPUT_MEGABYTES
     # Polling is what makes a push arrive at all, so it runs whether or not any
     # host ever calls the hook.
     source_poll_seconds: float = 300.0
@@ -188,11 +190,12 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix=ENVIRONMENT_PREFIX, frozen=True)
 
     build_timeout_seconds: float = Field(
-        DEFAULT_BUILD_TIMEOUT_SECONDS,
+        default=DEFAULT_BUILD_TIMEOUT_SECONDS,
         gt=0,
         le=LONGEST_BUILD_TIMEOUT_SECONDS,
         allow_inf_nan=False,
     )
+    build_output_megabytes: int = Field(default=DEFAULT_BUILD_OUTPUT_MEGABYTES, gt=0)
 
 
 def _variable_of(field_name: str) -> str:
@@ -205,7 +208,7 @@ def worker_settings_variables() -> frozenset[str]:
 
 
 def load_worker_settings() -> WorkerSettings:
-    """Read the worker's settings, refusing a value its watchdog cannot hold."""
+    """Read the worker's settings, refusing a value its limits cannot hold."""
     try:
         return WorkerSettings.model_validate({})
     except ValidationError as refused:
