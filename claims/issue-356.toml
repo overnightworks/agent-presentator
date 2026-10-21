@@ -1,0 +1,8 @@
+claim_id = "32acfb420e494cb3944510d98aaea33a"
+agent = "claude"
+role = "builder"
+base = "488ec7e6265cae94be4e3bf1a6fac84aed634335"
+branch = "claude/issue-356-a3a-service-answerer"
+scope = ["docs/decisions/0003-libraries-for-models-and-auth.md", "pyproject.toml", "src/presentator/adapters/agent_service.py", "tests/adapters/serving.py", "tests/adapters/test_agent_service.py", "tests/adapters/test_copresenter.py", "tests/adapters/test_speech.py", "uv.lock"]
+opened_commit = "88b7c7a6c6dade2a00b4240e0c70cd7452f3896c"
+whole_reason = "About 175 production lines in one new adapter plus pyproject.toml: the request, the token check, the two-header call and the stream policy are one honest run against the fake service."
