@@ -153,7 +153,7 @@ def test_hearing_passes_pcm_up_and_transcripts_down(tmp_path: Path) -> None:
         socket_path = tmp_path / "speech.sock"
         async with (
             Serving(speech_app(hear=_hear), unix_listener(socket_path)),
-            UdsSpeechHearing(socket_path).hear("de") as hearing,
+            UdsSpeechHearing(socket_path).hear("en") as hearing,
         ):
             await hearing.send_pcm(b"pcm")
             return [await hearing.receive(), await hearing.receive()]
@@ -161,7 +161,7 @@ def test_hearing_passes_pcm_up_and_transcripts_down(tmp_path: Path) -> None:
     transcripts = asyncio.run(_use())
 
     assert received == [b"pcm"]
-    assert queries == [{"language": "de"}]
+    assert queries == [{"language": "en"}]
     assert transcripts == [
         HearingTranscript(text="geh", final=False),
         HearingTranscript(text="gehört", final=True),
