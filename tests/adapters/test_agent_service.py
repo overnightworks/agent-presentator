@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 from uuid import UUID, uuid4
 
 import httpx2
@@ -45,8 +45,17 @@ WORKLOAD = "workload-token-MARKER"
 SYSTEM = "system-prompt-MARKER"
 QUESTION = "question-MARKER"
 SERVICE_MESSAGE = "service-message-MARKER"
+CONTEXT = "context-MARKER"
 VIOLATION_DETAIL = "violation-MARKER"
-MARKERS = (PERSON, WORKLOAD, SYSTEM, QUESTION, SERVICE_MESSAGE, VIOLATION_DETAIL)
+MARKERS = (
+    PERSON,
+    WORKLOAD,
+    SYSTEM,
+    QUESTION,
+    SERVICE_MESSAGE,
+    VIOLATION_DETAIL,
+    CONTEXT,
+)
 EVENT_STREAM = {"content-type": "text/event-stream"}
 LOGGER = "presentator.adapters.agent_service"
 
@@ -114,7 +123,7 @@ def _answer(*chunks: bytes) -> _Reply:
 
 
 def _refusal(code: RejectionCode, status: int, **headers: str) -> _Reply:
-    body = RunRejection(v=1, code=code, message="Dienst sagt nein").model_dump_json()
+    body = RunRejection(v=1, code=code, message=SERVICE_MESSAGE).model_dump_json()
     return _Reply(
         status=status,
         headers={"content-type": "application/json", **headers},
@@ -163,18 +172,35 @@ class _Wire:
         )
 
 
-class _Token:
-    """A token callable that counts its calls and may raise instead."""
+class _RaisedBeforeAwaitingError(RuntimeError):
+    """An error a token callable raises before it returns an awaitable."""
 
-    def __init__(self, value: str | Exception) -> None:
+
+class _Token:
+    """A token callable that counts its calls and may raise instead.
+
+    A raised error carries a marker as its ``__context__``.
+    """
+
+    def __init__(self, value: str | BaseException) -> None:
         self._value = value
         self.calls = 0
 
-    async def __call__(self) -> str:
+    def __call__(self) -> Awaitable[str]:
         self.calls += 1
-        if isinstance(self._value, Exception):
-            raise self._value
+        if isinstance(self._value, _RaisedBeforeAwaitingError):
+            self._raise(self._value)
+        return self._read()
+
+    async def _read(self) -> str:
+        if isinstance(self._value, BaseException):
+            self._raise(self._value)
         return self._value
+
+    @staticmethod
+    def _raise(error: BaseException) -> NoReturn:
+        error.__context__ = RuntimeError(CONTEXT)
+        raise error
 
 
 @dataclass
@@ -217,8 +243,8 @@ class _Asker:
 def _asker(
     reply: _Reply,
     *,
-    person: str | Exception = PERSON,
-    workload: str | Exception = WORKLOAD,
+    person: str | BaseException = PERSON,
+    workload: str | BaseException = WORKLOAD,
 ) -> _Asker:
     wire = _Wire(reply)
     workload_token = _Token(workload)
@@ -430,8 +456,10 @@ _UNKNOWN_CODE = b'{"v": 1, "code": "bribe_me", "message": "Dienst sagt nein"}'
             headers={"content-type": "application/json"},
             chunks=[b"{}"],
         ),
+        _refusal(RejectionCode.BUSY, 200),
+        _Reply(status=307, headers={"location": "http://elsewhere.test/runs"}),
     ],
-    ids=["unknown-code", "html-502", "json-200"],
+    ids=["unknown-code", "html-502", "json-200", "rejection-looking-200", "redirect"],
 )
 def test_a_refusal_without_a_known_code_is_unavailable_with_code_none(
     reply: _Reply, caplog: pytest.LogCaptureFixture
@@ -441,8 +469,11 @@ def test_a_refusal_without_a_known_code_is_unavailable_with_code_none(
     outcome = asyncio.run(asker.ask())
 
     _unavailable(outcome)
-    assert "None" in _one_warning(caplog)
-    assert "bribe_me" not in _one_warning(caplog)
+    warning = _one_warning(caplog)
+    assert "None" in warning
+    assert not [code for code in RejectionCode if code.value in warning]
+    assert "bribe_me" not in warning
+    assert len(asker.wire.requests) == 1
 
 
 @pytest.mark.parametrize("retry_after", ["soon", "-5", "1e3"])
@@ -463,6 +494,8 @@ def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
     [
         (RuntimeError(PERSON), WORKLOAD, SYSTEM, QUESTION),
         (PERSON, RuntimeError(WORKLOAD), SYSTEM, QUESTION),
+        (_RaisedBeforeAwaitingError(PERSON), WORKLOAD, SYSTEM, QUESTION),
+        (PERSON, _RaisedBeforeAwaitingError(WORKLOAD), SYSTEM, QUESTION),
         ("bad\r\ntoken", WORKLOAD, SYSTEM, QUESTION),
         (PERSON, "bad token", SYSTEM, QUESTION),
         (PERSON, "tökén", SYSTEM, QUESTION),
@@ -473,6 +506,8 @@ def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
     ids=[
         "person-raises",
         "workload-raises",
+        "person-raises-before-awaiting",
+        "workload-raises-before-awaiting",
         "person-crlf",
         "workload-space",
         "workload-non-ascii",
@@ -482,8 +517,8 @@ def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
     ],
 )
 def test_a_failure_before_the_run_sends_no_run(
-    person: str | Exception,
-    workload: str | Exception,
+    person: str | BaseException,
+    workload: str | BaseException,
     system: str,
     message: str,
     caplog: pytest.LogCaptureFixture,
@@ -499,6 +534,22 @@ def test_a_failure_before_the_run_sends_no_run(
     assert asker.wire.transports_built == 0
     assert asker.wire.requests == []
     _one_warning(caplog)
+
+
+@pytest.mark.parametrize("which", ["person", "workload"])
+def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
+    which: str,
+) -> None:
+    cancelled = asyncio.CancelledError()
+    asker = _asker(
+        _answer(*_whole(_frames(*_GOOD_ANSWER))),
+        **{which: cancelled},
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(asker.ask())
+
+    assert asker.wire.requests == []
 
 
 def test_a_transport_that_cannot_connect_is_unavailable() -> None:
@@ -628,8 +679,8 @@ class _Leak:
     """One way an ask can go, with the arguments that drive it."""
 
     reply: _Reply
-    person: str | Exception = PERSON
-    workload: str | Exception = WORKLOAD
+    person: str | BaseException = PERSON
+    workload: str | BaseException = WORKLOAD
     message: str = QUESTION
 
 
@@ -638,6 +689,9 @@ _LEAK_CASES = {
     "refusal": _Leak(_refusal(RejectionCode.BUSY, 429, **{"retry-after": "10"})),
     "person-raises": _Leak(_answer(), person=RuntimeError(PERSON)),
     "workload-raises": _Leak(_answer(), workload=RuntimeError(WORKLOAD)),
+    "person-raises-before-awaiting": _Leak(
+        _answer(), person=_RaisedBeforeAwaitingError(PERSON)
+    ),
     "person-crlf": _Leak(_answer(), person=f"{PERSON}\r\n"),
     "workload-space": _Leak(_answer(), workload=f"{WORKLOAD} x"),
     "workload-non-ascii": _Leak(_answer(), workload=f"{WORKLOAD}é"),

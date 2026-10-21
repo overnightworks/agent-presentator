@@ -64,11 +64,19 @@ def _is_event_stream(response: httpx2.Response) -> bool:
     return media_type.strip().lower() == _EVENT_STREAM
 
 
+async def _awaited(source: TokenSource) -> str:
+    return await source()
+
+
 async def _bearer_token(source: TokenSource) -> str:
     # A source's exception is foreign and may hold the token, so it is read
-    # here as a value and never raised, logged or chained.
-    (token,) = await asyncio.gather(source(), return_exceptions=True)
+    # here as a value and never raised, logged or chained. The source is called
+    # inside the awaited coroutine so that one raising before it returns an
+    # awaitable is read the same way.
+    (token,) = await asyncio.gather(_awaited(source), return_exceptions=True)
     if isinstance(token, BaseException):
+        if not isinstance(token, Exception):
+            raise token
         _fail(f"token source raised {type(token).__name__}")
     if _BEARER_TOKEN.fullmatch(token) is None:
         _fail("token is not a bearer token")
@@ -77,7 +85,7 @@ async def _bearer_token(source: TokenSource) -> str:
 
 async def _refuse(response: httpx2.Response) -> NoReturn:
     body = await response.aread()
-    code = _rejection_code(body)
+    code = None if response.is_success else _rejection_code(body)
     seconds = _retry_after_seconds(response)
     _LOGGER.warning("agent service refused the run: %s retry_after=%s", code, seconds)
     raise_without_chain(CoPresenterUnavailableError())
