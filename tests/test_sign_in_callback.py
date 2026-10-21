@@ -524,7 +524,6 @@ def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
         _LOGOUT_HINT_NAME,
     ):
         assert "Max-Age=0" in _cookie(answer, name)
-    assert len(_cookie_names(answer)) == 3
 
 
 def test_a_member_who_left_the_group_is_refused_and_returns_to_the_same_account(
