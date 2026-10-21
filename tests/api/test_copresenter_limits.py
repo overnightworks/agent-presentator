@@ -172,7 +172,7 @@ def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> Non
     add_copresenter_routes(
         app,
         surface=CoPresenterSurface(
-            use=CoPresenterUse(private=private),
+            use=CoPresenterUse(answers=private, speech=private),
             limiter=limiter,
             public_origin=PUBLIC_ORIGIN,
         ),

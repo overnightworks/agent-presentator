@@ -12,7 +12,6 @@ if TYPE_CHECKING:
         AnswerEvent,
         CoPresenterReadiness,
         HearingTranscript,
-        HearingUnavailable,
         Question,
     )
 
@@ -23,19 +22,15 @@ class PrivateHearing(Protocol):
     async def send_pcm(self, frame: bytes) -> None:
         """Send one PCM frame upward."""
 
-    async def receive(self) -> HearingTranscript | HearingUnavailable | None:
-        """Receive one transcript, expected failure, or clean end."""
+    async def receive(self) -> HearingTranscript | None:
+        """Receive one transcript, or None when the private end closed."""
 
     async def aclose(self) -> None:
         """Close the connection and await its owned work."""
 
 
 class PrivateCoPresenter(Protocol):
-    """The narrow protocol Presentator may use over its private transport."""
-
-    async def readiness(self) -> CoPresenterReadiness:
-        """Read the three readiness facts the browser consumes."""
-        ...
+    """The narrow protocol Presentator may use to have a question answered."""
 
     def answer(
         self,
@@ -44,6 +39,14 @@ class PrivateCoPresenter(Protocol):
         """Open one incremental answer operation."""
         ...
 
+
+class SpeechHearing(Protocol):
+    """The hearing speech offers Presentator over its private socket."""
+
+    async def readiness(self) -> CoPresenterReadiness:
+        """Read the readiness facts the browser consumes."""
+        ...
+
     def hear(self, language: str) -> AbstractAsyncContextManager[PrivateHearing]:
-        """Open one private hearing child."""
+        """Open one hearing connection."""
         ...

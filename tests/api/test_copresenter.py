@@ -32,7 +32,6 @@ from presentator.contracts.copresenter import (
     CoPresenterUnavailableError,
     Done,
     HearingTranscript,
-    HearingUnavailable,
     Question,
     Sentence,
 )
@@ -76,7 +75,7 @@ class RecordingHearing:
 
     frames: list[bytes] = field(default_factory=list[bytes])
     closed: int = 0
-    events: list[HearingTranscript | HearingUnavailable | RuntimeError] = field(
+    events: list[HearingTranscript | RuntimeError | None] = field(
         default_factory=lambda: [HearingTranscript(text="gehört", final=True)]
     )
     _frame_ready: asyncio.Queue[None] | None = field(default=None, init=False)
@@ -87,7 +86,7 @@ class RecordingHearing:
             self._frame_ready = asyncio.Queue()
         self._frame_ready.put_nowait(None)
 
-    async def receive(self) -> HearingTranscript | HearingUnavailable | None:
+    async def receive(self) -> HearingTranscript | None:
         if self._frame_ready is None:
             self._frame_ready = asyncio.Queue()
         await self._frame_ready.get()
@@ -129,7 +128,6 @@ class RecordingPrivateCoPresenter:
         if self.readiness_unavailable:
             raise CoPresenterUnavailableError
         return CoPresenterReadiness(
-            answerer_model="canned",
             hearing_sample_rate=16_000,
             local_hearing_ready=True,
         )
@@ -203,7 +201,7 @@ def a_copresenter_lobby(
     app, clock = a_lobby_app(
         people=people,
         copresenter=CoPresenterSurface(
-            use=CoPresenterUse(private=private),
+            use=CoPresenterUse(answers=private, speech=private),
             limiter=limiter or AskLimiter(clock=FrozenClock(instant=NOW)),
             public_origin=PUBLIC_ORIGIN,
             delay=delay,
@@ -257,7 +255,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
     add_copresenter_routes(
         app,
         surface=CoPresenterSurface(
-            use=CoPresenterUse(private=private),
+            use=CoPresenterUse(answers=private, speech=private),
             limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
             public_origin=PUBLIC_ORIGIN,
         ),
@@ -274,7 +272,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
     assert private.questions == []
 
 
-def test_the_admin_receives_only_the_three_readiness_values() -> None:
+def test_the_admin_receives_only_speech_readiness() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
     lobby.sign_in(role=Role.ADMIN)
@@ -283,7 +281,6 @@ def test_the_admin_receives_only_the_three_readiness_values() -> None:
 
     assert response.status_code == HTTPStatus.OK
     assert response.json() == {
-        "answerer": {"model": "canned"},
         "speech": {"sample_rate": 16_000, "hearing": {"ready": True}},
     }
     assert private.readiness_calls == 1
@@ -590,7 +587,7 @@ def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
 def test_private_failure_notice_disconnect_closes_the_private_child() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
-    private.hearing.events = [HearingUnavailable()]
+    private.hearing.events = [None]
     lobby.sign_in()
 
     asyncio.run(_send_hearing_event_to_a_disconnected_browser(client))
@@ -667,7 +664,7 @@ def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
 def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
-    private.hearing.events = [HearingUnavailable()]
+    private.hearing.events = [None]
     lobby.sign_in()
 
     with client.websocket_connect(
@@ -691,7 +688,7 @@ def test_browser_fallback_refuses_text_frames_without_reopening_private_hearing(
 ):
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
-    private.hearing.events = [HearingUnavailable()]
+    private.hearing.events = [None]
     lobby.sign_in()
 
     with client.websocket_connect(
@@ -1054,7 +1051,7 @@ def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
     deadline = ManualDeadline()
     lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
     client = lobby.client
-    private.hearing.events = [HearingUnavailable()]
+    private.hearing.events = [None]
     lobby.sign_in()
 
     with client.websocket_connect(

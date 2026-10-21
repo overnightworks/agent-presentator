@@ -363,9 +363,9 @@ names.
 ### Local speech
 
 A sibling process under [`speech/`](../speech/README.md) holds a local speaking
-model and a local hearing model and offers them to the host co-presenter. The
-co-presenter remains a host process but is private to Presentator through a
-same-UID Unix socket. The repository overlay calls relative
+model and a local hearing model. It offers hearing to Presentator directly
+through its private same-UID Unix socket; the host co-presenter only answers,
+and is private to Presentator through its own same-UID Unix socket. The repository overlay calls relative
 `/copresenter/who`, `/copresenter/ask`, and `/copresenter/hear` routes. Only
 the admin role may use them, through the existing active session: a signed-in
 person without it gets 403 on `/who` and `/ask` and a 1008 close before accept

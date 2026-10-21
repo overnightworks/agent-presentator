@@ -12,7 +12,6 @@ from presentator.contracts.copresenter import (
     CoPresenterUnavailableError,
     Done,
     HearingTranscript,
-    HearingUnavailable,
     Question,
     Sentence,
 )
@@ -21,7 +20,6 @@ from presentator.contracts.copresenter import (
 def test_copresenter_values_are_closed_and_immutable() -> None:
     question = Question(said="Was ist wichtig?", slide=3, language="de")
     readiness = CoPresenterReadiness(
-        answerer_model="claude-sonnet-4-6",
         hearing_sample_rate=16_000,
         local_hearing_ready=True,
     )
@@ -32,12 +30,11 @@ def test_copresenter_values_are_closed_and_immutable() -> None:
         Done(text="Ein Satz."),
         AnswerUnavailable(),
         HearingTranscript(text="eine Frage", final=True),
-        HearingUnavailable(),
     )
 
     assert question == Question(said="Was ist wichtig?", slide=3, language="de")
     assert readiness.local_hearing_ready is True
-    assert events[-1] == HearingUnavailable()
+    assert events[-1] == HearingTranscript(text="eine Frage", final=True)
     with pytest.raises(FrozenInstanceError):
         question.slide = 4  # type: ignore[misc]
 

@@ -522,7 +522,7 @@ sixteen-page PDF.
 
 The voice that answers beside a talk is two host processes on the machine that
 holds the GPU: the speech service on `127.0.0.1:8090` (`speech/`, never
-exposed) and the co-presenter (`copresenter/`), which proxies hearing and asks Claude through the
+exposed) and the co-presenter (`copresenter/`), which asks Claude through the
 `claude` executable on `COPRESENTER_CLI_SEARCH_PATH` with the shared setup token
 in `~/.secrets/agent-service/claude/token`, so only the admin role may use it. Speech starts first and is
 ready when `GET /health` says both models are; the co-presenter is pointed at
@@ -531,6 +531,11 @@ socket directory. Both host processes and the Presentator container use the
 same positive non-root `PRESENTATOR_RUNTIME_UID`. Both run as `systemctl --user` units so they outlive the shell that
 started them, which needs `loginctl show-user <user> -p Linger` to say
 `Linger=yes`.
+
+Presentator reaches hearing and its readiness on speech's own socket, so
+speech must run a version whose `speech.sock` serves `/health` and `/hear`
+before Presentator is upgraded; against an older speech, `/copresenter/who`
+answers 503 and hearing reports its failure.
 
 Speech owns `SPEECH_STATE_DIRECTORY` (by default
 `~/.local/state/presentator-speech`) as a mode-0700 directory. Its

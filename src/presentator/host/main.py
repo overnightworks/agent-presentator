@@ -61,7 +61,7 @@ from presentator.adapters.preferences import (
     create_preference_tables,
 )
 from presentator.adapters.secrets import connection_fingerprint_key, secret_box
-from presentator.adapters.speech import UdsSpeech
+from presentator.adapters.speech import UdsSpeech, UdsSpeechHearing
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -195,7 +195,8 @@ def build_instance(settings: Settings) -> Instance:
             private=LobbyPrivate(
                 copresenter=CoPresenterSurface(
                     use=CoPresenterUse(
-                        private=UdsCoPresenter(settings.copresenter_socket),
+                        answers=UdsCoPresenter(settings.copresenter_socket),
+                        speech=UdsSpeechHearing(settings.speech_socket),
                     ),
                     limiter=AskLimiter(clock=clock),
                     public_origin=settings.public_origin,

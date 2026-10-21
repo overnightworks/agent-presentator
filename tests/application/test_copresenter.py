@@ -19,7 +19,6 @@ from presentator.contracts.copresenter import (
     AnswerText,
     CoPresenterReadiness,
     HearingTranscript,
-    HearingUnavailable,
     Question,
 )
 from presentator.ports.copresenter import PrivateHearing
@@ -36,7 +35,7 @@ class FakeHearing:
     async def send_pcm(self, frame: bytes) -> None:
         self.frames.append(frame)
 
-    async def receive(self) -> HearingTranscript | HearingUnavailable | None:
+    async def receive(self) -> HearingTranscript | None:
         return None
 
     async def aclose(self) -> None:
@@ -49,11 +48,12 @@ class FakePrivateCoPresenter:
 
     answer_exits: int = 0
     hearing_exits: int = 0
+    readiness_calls: int = 0
     hearing: FakeHearing = field(default_factory=FakeHearing)
 
     async def readiness(self) -> CoPresenterReadiness:
+        self.readiness_calls += 1
         return CoPresenterReadiness(
-            answerer_model="canned",
             hearing_sample_rate=16_000,
             local_hearing_ready=True,
         )
@@ -94,7 +94,7 @@ def test_cancelling_an_answer_awaits_the_private_operation() -> None:
 
 async def _cancel_answer() -> None:
     private = FakePrivateCoPresenter()
-    use = CoPresenterUse(private=private)
+    use = CoPresenterUse(answers=private, speech=private)
 
     async with use.answer(Question(said="Frage", slide=1, language=None)) as events:
         assert await anext(events) == AnswerText(text="Frage")
@@ -108,7 +108,7 @@ def test_ending_hearing_closes_and_awaits_the_private_child() -> None:
 
 async def _end_hearing() -> None:
     private = FakePrivateCoPresenter()
-    use = CoPresenterUse(private=private)
+    use = CoPresenterUse(answers=private, speech=private)
 
     async with use.hear("de") as hearing:
         await hearing.send_pcm(b"pcm")
@@ -116,6 +116,23 @@ async def _end_hearing() -> None:
     assert private.hearing.frames == [b"pcm"]
     assert private.hearing.closed == 1
     assert private.hearing_exits == 1
+
+
+def test_readiness_comes_from_speech_and_never_touches_the_answer_port() -> None:
+    answers = FakePrivateCoPresenter()
+    speech = FakePrivateCoPresenter()
+
+    readiness = asyncio.run(CoPresenterUse(answers=answers, speech=speech).readiness())
+
+    assert readiness == CoPresenterReadiness(
+        hearing_sample_rate=16_000, local_hearing_ready=True
+    )
+    assert speech.readiness_calls == 1
+    assert (answers.readiness_calls, answers.answer_exits, answers.hearing_exits) == (
+        0,
+        0,
+        0,
+    )
 
 
 def a_limiter() -> AskLimiter:

@@ -38,7 +38,7 @@ let hearingOpened = 0
 let hearingClosed = 0
 let pendingAnswerClosed = 0
 let answerMode: 'audio' | 'speech-refused' = 'audio'
-let hearingMode: 'ready' | 'not-ready' | 'socket-error' = 'ready'
+let hearingMode: 'ready' | 'not-ready' | 'socket-error' | 'unreachable' = 'ready'
 let productionSecurityHeaders: Record<string, string> = {}
 type CspViolation = { directive: string; blockedUri: string }
 let cspViolations: CspViolation[] = []
@@ -194,7 +194,6 @@ async function createOverlayDeckServer(directory: string) {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(
         JSON.stringify({
-          answerer: { model: 'fake' },
           speech: { sample_rate: 16000, hearing: { ready: true } },
         }),
       )
@@ -228,8 +227,13 @@ async function startServer() {
   server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://presenter.test')
     if (url.pathname === '/copresenter/who') {
+      if (hearingMode === 'unreachable') {
+        response.writeHead(503, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ detail: 'Co-presenter unavailable' }))
+        return
+      }
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ answerer: { model: 'fake' }, speech: { sample_rate: 16000, hearing: { ready: hearingMode !== 'not-ready' } } }))
+      response.end(JSON.stringify({ speech: { sample_rate: 16000, hearing: { ready: hearingMode !== 'not-ready' } } }))
       return
     }
     if (url.pathname === '/copresenter/ask') {
@@ -523,11 +527,13 @@ describe('presenter controls', () => {
   })
 
   it.each([
+    ['speech cannot be reached', 'unreachable', 'Unreachable'],
     ['local hearing is not ready', 'not-ready', 'Local hearing not ready'],
     ['the hearing socket sends an error', 'socket-error', 'No hearing'],
   ] as const)('says so and builds no browser speech recognition when %s', async (_situation, mode, message) => {
     hearingMode = mode
     media = createMediaObservation()
+    const hearingOpenedBefore = hearingOpened
     const { browser, page } = await openPresenter(1024)
     try {
       const ai = page.getByRole('switch', { name: 'AI' })
@@ -550,6 +556,7 @@ describe('presenter controls', () => {
         () => (window as unknown as { __speechRecognitionsBuilt: number }).__speechRecognitionsBuilt,
       )).toBe(0)
       await expect.poll(() => hearingClosed).toBeGreaterThanOrEqual(hearingOpened)
+      if (mode === 'unreachable') expect(hearingOpened).toBe(hearingOpenedBefore)
       if (mode === 'socket-error') await expect.poll(() => media.trackStopped).toBe(true)
       else {
         expect(await page.evaluate(

@@ -22,9 +22,8 @@ class Question:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CoPresenterReadiness:
-    """The three readiness facts the repository overlay consumes."""
+    """The readiness facts the repository overlay consumes."""
 
-    answerer_model: str
     hearing_sample_rate: int
     local_hearing_ready: bool
 
@@ -72,8 +71,3 @@ class HearingTranscript:
 
     text: str
     final: bool
-
-
-@dataclass(frozen=True, slots=True)
-class HearingUnavailable:
-    """The private hearing child ended with an expected refusal."""
