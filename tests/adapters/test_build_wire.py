@@ -17,14 +17,7 @@ from presentator.adapters.build_wire import (
     send_status,
 )
 from presentator.contracts.decks import StepKind
-from tests.worker_support import (
-    END,
-    HELLO,
-    OUTCOME_FAILED,
-    STATUS,
-    STEP_PREAMBLE,
-    framed,
-)
+from tests import worker_support as support
 
 
 def test_status_is_the_wire_format_bytes(
@@ -34,7 +27,7 @@ def test_status_is_the_wire_format_bytes(
 
     send_status(writing_end)
 
-    assert reading_end.recv(64) == STATUS
+    assert reading_end.recv(64) == support.STATUS
 
 
 def test_failed_is_an_outcome_message_with_a_null_text(
@@ -44,7 +37,7 @@ def test_failed_is_an_outcome_message_with_a_null_text(
 
     send_failed(writing_end)
 
-    assert reading_end.recv(64) == OUTCOME_FAILED
+    assert reading_end.recv(64) == support.OUTCOME_FAILED
 
 
 def test_an_end_without_entries_is_thirteen_bytes(
@@ -54,14 +47,14 @@ def test_an_end_without_entries_is_thirteen_bytes(
 
     send_end(writing_end)
 
-    assert reading_end.recv(64) == END
+    assert reading_end.recv(64) == support.END
 
 
 def test_a_hello_with_the_empty_header_is_read(
     wire: tuple[socket.socket, socket.socket],
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(HELLO + b"tail")
+    writing_end.sendall(support.HELLO + b"tail")
 
     assert read_request(reading_end) == EmptyHeader()
     assert reading_end.recv(64) == b"tail"
@@ -105,7 +98,7 @@ def test_a_valid_step_header_is_read_with_its_step_and_slug(
     header = json.dumps(
         {"step": step.value, "slug": slug}, ensure_ascii=False, separators=(",", ":")
     )
-    writing_end.sendall(framed(header.encode(), STEP_PREAMBLE))
+    writing_end.sendall(support.framed(header.encode(), support.STEP))
 
     assert read_request(reading_end) == StepHeader(step=step, slug=slug)
 
@@ -137,7 +130,7 @@ def test_a_step_header_that_is_not_exactly_a_step_and_a_plain_slug_is_refused(
     wire: tuple[socket.socket, socket.socket], header: bytes
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(framed(header, STEP_PREAMBLE))
+    writing_end.sendall(support.framed(header, support.STEP))
 
     with pytest.raises(WireRefusedError):
         read_request(reading_end)
@@ -159,7 +152,7 @@ def test_a_worker_direction_kind_is_refused(
     wire: tuple[socket.socket, socket.socket], kind: int
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(framed(b"{}", b"PBW\x01" + bytes([kind])))
+    writing_end.sendall(support.framed(b"{}", b"PBW\x01" + bytes([kind])))
 
     with pytest.raises(WireRefusedError):
         read_request(reading_end)
@@ -169,7 +162,7 @@ def test_a_thirteen_byte_end_with_no_entries_is_accepted_and_read_no_further(
     wire: tuple[socket.socket, socket.socket], deck: int
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(END + b"more")
+    writing_end.sendall(support.END + b"more")
 
     receive_entries(reading_end, deck, 300)
 

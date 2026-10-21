@@ -55,35 +55,20 @@ WAIT_SECONDS = 5
 
 
 BULK_SEND_SECONDS = 60
+STEP = b"PBW\x01\x02"
 
 
-HELLO_PREAMBLE = b"PBW\x01\x01"
-
-
-STEP_PREAMBLE = b"PBW\x01\x02"
-
-
-def framed(header: bytes, preamble: bytes = HELLO_PREAMBLE) -> bytes:
+def framed(header: bytes, preamble: bytes = b"PBW\x01\x01") -> bytes:
     """A wire message: the preamble, the header length and the header."""
     return preamble + len(header).to_bytes(2, "big") + header
 
 
 HELLO = b"PBW\x01\x01\x00\x02{}"
-
-
 STATUS = b"PBW\x01\x03\x00\x02{}"
-
-
 OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
-
-
 END = b"\x03" + bytes(12)
-
-
 STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
-
-
-VALID_STEP = framed(STEP_HEADER, STEP_PREAMBLE)
+VALID_STEP = framed(STEP_HEADER, STEP)
 
 
 def directory_entry(path: bytes) -> bytes:
@@ -502,15 +487,26 @@ def connect(volume: Path, timeout: float = WAIT_SECONDS) -> socket.socket:
 
 
 def connect_when_bound(
-    volume: Path, still_serving: Callable[[], bool], timeout: float = WAIT_SECONDS
+    volume: Path,
+    still_serving: Callable[[], bool],
+    bind_seconds: float = WAIT_SECONDS,
+    timeout: float = WAIT_SECONDS,
 ) -> socket.socket:
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + bind_seconds
     while still_serving() and time.monotonic() < deadline:
         try:
             return connect(volume, timeout)
         except (FileNotFoundError, ConnectionRefusedError):
             continue
     pytest.fail("the worker did not start serving")
+
+
+def connect_when_serving(
+    volume: Path, controller: worker_children.GatedChild, bind_seconds: float
+) -> socket.socket:
+    return connect_when_bound(
+        volume, lambda: controller.wait_within(0.05) is None, bind_seconds
+    )
 
 
 def process_id_of(child: worker_children.GatedChild) -> int:

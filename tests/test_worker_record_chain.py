@@ -33,7 +33,7 @@ from tests.worker_support import (
     NeverArmed,
     RecordingCreation,
     assert_gone,
-    connect_when_bound,
+    connect_when_serving,
     listening_socket,
     process_id_of,
     role_of,
@@ -386,13 +386,7 @@ def test_a_controller_that_stalls_after_the_upload_spawn_dies_at_the_emergency_e
     )
     try:
         controller.release()
-        with closing(
-            connect_when_bound(
-                volume,
-                lambda: controller.wait_within(0.05) is None,
-                timeout=WAIT_SECONDS,
-            )
-        ) as client:
+        with closing(connect_when_serving(volume, controller, WAIT_SECONDS)) as client:
             client.sendall(VALID_STEP)
             exit_status = controller.wait_within(EMERGENCY_END_SECONDS + 30)
             exited_at = time.monotonic()

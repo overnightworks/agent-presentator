@@ -28,19 +28,10 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
+from tests import worker_support as support
 from tests.worker_support import (
-    END,
-    HELLO,
-    OUTCOME_FAILED,
-    STATUS,
-    STEP_PREAMBLE,
-    VALID_STEP,
     accept_time,
-    assert_gone,
-    connect_when_bound,
-    framed,
     open_descriptor_count,
-    process_id_of,
     role_of,
     serving_with,
     wake_until_ended,
@@ -492,7 +483,9 @@ class RealServing:
 
     def exchange(self, thread: threading.Thread, sent: bytes) -> Reply:
         with closing(
-            connect_when_bound(self.directory, thread.is_alive, timeout=WAIT_SECONDS)
+            support.connect_when_bound(
+                self.directory, thread.is_alive, WAIT_SECONDS, WAIT_SECONDS
+            )
         ) as client:
             client.sendall(sent)
             received = b""
@@ -505,11 +498,13 @@ class RealServing:
 
 
 REJECTED_STEPS = {
-    "a slug leaving its folder": framed(
-        b'{"step":"build","slug":"../x"}', STEP_PREAMBLE
+    "a slug leaving its folder": support.framed(
+        b'{"step":"build","slug":"../x"}', support.STEP
     ),
-    "an unknown step": framed(b'{"step":"deploy","slug":"x"}', STEP_PREAMBLE),
-    "an extra key": framed(b'{"step":"build","slug":"x","more":1}', STEP_PREAMBLE),
+    "an unknown step": support.framed(b'{"step":"deploy","slug":"x"}', support.STEP),
+    "an extra key": support.framed(
+        b'{"step":"build","slug":"x","more":1}', support.STEP
+    ),
 }
 
 
@@ -521,11 +516,11 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
         serving = run.serving
         for _ in range(SECOND_CONNECTION):
             before = time.monotonic()
-            reply = serving.exchange(run.thread, HELLO)
+            reply = serving.exchange(run.thread, support.HELLO)
             after = time.monotonic()
             serving.await_sweep()
 
-            assert reply.received == STATUS
+            assert reply.received == support.STATUS
             assert not reply.ended_by_reset
             assert after - before < HEADER_SECONDS
             assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
@@ -544,8 +539,8 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
     with dripped_header(volume) as run:
         serving = run.serving
         assert serving.exchange(run.thread, sent).received == b""
-        second_reply = serving.exchange(run.thread, HELLO)
-        assert second_reply.received == STATUS
+        second_reply = serving.exchange(run.thread, support.HELLO)
+        assert second_reply.received == support.STATUS
         assert not second_reply.ended_by_reset
         run.thread.join(WAIT_SECONDS)
 
@@ -559,10 +554,10 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
     with dripped_header(volume) as run:
-        reply = run.serving.exchange(run.thread, VALID_STEP + END)
+        reply = run.serving.exchange(run.thread, support.VALID_STEP + support.END)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == STATUS + OUTCOME_FAILED + END
+    assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
     assert not reply.ended_by_reset
     assert run.spawns.roles == ["idle", "upload", "send"]
     assert not run.thread.is_alive()
@@ -571,9 +566,9 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
     assert run.serving.watchdog.events == ["arm", "arm"]
 
 
-HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = HELLO[:7] + HELLO[7:8]
-THREE_PREAMBLE_BYTES = HELLO[:3]
-STEP_PREAMBLE_AND_ONE_HEADER_BYTE = VALID_STEP[:7] + VALID_STEP[7:8]
+HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = support.HELLO[:7] + support.HELLO[7:8]
+THREE_PREAMBLE_BYTES = support.HELLO[:3]
+STEP_PREAMBLE_AND_ONE_HEADER_BYTE = support.VALID_STEP[:7] + support.VALID_STEP[7:8]
 
 
 @dataclass
@@ -600,7 +595,7 @@ class RecordingSpawn:
         )
         self.children.append(child)
         self.roles.append(role_of(command))
-        self.process_ids.append(process_id_of(child))
+        self.process_ids.append(support.process_id_of(child))
         return child
 
     def still_running(self) -> list[GatedChild]:
@@ -611,7 +606,7 @@ class RecordingSpawn:
             child.kill()
         reaped = [child.wait_within(WAIT_SECONDS) for child in self.children]
         assert None not in reaped, "a killed child was not reaped"
-        assert_gone(self.process_ids)
+        support.assert_gone(self.process_ids)
 
 
 @dataclass
@@ -624,8 +619,8 @@ class DrippedHeader:
     clients: list[socket.socket] = field(default_factory=list[socket.socket])
 
     def drip_then_stop_writing(self, dripped: bytes) -> bytes:
-        client = connect_when_bound(
-            self.serving.directory, self.thread.is_alive, timeout=WAIT_SECONDS
+        client = support.connect_when_bound(
+            self.serving.directory, self.thread.is_alive, WAIT_SECONDS, WAIT_SECONDS
         )
         self.clients.append(client)
         client.sendall(dripped)
@@ -676,12 +671,12 @@ def test_a_header_that_stops_midway_is_cut_off_at_the_deadline_and_serving_goes_
         run.serving.await_sweep()
         [sweep_deadline] = run.serving.sweep_deadlines
         accepted_at = sweep_deadline - SWEEP_SECONDS
-        second_reply = run.serving.exchange(run.thread, HELLO)
+        second_reply = run.serving.exchange(run.thread, support.HELLO)
         run.thread.join(WAIT_SECONDS)
 
     assert received == b""
     assert accepted_at + HEADER_SECONDS <= ended_at < sweep_deadline
-    assert second_reply.received == STATUS
+    assert second_reply.received == support.STATUS
     assert run.serving.watchdog.events == ["arm", "cancel", "arm"]
     assert run.serving.outcome == [0]
 
@@ -721,8 +716,8 @@ def test_a_stalled_controller_serving_an_idle_connection_exits_one_at_seven_seco
         stderr=subprocess.PIPE,
     )
     try:
-        client = connect_when_bound(
-            volume, lambda: controller.poll() is None, timeout=WAIT_SECONDS
+        client = support.connect_when_bound(
+            volume, lambda: controller.poll() is None, WAIT_SECONDS, WAIT_SECONDS
         )
         with closing(client):
             exit_status = controller.wait(timeout=WAIT_SECONDS + 5)
