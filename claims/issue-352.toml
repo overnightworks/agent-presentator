@@ -1,0 +1,7 @@
+claim_id = "46c37ad4d2cd4af396b35941849569e9"
+agent = "claude"
+role = "builder"
+base = "718b1bbb82e0c8bc0e6af167eedcd6ff0716a8d8"
+branch = "claude/issue-352-v8b-typescript-6"
+scope = ["frontend/package.json", "frontend/pnpm-lock.yaml", "frontend/tsconfig.json"]
+opened_commit = "79fe1fd242495a99b1b99b0bb0ab0c4d358a74db"
