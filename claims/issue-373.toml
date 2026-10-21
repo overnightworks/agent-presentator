@@ -1,0 +1,8 @@
+claim_id = "7c4dffa8f7da485f9da5a05a176604e3"
+agent = "claude"
+role = "builder"
+base = "39cd60757f541da0e54384cdbcb830e41014cd5a"
+branch = "claude/issue-373-lockfiles-35-osv-warnungen-per-relock-sc"
+scope = ["copresenter/uv.lock", "speech/providers/chatterbox/uv.lock", "speech/providers/magpie/uv.lock", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/uv.lock"]
+opened_commit = "23b4fd4855156fc80ead101663fcf83181949af3"
+whole_reason = "Five lockfiles, one relock each for the same advisory class; each has its own CI job, and none changes a pyproject."
