@@ -3,6 +3,6 @@ agent = "claude"
 role = "builder"
 base = "7e1adff68cfb224c1863cd8ef07bf50f95102735"
 branch = "claude/issue-376-w2-webauths-session-gate-entscheidet-jed"
-scope = ["docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "src/presentator/api/auth.py", "src/presentator/api/pages.py", "src/presentator/api/preferences.py", "src/presentator/api/sources.py", "tests/api/test_session_gate.py"]
+scope = ["docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "src/presentator/api/auth.py", "src/presentator/api/pages.py", "src/presentator/api/preferences.py", "src/presentator/api/sources.py", "tests/api/test_preferences.py", "tests/api/test_session_gate.py", "tests/api/test_sources.py"]
 opened_commit = "d396964793ae42529b9359be310e88cc21d10495"
 whole_reason = "About +58/-84 production lines in four api modules: the request.state stash goes with the guard, so its three readers change in the same commit; the diff is a net deletion."
