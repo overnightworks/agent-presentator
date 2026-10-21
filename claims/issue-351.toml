@@ -1,0 +1,8 @@
+claim_id = "3496b35f95504e3babf29306b81d6c45"
+agent = "claude"
+role = "builder"
+base = "718b1bbb82e0c8bc0e6af167eedcd6ff0716a8d8"
+branch = "claude/issue-351-v8a-speech-majors"
+scope = ["speech/providers/magpie/src/presentator_magpie/model.py", "speech/providers/magpie/uv.lock", "speech/providers/voxcpm/pyproject.toml", "speech/providers/voxcpm/src/presentator_voxcpm/model.py", "speech/providers/voxcpm/uv.lock", "speech/pyproject.toml", "speech/scripts/contract_client.py", "speech/src/speech/config.py", "speech/src/speech/hearing.py", "speech/src/speech/qwen_download.py", "speech/src/speech/voices.py", "speech/tests/test_config.py", "speech/uv.lock"]
+opened_commit = "8858739e569688421e247b529691150ab1e37631"
+whole_reason = "Three dependency majors of one service that CI already passes land together; their locks and any importer fix move with them."
