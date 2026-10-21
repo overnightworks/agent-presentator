@@ -67,8 +67,9 @@ SOCKET_DIRECTORY_MODE = 0o750
 SOCKET_MODE = 0o660
 BIND_UMASK = 0o117
 LISTEN_BACKLOG = 4
+TEMPORARY_MOUNT_NAME = "tmp"
 # Mount points below the root, so the self-check names no world-writable path.
-SCRATCH_MOUNT_NAMES = ("tmp", "dev/shm", SOCKET_DIRECTORY.lstrip("/"))
+SCRATCH_MOUNT_NAMES = (TEMPORARY_MOUNT_NAME, "dev/shm", SOCKET_DIRECTORY.lstrip("/"))
 TMPFS_MOUNTS = tuple(
     str(Path("/") / name) for name in (WORK_MOUNT.lstrip("/"), *SCRATCH_MOUNT_NAMES)
 )
@@ -89,7 +90,7 @@ HEADLESS_SHELL_PATTERN = (
 HOME_DIRECTORY = "home"
 VITE_DIRECTORY = "vite"
 VITE_CACHE_TARGET = f"{WORK_MOUNT}/{VITE_DIRECTORY}"
-STEP_TEMPORARY_DIRECTORY = str(Path("/") / SCRATCH_MOUNT_NAMES[0])
+STEP_TEMPORARY_DIRECTORY = str(Path("/") / TEMPORARY_MOUNT_NAME)
 # The image's ENV keys, the base image's keys and the container runtime's HOSTNAME.
 ALLOWED_ENVIRONMENT_KEYS = frozenset(
     {

@@ -13,6 +13,7 @@ from presentator.adapters.worker_children import spawn_gated
 from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
+from tests import step_support
 from tests import worker_support as support
 from tests.test_worker_record_chain import (
     OWN_IDENTITY,
@@ -128,8 +129,10 @@ def controller_life(volume: Path, workspace: Path, sent: bytes) -> ControllerLif
     log.touch()
     work = workspace / "work"
     work.mkdir()
-    with support.announcements(workspace) as (fifo, reader):
-        bin_directory = support.fake_pnpm(workspace / "bin", support.announcing(fifo))
+    with step_support.announcements(workspace) as (fifo, reader):
+        bin_directory = step_support.fake_pnpm(
+            workspace / "bin", step_support.announcing(fifo)
+        )
         controller = spawn_gated(
             [
                 sys.executable,
@@ -150,7 +153,7 @@ def controller_life(volume: Path, workspace: Path, sent: bytes) -> ControllerLif
                 support.connect_when_serving(volume, controller, WAIT_SECONDS)
             ) as client:
                 client.sendall(sent)
-                announced_pid = support.await_running_step(reader, WAIT_SECONDS)
+                announced_pid = step_support.await_running_step(reader, WAIT_SECONDS)
                 reply = read_to_end(client)
             exit_status = controller.wait_within(WAIT_SECONDS)
             logged = log.read_text().splitlines()

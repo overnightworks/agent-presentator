@@ -13,6 +13,7 @@ import pytest
 from presentator.adapters.worker_children import GatedChild
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
+from tests import step_support
 from tests import worker_support as support
 from tests.test_worker_record_chain import (
     PATH,
@@ -205,9 +206,9 @@ def test_a_step_ignoring_sigterm_is_killed_at_the_build_bound_and_the_reply_come
     sandbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     announced: list[int] = []
-    with support.announcements(sandbox) as (fifo, reader):
-        pnpm = support.fake_pnpm(
-            sandbox / "bin", support.announcing(fifo) + SLEEPING_PAST_SIGTERM
+    with step_support.announcements(sandbox) as (fifo, reader):
+        pnpm = step_support.fake_pnpm(
+            sandbox / "bin", step_support.announcing(fifo) + SLEEPING_PAST_SIGTERM
         )
         monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
         spawn = ChainSpawn(real_launcher=True)
@@ -217,7 +218,7 @@ def test_a_step_ignoring_sigterm_is_killed_at_the_build_bound_and_the_reply_come
             spawn,
             LifeScenario(work=sandbox, build_timeout_seconds=BUILD_BOUND_SECONDS),
             lambda _client: announced.append(
-                support.await_running_step(reader, WAIT_SECONDS)
+                step_support.await_running_step(reader, WAIT_SECONDS)
             ),
         )
 
@@ -250,13 +251,15 @@ def test_a_client_event_during_the_build_kills_the_running_step_and_sends_no_rep
 ) -> None:
     injected_at: list[float] = []
     announced: list[int] = []
-    with support.announcements(sandbox) as (fifo, running):
-        pnpm = support.fake_pnpm(sandbox / "bin", support.announcing(fifo) + SLEEPING)
+    with step_support.announcements(sandbox) as (fifo, running):
+        pnpm = step_support.fake_pnpm(
+            sandbox / "bin", step_support.announcing(fifo) + SLEEPING
+        )
         monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
         spawn = ChainSpawn(real_launcher=True)
 
         def inject_once_running(client: socket.socket) -> None:
-            announced.append(support.await_running_step(running, WAIT_SECONDS))
+            announced.append(step_support.await_running_step(running, WAIT_SECONDS))
             injected_at.append(time.monotonic())
             event(client)
 
@@ -285,7 +288,7 @@ def test_a_step_runs_the_launcher_with_its_paths_environment_and_streams(
         report=str(report),
         characters=STEP_ERROR_CHARACTERS,
     )
-    pnpm = support.fake_pnpm(sandbox / "bin", program)
+    pnpm = step_support.fake_pnpm(sandbox / "bin", program)
     monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
     spawn = ChainSpawn(real_launcher=True)
 

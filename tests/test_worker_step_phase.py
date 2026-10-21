@@ -14,13 +14,15 @@ from presentator.host.worker_serving import (
     hand_over,
 )
 from presentator.host.worker_wire import WireExit
-from tests.worker_support import (
-    ACCEPT_TIME,
+from tests.step_support import (
     STEP_ENVIRONMENT,
     STEP_EXIT_DESCRIPTOR,
     STEP_PROJECT,
-    ScriptedLife,
     ScriptedStep,
+)
+from tests.worker_support import (
+    ACCEPT_TIME,
+    ScriptedLife,
     open_descriptor_count,
     sender_leg,
     step_leg,
@@ -193,7 +195,9 @@ def test_the_controller_closes_the_prepared_stderr_when_the_spawn_fails(
 def test_the_step_wait_is_what_remains_of_the_build_bound_and_watches_three_things(
     connection: socket.socket, listener: socket.socket
 ) -> None:
-    step = ScriptedStep(wake_takes=1.0, listener_wakes=2)
+    step = ScriptedStep(
+        prepare_takes=1.0, inspection_takes=1.0, wake_takes=1.0, listener_wakes=2
+    )
     life = accepted_life(step=step)
 
     run(life, connection, listener)

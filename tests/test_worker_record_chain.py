@@ -430,6 +430,9 @@ def spawn(command, *, environment, pass_fds):
         ctypes.PyDLL(None).pause()
     return child
 
+def refuse_step(*_arguments, **_keywords):
+    raise AssertionError("the step is not part of this test")
+
 def clock_announcing_each_reading():
     reading = time.monotonic()
     print(reading, file=log, flush=True)
@@ -445,9 +448,9 @@ serving = Serving(
     close_deck=lambda _deck: None,
     work=Path("/unused/work"),
     step=StepEffects(
-        spawn=spawn,
-        gate_admits=lambda _status: True,
-        prepare=lambda _work: -1,
+        spawn=refuse_step,
+        gate_admits=lambda _status: False,
+        prepare=refuse_step,
         environment={},
         project=Path("/unused/project"),
     ),

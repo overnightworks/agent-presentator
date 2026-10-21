@@ -35,6 +35,7 @@ from presentator.host.worker_serving import (
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
 from tests import worker_support as support
+from tests.step_support import quick_step
 from tests.worker_support import (
     accept_time,
     open_descriptor_count,
@@ -65,6 +66,9 @@ from presentator.host.worker_termination import FaultHandlerWatchdog
 def stall(*_arguments, **_keywords):
     ctypes.PyDLL(None).pause()
 
+def refuse_step(*_arguments, **_keywords):
+    raise AssertionError("the step is not part of this test")
+
 def clock_announcing_each_reading():
     reading = time.monotonic()
     print(reading, flush=True)
@@ -80,9 +84,9 @@ serving = worker_serving.Serving(
     close_deck=lambda _deck: None,
     work=Path("/unused/work"),
     step=worker_serving.StepEffects(
-        spawn=stall,
-        gate_admits=lambda _status: True,
-        prepare=lambda _work: -1,
+        spawn=refuse_step,
+        gate_admits=lambda _status: False,
+        prepare=refuse_step,
         environment={},
         project=Path("/unused/project"),
     ),
@@ -125,7 +129,6 @@ report = {
 os.write(descriptor, json.dumps(report).encode())
 sys.exit(3)
 """
-PRINTING_ITS_DIRECTORY = "import os, sys; print(os.getcwd(), file=sys.stderr); print(1)"
 MARKER_WRITER = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('ran')"
 
 
@@ -397,33 +400,6 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
     assert open_descriptor_count() == before
 
 
-def test_a_child_runs_in_the_given_directory_with_its_streams_where_it_is_told(
-    tmp_path: Path,
-) -> None:
-    errors = tmp_path / "errors.log"
-    descriptor = os.open(errors, os.O_WRONLY | os.O_CREAT, 0o600)
-    try:
-        child = spawn_gated(
-            [sys.executable, "-I", "-c", PRINTING_ITS_DIRECTORY],
-            identity=OWN_IDENTITY,
-            environment={"PATH": PATH},
-            pass_fds=(),
-            surroundings=ChildSurroundings(
-                cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=descriptor
-            ),
-        )
-    finally:
-        os.close(descriptor)
-    try:
-        release_and_close(child)
-        waited = child.wait_within(WAIT_SECONDS)
-    finally:
-        end_child(child)
-
-    assert waited == 0
-    assert errors.read_text() == f"{tmp_path}\n"
-
-
 class RecordedPopen:
     """Records how the controller spawns and then fails the spawn."""
 
@@ -479,23 +455,6 @@ class Reply:
 
     received: bytes
     ended_by_reset: bool
-
-
-def quick_step(
-    command: Sequence[str],
-    *,
-    environment: Mapping[str, str],
-    pass_fds: Sequence[int],
-    surroundings: ChildSurroundings,
-) -> GatedChild:
-    """A step that exits 0 at once, whatever the launcher's command is."""
-    return spawn_gated(
-        ["/bin/true", *command],
-        identity=OWN_IDENTITY,
-        environment=environment,
-        pass_fds=pass_fds,
-        surroundings=surroundings,
-    )
 
 
 @dataclass
