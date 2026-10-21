@@ -295,6 +295,26 @@ def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
 
 
+def test_the_send_entry_writes_outcome_failed_and_end_exiting_sent(
+    client_and_descriptor: tuple[socket.socket, int], record: int
+) -> None:
+    client, descriptor = client_and_descriptor
+
+    assert run_entry(client, descriptor, record, WireRole.SEND) == WireExit.SENT
+    assert client.recv(64) == (
+        b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}' + b"\x03" + bytes(12)
+    )
+
+
+def test_the_send_entry_exits_closed_when_the_peer_has_hung_up(
+    client_and_descriptor: tuple[socket.socket, int], record: int
+) -> None:
+    client, descriptor = client_and_descriptor
+    client.close()
+
+    assert run_entry(client, descriptor, record, WireRole.SEND) == WireExit.CLOSED
+
+
 def test_a_refused_memfd_surfaces_as_the_kernels_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

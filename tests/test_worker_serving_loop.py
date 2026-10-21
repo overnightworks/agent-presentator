@@ -259,6 +259,7 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
         "open-deck",
         *CHILD_LEG,
         "close-deck",
+        *CHILD_LEG,
     ]
 
 
@@ -295,7 +296,7 @@ LIFE_ENDS = {
     ),
     "an accepted step": (
         lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
-        LifeEnd.STEP_ACCEPTED,
+        LifeEnd.CONSUMED,
         [
             "arm 7.0",
             *CHILD_LEG,
@@ -304,6 +305,7 @@ LIFE_ENDS = {
             "open-deck",
             *CHILD_LEG,
             "close-deck",
+            *CHILD_LEG,
         ],
     ),
     "a sweep that is not quiet": (

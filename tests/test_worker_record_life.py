@@ -40,13 +40,15 @@ def test_the_watchdog_is_re_armed_before_the_record_is_sealed_and_passed_unread(
 
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
 
-    assert outcome == LifeEnd.STEP_ACCEPTED
+    assert outcome == LifeEnd.CONSUMED
     rearmed = life.events.index(ACCEPTED_ARM)
     assert life.events[rearmed : rearmed + 2] == [ACCEPTED_ARM, "seal"]
-    idle, upload = life.spawned
-    assert idle.pass_fds == upload.pass_fds
+    idle, upload, sender = life.spawned
+    assert idle.pass_fds == upload.pass_fds == sender.pass_fds
     assert life.sealed_descriptors == [idle.pass_fds[1]]
 
+
+UPLOAD_WAIT = 1
 
 CONSUMERS = {
     "the re-arm": {"arm_takes": 0.3},
@@ -66,7 +68,7 @@ def test_the_upload_wait_is_what_remains_of_the_budget_taken_at_the_accepted_exi
     hand_over(connection, life.serving(), ACCEPT_TIME)
 
     [taken] = consumed.values()
-    assert life.budgets_waited[-1] == pytest.approx(UPLOAD_SECONDS - taken)
+    assert life.budgets_waited[UPLOAD_WAIT] == pytest.approx(UPLOAD_SECONDS - taken)
 
 
 def test_an_upload_budget_spent_before_the_release_prevents_the_release(
@@ -193,7 +195,7 @@ def test_the_controller_reads_no_byte_of_the_record_over_a_whole_accepted_life(
 
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME)
 
-    assert outcome == LifeEnd.STEP_ACCEPTED
+    assert outcome == LifeEnd.CONSUMED
 
 
 @pytest.mark.parametrize("read", CONTROLLER_READS.values(), ids=CONTROLLER_READS.keys())
@@ -247,7 +249,23 @@ PATHS = {
         lambda: accepted_life(upload_exit_status=WireExit.CLOSED),
         LifeEnd.WIRE_EXIT,
     ),
-    "a success": (accepted_life, LifeEnd.STEP_ACCEPTED),
+    "a sender spawn failure": (
+        lambda: accepted_life(send_spawn_error=OSError("no")),
+        LifeEnd.SPAWN,
+    ),
+    "a sender gate mismatch": (
+        lambda: accepted_life(send_gate_admits=False),
+        LifeEnd.GATE,
+    ),
+    "a sender expiry": (
+        lambda: accepted_life(send_stalled=True),
+        LifeEnd.REPLY_EXPIRED,
+    ),
+    "a sender wire exit": (
+        lambda: accepted_life(send_exit_status=WireExit.CLOSED),
+        LifeEnd.WIRE_EXIT,
+    ),
+    "a success": (accepted_life, LifeEnd.CONSUMED),
 }
 
 
@@ -276,7 +294,7 @@ def test_the_controllers_record_descriptor_is_closed_when_the_re_arm_raises(
     assert life.creation.is_closed()
 
 
-@pytest.mark.parametrize("role_index", [0, 1], ids=["idle", "upload"])
+@pytest.mark.parametrize("role_index", [0, 1, 2], ids=["idle", "upload", "send"])
 @pytest.mark.parametrize(
     ("cleanup_fault", "cleanup_failure"),
     [
@@ -300,8 +318,9 @@ def test_a_child_is_killed_and_reaped_and_the_original_error_survives_a_failing_
     with pytest.raises(OSError, match="wait failed") as raised:
         hand_over(connection, serving, ACCEPT_TIME)
 
-    expected = ["kill", "wait", "close-gate", *["close-deck"] * role_index]
+    expected = ["kill", "wait", "close-gate", *["close-deck"] * (role_index == 1)]
     assert life.events[-len(expected) :] == expected
+    assert life.events.count("close-deck") == min(role_index, 1)
     notes = getattr(raised.value, "__notes__", [])
     assert len(notes) == (cleanup_failure is not None)
     assert all(cleanup_failure in note for note in notes)

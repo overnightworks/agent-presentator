@@ -62,12 +62,13 @@ class LifeEnd(StrEnum):
 
     SPAWN = "spawn"
     GATE = "gate"
-    STEP_ACCEPTED = "step-accepted"
+    CONSUMED = "consumed"
     WIRE_EXIT = "wire-exit"
     SWEEP = "sweep"
     ACCEPT = "accept"
     SEAL_FAILED = "seal-failed"
     UPLOAD_EXPIRED = "upload-expired"
+    REPLY_EXPIRED = "reply-expired"
     DECK_FAILED = "deck-failed"
 
 
@@ -279,6 +280,22 @@ def _run_upload_with_deck(
     return upload
 
 
+def _hand_over_reply(connection: int, serving: Serving, record: int) -> LifeEnd | None:
+    reply_ends_at = serving.clock() + REPLY_SECONDS
+    reply = _run_gated(
+        serving,
+        WireRole.SEND,
+        (connection, record),
+        reply_ends_at,
+        LifeEnd.REPLY_EXPIRED,
+    )
+    if reply.exit_status is None:
+        return reply.life_end
+    if reply.exit_status == WireExit.SENT:
+        return LifeEnd.CONSUMED
+    return LifeEnd.WIRE_EXIT
+
+
 def _hand_over_upload(
     connection: int, serving: Serving, record: int, upload_ends_at: float
 ) -> LifeEnd | None:
@@ -290,7 +307,7 @@ def _hand_over_upload(
     if upload.exit_status is None:
         return upload.life_end
     if upload.exit_status == WireExit.UPLOADED:
-        return LifeEnd.STEP_ACCEPTED
+        return _hand_over_reply(connection, serving, record)
     return LifeEnd.WIRE_EXIT
 
 
