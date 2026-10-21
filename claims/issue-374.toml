@@ -1,0 +1,7 @@
+claim_id = "4c85e452ccfc4e9d92b3c1512ce31179"
+agent = "claude"
+role = "builder"
+base = "39cd60757f541da0e54384cdbcb830e41014cd5a"
+branch = "claude/issue-374-w2b-die-co-presenter-sitzungspr-fungen-l"
+scope = ["src/presentator/api/copresenter.py", "tests/api/test_copresenter.py", "tests/api/test_copresenter_admission.py"]
+opened_commit = "3b14b1e621afe8c456f728add80499f0f98bd8dd"
