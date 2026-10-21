@@ -6,7 +6,7 @@ import runpy
 import socket
 import sys
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from presentator.adapters.build_wire import MEGABYTE, StepHeader, write_record
+from presentator.adapters.worker_children import ChildIdentity, ChildSurroundings
 from presentator.contracts.decks import StepKind
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
@@ -21,13 +22,14 @@ from presentator.host.worker import create_request_record
 from presentator.host.worker_wire import WireExit, WireRole
 from tests import worker_support as support
 from tests.worker_support import (
-    UNUSED_DECK,
+    UNUSED_WORK,
     end_entry,
     file_entry,
     file_header,
 )
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
+BUILD_ID = worker.BUILD_IDENTITY[0]
 GATED_FIELDS = {
     "Name": "sh",
     "Uid": "\t".join([str(WIRE_ID)] * 4),
@@ -92,19 +94,19 @@ BROKEN_ONE_WAY = {
 
 
 def test_a_sealed_child_of_the_wire_user_passes_the_gate() -> None:
-    assert worker.wire_gate_admits(status_of(), worker.WIRE_IDENTITY)
+    assert worker.child_gate_admits(status_of(), worker.WIRE_IDENTITY)
 
 
 @pytest.mark.parametrize("changes", BROKEN_ONE_WAY.values(), ids=BROKEN_ONE_WAY.keys())
 def test_the_gate_refuses_a_status_broken_in_one_way(
     changes: dict[str, str | None],
 ) -> None:
-    assert not worker.wire_gate_admits(status_of(**changes), worker.WIRE_IDENTITY)
+    assert not worker.child_gate_admits(status_of(**changes), worker.WIRE_IDENTITY)
 
 
 def test_the_gate_judges_against_the_identity_it_is_given() -> None:
-    assert not worker.wire_gate_admits(status_of(), (WIRE_ID + 1, WIRE_ID))
-    assert not worker.wire_gate_admits(status_of(), (WIRE_ID, WIRE_ID + 1))
+    assert not worker.child_gate_admits(status_of(), (WIRE_ID + 1, WIRE_ID))
+    assert not worker.child_gate_admits(status_of(), (WIRE_ID, WIRE_ID + 1))
 
 
 def test_production_judges_by_the_gate_of_the_wire_identity() -> None:
@@ -112,6 +114,46 @@ def test_production_judges_by_the_gate_of_the_wire_identity() -> None:
 
     assert serving.gate_admits(status_of())
     assert not serving.gate_admits(status_of(Groups="0"))
+
+
+def test_production_runs_the_step_as_the_build_user_behind_a_build_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned: list[dict[str, object]] = []
+
+    def record_spawn(_command: Sequence[str], **keywords: object) -> None:
+        spawned.append(keywords)
+
+    monkeypatch.setattr(worker, "spawn_gated", record_spawn)
+    serving = worker.real_serving(WorkerSettings())
+    build_ids = "\t".join([str(BUILD_ID)] * 4)
+
+    serving.step.spawn(
+        ["launcher"], environment={}, pass_fds=(), surroundings=ChildSurroundings()
+    )
+
+    assert spawned[0]["identity"] == ChildIdentity(BUILD_ID, BUILD_ID, extra_groups=())
+    assert serving.step.gate_admits(status_of(Uid=build_ids, Gid=build_ids))
+    assert not serving.step.gate_admits(status_of())
+    assert not serving.step.gate_admits(
+        status_of(Uid=build_ids, Gid=build_ids, Groups="0")
+    )
+
+
+def test_production_gives_the_step_exactly_six_environment_keys_and_the_project() -> (
+    None
+):
+    serving = worker.real_serving(WorkerSettings())
+
+    assert serving.step.environment == {
+        "PATH": os.environ["PATH"],
+        "HOME": "/work/home",
+        "TMPDIR": str(Path("/") / "tmp"),
+        "PLAYWRIGHT_BROWSERS_PATH": "/opt/ms-playwright",
+        "COREPACK_HOME": "/opt/corepack",
+        "COREPACK_ENABLE_NETWORK": "0",
+    }
+    assert serving.step.project == Path("/app/frontend")
 
 
 def test_production_carries_the_build_bound_of_the_settings() -> None:
@@ -125,9 +167,9 @@ def test_production_carries_the_build_bound_of_the_settings() -> None:
 def test_production_hands_the_deck_effects_the_deck_it_carries() -> None:
     serving = worker.real_serving(WorkerSettings())
 
-    assert serving.open_deck is worker.open_deck
+    assert serving.open_deck is worker.make_open_directory
     assert serving.close_deck is worker.close_deck
-    assert serving.deck == Path(worker.WORK_MOUNT) / "deck"
+    assert serving.work == Path(worker.WORK_MOUNT)
 
 
 def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:
@@ -226,7 +268,7 @@ def entry_arguments(
     descriptor: int,
     record: int,
     role: WireRole,
-    deck: Path = UNUSED_DECK,
+    work: Path = UNUSED_WORK,
     megabytes: int = 300,
 ) -> list[str]:
     return [
@@ -236,8 +278,8 @@ def entry_arguments(
         str(descriptor),
         "--record-fd",
         str(record),
-        "--deck",
-        str(deck),
+        "--work",
+        str(work),
         "--megabytes",
         str(megabytes),
     ]
@@ -248,11 +290,11 @@ def run_entry(
     descriptor: int,
     record: int,
     role: WireRole = WireRole.IDLE,
-    deck: Path = UNUSED_DECK,
+    work: Path = UNUSED_WORK,
 ) -> object:
     return run_bounded(
         client,
-        lambda: worker_wire.main(entry_arguments(descriptor, record, role, deck)),
+        lambda: worker_wire.main(entry_arguments(descriptor, record, role, work)),
     )
 
 
@@ -302,23 +344,29 @@ def test_the_entry_exits_accepted_on_a_valid_step_writing_the_record_and_no_repl
     assert os.lseek(record, 0, os.SEEK_CUR) == 0
 
 
+@pytest.fixture
+def work(tmp_path: Path) -> Path:
+    (tmp_path / "deck").mkdir()
+    return tmp_path
+
+
 def test_the_upload_entry_answers_status_then_receives_into_the_deck_exiting_uploaded(
-    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
     client.sendall(file_entry(b"slide.md", b"# hi") + end_entry(1, 4))
 
     assert (
-        run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
+        run_entry(client, descriptor, record, WireRole.UPLOAD, work)
         == WireExit.UPLOADED
     )
     assert client.recv(64) == support.STATUS
-    assert (tmp_path / "slide.md").read_bytes() == b"# hi"
+    assert (work / "deck" / "slide.md").read_bytes() == b"# hi"
 
 
 def test_the_upload_entry_enforces_the_megabytes_of_its_argument(
-    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
@@ -328,17 +376,17 @@ def test_the_upload_entry_enforces_the_megabytes_of_its_argument(
         run_bounded(
             client,
             lambda: worker_wire.main(
-                entry_arguments(descriptor, record, WireRole.UPLOAD, tmp_path, 1)
+                entry_arguments(descriptor, record, WireRole.UPLOAD, work, 1)
             ),
         )
         == WireExit.CLOSED
     )
     assert client.recv(64) == support.STATUS
-    assert not (tmp_path / "f").exists()
+    assert not (work / "deck" / "f").exists()
 
 
 def test_the_upload_entry_accepts_what_its_larger_argument_allows(
-    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
@@ -352,7 +400,7 @@ def test_the_upload_entry_accepts_what_its_larger_argument_allows(
         exit_status = run_bounded(
             client,
             lambda: worker_wire.main(
-                entry_arguments(descriptor, record, WireRole.UPLOAD, tmp_path, 2)
+                entry_arguments(descriptor, record, WireRole.UPLOAD, work, 2)
             ),
         )
     finally:
@@ -360,7 +408,7 @@ def test_the_upload_entry_accepts_what_its_larger_argument_allows(
 
     assert not sender.is_alive()
     assert exit_status == WireExit.UPLOADED
-    assert (tmp_path / "f").read_bytes() == content
+    assert (work / "deck" / "f").read_bytes() == content
 
 
 def test_the_upload_entry_exits_closed_before_status_when_the_deck_cannot_be_opened(
@@ -378,15 +426,14 @@ def test_the_upload_entry_exits_closed_before_status_when_the_deck_cannot_be_ope
 
 
 def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
-    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
     client.shutdown(socket.SHUT_WR)
 
     assert (
-        run_entry(client, descriptor, record, WireRole.UPLOAD, tmp_path)
-        == WireExit.CLOSED
+        run_entry(client, descriptor, record, WireRole.UPLOAD, work) == WireExit.CLOSED
     )
     assert client.recv(64) == support.STATUS
 

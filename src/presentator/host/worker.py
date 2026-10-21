@@ -18,6 +18,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
+from presentator.adapters.build_wire import TOOLCHAIN_SCRATCH_NAME
 from presentator.adapters.worker_children import (
     ChildIdentity,
     readable_within,
@@ -29,13 +30,22 @@ from presentator.host.config import (
     load_worker_settings,
     worker_settings_variables,
 )
-from presentator.host.worker_serving import Serving, accept_connections
+from presentator.host.worker_serving import (
+    Serving,
+    StepEffects,
+    accept_connections,
+)
 from presentator.host.worker_termination import (
     FaultHandlerWatchdog,
     SweepEffects,
     list_process_ids,
     reap_children,
     sweep,
+)
+from presentator.host.worker_wire import (
+    DECK_DIRECTORY,
+    OUTPUT_DIRECTORY,
+    STEP_ERROR_FILE,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,14 +77,19 @@ GROUP_AND_OTHERS_WRITE = stat.S_IWGRP | stat.S_IWOTH
 ONLY_THE_OWNER = 0o077
 HARDENED_MOUNT_OPTIONS = frozenset({"nosuid", "nodev", "noexec"})
 DOCKER_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock")
-SLIDEV_BINARY = "app/frontend/node_modules/.bin/slidev"
-SLIDEV_PACKAGE = "app/frontend/node_modules/@slidev/cli"
+TOOLCHAIN_PROJECT = "app/frontend"
+SLIDEV_BINARY = f"{TOOLCHAIN_PROJECT}/node_modules/.bin/slidev"
+SLIDEV_PACKAGE = f"{TOOLCHAIN_PROJECT}/node_modules/@slidev/cli"
 COREPACK_DIRECTORY = "opt/corepack"
+PLAYWRIGHT_DIRECTORY = "opt/ms-playwright"
 HEADLESS_SHELL_PATTERN = (
-    "opt/ms-playwright/chromium_headless_shell-*/"
+    f"{PLAYWRIGHT_DIRECTORY}/chromium_headless_shell-*/"
     "chrome-headless-shell-linux64/chrome-headless-shell"
 )
-VITE_CACHE_TARGET = "/work/vite"
+HOME_DIRECTORY = "home"
+VITE_DIRECTORY = "vite"
+VITE_CACHE_TARGET = f"{WORK_MOUNT}/{VITE_DIRECTORY}"
+STEP_TEMPORARY_DIRECTORY = str(Path("/") / SCRATCH_MOUNT_NAMES[0])
 # The image's ENV keys, the base image's keys and the container runtime's HOSTNAME.
 ALLOWED_ENVIRONMENT_KEYS = frozenset(
     {
@@ -568,8 +583,8 @@ def start_listening(listener: socket.socket) -> None:
         raise StartRefusedError(StartRefusal.LISTEN) from error
 
 
-def wire_gate_admits(process_status: str, identity: tuple[int, int]) -> bool:
-    """A wire child may be released only as the identity, unprivileged and sealed."""
+def child_gate_admits(process_status: str, identity: tuple[int, int]) -> bool:
+    """A child may be released only as the identity, unprivileged and sealed."""
     uid, gid = identity
     fields = _status_fields(process_status)
     return (
@@ -640,13 +655,39 @@ def seal_record(descriptor: int) -> None:
     fcntl.fcntl(descriptor, F_ADD_SEALS, RECORD_SEALS)
 
 
-DECK_OPEN_MODE = 0o1777
+OPEN_DIRECTORY_MODE = 0o1777
+STEP_ERROR_MODE = 0o644
+STEP_ERROR_FLAGS = (
+    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_APPEND | os.O_CLOEXEC
+)
 
 
-def open_deck(path: Path) -> None:
-    """Make the deck world-writable for the upload child; never reuse one."""
+def make_open_directory(path: Path) -> None:
+    """Make a world-writable directory for a child; never reuse one."""
     path.mkdir()
-    path.chmod(DECK_OPEN_MODE)
+    path.chmod(OPEN_DIRECTORY_MODE)
+
+
+def prepare_step_paths(work: Path) -> int:
+    """Make the step's writable paths; return the descriptor of its new step.err.
+
+    An existing entry raises. The mode is set explicitly because the umask
+    would narrow it.
+    """
+    for directory in (
+        work / DECK_DIRECTORY / TOOLCHAIN_SCRATCH_NAME.decode(),
+        work / HOME_DIRECTORY,
+        work / OUTPUT_DIRECTORY,
+        work / VITE_DIRECTORY,
+    ):
+        make_open_directory(directory)
+    descriptor = os.open(work / STEP_ERROR_FILE, STEP_ERROR_FLAGS, STEP_ERROR_MODE)
+    try:
+        os.fchmod(descriptor, STEP_ERROR_MODE)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
 
 
 def close_deck(path: Path) -> None:
@@ -656,12 +697,11 @@ def close_deck(path: Path) -> None:
 
 def real_serving(settings: WorkerSettings) -> Serving:
     """The effects of a serving life on this machine, bounded by the settings."""
-    deck = Path(WORK_MOUNT) / "deck"
     return Serving(
         spawn=partial(
             spawn_gated, identity=ChildIdentity(*WIRE_IDENTITY, extra_groups=())
         ),
-        gate_admits=partial(wire_gate_admits, identity=WIRE_IDENTITY),
+        gate_admits=partial(child_gate_admits, identity=WIRE_IDENTITY),
         sweep=partial(
             sweep,
             SweepEffects(
@@ -674,9 +714,25 @@ def real_serving(settings: WorkerSettings) -> Serving:
         ),
         create_record=create_request_record,
         seal=seal_record,
-        open_deck=open_deck,
+        open_deck=make_open_directory,
         close_deck=close_deck,
-        deck=deck,
+        work=Path(WORK_MOUNT),
+        step=StepEffects(
+            spawn=partial(
+                spawn_gated, identity=ChildIdentity(*BUILD_IDENTITY, extra_groups=())
+            ),
+            gate_admits=partial(child_gate_admits, identity=BUILD_IDENTITY),
+            prepare=prepare_step_paths,
+            environment={
+                "PATH": os.environ["PATH"],
+                "HOME": f"{WORK_MOUNT}/{HOME_DIRECTORY}",
+                "TMPDIR": STEP_TEMPORARY_DIRECTORY,
+                "PLAYWRIGHT_BROWSERS_PATH": f"/{PLAYWRIGHT_DIRECTORY}",
+                "COREPACK_HOME": f"/{COREPACK_DIRECTORY}",
+                "COREPACK_ENABLE_NETWORK": "0",
+            },
+            project=Path("/") / TOOLCHAIN_PROJECT,
+        ),
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
         readable=readable_within,

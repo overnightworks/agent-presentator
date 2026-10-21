@@ -12,12 +12,18 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
+from presentator.adapters.worker_children import DISCARDED_OUTPUT, ChildSurroundings
 from presentator.host.worker_termination import (
     SWEEP_SECONDS,
     WATCHDOG_SECONDS,
     Watchdog,
 )
-from presentator.host.worker_wire import KEPT_LIFE_EXITS, WireExit, WireRole
+from presentator.host.worker_wire import (
+    DECK_DIRECTORY,
+    KEPT_LIFE_EXITS,
+    WireExit,
+    WireRole,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +77,7 @@ class LifeEnd(StrEnum):
     UPLOAD_EXPIRED = "upload-expired"
     REPLY_EXPIRED = "reply-expired"
     DECK_FAILED = "deck-failed"
+    CANCELLED = "cancelled"
 
 
 class WireChild(Protocol):
@@ -120,7 +127,34 @@ class Spawn(Protocol):
         ...
 
 
-WaitForExit = Callable[[WireChild, float], int | None]
+class StepSpawn(Protocol):
+    """Starts the step launcher behind a gate, in the project, with its own streams."""
+
+    def __call__(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+        surroundings: ChildSurroundings,
+    ) -> WireChild:
+        """Return the gated step."""
+        ...
+
+
+# An exit status, the life end a cancelled child is killed for, or None at the end.
+WaitForExit = Callable[[WireChild, float], int | LifeEnd | None]
+
+
+@dataclass(frozen=True)
+class StepEffects:
+    """What the build step runs through: spawn, gate, paths, environment, place."""
+
+    spawn: StepSpawn
+    gate_admits: Callable[[str], bool]
+    prepare: Callable[[Path], int]
+    environment: Mapping[str, str]
+    project: Path
 
 
 @dataclass(frozen=True)
@@ -134,7 +168,8 @@ class Serving:
     seal: Callable[[int], None]
     open_deck: Callable[[Path], None]
     close_deck: Callable[[Path], None]
-    deck: Path
+    work: Path
+    step: StepEffects
     watchdog: Watchdog
     clock: Callable[[], float]
     readable: Callable[[Sequence[int], float], frozenset[int]]
@@ -142,9 +177,9 @@ class Serving:
     build_output_megabytes: int
 
 
-def _admitted_at_gate(child: WireChild, serving: Serving) -> bool:
+def _admitted_at_gate(child: WireChild, gate_admits: Callable[[str], bool]) -> bool:
     try:
-        return serving.gate_admits(child.status_text())
+        return gate_admits(child.status_text())
     except OSError:
         return False
 
@@ -203,33 +238,53 @@ def _command(
         str(connection),
         "--record-fd",
         str(record),
-        "--deck",
-        str(serving.deck),
+        "--work",
+        str(serving.work),
         "--megabytes",
         str(serving.build_output_megabytes),
     ]
 
 
 @dataclass(frozen=True)
-class _Phase:
-    """One wire child's phase: its role, its absolute end and how it is waited on."""
+class _Launch:
+    """A gated child's name, its spawn and the gate that judges it."""
 
-    role: WireRole
+    name: str
+    spawn: Callable[[], WireChild]
+    gate_admits: Callable[[str], bool]
+
+
+@dataclass(frozen=True)
+class _Phase:
+    """One gated child's phase: how it starts, ends and is waited on.
+
+    `cancelled_by` is the descriptor whose readiness, at the last check before
+    the release, cancels the phase.
+    """
+
+    launch: _Launch
     ends_at: float
     expired: LifeEnd | None
     wait: WaitForExit
+    cancelled_by: int | None = None
 
 
-def _run_gated(
-    serving: Serving, phase: _Phase, descriptors: tuple[int, int]
-) -> _ChildRun:
+def _wire_launch(
+    serving: Serving, role: WireRole, descriptors: tuple[int, int]
+) -> _Launch:
+    spawn = partial(
+        serving.spawn,
+        _command(role, *descriptors, serving),
+        environment={"PATH": os.environ["PATH"]},
+        pass_fds=descriptors,
+    )
+    return _Launch(role, spawn, serving.gate_admits)
+
+
+def _run_gated(serving: Serving, phase: _Phase) -> _ChildRun:
     """Spawn behind the gate, release and wait until the phase ends; kill on expiry."""
     try:
-        child = serving.spawn(
-            _command(phase.role, *descriptors, serving),
-            environment={"PATH": os.environ["PATH"]},
-            pass_fds=descriptors,
-        )
+        child = phase.launch.spawn()
     except OSError:
         return _ChildRun(None, LifeEnd.SPAWN)
     try:
@@ -241,17 +296,30 @@ def _run_gated(
         child.close()
 
 
-def _released_run(child: WireChild, serving: Serving, phase: _Phase) -> _ChildRun:
-    if not _admitted_at_gate(child, serving):
+def _refused_before_release(
+    child: WireChild, serving: Serving, phase: _Phase
+) -> _ChildRun | None:
+    """Kill the child when its gate, the phase's end or a cancellation says so."""
+    if not _admitted_at_gate(child, phase.launch.gate_admits):
         return _ChildRun(None, _killed(child, LifeEnd.GATE))
     if serving.clock() >= phase.ends_at:
-        return _ChildRun(None, _expired(child, phase.role, phase.expired))
+        return _ChildRun(None, _expired(child, phase.launch.name, phase.expired))
+    if phase.cancelled_by is not None and serving.readable((phase.cancelled_by,), 0.0):
+        return _ChildRun(None, _killed(child, LifeEnd.CANCELLED))
+    return None
+
+
+def _released_run(child: WireChild, serving: Serving, phase: _Phase) -> _ChildRun:
+    if (refused := _refused_before_release(child, serving, phase)) is not None:
+        return refused
     if not _released(child):
         return _ChildRun(None, _killed(child, LifeEnd.GATE))
-    exit_status = phase.wait(child, phase.ends_at)
-    if exit_status is None:
-        return _ChildRun(None, _expired(child, phase.role, phase.expired))
-    return _ChildRun(exit_status)
+    outcome = phase.wait(child, phase.ends_at)
+    if outcome is None:
+        return _ChildRun(None, _expired(child, phase.launch.name, phase.expired))
+    if isinstance(outcome, LifeEnd):
+        return _ChildRun(None, _killed(child, outcome))
+    return _ChildRun(outcome)
 
 
 def _waited_within(serving: Serving, child: WireChild, ends_at: float) -> int | None:
@@ -277,15 +345,26 @@ def _side_connection_closed(listener: socket.socket) -> bool:
 
 
 def _watched_exit(
-    serving: Serving, listener: socket.socket, child: WireChild, ends_at: float
-) -> int | None:
-    """Wait for the child's exit until ends_at, closing side connections at accept."""
+    serving: Serving,
+    listener: socket.socket,
+    child: WireChild,
+    ends_at: float,
+    cancelled_by: int | None = None,
+) -> int | LifeEnd | None:
+    """Wait for the child's exit until ends_at, closing side connections at accept.
+
+    A readable `cancelled_by` ends the wait with the life end CANCELLED.
+    """
     listening = True
     while (remaining := ends_at - serving.clock()) > 0:
         watched = [child.exit_descriptor]
         if listening:
             watched.append(listener.fileno())
+        if cancelled_by is not None:
+            watched.append(cancelled_by)
         ready = serving.readable(watched, remaining)
+        if cancelled_by in ready:
+            return LifeEnd.CANCELLED
         if child.exit_descriptor in ready:
             return child.wait()
         if listening and listener.fileno() in ready:
@@ -293,10 +372,8 @@ def _watched_exit(
     return None
 
 
-def _expired(
-    child: WireChild, role: WireRole, life_end: LifeEnd | None
-) -> LifeEnd | None:
-    logger.warning("%s deadline", role)
+def _expired(child: WireChild, name: str, life_end: LifeEnd | None) -> LifeEnd | None:
+    logger.warning("%s deadline", name)
     return _killed(child, life_end)
 
 
@@ -311,24 +388,23 @@ def _sealed(serving: Serving, record: int) -> bool:
 
 def _opened_deck(serving: Serving) -> bool:
     try:
-        serving.open_deck(serving.deck)
+        serving.open_deck(serving.work / DECK_DIRECTORY)
     except OSError:
         logger.exception("deck not opened")
         return False
     return True
 
 
-def _run_upload_with_deck(
-    serving: Serving, descriptors: tuple[int, int], phase: _Phase
-) -> _ChildRun:
+def _run_upload_with_deck(serving: Serving, phase: _Phase) -> _ChildRun:
+    deck = serving.work / DECK_DIRECTORY
     try:
-        upload = _run_gated(serving, phase, descriptors)
+        upload = _run_gated(serving, phase)
     except BaseException as original:
         _noting_cleanup_failure(
-            partial(serving.close_deck, serving.deck), original, "closing the deck"
+            partial(serving.close_deck, deck), original, "closing the deck"
         )
         raise
-    serving.close_deck(serving.deck)
+    serving.close_deck(deck)
     return upload
 
 
@@ -336,9 +412,13 @@ def _hand_over_reply(
     connection: int, serving: Serving, record: int, wait: WaitForExit
 ) -> LifeEnd | None:
     phase = _Phase(
-        WireRole.SEND, serving.clock() + REPLY_SECONDS, LifeEnd.REPLY_EXPIRED, wait
+        _wire_launch(serving, WireRole.SEND, (connection, record)),
+        serving.clock() + REPLY_SECONDS,
+        LifeEnd.REPLY_EXPIRED,
+        wait,
+        cancelled_by=connection,
     )
-    reply = _run_gated(serving, phase, (connection, record))
+    reply = _run_gated(serving, phase)
     if reply.exit_status is None:
         return reply.life_end
     if reply.exit_status == WireExit.SENT:
@@ -346,23 +426,90 @@ def _hand_over_reply(
     return LifeEnd.WIRE_EXIT
 
 
+def _step_command(record: int, serving: Serving) -> list[str]:
+    return [
+        sys.executable,
+        "-I",
+        "-m",
+        "presentator.host.worker_step",
+        "--record-fd",
+        str(record),
+        "--work",
+        str(serving.work),
+    ]
+
+
+def _spawn_step(serving: Serving, record: int) -> WireChild:
+    """Make the step's paths, then start it with its stderr in the prepared file."""
+    stderr = serving.step.prepare(serving.work)
+    try:
+        return serving.step.spawn(
+            _step_command(record, serving),
+            environment=serving.step.environment,
+            pass_fds=(record,),
+            surroundings=ChildSurroundings(
+                cwd=serving.step.project, stdout=DISCARDED_OUTPUT, stderr=stderr
+            ),
+        )
+    finally:
+        os.close(stderr)
+
+
+def _bounded_step_exit(
+    serving: Serving,
+    listener: socket.socket,
+    connection: int,
+    child: WireChild,
+    _gate_ends_at: float,
+) -> int | LifeEnd | None:
+    """Wait for the step from its release until build_timeout_seconds have passed."""
+    ends_at = serving.clock() + serving.build_timeout_seconds
+    return _watched_exit(serving, listener, child, ends_at, connection)
+
+
+def _hand_over_step(
+    connection: int, serving: Serving, record: int, listener: socket.socket
+) -> LifeEnd | None:
+    """Run the step; only a cancellation ends the life, the rest goes to the reply."""
+    launch = _Launch(
+        "step", partial(_spawn_step, serving, record), serving.step.gate_admits
+    )
+    phase = _Phase(
+        launch,
+        serving.clock() + GATE_SECONDS,
+        None,
+        partial(_bounded_step_exit, serving, listener, connection),
+    )
+    step = _run_gated(serving, phase)
+    if step.life_end is LifeEnd.CANCELLED:
+        return LifeEnd.CANCELLED
+    return _hand_over_reply(
+        connection, serving, record, partial(_watched_exit, serving, listener)
+    )
+
+
 def _hand_over_upload(
     connection: int,
     serving: Serving,
     record: int,
     upload_ends_at: float,
-    wait: WaitForExit,
+    listener: socket.socket,
 ) -> LifeEnd | None:
     if not _sealed(serving, record):
         return LifeEnd.SEAL_FAILED
     if not _opened_deck(serving):
         return LifeEnd.DECK_FAILED
-    phase = _Phase(WireRole.UPLOAD, upload_ends_at, LifeEnd.UPLOAD_EXPIRED, wait)
-    upload = _run_upload_with_deck(serving, (connection, record), phase)
+    phase = _Phase(
+        _wire_launch(serving, WireRole.UPLOAD, (connection, record)),
+        upload_ends_at,
+        LifeEnd.UPLOAD_EXPIRED,
+        partial(_watched_exit, serving, listener),
+    )
+    upload = _run_upload_with_deck(serving, phase)
     if upload.exit_status is None:
         return upload.life_end
     if upload.exit_status == WireExit.UPLOADED:
-        return _hand_over_reply(connection, serving, record, wait)
+        return _hand_over_step(connection, serving, record, listener)
     return LifeEnd.WIRE_EXIT
 
 
@@ -374,12 +521,12 @@ def _hand_over_with_record(
     listener: socket.socket,
 ) -> LifeEnd | None:
     header_phase = _Phase(
-        WireRole.IDLE,
+        _wire_launch(serving, WireRole.IDLE, (connection, record)),
         accepted_at + HEADER_SECONDS,
         None,
         partial(_waited_within, serving),
     )
-    header = _run_gated(serving, header_phase, (connection, record))
+    header = _run_gated(serving, header_phase)
     if header.exit_status is None:
         return header.life_end
     if header.exit_status != WireExit.ACCEPTED:
@@ -388,13 +535,7 @@ def _hand_over_with_record(
     serving.watchdog.arm(
         emergency_end(accepted_at, serving.build_timeout_seconds) - serving.clock()
     )
-    return _hand_over_upload(
-        connection,
-        serving,
-        record,
-        upload_ends_at,
-        partial(_watched_exit, serving, listener),
-    )
+    return _hand_over_upload(connection, serving, record, upload_ends_at, listener)
 
 
 def hand_over(

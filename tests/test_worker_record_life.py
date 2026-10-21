@@ -42,6 +42,7 @@ def test_the_watchdog_is_re_armed_before_the_record_is_sealed_and_passed_unread(
 
 
 UPLOAD_WAIT = 1
+STEP_WAIT = 2
 
 CONSUMERS = {
     "the re-arm": {"arm_takes": 0.3},
@@ -301,7 +302,9 @@ def test_the_controllers_record_descriptor_is_closed_when_the_re_arm_raises(
     assert life.creation.is_closed()
 
 
-@pytest.mark.parametrize("role_index", [0, 1, 2], ids=["idle", "upload", "send"])
+@pytest.mark.parametrize(
+    "role_index", [0, 1, 2, 3], ids=["idle", "upload", "step", "send"]
+)
 @pytest.mark.parametrize(
     ("cleanup_fault", "cleanup_failure"),
     [
@@ -326,7 +329,10 @@ def test_a_child_is_killed_and_reaped_and_the_original_error_survives_a_failing_
     with pytest.raises(OSError, match="wait failed") as raised:
         hand_over(connection, serving, ACCEPT_TIME, listener=listener)
 
-    expected = ["kill", "wait", "close", *["close-deck"] * (role_index == 1)]
+    cleanup_leg = ["kill", "wait", "close"]
+    if role_index == STEP_WAIT:
+        cleanup_leg = [f"step {event}" for event in cleanup_leg]
+    expected = [*cleanup_leg, *["close-deck"] * (role_index == 1)]
     assert life.events[-len(expected) :] == expected
     assert life.events.count("close-deck") == min(role_index, 1)
     notes = getattr(raised.value, "__notes__", [])

@@ -18,13 +18,19 @@ from typing import ClassVar
 import pytest
 
 from presentator.adapters import worker_children
-from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
+from presentator.adapters.worker_children import (
+    ChildIdentity,
+    ChildSurroundings,
+    GatedChild,
+    spawn_gated,
+)
 from presentator.host import worker, worker_serving
 from presentator.host.config import WorkerSettings
 from presentator.host.worker_serving import (
     HEADER_SECONDS,
     LifeEnd,
     Serving,
+    StepEffects,
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
@@ -72,7 +78,14 @@ serving = worker_serving.Serving(
     seal=lambda _record: None,
     open_deck=lambda _deck: None,
     close_deck=lambda _deck: None,
-    deck=Path("/unused/deck"),
+    work=Path("/unused/work"),
+    step=worker_serving.StepEffects(
+        spawn=stall,
+        gate_admits=lambda _status: True,
+        prepare=lambda _work: -1,
+        environment={},
+        project=Path("/unused/project"),
+    ),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,
@@ -112,6 +125,7 @@ report = {
 os.write(descriptor, json.dumps(report).encode())
 sys.exit(3)
 """
+PRINTING_ITS_DIRECTORY = "import os, sys; print(os.getcwd(), file=sys.stderr); print(1)"
 MARKER_WRITER = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('ran')"
 
 
@@ -383,6 +397,33 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
     assert open_descriptor_count() == before
 
 
+def test_a_child_runs_in_the_given_directory_with_its_streams_where_it_is_told(
+    tmp_path: Path,
+) -> None:
+    errors = tmp_path / "errors.log"
+    descriptor = os.open(errors, os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        child = spawn_gated(
+            [sys.executable, "-I", "-c", PRINTING_ITS_DIRECTORY],
+            identity=OWN_IDENTITY,
+            environment={"PATH": PATH},
+            pass_fds=(),
+            surroundings=ChildSurroundings(
+                cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=descriptor
+            ),
+        )
+    finally:
+        os.close(descriptor)
+    try:
+        release_and_close(child)
+        waited = child.wait_within(WAIT_SECONDS)
+    finally:
+        end_child(child)
+
+    assert waited == 0
+    assert errors.read_text() == f"{tmp_path}\n"
+
+
 class RecordedPopen:
     """Records how the controller spawns and then fails the spawn."""
 
@@ -414,7 +455,8 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
     )
     assert keywords["env"] == {"PATH": PATH}
     assert keywords["pass_fds"] == (7,)
-    assert keywords["cwd"] == "/"
+    assert keywords["cwd"] == Path("/")
+    assert (keywords["stdout"], keywords["stderr"]) == (None, None)
     assert keywords["start_new_session"] is True
 
 
@@ -439,6 +481,23 @@ class Reply:
     ended_by_reset: bool
 
 
+def quick_step(
+    command: Sequence[str],
+    *,
+    environment: Mapping[str, str],
+    pass_fds: Sequence[int],
+    surroundings: ChildSurroundings,
+) -> GatedChild:
+    """A step that exits 0 at once, whatever the launcher's command is."""
+    return spawn_gated(
+        ["/bin/true", *command],
+        identity=OWN_IDENTITY,
+        environment=environment,
+        pass_fds=pass_fds,
+        surroundings=surroundings,
+    )
+
+
 @dataclass
 class RealServing:
     """A serve loop over the real gated spawn, ending after some connections."""
@@ -446,6 +505,7 @@ class RealServing:
     directory: Path
     connections: int
     spawn: Callable[..., WireChild] = REAL_SPAWN
+    step_spawn: Callable[..., WireChild] = quick_step
     sweep_deadlines: list[float] = field(default_factory=list[float])
     watchdog: RecordingWatchdog = field(default_factory=RecordingWatchdog)
     outcome: list[int] = field(default_factory=list[int])
@@ -464,7 +524,16 @@ class RealServing:
             serving_with(self.spawn),
             sweep=self.sweep,
             watchdog=self.watchdog,
-            deck=self.directory,
+            work=self.directory,
+            open_deck=worker.make_open_directory,
+            close_deck=worker.close_deck,
+            step=StepEffects(
+                spawn=self.step_spawn,
+                gate_admits=lambda _status: True,
+                prepare=worker.prepare_step_paths,
+                environment={"PATH": PATH},
+                project=self.directory,
+            ),
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
@@ -559,7 +628,7 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
 
     assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
     assert not reply.ended_by_reset
-    assert run.spawns.roles == ["idle", "upload", "send"]
+    assert run.spawns.roles == ["idle", "upload", "step", "send"]
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
     assert run.serving.sweep_deadlines == []
@@ -595,6 +664,28 @@ class RecordingSpawn:
         )
         self.children.append(child)
         self.roles.append(role_of(command))
+        self.process_ids.append(support.process_id_of(child))
+        return child
+
+    def step(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+        surroundings: ChildSurroundings,
+    ) -> GatedChild:
+        if self.stopped:
+            reason = "the test stopped the serving loop"
+            raise OSError(reason)
+        child = quick_step(
+            command,
+            environment=environment,
+            pass_fds=pass_fds,
+            surroundings=surroundings,
+        )
+        self.children.append(child)
+        self.roles.append("step")
         self.process_ids.append(support.process_id_of(child))
         return child
 
@@ -636,7 +727,12 @@ class DrippedHeader:
 @contextmanager
 def dripped_header(directory: Path) -> Generator[DrippedHeader]:
     spawns = RecordingSpawn()
-    serving = RealServing(directory, connections=SECOND_CONNECTION, spawn=spawns)
+    serving = RealServing(
+        directory,
+        connections=SECOND_CONNECTION,
+        spawn=spawns,
+        step_spawn=spawns.step,
+    )
     run = DrippedHeader(serving, spawns, serving.start())
     try:
         yield run

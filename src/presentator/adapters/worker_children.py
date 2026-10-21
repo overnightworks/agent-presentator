@@ -15,6 +15,7 @@ GATE_SCRIPT = (
 RELEASE = b"go\n"
 CHILD_WORKING_DIRECTORY = "/"
 CHILD_UMASK = 0o022
+DISCARDED_OUTPUT = subprocess.DEVNULL
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,18 @@ class ChildIdentity:
     uid: int
     gid: int
     extra_groups: tuple[int, ...] | None
+
+
+@dataclass(frozen=True)
+class ChildSurroundings:
+    """Where a child runs and where its output goes; by default its parent's streams."""
+
+    cwd: Path = Path(CHILD_WORKING_DIRECTORY)
+    stdout: int | None = None
+    stderr: int | None = None
+
+
+INHERITED_SURROUNDINGS = ChildSurroundings()
 
 
 class GatedChild:
@@ -113,6 +126,7 @@ def spawn_gated(
     identity: ChildIdentity,
     environment: Mapping[str, str],
     pass_fds: Sequence[int],
+    surroundings: ChildSurroundings = INHERITED_SURROUNDINGS,
 ) -> GatedChild:
     """Spawn the command as the identity behind the gate; the caller releases it."""
     gate_read, gate_write = os.pipe()
@@ -120,8 +134,10 @@ def spawn_gated(
         process = subprocess.Popen(
             ["/bin/sh", "-c", GATE_SCRIPT, *command],
             stdin=gate_read,
+            stdout=surroundings.stdout,
+            stderr=surroundings.stderr,
             pass_fds=tuple(pass_fds),
-            cwd=CHILD_WORKING_DIRECTORY,
+            cwd=surroundings.cwd,
             env=dict(environment),
             umask=CHILD_UMASK,
             start_new_session=True,
