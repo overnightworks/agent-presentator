@@ -97,6 +97,7 @@ REFUSED_PATHS = {
     "a NUL": b"a\0b",
     "a component of 256 bytes": b"x" * 256,
     "a path of 1025 bytes": b"a/" * 512 + b"a",
+    "a path of 1025 bytes in long names": b"/".join([b"x" * 255] * 4 + [b"x"]),
     "depth 33": TOO_DEEP,
 }
 
