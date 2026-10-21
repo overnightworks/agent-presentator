@@ -5,17 +5,19 @@ import os
 import socket
 import threading
 import time
-from collections.abc import Generator, Mapping, Sequence
+import uuid
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from presentator.adapters import worker_children
 from presentator.adapters.build_wire import read_request
 from presentator.host import worker
 from presentator.host.worker import create_request_record
-from presentator.host.worker_serving import Serving
+from presentator.host.worker_serving import Serving, WireChild
 from presentator.host.worker_wire import WireExit, WireRole
 
 OWN_UID = os.getuid()
@@ -42,6 +44,15 @@ CONNECTIONS = 2
 WAIT_SECONDS = 5
 
 
+@contextmanager
+def listening_socket() -> Generator[socket.socket]:
+    """A listening socket on a private abstract address, closed at the end."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listening:
+        listening.bind(f"\0{uuid.uuid4().hex}")
+        listening.listen(worker.LISTEN_BACKLOG)
+        yield listening
+
+
 def role_of(command: Sequence[str]) -> str:
     """The wire role a spawned child's command line names."""
     return command[command.index("--role") + 1]
@@ -60,7 +71,13 @@ ACCEPT_TIME = 100.0
 ADMITTING_PATH = "/opt/test/bin"
 
 
-CHILD_LEG = ["spawn", "status", "release", "wait-within", "close-gate"]
+CHILD_LEG = ["spawn", "status", "release", "readable", "wait", "close"]
+
+
+IDLE_LEG = ["spawn", "status", "release", "wait-within", "close"]
+
+
+EXIT_DESCRIPTOR = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -136,9 +153,16 @@ class ScriptedLife:
     upload_runs_for: float = 0.0
     wait_error: OSError | None = None
     wait_error_at: int = 0
+    wake_takes: float = 0.0
+    listener_wakes: int = 0
+    scripted_roles: tuple[WireRole, ...] = (WireRole.UPLOAD,)
+    send_runs_for: float = 0.0
+    exit_with_listener: bool = False
+    empty_wakes: int = 0
     kill_error: BaseException | None = None
     reap_error: BaseException | None = None
     headers_stalled: int = 0
+    killed: bool = False
     clock_now: float = ACCEPT_TIME
     inspection_takes: float = 0.0
     build_timeout_seconds: float = 300.0
@@ -205,27 +229,55 @@ class ScriptedLife:
 
     def kill(self) -> None:
         self.events.append("kill")
+        self.killed = True
         if self.kill_error is not None:
             raise self.kill_error
 
     def wait_within(self, seconds: float) -> int | None:
         self.events.append("wait-within")
         self.budgets_waited.append(seconds)
-        if (
-            self.wait_error is not None
-            and len(self.budgets_waited) == self.wait_error_at + 1
-        ):
-            raise self.wait_error
-        if self.role == WireRole.UPLOAD:
-            self.clock_now += self.upload_runs_for
-            return None if self.upload_stalled else self.upload_exit_status
-        if self.role == WireRole.SEND:
-            return None if self.send_stalled else self.send_exit_status
+        self.raise_wait_error_at_this_wait()
         if len(self.budgets_waited) <= self.headers_stalled:
             return None
         if self.answer:
             self.write_answer_after_hello(self.spawned[-1].pass_fds[0])
         return self.exit_status
+
+    @property
+    def exit_descriptor(self) -> int:
+        return EXIT_DESCRIPTOR
+
+    def readable(self, descriptors: Sequence[int], seconds: float) -> frozenset[int]:
+        self.events.append("readable")
+        self.budgets_waited.append(seconds)
+        self.raise_wait_error_at_this_wait()
+        self.clock_now += self.wake_takes
+        listener = frozenset(descriptors) - {EXIT_DESCRIPTOR}
+        scripted = self.role in self.scripted_roles
+        if self.listener_wakes > 0 and listener and scripted:
+            self.listener_wakes -= 1
+            exit_too = (
+                frozenset({EXIT_DESCRIPTOR})
+                if self.exit_with_listener
+                else frozenset[int]()
+            )
+            return listener | exit_too
+        if self.empty_wakes > 0 and scripted:
+            self.empty_wakes -= 1
+            return frozenset()
+        upload = self.role == WireRole.UPLOAD
+        self.clock_now += self.upload_runs_for if upload else self.send_runs_for
+        if self.upload_stalled if upload else self.send_stalled:
+            self.clock_now += seconds
+            return frozenset()
+        return frozenset({EXIT_DESCRIPTOR})
+
+    def raise_wait_error_at_this_wait(self) -> None:
+        if (
+            self.wait_error is not None
+            and len(self.budgets_waited) == self.wait_error_at + 1
+        ):
+            raise self.wait_error
 
     def write_answer_after_hello(self, connection_fd: int) -> None:
         with socket.socket(fileno=os.dup(connection_fd)) as connection:
@@ -235,15 +287,19 @@ class ScriptedLife:
 
     def wait(self) -> int:
         self.events.append("wait")
-        if self.reap_error is not None:
+        if self.killed and self.reap_error is not None:
             raise self.reap_error
-        return self.exit_status
+        return {
+            WireRole.IDLE: self.exit_status,
+            WireRole.UPLOAD: self.upload_exit_status,
+            WireRole.SEND: self.send_exit_status,
+        }[self.role]
 
     def clock(self) -> float:
         return self.clock_now
 
-    def close_gate(self) -> None:
-        self.events.append("close-gate")
+    def close(self) -> None:
+        self.events.append("close")
 
     def sweep(self, deadline: float) -> bool:
         self.events.append(f"sweep {deadline}")
@@ -290,6 +346,7 @@ class ScriptedLife:
             close_deck=self.close_deck,
             watchdog=self,
             clock=self.clock,
+            readable=self.readable,
             build_timeout_seconds=self.build_timeout_seconds,
         )
 
@@ -393,3 +450,29 @@ def listening_with(
     listener.accepts_left = accepts
     worker.start_listening(listener)
     return listener
+
+
+def serving_with(
+    spawn: Callable[..., WireChild], *, admits: bool = True, quiet: bool = True
+) -> Serving:
+    return Serving(
+        spawn=spawn,
+        gate_admits=lambda _status: admits,
+        sweep=lambda _deadline: quiet,
+        create_record=worker.create_request_record,
+        seal=worker.seal_record,
+        open_deck=nothing,
+        close_deck=nothing,
+        watchdog=NeverArmed(),
+        clock=time.monotonic,
+        readable=worker_children.readable_within,
+        build_timeout_seconds=300.0,
+    )
+
+
+def accept_time() -> float:
+    return time.monotonic()
+
+
+def open_descriptor_count() -> int:
+    return len(list(Path("/proc/self/fd").iterdir()))

@@ -29,7 +29,13 @@ from presentator.host.worker_serving import (
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
 from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
-from tests.worker_support import NeverArmed, nothing, role_of, wake_until_ended
+from tests.worker_support import (
+    accept_time,
+    open_descriptor_count,
+    role_of,
+    serving_with,
+    wake_until_ended,
+)
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
@@ -46,6 +52,7 @@ SHORT_BUDGET_SECONDS = 0.05
 STALLED_CONTROLLER = """
 import ctypes, os, sys, time
 from pathlib import Path
+from presentator.adapters.worker_children import readable_within
 from presentator.host import worker, worker_serving
 from presentator.host.worker_termination import FaultHandlerWatchdog
 
@@ -67,6 +74,7 @@ serving = worker_serving.Serving(
     close_deck=lambda: None,
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
+    readable=readable_within,
     build_timeout_seconds=300.0,
 )
 sys.exit(
@@ -144,33 +152,8 @@ def spawn_probe(source: str) -> Callable[..., WireChild]:
     return spawn
 
 
-def serving_with(
-    spawn: Callable[..., WireChild], *, admits: bool = True, quiet: bool = True
-) -> Serving:
-    return Serving(
-        spawn=spawn,
-        gate_admits=lambda _status: admits,
-        sweep=lambda _deadline: quiet,
-        create_record=worker.create_request_record,
-        seal=worker.seal_record,
-        open_deck=nothing,
-        close_deck=nothing,
-        watchdog=NeverArmed(),
-        clock=time.monotonic,
-        build_timeout_seconds=300.0,
-    )
-
-
-def accept_time() -> float:
-    return time.monotonic()
-
-
 def real_serving() -> Serving:
     return worker.real_serving(WorkerSettings(build_timeout_seconds=300.0))
-
-
-def open_descriptor_count() -> int:
-    return len(list(Path("/proc/self/fd").iterdir()))
 
 
 def read_to_end(client: socket.socket) -> bytes:
@@ -180,12 +163,15 @@ def read_to_end(client: socket.socket) -> bytes:
     return received
 
 
+ConnectionPair = tuple[socket.socket, socket.socket, socket.socket]
+
+
 @pytest.fixture
-def connection_pair() -> Iterator[tuple[socket.socket, socket.socket]]:
+def connection_pair(listener: socket.socket) -> Iterator[ConnectionPair]:
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
     with closing(controller_end), closing(client):
-        yield controller_end, client
+        yield controller_end, client, listener
 
 
 @dataclass(frozen=True)
@@ -203,23 +189,34 @@ class ProbeReport:
     oom_score_adj: str
 
 
-def hand_over_probe(
-    connection_pair: tuple[socket.socket, socket.socket],
+def hand_over_to_probe(
+    connection_pair: ConnectionPair,
     monkeypatch: pytest.MonkeyPatch,
-) -> ProbeReport:
+    *,
+    admits: bool = True,
+) -> tuple[LifeEnd | None, bytes]:
     monkeypatch.setenv("PATH", PATH)
-    connection, client = connection_pair
-    kept = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE)), accept_time()
+    connection, client, listener = connection_pair
+    life_end = worker_serving.hand_over(
+        connection,
+        serving_with(spawn_probe(PROBE), admits=admits),
+        accept_time(),
+        listener=listener,
     )
     connection.close()
-    assert kept is None
-    return ProbeReport(**json.loads(read_to_end(client)))
+    return life_end, read_to_end(client)
+
+
+def hand_over_probe(
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
+) -> ProbeReport:
+    life_end, report = hand_over_to_probe(connection_pair, monkeypatch)
+    assert life_end is None
+    return ProbeReport(**json.loads(report))
 
 
 def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
-    connection_pair: tuple[socket.socket, socket.socket],
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     report = hand_over_probe(connection_pair, monkeypatch)
 
@@ -235,8 +232,7 @@ def test_a_released_child_runs_with_only_its_connection_and_a_clean_environment(
 
 
 def test_a_released_child_holds_nothing_of_the_controllers_environment(
-    connection_pair: tuple[socket.socket, socket.socket],
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SECRET_FOR_THE_CONTROLLER", "leak")
 
@@ -248,19 +244,12 @@ def test_a_released_child_holds_nothing_of_the_controllers_environment(
 
 
 def test_a_refused_gate_kills_the_child_before_it_runs_and_closes_without_a_reply(
-    connection_pair: tuple[socket.socket, socket.socket],
-    monkeypatch: pytest.MonkeyPatch,
+    connection_pair: ConnectionPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("PATH", PATH)
-    connection, client = connection_pair
+    life_end, reply = hand_over_to_probe(connection_pair, monkeypatch, admits=False)
 
-    refused = worker_serving.hand_over(
-        connection, serving_with(spawn_probe(PROBE), admits=False), accept_time()
-    )
-    connection.close()
-
-    assert refused == LifeEnd.GATE
-    assert read_to_end(client) == b""
+    assert life_end == LifeEnd.GATE
+    assert reply == b""
 
 
 @pytest.mark.parametrize(
@@ -279,7 +268,7 @@ def test_a_gate_that_is_not_released_with_a_line_never_runs_the_program(
     if release_text is not None:
         monkeypatch.setattr(worker_children, "RELEASE", release_text)
         child.release()
-    child.close_gate()
+    child.close()
 
     assert child.wait() != 0
     assert not marker.exists()
@@ -290,7 +279,7 @@ def test_a_line_releases_the_program(tmp_path: Path) -> None:
     child = marker_writer(marker)
 
     child.release()
-    child.close_gate()
+    child.close()
 
     assert child.wait() == 0
     assert marker.read_text() == "ran"
@@ -305,11 +294,11 @@ def sleeping_child() -> GatedChild:
     )
 
 
-def release_and_close_gate(child: GatedChild) -> None:
+def release_and_close(child: GatedChild) -> None:
     try:
         child.release()
     finally:
-        child.close_gate()
+        child.close()
 
 
 def end_child(child: GatedChild) -> int:
@@ -325,7 +314,7 @@ def test_waiting_within_a_budget_returns_none_and_leaves_the_released_child_aliv
 ):
     child = sleeping_child()
     try:
-        release_and_close_gate(child)
+        release_and_close(child)
         waited = child.wait_within(SHORT_BUDGET_SECONDS)
     finally:
         reaped_status = end_child(child)
@@ -339,7 +328,7 @@ def test_waiting_within_a_budget_returns_the_status_of_a_child_that_exited() -> 
         ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
     )
     try:
-        release_and_close_gate(child)
+        release_and_close(child)
         waited = child.wait_within(WAIT_SECONDS)
     finally:
         end_child(child)
@@ -358,7 +347,7 @@ def test_a_dead_child_breaks_the_release_pipe_and_has_no_readable_status() -> No
         child.release()
     with pytest.raises(FileNotFoundError):
         child.status_text()
-    child.close_gate()
+    child.close()
 
 
 def test_the_status_of_a_waiting_child_names_the_user_it_runs_as() -> None:
@@ -370,7 +359,7 @@ def test_the_status_of_a_waiting_child_names_the_user_it_runs_as() -> None:
     finally:
         child.kill()
         child.wait()
-        child.close_gate()
+        child.close()
 
     assert f"Uid:\t{OWN_UID}\t{OWN_UID}\t{OWN_UID}\t{OWN_UID}" in status
 
@@ -381,7 +370,7 @@ def test_both_gate_ends_are_closed_after_a_child_ran_and_after_a_spawn_failed() 
         ["/bin/true"], identity=OWN_IDENTITY, environment={"PATH": PATH}, pass_fds=()
     )
     child.release()
-    child.close_gate()
+    child.close()
     child.wait()
     foreign = ChildIdentity(OWN_UID + 100_000, OWN_GID, extra_groups=None)
     with pytest.raises(PermissionError):

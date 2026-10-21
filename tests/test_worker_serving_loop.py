@@ -21,6 +21,7 @@ from tests.worker_support import (
     CHILD_LEG,
     CONNECTIONS,
     FOREIGN_UID,
+    IDLE_LEG,
     OWN_GID,
     OWN_UID,
     WAIT_SECONDS,
@@ -164,7 +165,7 @@ def test_a_kept_life_connection_is_handed_to_a_gated_child_then_swept(
         "status",
         "release",
         "wait-within",
-        "close-gate",
+        "close",
         "sweep 104.0",
         "cancel",
     ]
@@ -253,7 +254,7 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
 
     assert life.events == [
         "arm 7.0",
-        *CHILD_LEG,
+        *IDLE_LEG,
         f"arm {rearmed_for}",
         "seal",
         "open-deck",
@@ -272,34 +273,34 @@ LIFE_ENDS = {
     "a gate mismatch": (
         lambda: ScriptedLife(gate_admits=False),
         LifeEnd.GATE,
-        ["arm 7.0", "spawn", "status", "kill", "wait", "close-gate"],
+        ["arm 7.0", "spawn", "status", "kill", "wait", "close"],
     ),
     "an unreadable status": (
         lambda: ScriptedLife(status=OSError("gone")),
         LifeEnd.GATE,
-        ["arm 7.0", "spawn", "status", "kill", "wait", "close-gate"],
+        ["arm 7.0", "spawn", "status", "kill", "wait", "close"],
     ),
     "a broken pipe at the release": (
         lambda: ScriptedLife(release_error=BrokenPipeError()),
         LifeEnd.GATE,
-        ["arm 7.0", "spawn", "status", "release", "kill", "wait", "close-gate"],
+        ["arm 7.0", "spawn", "status", "release", "kill", "wait", "close"],
     ),
     "an exit status outside the kept set": (
         lambda: ScriptedLife(exit_status=1),
         LifeEnd.WIRE_EXIT,
-        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close"],
     ),
     "a child killed by a signal": (
         lambda: ScriptedLife(exit_status=-9),
         LifeEnd.WIRE_EXIT,
-        ["arm 7.0", "spawn", "status", "release", "wait-within", "close-gate"],
+        ["arm 7.0", "spawn", "status", "release", "wait-within", "close"],
     ),
     "an accepted step": (
         lambda: ScriptedLife(exit_status=WireExit.ACCEPTED),
         LifeEnd.CONSUMED,
         [
             "arm 7.0",
-            *CHILD_LEG,
+            *IDLE_LEG,
             "arm 447.0",
             "seal",
             "open-deck",
@@ -317,7 +318,7 @@ LIFE_ENDS = {
             "status",
             "release",
             "wait-within",
-            "close-gate",
+            "close",
             "sweep 104.0",
         ],
     ),
@@ -523,7 +524,7 @@ CUT_OFF_HEADER = [
     "wait-within",
     "kill",
     "wait",
-    "close-gate",
+    "close",
     "sweep 104.0",
     "cancel",
 ]
@@ -533,7 +534,7 @@ ANSWERED_HEADER = [
     "status",
     "release",
     "wait-within",
-    "close-gate",
+    "close",
     "sweep 104.0",
     "cancel",
 ]
@@ -543,7 +544,7 @@ EXPIRED_BEFORE_RELEASE = [
     "status",
     "kill",
     "wait",
-    "close-gate",
+    "close",
     "sweep 104.0",
 ]
 EXPIRED_AT_RELEASE = [
@@ -553,7 +554,7 @@ EXPIRED_AT_RELEASE = [
     "release",
     "kill",
     "wait",
-    "close-gate",
+    "close",
     "sweep 104.0",
 ]
 

@@ -46,7 +46,11 @@ CONSUMING_CONTROLLER = """
 import os, sys
 from functools import partial
 from pathlib import Path
-from presentator.adapters.worker_children import ChildIdentity, spawn_gated
+from presentator.adapters.worker_children import (
+    ChildIdentity,
+    readable_within,
+    spawn_gated,
+)
 from presentator.host import worker
 from presentator.host.worker_serving import Serving
 from presentator.host.worker_termination import FaultHandlerWatchdog
@@ -74,6 +78,7 @@ serving = Serving(
     close_deck=partial(worker.close_deck, deck),
     watchdog=FaultHandlerWatchdog(),
     clock=__import__("time").monotonic,
+    readable=readable_within,
     build_timeout_seconds=300.0,
 )
 sys.exit(

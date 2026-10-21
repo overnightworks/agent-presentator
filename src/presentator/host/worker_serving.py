@@ -95,7 +95,12 @@ class WireChild(Protocol):
         """Wait at most the seconds; None when the child is still running."""
         ...
 
-    def close_gate(self) -> None:
+    @property
+    def exit_descriptor(self) -> int:
+        """A descriptor that becomes readable when the child has exited."""
+        ...
+
+    def close(self) -> None:
         """Close the controller's end of the gate."""
         ...
 
@@ -114,6 +119,9 @@ class Spawn(Protocol):
         ...
 
 
+WaitForExit = Callable[[WireChild, float], int | None]
+
+
 @dataclass(frozen=True)
 class Serving:
     """The effects a serving life runs through."""
@@ -127,6 +135,7 @@ class Serving:
     close_deck: Callable[[], None]
     watchdog: Watchdog
     clock: Callable[[], float]
+    readable: Callable[[Sequence[int], float], frozenset[int]]
     build_timeout_seconds: float
 
 
@@ -192,49 +201,87 @@ def _command(role: WireRole, connection: int, record: int) -> list[str]:
     ]
 
 
+@dataclass(frozen=True)
+class _Phase:
+    """One wire child's phase: its role, its absolute end and how it is waited on."""
+
+    role: WireRole
+    ends_at: float
+    expired: LifeEnd | None
+    wait: WaitForExit
+
+
 def _run_gated(
-    serving: Serving,
-    role: WireRole,
-    descriptors: tuple[int, int],
-    ends_at: float,
-    expired: LifeEnd | None,
+    serving: Serving, phase: _Phase, descriptors: tuple[int, int]
 ) -> _ChildRun:
-    """Spawn behind the gate, release and wait until ends_at; kill on expiry."""
+    """Spawn behind the gate, release and wait until the phase ends; kill on expiry."""
     try:
         child = serving.spawn(
-            _command(role, *descriptors),
+            _command(phase.role, *descriptors),
             environment={"PATH": os.environ["PATH"]},
             pass_fds=descriptors,
         )
     except OSError:
         return _ChildRun(None, LifeEnd.SPAWN)
     try:
-        return _released_run(child, serving, role, ends_at, expired)
+        return _released_run(child, serving, phase)
     except BaseException as original:
         _killed_noting_failure(child, original)
         raise
     finally:
-        child.close_gate()
+        child.close()
 
 
-def _released_run(
-    child: WireChild,
-    serving: Serving,
-    role: WireRole,
-    ends_at: float,
-    expired: LifeEnd | None,
-) -> _ChildRun:
+def _released_run(child: WireChild, serving: Serving, phase: _Phase) -> _ChildRun:
     if not _admitted_at_gate(child, serving):
         return _ChildRun(None, _killed(child, LifeEnd.GATE))
-    if serving.clock() >= ends_at:
-        return _ChildRun(None, _expired(child, role, expired))
+    if serving.clock() >= phase.ends_at:
+        return _ChildRun(None, _expired(child, phase.role, phase.expired))
     if not _released(child):
         return _ChildRun(None, _killed(child, LifeEnd.GATE))
-    remaining = ends_at - serving.clock()
-    exit_status = child.wait_within(remaining) if remaining > 0 else None
+    exit_status = phase.wait(child, phase.ends_at)
     if exit_status is None:
-        return _ChildRun(None, _expired(child, role, expired))
+        return _ChildRun(None, _expired(child, phase.role, phase.expired))
     return _ChildRun(exit_status)
+
+
+def _waited_within(serving: Serving, child: WireChild, ends_at: float) -> int | None:
+    remaining = ends_at - serving.clock()
+    return child.wait_within(remaining) if remaining > 0 else None
+
+
+def _side_connection_closed(listener: socket.socket) -> bool:
+    """Accept and close one waiting connection; False when accepting failed."""
+    listener.settimeout(0.0)
+    try:
+        side_connection, _address = listener.accept()
+    except BlockingIOError:
+        return True
+    except OSError:
+        logger.exception("side connection accept failed")
+        return False
+    else:
+        with side_connection:
+            return True
+    finally:
+        listener.settimeout(None)
+
+
+def _watched_exit(
+    serving: Serving, listener: socket.socket, child: WireChild, ends_at: float
+) -> int | None:
+    """Wait for the child's exit until ends_at, closing side connections at accept."""
+    listening = True
+    while (remaining := ends_at - serving.clock()) > 0:
+        watched = [child.exit_descriptor]
+        if listening:
+            watched.append(listener.fileno())
+        ready = serving.readable(watched, remaining)
+        if child.exit_descriptor in ready:
+            return child.wait()
+        if listening and listener.fileno() in ready:
+            listening = _side_connection_closed(listener)
+    return None
 
 
 def _expired(
@@ -263,16 +310,10 @@ def _opened_deck(serving: Serving) -> bool:
 
 
 def _run_upload_with_deck(
-    serving: Serving, descriptors: tuple[int, int], upload_ends_at: float
+    serving: Serving, descriptors: tuple[int, int], phase: _Phase
 ) -> _ChildRun:
     try:
-        upload = _run_gated(
-            serving,
-            WireRole.UPLOAD,
-            descriptors,
-            upload_ends_at,
-            LifeEnd.UPLOAD_EXPIRED,
-        )
+        upload = _run_gated(serving, phase, descriptors)
     except BaseException as original:
         _noting_cleanup_failure(serving.close_deck, original, "closing the deck")
         raise
@@ -280,15 +321,13 @@ def _run_upload_with_deck(
     return upload
 
 
-def _hand_over_reply(connection: int, serving: Serving, record: int) -> LifeEnd | None:
-    reply_ends_at = serving.clock() + REPLY_SECONDS
-    reply = _run_gated(
-        serving,
-        WireRole.SEND,
-        (connection, record),
-        reply_ends_at,
-        LifeEnd.REPLY_EXPIRED,
+def _hand_over_reply(
+    connection: int, serving: Serving, record: int, wait: WaitForExit
+) -> LifeEnd | None:
+    phase = _Phase(
+        WireRole.SEND, serving.clock() + REPLY_SECONDS, LifeEnd.REPLY_EXPIRED, wait
     )
+    reply = _run_gated(serving, phase, (connection, record))
     if reply.exit_status is None:
         return reply.life_end
     if reply.exit_status == WireExit.SENT:
@@ -297,30 +336,39 @@ def _hand_over_reply(connection: int, serving: Serving, record: int) -> LifeEnd 
 
 
 def _hand_over_upload(
-    connection: int, serving: Serving, record: int, upload_ends_at: float
+    connection: int,
+    serving: Serving,
+    record: int,
+    upload_ends_at: float,
+    wait: WaitForExit,
 ) -> LifeEnd | None:
     if not _sealed(serving, record):
         return LifeEnd.SEAL_FAILED
     if not _opened_deck(serving):
         return LifeEnd.DECK_FAILED
-    upload = _run_upload_with_deck(serving, (connection, record), upload_ends_at)
+    phase = _Phase(WireRole.UPLOAD, upload_ends_at, LifeEnd.UPLOAD_EXPIRED, wait)
+    upload = _run_upload_with_deck(serving, (connection, record), phase)
     if upload.exit_status is None:
         return upload.life_end
     if upload.exit_status == WireExit.UPLOADED:
-        return _hand_over_reply(connection, serving, record)
+        return _hand_over_reply(connection, serving, record, wait)
     return LifeEnd.WIRE_EXIT
 
 
 def _hand_over_with_record(
-    connection: int, serving: Serving, accepted_at: float, record: int
+    connection: int,
+    serving: Serving,
+    accepted_at: float,
+    record: int,
+    listener: socket.socket,
 ) -> LifeEnd | None:
-    header = _run_gated(
-        serving,
+    header_phase = _Phase(
         WireRole.IDLE,
-        (connection, record),
         accepted_at + HEADER_SECONDS,
         None,
+        partial(_waited_within, serving),
     )
+    header = _run_gated(serving, header_phase, (connection, record))
     if header.exit_status is None:
         return header.life_end
     if header.exit_status != WireExit.ACCEPTED:
@@ -329,16 +377,28 @@ def _hand_over_with_record(
     serving.watchdog.arm(
         emergency_end(accepted_at, serving.build_timeout_seconds) - serving.clock()
     )
-    return _hand_over_upload(connection, serving, record, upload_ends_at)
+    return _hand_over_upload(
+        connection,
+        serving,
+        record,
+        upload_ends_at,
+        partial(_watched_exit, serving, listener),
+    )
 
 
 def hand_over(
-    connection: socket.socket, serving: Serving, accepted_at: float
+    connection: socket.socket,
+    serving: Serving,
+    accepted_at: float,
+    *,
+    listener: socket.socket,
 ) -> LifeEnd | None:
     """Give the connection to gated wire children; None keeps the life."""
     record = serving.create_record()
     try:
-        return _hand_over_with_record(connection.fileno(), serving, accepted_at, record)
+        return _hand_over_with_record(
+            connection.fileno(), serving, accepted_at, record, listener
+        )
     finally:
         os.close(record)
 
@@ -362,7 +422,11 @@ def accept_connections(
                 logger.exception("peer credentials unreadable")
                 return LifeEnd.ACCEPT
             admitted = peer_admitted(peer_uid, runtime_uid)
-            life_end = hand_over(connection, serving, accepted_at) if admitted else None
+            life_end = (
+                hand_over(connection, serving, accepted_at, listener=listener)
+                if admitted
+                else None
+            )
         if life_end is not None:
             return life_end
         if not serving.sweep(accepted_at + SWEEP_SECONDS):
