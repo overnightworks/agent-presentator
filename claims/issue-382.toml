@@ -3,6 +3,6 @@ agent = "claude"
 role = "builder"
 base = "e7d73a0cd0517f65001df9446c5378e2fe5ac0ab"
 branch = "claude/issue-382-s6-keycloaks-back-channel-logout-beendet"
-scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "tests/api/fake_issuer.py", "tests/api/test_body_size.py", "tests/api/test_hooks.py", "tests/sign_in_support.py", "tests/test_backchannel_logout.py"]
+scope = ["docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/decisions/0003-libraries-for-models-and-auth.md", "src/presentator/adapters/audit.py", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "tests/api/fake_issuer.py", "tests/api/test_body_size.py", "tests/api/test_hooks.py", "tests/sign_in_support.py", "tests/test_backchannel_logout.py", "tests/test_sign_in_callback.py"]
 opened_commit = "131ecc60e435bf71115878509f06045d3d60e33c"
 whole_reason = "The back-channel route and the stack's body cap are one auth.py change; the identity docstring, the docs and the tests that pin the route, the cap and the hook's budget land with it."
