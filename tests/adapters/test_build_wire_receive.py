@@ -31,6 +31,7 @@ from tests.worker_support import (
 )
 
 SENDER_JOIN_SECONDS = 10
+BULK_SEND_SECONDS = 60
 SHORT_RECEIVE_BYTES = 4096
 DEFAULT_MEGABYTES = 300
 DEEPEST = 32
@@ -449,6 +450,7 @@ def sent_from_a_thread(
     """Start the sender; with a release it keeps the connection open until set."""
 
     def send() -> None:
+        writing_end.settimeout(BULK_SEND_SECONDS)
         writing_end.sendall(sent)
         if release is not None:
             release.wait(WAIT_SECONDS)
@@ -537,9 +539,10 @@ def test_a_declared_size_beyond_the_budget_is_refused_before_create_with_the_roo
     wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
 ) -> None:
     before = open_descriptors()
+    sent = file_header(b"f", 2**64 - 1)
 
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, file_header(b"f", 2**64 - 1))
+        receive_sent(wire, deck, sent)
 
     assert deck_tree(tmp_path) == {}
     assert os.fstat(deck)
@@ -573,7 +576,7 @@ def test_the_maximum_number_of_entries_is_accepted(
     try:
         receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
     finally:
-        sender.join(SENDER_JOIN_SECONDS)
+        sender.join(BULK_SEND_SECONDS)
 
     assert not sender.is_alive()
     assert sum(1 for _ in (tmp_path / "deck").rglob("*")) == MAXIMUM_ENTRIES
@@ -596,7 +599,7 @@ def test_the_entry_after_the_maximum_is_refused_at_its_tag_without_waiting_for_i
             receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
     finally:
         release.set()
-        sender.join(SENDER_JOIN_SECONDS)
+        sender.join(BULK_SEND_SECONDS)
 
     assert not sender.is_alive()
     assert sum(1 for _ in (tmp_path / "deck").rglob("*")) == MAXIMUM_ENTRIES

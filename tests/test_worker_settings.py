@@ -109,6 +109,18 @@ def test_an_unusable_megabytes_is_refused_by_the_variable_name_without_its_value
     assert TIMEOUT_VARIABLE not in str(refused.value)
 
 
+@pytest.mark.parametrize("value", ["mega-abc", "000", "-7391", "1.5173"])
+def test_a_refusal_of_the_megabytes_never_quotes_the_value_it_refuses(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(MEGABYTES_VARIABLE, value)
+
+    with pytest.raises(ConfigurationError) as refused:
+        load_worker_settings()
+
+    assert value not in str(refused.value)
+
+
 def test_a_refusal_never_quotes_the_value_it_refuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
