@@ -1,0 +1,8 @@
+claim_id = "1552507e01ba4cf69afff9b9f1aa12cb"
+agent = "claude"
+role = "builder"
+base = "a35820a02d5b58524d1192346d44106669e7b267"
+branch = "claude/issue-361-a3c-1-der-sprachdienst-spricht-und-h-rt"
+scope = ["speech/README.md", "speech/pyproject.toml", "speech/src/speech/__main__.py", "speech/src/speech/control.py", "speech/src/speech/hearing.py", "speech/src/speech/service.py", "speech/tests/conftest.py", "speech/tests/test_main.py", "speech/tests/test_private_socket.py", "speech/tests/test_speak.py", "speech/tests/test_voice_status.py", "speech/uv.lock"]
+opened_commit = "f4ffc444ba7a6aa1d92d20ea4e6c35b180faee90"
+whole_reason = "The shared route mount, the removed flush, the moved websockets dependency and the README contract are one boundary change; its tests move the TCP 404 test and the gated voice fake in the same step."
