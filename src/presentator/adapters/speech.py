@@ -1,12 +1,23 @@
-"""Read speech status and synchronously Load a voice through its private Unix socket."""
+"""Read speech status, Load a voice and hear through its private Unix socket."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Final, cast
 
 import httpx2
-from pydantic import BaseModel, ValidationError
+from httpx2.websockets import (
+    AsyncWebSocketSession,
+    HTTPXWSException,
+    WebSocketDisconnect,
+)
+from pydantic import BaseModel, StrictBool, StrictInt, ValidationError
 
+from presentator.contracts.copresenter import (
+    CoPresenterReadiness,
+    CoPresenterUnavailableError,
+    HearingTranscript,
+)
 from presentator.contracts.voice import (
     SampleLanguage,
     VoiceDownloadOutcome,
@@ -22,7 +33,10 @@ from presentator.contracts.voice import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
     from pathlib import Path
+
+    from presentator.ports.copresenter import PrivateHearing
 
 _PRIVATE_ORIGIN: Final = "http://speech.localhost"
 _STATUS_TIMEOUT: Final = 5.0
@@ -52,6 +66,98 @@ class _LoadPayload(BaseModel):
 
 class _DownloadPayload(BaseModel):
     outcome: VoiceDownloadOutcome
+
+
+class _HearingHealth(BaseModel):
+    ready: StrictBool
+
+
+class _Health(BaseModel):
+    sample_rate: StrictInt
+    hearing: _HearingHealth
+
+
+class _TranscriptPayload(BaseModel):
+    text: str
+    final: bool
+
+
+class _SpeechHearing:
+    def __init__(self, socket: AsyncWebSocketSession) -> None:
+        self._socket = socket
+
+    async def send_pcm(self, frame: bytes) -> None:
+        await self._socket.send_bytes(frame)
+
+    async def receive(self) -> HearingTranscript | None:
+        try:
+            payload = _TranscriptPayload.model_validate(
+                await self._socket.receive_json()
+            )
+        except WebSocketDisconnect:
+            return None
+        except (HTTPXWSException, ValidationError, TypeError, ValueError) as refused:
+            raise CoPresenterUnavailableError from refused
+        return HearingTranscript(text=payload.text, final=payload.final)
+
+    async def aclose(self) -> None:
+        await self._socket.close()
+
+
+class UdsSpeechHearing:
+    """Read speech's readiness and hear through its private socket."""
+
+    def __init__(self, socket_path: Path) -> None:
+        """Keep the one configured speech socket path."""
+        self._socket_path = socket_path
+
+    def _client(self) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            base_url=_PRIVATE_ORIGIN,
+            transport=httpx2.AsyncHTTPTransport(uds=str(self._socket_path)),
+            timeout=httpx2.Timeout(_STATUS_TIMEOUT),
+            trust_env=False,
+        )
+
+    async def readiness(self) -> CoPresenterReadiness:
+        """Validate the two health fields the browser consumes."""
+        try:
+            async with self._client() as client:
+                response = await client.get("/health")
+                response.raise_for_status()
+                health = _Health.model_validate(response.json())
+        except (httpx2.HTTPError, ValidationError, TypeError, ValueError) as refused:
+            raise CoPresenterUnavailableError from refused
+        return CoPresenterReadiness(
+            hearing_sample_rate=health.sample_rate,
+            local_hearing_ready=health.hearing.ready,
+        )
+
+    @asynccontextmanager
+    async def hear(self, language: str) -> AsyncGenerator[PrivateHearing]:
+        """Open one hearing WebSocket on speech."""
+        try:
+            async with (
+                self._client() as client,
+                client.websocket("/hear", params={"language": language}) as socket,
+            ):
+                yield _SpeechHearing(socket)
+        except BaseExceptionGroup as refused:
+            if _is_expected_private_failure(refused):
+                raise CoPresenterUnavailableError from refused
+            raise
+        except (httpx2.HTTPError, HTTPXWSException, TypeError, ValueError) as refused:
+            raise CoPresenterUnavailableError from refused
+
+
+def _is_expected_private_failure(refused: BaseException) -> bool:
+    if isinstance(refused, BaseExceptionGroup):
+        group = cast("BaseExceptionGroup[BaseException]", refused)
+        return all(_is_expected_private_failure(error) for error in group.exceptions)
+    return isinstance(
+        refused,
+        (CoPresenterUnavailableError, httpx2.HTTPError, HTTPXWSException),
+    )
 
 
 class UdsSpeech:

@@ -25,7 +25,6 @@ from presentator.contracts.copresenter import (
     Audio,
     CoPresenterUnavailableError,
     Done,
-    HearingUnavailable,
     Question,
     Sentence,
 )
@@ -130,7 +129,6 @@ def add_copresenter_routes(
             )
         return JSONResponse(
             {
-                "answerer": {"model": ready.answerer_model},
                 "speech": {
                     "sample_rate": ready.hearing_sample_rate,
                     "hearing": {"ready": ready.local_hearing_ready},
@@ -343,7 +341,7 @@ async def _pipe_hearing(
                 receive = asyncio.create_task(socket.receive())
             if transcript in done:
                 event = transcript.result()
-                if event is None or isinstance(event, HearingUnavailable):
+                if event is None:
                     return True
                 await socket.send_json({"text": event.text, "final": event.final})
                 transcript = asyncio.create_task(hearing.receive())

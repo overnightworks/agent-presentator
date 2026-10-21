@@ -6,21 +6,17 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from httpcore2._backends.auto import AutoBackend
 
 from presentator.adapters.copresenter import UdsCoPresenter
-from presentator.application.copresenter import CoPresenterUse
 from presentator.contracts.copresenter import (
     AnswerText,
     AnswerUnavailable,
     Audio,
-    CoPresenterReadiness,
     CoPresenterUnavailableError,
     Done,
-    HearingTranscript,
-    HearingUnavailable,
     Question,
     Sentence,
 )
@@ -31,27 +27,13 @@ if TYPE_CHECKING:
 from tests.adapters.serving import Serving, unix_listener
 
 
-def test_uds_adapter_maps_narrow_readiness_and_native_incremental_sse(
-    tmp_path: Path,
-) -> None:
-    asyncio.run(_read_readiness_and_answer(tmp_path))
+def test_uds_adapter_maps_native_incremental_sse(tmp_path: Path) -> None:
+    asyncio.run(_read_answer(tmp_path))
 
 
-async def _read_readiness_and_answer(tmp_path: Path) -> None:
+async def _read_answer(tmp_path: Path) -> None:
     seen_headers: dict[str, str] = {}
     app = FastAPI()
-
-    async def _who(request: Request) -> dict[str, object]:
-        seen_headers.update(request.headers)
-        return {
-            "answerer": {"provider": "private", "model": "canned"},
-            "speech": {
-                "sample_rate": 16_000,
-                "hearing": {"ready": True, "model": "private-hearing"},
-                "credential": "unused",
-            },
-            "deck": {"path": "/private/deck"},
-        }
 
     async def _ask(request: Request) -> StreamingResponse:
         seen_headers.update(request.headers)
@@ -65,23 +47,16 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
-    app.add_api_route("/who", _who, methods=["GET"])
     app.add_api_route("/ask", _ask, methods=["POST"])
 
     socket_path = tmp_path / "copresenter.sock"
     async with Serving(app, unix_listener(socket_path)):
         adapter = UdsCoPresenter(socket_path)
-        readiness = await adapter.readiness()
         async with adapter.answer(
             Question(said="Frage", slide=1, language="de")
         ) as answer:
             events = [event async for event in answer]
 
-    assert readiness == CoPresenterReadiness(
-        answerer_model="canned",
-        hearing_sample_rate=16_000,
-        local_hearing_ready=True,
-    )
     assert events == [
         AnswerText(text="Antwort"),
         Sentence(text="Antwort."),
@@ -91,75 +66,6 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
     assert "cookie" not in seen_headers
     assert "authorization" not in seen_headers
     assert "x-csrf-token" not in seen_headers
-
-
-def test_uds_adapter_uses_native_websocket_in_both_directions(tmp_path: Path) -> None:
-    asyncio.run(_use_hearing(tmp_path))
-
-
-async def _use_hearing(tmp_path: Path) -> None:
-    app = FastAPI()
-    received: list[bytes] = []
-
-    async def _hear(socket: WebSocket, language: str) -> None:
-        assert language == "de"
-        await socket.accept()
-        received.append(await socket.receive_bytes())
-        await socket.send_json({"text": "gehört", "final": True})
-
-    app.add_api_websocket_route("/hear", _hear)
-
-    socket_path = tmp_path / "copresenter.sock"
-    async with Serving(app, unix_listener(socket_path)):
-        adapter = UdsCoPresenter(socket_path)
-        async with CoPresenterUse(private=adapter).hear("de") as hearing:
-            await hearing.send_pcm(b"pcm")
-            transcript = await hearing.receive()
-
-    assert received == [b"pcm"]
-    assert transcript == HearingTranscript(text="gehört", final=True)
-
-
-def test_uds_adapter_maps_private_hearing_endings_to_the_port_contract(
-    tmp_path: Path,
-) -> None:
-    asyncio.run(_read_private_hearing_endings(tmp_path))
-
-
-async def _read_private_hearing_endings(tmp_path: Path) -> None:
-    app = FastAPI()
-
-    async def _hear(socket: WebSocket, language: str) -> None:
-        await socket.accept()
-        if language == "crashed":
-            message = "private peer crashed"
-            raise RuntimeError(message)
-        if language == "caller-fault":
-            await socket.send_json({"text": "opened", "final": True})
-            await socket.close()
-            return
-        if language == "unavailable":
-            await socket.send_json({"text": "", "final": True, "error": "unavailable"})
-        else:
-            await socket.close()
-
-    app.add_api_websocket_route("/hear", _hear)
-    socket_path = tmp_path / "copresenter.sock"
-
-    async with Serving(app, unix_listener(socket_path)):
-        adapter = UdsCoPresenter(socket_path)
-        async with adapter.hear("unavailable") as hearing:
-            unavailable = await hearing.receive()
-        async with adapter.hear("closed") as hearing:
-            closed = await hearing.receive()
-        with pytest.raises(CoPresenterUnavailableError):
-            await _send_pcm_to_crashed_peer(adapter)
-        with pytest.raises(ExceptionGroup) as propagated:
-            await _raise_caller_fault(adapter)
-
-    assert unavailable == HearingUnavailable()
-    assert closed is None
-    assert propagated.value.subgroup(_CallerFaultError) is not None
 
 
 def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
@@ -181,32 +87,15 @@ def test_missing_socket_maps_to_typed_unavailability_without_tcp_retry(
     assert attempted_tcp == []
 
 
-class _CallerFaultError(Exception):
-    pass
-
-
-async def _raise_caller_fault(adapter: UdsCoPresenter) -> None:
-    async with adapter.hear("caller-fault") as hearing:
-        assert await hearing.receive() == HearingTranscript(text="opened", final=True)
-        raise _CallerFaultError
-
-
-async def _send_pcm_to_crashed_peer(adapter: UdsCoPresenter) -> None:
-    async with adapter.hear("crashed") as hearing:
-        await hearing.send_pcm(b"pcm")
-
-
 async def _refuse_missing_socket(tmp_path: Path) -> None:
     adapter = UdsCoPresenter(tmp_path / "missing.sock")
     with pytest.raises(CoPresenterUnavailableError):
-        await adapter.readiness()
-    with pytest.raises(CoPresenterUnavailableError):
-        await _open_missing_hearing(adapter)
+        await _read_missing_answer(adapter)
 
 
-async def _open_missing_hearing(adapter: UdsCoPresenter) -> None:
-    async with adapter.hear("de"):
-        pytest.fail("missing private socket yielded a hearing")
+async def _read_missing_answer(adapter: UdsCoPresenter) -> None:
+    async with adapter.answer(Question(said="Frage", slide=1, language=None)) as answer:
+        await anext(answer)
 
 
 def test_private_status_and_malformed_protocol_map_to_typed_unavailability(
@@ -217,9 +106,6 @@ def test_private_status_and_malformed_protocol_map_to_typed_unavailability(
 
 async def _refuse_private_failures(tmp_path: Path) -> None:
     app = FastAPI()
-
-    async def _who() -> JSONResponse:
-        return JSONResponse({"private": "detail"}, status_code=503)
 
     async def _ask(request: Request) -> StreamingResponse:
         question = await request.json()
@@ -233,26 +119,15 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
-    async def _hear(socket: WebSocket) -> None:
-        await socket.accept()
-        await socket.send_json({"text": ["not", "text"], "final": True})
-        await socket.close()
-
-    app.add_api_route("/who", _who, methods=["GET"])
     app.add_api_route("/ask", _ask, methods=["POST"])
-    app.add_api_websocket_route("/hear", _hear)
     socket_path = tmp_path / "copresenter.sock"
     adapter = UdsCoPresenter(socket_path)
 
     async with Serving(app, unix_listener(socket_path)):
         with pytest.raises(CoPresenterUnavailableError):
-            await adapter.readiness()
-        with pytest.raises(CoPresenterUnavailableError):
             await _read_error_then_malformed_audio(adapter)
         with pytest.raises(CoPresenterUnavailableError):
             await _read_unknown_private_event(adapter)
-        with pytest.raises(CoPresenterUnavailableError):
-            await _receive_malformed_hearing(adapter)
 
 
 async def _read_error_then_malformed_audio(adapter: UdsCoPresenter) -> None:
@@ -266,11 +141,6 @@ async def _read_unknown_private_event(adapter: UdsCoPresenter) -> None:
         Question(said="Unbekannt", slide=1, language=None)
     ) as answer:
         await anext(answer)
-
-
-async def _receive_malformed_hearing(adapter: UdsCoPresenter) -> None:
-    async with adapter.hear("de") as hearing:
-        await hearing.receive()
 
 
 def test_cancelled_native_answer_closes_the_private_stream(tmp_path: Path) -> None:

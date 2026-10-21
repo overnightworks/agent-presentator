@@ -14,7 +14,11 @@ from presentator.contracts.copresenter import (
     Question,
 )
 from presentator.ports.clock import Clock
-from presentator.ports.copresenter import PrivateCoPresenter, PrivateHearing
+from presentator.ports.copresenter import (
+    PrivateCoPresenter,
+    PrivateHearing,
+    SpeechHearing,
+)
 
 type CoPresenterHearing = PrivateHearing
 
@@ -23,24 +27,25 @@ type CoPresenterHearing = PrivateHearing
 class CoPresenterUse:
     """Use at most one private operation and close every operation it opens."""
 
-    private: PrivateCoPresenter
+    answers: PrivateCoPresenter
+    speech: SpeechHearing
 
     async def readiness(self) -> CoPresenterReadiness:
-        """Return the private service's narrow readiness report."""
-        return await self.private.readiness()
+        """Return speech's narrow readiness report."""
+        return await self.speech.readiness()
 
     @asynccontextmanager
     async def answer(
         self, question: Question
     ) -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
         """Keep the private answer owned for exactly as long as its caller reads it."""
-        async with self.private.answer(question) as events:
+        async with self.answers.answer(question) as events:
             yield events
 
     @asynccontextmanager
     async def hear(self, language: str) -> AsyncGenerator[PrivateHearing]:
         """Close and await the single private hearing child on every exit."""
-        async with self.private.hear(language) as hearing:
+        async with self.speech.hear(language) as hearing:
             try:
                 yield hearing
             finally:
