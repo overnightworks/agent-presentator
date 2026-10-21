@@ -1,7 +1,0 @@
-claim_id = "1e789d3d3176480ebfd48d6fcccfcbbf"
-agent = "claude"
-role = "builder"
-base = "dd6e09fc0c904c75ff3c3c0d8f745bb62d5f059b"
-branch = "claude/issue-358-sonar-sees-js-coverage"
-scope = [".github/workflows/ci.yml", "quality/config.toml", "sonar-project.properties"]
-opened_commit = "a8ec1707b0d89bac586cf1439b239f910dfbe0c9"
