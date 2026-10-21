@@ -173,6 +173,26 @@ sequences. The session record is the identity adapter's own, with the token as a
 four-column `sessions` table is refused untouched like every older shape: no
 operated database has it, so there is no in-place migration.
 
+### Amendment 2026-10-21 — webauth's `SessionGate` is the HTTP authority
+
+Authority: [#376](https://github.com/overnightworks/agent-presentator/issues/376)
+(W2 of [#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+
+`create_lobby` installs the library's middleware once, through
+`install_web_auth_middleware`, in the library's order: security headers, CSRF
+origin, CSRF token, session gate. This replaces the hand-written whole-app guard
+of the 2026-09-08 amendment. The gate admits each gated request's session in a
+worker thread, so the `touch` that renews it no longer runs on the event loop.
+Its `session_transaction` is `nullcontext(sessions)` and takes no lock: each
+store call commits on its own and `touch` is one update-only statement, so a lock
+would only queue every page behind sign-ins. The public rules are the sign-in,
+sign-out and `/setup` paths for every method, the `/static/` prefix for every
+method, and the `/sources/` hook prefix for POST only; `/datenschutz` is
+optional. A path with a `.` or `..` segment is never public. Pages read who is
+signed in through `admitted_user`, and `request.state` carries nothing. The
+co-presenter's WebSocket is not an HTTP request, so it still admits through
+`admit_session` in its route.
+
 ### What exists today, and what does not
 
 Six interface needs were filed against #825 as
