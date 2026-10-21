@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import struct
+import threading
 from typing import TYPE_CHECKING
 
 from speech.config import HEAR_SAMPLE_RATE
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 
 SAMPLE_RATE = HEAR_SAMPLE_RATE
 SPEAK_SAMPLE_RATE = 22_050
+GATE_TIMEOUT_SECONDS = 5.0
 
 
 def sine_pcm(seconds: float, rate: int = SAMPLE_RATE, freq: float = 440.0) -> bytes:
@@ -61,6 +63,48 @@ class FakeSpeaking:
         """The in-memory fake owns no external resources."""
 
 
+class GatedSpeaking:
+    """A synthesis fake whose first and last PCM chunks each wait for a gate."""
+
+    model_name = "gated-voice"
+    ready = True
+    streams = True
+    retain_when_inactive = False
+    sample_rate = SPEAK_SAMPLE_RATE
+
+    def __init__(self, *, hold_last_chunk: bool = False) -> None:
+        self.entered_first_step = threading.Event()
+        self.release_first_step = threading.Event()
+        self.release_last_chunk = threading.Event()
+        if not hold_last_chunk:
+            self.release_last_chunk.set()
+        self._lock = threading.Lock()
+        self.active_syntheses = 0
+        self.most_concurrent_syntheses = 0
+
+    def load(self) -> None:
+        self.ready = True
+
+    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+        del text, language
+        with self._lock:
+            self.active_syntheses += 1
+            self.most_concurrent_syntheses = max(
+                self.most_concurrent_syntheses, self.active_syntheses
+            )
+        try:
+            self.entered_first_step.set()
+            self.release_first_step.wait(timeout=GATE_TIMEOUT_SECONDS)
+            pcm = sine_pcm(0.05, rate=self.sample_rate)
+            mid = (len(pcm) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
+            yield pcm[:mid]
+            self.release_last_chunk.wait(timeout=GATE_TIMEOUT_SECONDS)
+            yield pcm[mid:]
+        finally:
+            with self._lock:
+                self.active_syntheses -= 1
+
+
 class FakeHearing:
     model_name = "fake-ears"
     ready = True
@@ -69,6 +113,7 @@ class FakeHearing:
         self.ready = ready
         self._fail = fail
         self.sessions = 0
+        self.transcriptions = 0
 
     def load(self) -> None:
         if self._fail:
@@ -82,6 +127,7 @@ class FakeHearing:
         spoken = "eins"
 
         def transcribe(pcm: bytes) -> str:
+            self.transcriptions += 1
             duration = len(pcm) / (SAMPLE_RATE * BYTES_PER_SAMPLE)
             if duration < 0.2:
                 return ""
