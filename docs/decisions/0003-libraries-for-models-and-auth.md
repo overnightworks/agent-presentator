@@ -331,7 +331,7 @@ presentator session only at its twelve-hour cap.
 The stack also carries webauth's body cap: 32 KiB for every route, 25 MiB for
 `POST` under the hook prefix, the budget that covers the 25 MB payload cap GitHub
 ([webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads))
-and GitLab ([webhooks](https://docs.gitlab.com/user/project/integrations/webhooks/)) document (25 MiB
+and GitLab ([webhooks](https://docs.gitlab.com/administration/instance_limits/#webhook-payload-size)) document (25 MiB
 is the larger unit); Forgejo documents none, only a limit of 15 commits per push payload. A
 declared length over the budget is answered 413 before the route. A body
 without a length is cut where the route reads past the budget: 413 on the

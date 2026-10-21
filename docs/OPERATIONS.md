@@ -33,7 +33,7 @@ a valid Logout Token then ends every session of its subject, on every device. Th
 route is not live until the client registers it. Request bodies are capped at
 32 KiB, and `POST /sources/<name>/fetch` at 25 MiB (a budget above the 25 MB payload cap that
 [GitHub](https://docs.github.com/en/webhooks/webhook-events-and-payloads) and
-[GitLab](https://docs.gitlab.com/user/project/integrations/webhooks/) document, as
+[GitLab](https://docs.gitlab.com/administration/instance_limits/#webhook-payload-size) document, as
 25 MiB is the larger unit); a larger declared length gets 413. The Keycloak client must register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as its post-logout redirect URI, or Keycloak shows an error page at every logout. A session past its expiry is refused, and a sweep of its own deletes
 its row every five minutes, apart from the deck refresh.
 
