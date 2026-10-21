@@ -190,12 +190,12 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix=ENVIRONMENT_PREFIX, frozen=True)
 
     build_timeout_seconds: float = Field(
-        DEFAULT_BUILD_TIMEOUT_SECONDS,
+        default=DEFAULT_BUILD_TIMEOUT_SECONDS,
         gt=0,
         le=LONGEST_BUILD_TIMEOUT_SECONDS,
         allow_inf_nan=False,
     )
-    build_output_megabytes: int = Field(DEFAULT_BUILD_OUTPUT_MEGABYTES, gt=0)
+    build_output_megabytes: int = Field(default=DEFAULT_BUILD_OUTPUT_MEGABYTES, gt=0)
 
 
 def _variable_of(field_name: str) -> str:

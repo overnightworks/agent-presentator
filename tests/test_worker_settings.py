@@ -16,8 +16,10 @@ from presentator.host.config import (
 )
 
 TIMEOUT_VARIABLE = "PRESENTATOR_BUILD_TIMEOUT_SECONDS"
+MEGABYTES_VARIABLE = "PRESENTATOR_BUILD_OUTPUT_MEGABYTES"
 SUBPROCESS_SECONDS = 30
 DESIGNED_DEFAULT_SECONDS = 300.0
+DESIGNED_DEFAULT_MEGABYTES = 300
 UNIQUE_BAD_VALUE = "hunter2-seconds"
 
 
@@ -36,6 +38,19 @@ def test_the_default_needs_no_variable_of_the_web_and_is_the_web_default() -> No
         settings.build_timeout_seconds
         == Settings.model_fields["build_timeout_seconds"].default
     )
+
+
+def test_the_megabytes_default_is_the_web_default() -> None:
+    megabytes = load_worker_settings().build_output_megabytes
+
+    assert megabytes == DESIGNED_DEFAULT_MEGABYTES
+    assert megabytes == Settings.model_fields["build_output_megabytes"].default
+
+
+def test_the_environment_sets_the_megabytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(MEGABYTES_VARIABLE, "45")
+
+    assert load_worker_settings() == WorkerSettings(build_output_megabytes=45)
 
 
 def test_the_environment_overrides_the_timeout(
@@ -81,6 +96,19 @@ def test_an_unusable_timeout_is_refused_by_the_variable_name_without_its_value(
     assert TIMEOUT_VARIABLE in str(refused.value)
 
 
+@pytest.mark.parametrize("value", ["abc", "", "0", "-1", "1.5"])
+def test_an_unusable_megabytes_is_refused_by_the_variable_name_without_its_value(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(MEGABYTES_VARIABLE, value)
+
+    with pytest.raises(ConfigurationError) as refused:
+        load_worker_settings()
+
+    assert MEGABYTES_VARIABLE in str(refused.value)
+    assert TIMEOUT_VARIABLE not in str(refused.value)
+
+
 def test_a_refusal_never_quotes_the_value_it_refuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -93,7 +121,10 @@ def test_a_refusal_never_quotes_the_value_it_refuses(
 
 
 def test_the_variables_of_the_worker_are_derived_from_its_fields() -> None:
-    assert worker_settings_variables() == {TIMEOUT_VARIABLE}
+    assert worker_settings_variables() == {
+        TIMEOUT_VARIABLE,
+        MEGABYTES_VARIABLE,
+    }
 
 
 def test_importing_the_worker_reads_no_setting(

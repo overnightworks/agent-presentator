@@ -80,6 +80,7 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
 
     serving = replace(
         life.serving(),
+        deck=deck,
         open_deck=worker.open_deck,
         close_deck=close_noting_mode,
     )

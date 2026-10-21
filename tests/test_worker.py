@@ -230,7 +230,7 @@ FAILURES = {
 }
 
 
-LOADED_SETTINGS = WorkerSettings(build_timeout_seconds=45.0)
+LOADED_SETTINGS = WorkerSettings(build_timeout_seconds=45.0, build_output_megabytes=7)
 
 
 def boundary_over(
@@ -347,11 +347,15 @@ def test_a_refused_self_check_never_loads_the_settings() -> None:
     assert "settings" not in events
 
 
+@pytest.mark.parametrize(
+    "variable",
+    ["PRESENTATOR_BUILD_TIMEOUT_SECONDS", "PRESENTATOR_BUILD_OUTPUT_MEGABYTES"],
+)
 def test_an_invalid_setting_refuses_by_variable_name_never_the_value(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, variable: str
 ) -> None:
     events: list[str] = []
-    monkeypatch.setenv("PRESENTATOR_BUILD_TIMEOUT_SECONDS", "unique-bad-value-4711")
+    monkeypatch.setenv(variable, "unique-bad-value-4711")
 
     status = worker.main(
         [],
@@ -362,7 +366,7 @@ def test_an_invalid_setting_refuses_by_variable_name_never_the_value(
 
     assert status == worker.REFUSAL_EXIT_STATUS
     assert events[-1] == "settings"
-    assert "PRESENTATOR_BUILD_TIMEOUT_SECONDS" in caplog.text
+    assert variable in caplog.text
     assert worker.StartRefusal.SETTINGS in caplog.text
     assert "unique-bad-value-4711" not in caplog.text
 
@@ -399,8 +403,9 @@ def test_the_real_boundary_serves_the_socket_directory_bounded_by_the_settings(
     ) == (0, 1000, 1001)
     assert isinstance(served["serving"], Serving)
     assert (
-        served["serving"].build_timeout_seconds == LOADED_SETTINGS.build_timeout_seconds
-    )
+        served["serving"].build_timeout_seconds,
+        served["serving"].build_output_megabytes,
+    ) == (45.0, 7)
 
 
 def test_failing_prctl_refuses_before_reading_anything() -> None:

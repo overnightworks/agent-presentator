@@ -13,13 +13,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from presentator.adapters.build_wire import StepHeader, write_record
+from presentator.adapters.build_wire import MEGABYTE, StepHeader, write_record
 from presentator.contracts.decks import StepKind
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
 from presentator.host.worker import create_request_record
 from presentator.host.worker_wire import WireExit, WireRole
-from tests.worker_support import UNUSED_DECK, end_entry, file_entry
+from tests.worker_support import UNUSED_DECK, end_entry, file_entry, file_header
 
 WIRE_ID = worker.WIRE_IDENTITY[0]
 GATED_FIELDS = {
@@ -109,11 +109,19 @@ def test_production_judges_by_the_gate_of_the_wire_identity() -> None:
 
 
 def test_production_carries_the_build_bound_of_the_settings() -> None:
-    settings = WorkerSettings(build_timeout_seconds=9.0)
+    settings = WorkerSettings(build_timeout_seconds=9.0, build_output_megabytes=7)
 
     serving = worker.real_serving(settings)
 
-    assert serving.build_timeout_seconds == settings.build_timeout_seconds
+    assert (serving.build_timeout_seconds, serving.build_output_megabytes) == (9.0, 7)
+
+
+def test_production_hands_the_deck_effects_the_deck_it_carries() -> None:
+    serving = worker.real_serving(WorkerSettings())
+
+    assert serving.open_deck is worker.open_deck
+    assert serving.close_deck is worker.close_deck
+    assert serving.deck == Path(worker.WORK_MOUNT) / "deck"
 
 
 def test_the_exit_status_is_outside_what_a_shell_returns_by_itself() -> None:
@@ -303,6 +311,52 @@ def test_the_upload_entry_answers_status_then_receives_into_the_deck_exiting_upl
     )
     assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
     assert (tmp_path / "slide.md").read_bytes() == b"# hi"
+
+
+def test_the_upload_entry_enforces_the_megabytes_of_its_argument(
+    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+    client.sendall(file_header(b"f", MEGABYTE + 1))
+
+    assert (
+        run_bounded(
+            client,
+            lambda: worker_wire.main(
+                entry_arguments(descriptor, record, WireRole.UPLOAD, tmp_path, 1)
+            ),
+        )
+        == WireExit.CLOSED
+    )
+    assert client.recv(64) == b"PBW\x01\x03\x00\x02{}"
+    assert not (tmp_path / "f").exists()
+
+
+def test_the_upload_entry_accepts_what_its_larger_argument_allows(
+    client_and_descriptor: tuple[socket.socket, int], record: int, tmp_path: Path
+) -> None:
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.EXPORT, slug="my-deck"))
+    content = os.urandom(MEGABYTE + 1)
+    sender = threading.Thread(
+        target=client.sendall,
+        args=(file_entry(b"f", content) + end_entry(1, len(content)),),
+    )
+    sender.start()
+    try:
+        exit_status = run_bounded(
+            client,
+            lambda: worker_wire.main(
+                entry_arguments(descriptor, record, WireRole.UPLOAD, tmp_path, 2)
+            ),
+        )
+    finally:
+        sender.join(SECONDS_TO_WAIT)
+
+    assert not sender.is_alive()
+    assert exit_status == WireExit.UPLOADED
+    assert (tmp_path / "f").read_bytes() == content
 
 
 def test_the_upload_entry_exits_closed_before_status_when_the_deck_cannot_be_opened(
