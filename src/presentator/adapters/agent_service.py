@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 _PURPOSE: Final = "copresenter"
 _EVENT_STREAM: Final = "text/event-stream"
 _BEARER_TOKEN: Final = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
-_WHOLE_SECONDS: Final = re.compile(r"[0-9]{1,9}")
+_WHOLE_SECONDS: Final = re.compile(r"\d{1,9}", re.ASCII)
 # Read is four heartbeats of the service's fifteen seconds.
 _TIMEOUT: Final = httpx2.Timeout(connect=5, write=5, pool=5, read=60)
 

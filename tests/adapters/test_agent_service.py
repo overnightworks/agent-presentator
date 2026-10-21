@@ -167,7 +167,10 @@ class _Wire:
             raise httpx2.ConnectError(PERSON)
         return httpx2.Response(
             self._reply.status,
-            headers=self._reply.headers,
+            headers=[
+                (name.encode(), value.encode())
+                for name, value in self._reply.headers.items()
+            ],
             stream=self.response_stream,
         )
 
@@ -484,7 +487,7 @@ def test_a_refusal_without_a_known_code_is_unavailable_with_code_none(
     assert len(asker.wire.requests) == 1
 
 
-@pytest.mark.parametrize("retry_after", ["soon", "-5", "1e3"])
+@pytest.mark.parametrize("retry_after", ["soon", "-5", "1e3", "٣"])
 def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
     retry_after: str, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -553,9 +556,10 @@ def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
         _answer(*_whole(_frames(*_GOOD_ANSWER))),
         **{which: cancelled},
     )
+    run = asker.ask()
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(asker.ask())
+        asyncio.run(run)
 
     assert asker.wire.requests == []
 
