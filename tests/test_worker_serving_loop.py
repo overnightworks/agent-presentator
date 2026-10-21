@@ -197,6 +197,8 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         str(spawned.pass_fds[1]),
         "--deck",
         str(UNUSED_DECK),
+        "--megabytes",
+        "300",
     ]
 
 

@@ -171,7 +171,7 @@ def test_a_thirteen_byte_end_with_no_entries_is_accepted_and_read_no_further(
     reading_end, writing_end = wire
     writing_end.sendall(b"\x03" + bytes(12) + b"more")
 
-    receive_entries(reading_end, deck)
+    receive_entries(reading_end, deck, 300)
 
     assert reading_end.recv(64) == b"more"
 
@@ -196,7 +196,7 @@ def test_an_end_that_is_short_wrongly_tagged_or_not_empty_is_refused(
     writing_end.shutdown(socket.SHUT_WR)
 
     with pytest.raises(WireRefusedError):
-        receive_entries(reading_end, deck)
+        receive_entries(reading_end, deck, 300)
 
 
 def test_a_lone_unknown_tag_is_refused_without_waiting_for_the_rest(
@@ -206,4 +206,4 @@ def test_a_lone_unknown_tag_is_refused_without_waiting_for_the_rest(
     writing_end.sendall(b"\x00")
 
     with pytest.raises(WireRefusedError):
-        receive_entries(reading_end, deck)
+        receive_entries(reading_end, deck, 300)

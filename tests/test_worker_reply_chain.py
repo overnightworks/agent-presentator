@@ -74,13 +74,14 @@ serving = Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=worker.seal_record,
-    open_deck=partial(worker.open_deck, deck),
-    close_deck=partial(worker.close_deck, deck),
+    open_deck=worker.open_deck,
+    close_deck=worker.close_deck,
     deck=deck,
     watchdog=FaultHandlerWatchdog(),
     clock=__import__("time").monotonic,
     readable=readable_within,
     build_timeout_seconds=300.0,
+    build_output_megabytes=1,
 )
 sys.exit(
     worker.serve(

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from presentator.adapters.build_wire import MEGABYTE, RecordTag
 from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
@@ -33,7 +34,9 @@ from tests.worker_support import (
     OWN_UID,
     directory_entry,
     end_entry,
+    entries_at_the_maximum,
     file_entry,
+    file_header,
 )
 
 CONTROLLER_UMASK = 0o077
@@ -53,6 +56,8 @@ REFUSED_UPLOADS = {
     "an order fault": file_entry(b"b", b"") + file_entry(b"a", b"") + end_entry(2, 0),
     "an END mismatch": file_entry(b"a", b"x") + end_entry(1, 2),
     "a top-level node_modules": directory_entry(b"node_modules") + end_entry(1, 0),
+    "a file over the megabytes": file_header(b"f", MEGABYTE + 1),
+    "an entry after the maximum": entries_at_the_maximum() + bytes([RecordTag.FILE]),
 }
 
 

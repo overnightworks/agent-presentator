@@ -674,13 +674,14 @@ def real_serving(settings: WorkerSettings) -> Serving:
         ),
         create_record=create_request_record,
         seal=seal_record,
-        open_deck=partial(open_deck, deck),
-        close_deck=partial(close_deck, deck),
+        open_deck=open_deck,
+        close_deck=close_deck,
         deck=deck,
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
         readable=readable_within,
         build_timeout_seconds=settings.build_timeout_seconds,
+        build_output_megabytes=settings.build_output_megabytes,
     )
 
 

@@ -211,7 +211,11 @@ def run_bounded(client: socket.socket, entry: Callable[[], object]) -> object:
 
 
 def entry_arguments(
-    descriptor: int, record: int, role: WireRole, deck: Path = UNUSED_DECK
+    descriptor: int,
+    record: int,
+    role: WireRole,
+    deck: Path = UNUSED_DECK,
+    megabytes: int = 300,
 ) -> list[str]:
     return [
         "--role",
@@ -222,6 +226,8 @@ def entry_arguments(
         str(record),
         "--deck",
         str(deck),
+        "--megabytes",
+        str(megabytes),
     ]
 
 

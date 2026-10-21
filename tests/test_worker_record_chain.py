@@ -11,7 +11,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack, closing, suppress
 from dataclasses import dataclass, field, replace
-from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -191,13 +190,14 @@ def _run_life_at(
         sweep=lambda _deadline: True,
         create_record=scenario.create_record,
         seal=scenario.seal,
-        open_deck=partial(worker.open_deck, deck),
-        close_deck=partial(worker.close_deck, deck),
+        open_deck=worker.open_deck,
+        close_deck=worker.close_deck,
         deck=deck,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         readable=readable_within,
         build_timeout_seconds=300.0,
+        build_output_megabytes=300,
     )
     outcome: list[LifeEnd | None] = []
     thread = threading.Thread(
@@ -353,13 +353,14 @@ serving = Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=worker.seal_record,
-    open_deck=lambda: None,
-    close_deck=lambda: None,
+    open_deck=lambda _deck: None,
+    close_deck=lambda _deck: None,
     deck=Path("/unused/deck"),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,
     build_timeout_seconds=1.0,
+    build_output_megabytes=300,
 )
 sys.exit(
     worker.serve(
