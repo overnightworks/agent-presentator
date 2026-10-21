@@ -135,9 +135,9 @@ def gated_person(request: Request) -> User:
 
 def gated_session_id(request: Request) -> str:
     """The session the gate admitted on a gated route, so a secret binds to it."""
-    gated_person(request)
+    person = signed_in_person(request)
     session_id = session_id_from_request(request, web_auth_config(request))
-    if session_id is None:
+    if person is None or session_id is None:
         message = "The gate admitted no session on a route that needs one."
         raise RuntimeError(message)
     return session_id
