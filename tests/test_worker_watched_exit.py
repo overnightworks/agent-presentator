@@ -96,6 +96,7 @@ def test_a_side_connection_during_a_phase_is_accepted_and_closed_unread(
     assert outcome == LifeEnd.CONSUMED
     assert recording.accept_calls == 1
     assert [side.fileno() for side in recording.accepted] == [-1]
+    assert recording.gettimeout() is None
     assert roles_spawned(life) == ["idle", "upload", "send"]
     assert sum(event.startswith("arm") for event in life.events) == 1
     assert "cancel" not in life.events
@@ -170,6 +171,7 @@ def test_nothing_pending_on_the_listener_closes_nothing_and_the_wait_goes_on(
     assert outcome == LifeEnd.CONSUMED
     assert recording.accept_calls == QUEUED_WAKES
     assert recording.accepted == []
+    assert recording.gettimeout() is None
 
 
 def test_a_failing_accept_is_logged_once_ends_the_listening_for_that_wait_only(
