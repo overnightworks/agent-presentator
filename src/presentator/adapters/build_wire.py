@@ -22,6 +22,8 @@ MAXIMUM_PATH_BYTES = 1024
 MAXIMUM_NAME_BYTES = 255
 MAXIMUM_DEPTH = 32
 CHUNK_BYTES = 64 * 1024
+MAXIMUM_ENTRIES = 100_000
+MEGABYTE = 1024 * 1024
 TOOLCHAIN_SCRATCH_NAME = b"node_modules"
 
 
@@ -216,9 +218,16 @@ def _make_directory(parent: int, name: bytes) -> int:
     )
 
 
-def _receive_file(connection: socket.socket, parent: int, name: bytes) -> int:
-    """Create the file below the parent, copy its payload in chunks, return its size."""
+def _receive_file(
+    connection: socket.socket, parent: int, name: bytes, budget: int
+) -> int:
+    """Create the file below the parent, copy its payload in chunks, return its size.
+
+    Refuses a size above the budget before the file is created.
+    """
     (size,) = SIZE.unpack(_read_exactly(connection, SIZE.size))
+    if size > budget:
+        raise WireRefusedError
     descriptor = os.open(
         name,
         os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -237,10 +246,14 @@ def _receive_file(connection: socket.socket, parent: int, name: bytes) -> int:
     return size
 
 
-def receive_entries(connection: socket.socket, deck_descriptor: int) -> None:
+def receive_entries(
+    connection: socket.socket, deck_descriptor: int, megabytes: int
+) -> None:
     """Receive DIR and FILE entries below the borrowed deck, then a matching END.
 
-    Raises WireRefusedError on any grammar, order or END fault; OSError passes through.
+    At most MAXIMUM_ENTRIES entries and megabytes of FILE bytes in total are accepted.
+    Raises WireRefusedError on any grammar, order, limit or END fault; OSError passes
+    through.
     Closes every descriptor it opened and leaves deck_descriptor open.
     """
     open_directories = [_OpenDirectory(deck_descriptor, b"")]
@@ -248,6 +261,8 @@ def receive_entries(connection: socket.socket, deck_descriptor: int) -> None:
     try:
         while (tag := _read_exactly(connection, 1)[0]) != RecordTag.END:
             if tag not in {RecordTag.DIR, RecordTag.FILE}:
+                raise WireRefusedError
+            if count == MAXIMUM_ENTRIES:
                 raise WireRefusedError
             components = _read_path(connection)
             parent = _enter_parent(open_directories, components)
@@ -259,7 +274,12 @@ def receive_entries(connection: socket.socket, deck_descriptor: int) -> None:
                     )
                 )
             else:
-                total += _receive_file(connection, parent.descriptor, components[-1])
+                total += _receive_file(
+                    connection,
+                    parent.descriptor,
+                    components[-1],
+                    megabytes * MEGABYTE - total,
+                )
             count += 1
         if END_COUNTS.unpack(_read_exactly(connection, END_COUNTS.size)) != (
             count,

@@ -12,18 +12,28 @@ import pytest
 
 from presentator.adapters.build_wire import (
     LENGTH,
+    MAXIMUM_ENTRIES,
     MAXIMUM_PATH_BYTES,
+    MEGABYTE,
     SIZE,
     RecordTag,
     WireRefusedError,
     path_components,
     receive_entries,
 )
-from tests.worker_support import WAIT_SECONDS, directory_entry, end_entry, file_entry
+from tests.worker_support import (
+    WAIT_SECONDS,
+    directory_entry,
+    end_entry,
+    entries_at_the_maximum,
+    file_entry,
+    file_header,
+)
 
 SENDER_JOIN_SECONDS = 10
+BULK_SEND_SECONDS = 60
 SHORT_RECEIVE_BYTES = 4096
-MEBIBYTE = 1024 * 1024
+DEFAULT_MEGABYTES = 300
 DEEPEST = 32
 
 
@@ -70,12 +80,15 @@ def open_descriptors() -> set[Path]:
 
 
 def receive_sent(
-    wire: tuple[socket.socket, socket.socket], deck: int, sent: bytes
+    wire: tuple[socket.socket, socket.socket],
+    deck: int,
+    sent: bytes,
+    megabytes: int = DEFAULT_MEGABYTES,
 ) -> None:
     reading_end, writing_end = wire
     writing_end.sendall(sent)
     writing_end.shutdown(socket.SHUT_WR)
-    receive_entries(reading_end, deck)
+    receive_entries(reading_end, deck, megabytes)
 
 
 NESTED = [b"/".join([b"a"] * depth) for depth in range(1, DEEPEST + 1)]
@@ -135,7 +148,7 @@ def test_a_path_length_over_the_maximum_is_refused_without_waiting_for_its_bytes
     writing_end.sendall(bytes([RecordTag.DIR]) + LENGTH.pack(1025))
 
     with pytest.raises(WireRefusedError):
-        receive_entries(reading_end, deck)
+        receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
 
 
 def test_an_unknown_tag_after_a_valid_entry_is_refused_without_waiting(
@@ -145,7 +158,7 @@ def test_an_unknown_tag_after_a_valid_entry_is_refused_without_waiting(
     writing_end.sendall(directory_entry(b"a") + b"\x00")
 
     with pytest.raises(WireRefusedError):
-        receive_entries(reading_end, deck)
+        receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
 
     assert deck_tree(tmp_path) == {b"a": None}
 
@@ -283,7 +296,7 @@ def test_a_nested_upload_is_stored_byte_equal_and_the_read_stops_after_end(
     sender = threading.Thread(target=writing_end.sendall, args=(sent,))
     sender.start()
     try:
-        receive_entries(reading_end, deck)
+        receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
         following = reading_end.recv(4)
     finally:
         sender.join(SENDER_JOIN_SECONDS)
@@ -378,7 +391,7 @@ def test_a_payload_is_received_in_chunks_and_written_before_the_next_is_read(
     sender.start()
     try:
         with closing(recording):
-            receive_entries(recording, root)
+            receive_entries(recording, root, DEFAULT_MEGABYTES)
     finally:
         sender.join(SENDER_JOIN_SECONDS)
         os.close(root)
@@ -404,12 +417,12 @@ def test_a_declared_size_far_beyond_the_payload_is_refused_without_allocating_it
     tracemalloc.start()
     try:
         with pytest.raises(WireRefusedError):
-            receive_sent(wire, deck, sent)
+            receive_sent(wire, deck, sent, megabytes=2**44)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
 
-    assert peak < MEBIBYTE
+    assert peak < MEGABYTE
     assert (tmp_path / "deck/f").read_bytes() == b""
     assert os.fstat(deck)
     assert open_descriptors() == before
@@ -429,3 +442,164 @@ def test_a_valid_path_splits_on_slashes_into_raw_components(
 def test_the_path_rule_refuses_every_broken_path(path: bytes) -> None:
     with pytest.raises(WireRefusedError):
         path_components(path)
+
+
+def sent_from_a_thread(
+    writing_end: socket.socket, sent: bytes, release: threading.Event | None = None
+) -> threading.Thread:
+    """Start the sender; with a release it keeps the connection open until set."""
+
+    def send() -> None:
+        writing_end.settimeout(BULK_SEND_SECONDS)
+        writing_end.sendall(sent)
+        if release is not None:
+            release.wait(WAIT_SECONDS)
+
+    sender = threading.Thread(target=send)
+    sender.start()
+    return sender
+
+
+@pytest.mark.parametrize(
+    ("megabytes", "size"), [(1, MEGABYTE), (2, MEGABYTE + 1)], ids=["exactly", "over"]
+)
+def test_a_file_within_the_megabytes_is_accepted_byte_equal(
+    wire: tuple[socket.socket, socket.socket],
+    deck: int,
+    tmp_path: Path,
+    megabytes: int,
+    size: int,
+) -> None:
+    reading_end, writing_end = wire
+    content = os.urandom(size)
+    sender = sent_from_a_thread(
+        writing_end, file_entry(b"f", content) + end_entry(1, size)
+    )
+    try:
+        receive_entries(reading_end, deck, megabytes)
+    finally:
+        sender.join(SENDER_JOIN_SECONDS)
+
+    assert not sender.is_alive()
+    assert deck_tree(tmp_path) == {b"f": content}
+
+
+def test_a_file_over_the_megabytes_is_refused_before_it_is_created(
+    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
+) -> None:
+    sent = file_header(b"f", MEGABYTE + 1)
+
+    with pytest.raises(WireRefusedError):
+        receive_sent(wire, deck, sent, megabytes=1)
+
+    assert deck_tree(tmp_path) == {}
+
+
+def test_a_file_over_what_remains_is_refused_before_its_create_and_keeps_the_first(
+    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
+) -> None:
+    reading_end, writing_end = wire
+    first = os.urandom(600 * 1024)
+    release = threading.Event()
+    sender = sent_from_a_thread(
+        writing_end,
+        file_entry(b"a", first) + file_header(b"b", MEGABYTE - len(first) + 1),
+        release,
+    )
+    try:
+        with pytest.raises(WireRefusedError):
+            receive_entries(reading_end, deck, 1)
+    finally:
+        release.set()
+        sender.join(SENDER_JOIN_SECONDS)
+
+    assert not sender.is_alive()
+    assert deck_tree(tmp_path) == {b"a": first}
+
+
+def test_an_empty_file_fits_a_spent_budget(
+    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
+) -> None:
+    reading_end, writing_end = wire
+    content = os.urandom(MEGABYTE)
+    sender = sent_from_a_thread(
+        writing_end,
+        file_entry(b"a", content) + file_entry(b"b", b"") + end_entry(2, MEGABYTE),
+    )
+    try:
+        receive_entries(reading_end, deck, 1)
+    finally:
+        sender.join(SENDER_JOIN_SECONDS)
+
+    assert not sender.is_alive()
+    assert deck_tree(tmp_path) == {b"a": content, b"b": b""}
+
+
+def test_a_declared_size_beyond_the_budget_is_refused_before_create_with_the_root_open(
+    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
+) -> None:
+    before = open_descriptors()
+    sent = file_header(b"f", 2**64 - 1)
+
+    with pytest.raises(WireRefusedError):
+        receive_sent(wire, deck, sent)
+
+    assert deck_tree(tmp_path) == {}
+    assert os.fstat(deck)
+    assert open_descriptors() == before
+
+
+def test_a_budget_refusal_three_levels_deep_closes_every_descriptor_but_the_root(
+    wire: tuple[socket.socket, socket.socket], deck: int
+) -> None:
+    before = open_descriptors()
+    sent = (
+        directory_entry(b"a")
+        + directory_entry(b"a/b")
+        + file_header(b"a/b/x", MEGABYTE + 1)
+    )
+
+    with pytest.raises(WireRefusedError):
+        receive_sent(wire, deck, sent, megabytes=1)
+
+    assert os.fstat(deck)
+    assert open_descriptors() == before
+
+
+def test_the_maximum_number_of_entries_is_accepted(
+    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
+) -> None:
+    reading_end, writing_end = wire
+    sender = sent_from_a_thread(
+        writing_end, entries_at_the_maximum() + end_entry(MAXIMUM_ENTRIES, 0)
+    )
+    try:
+        receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
+    finally:
+        sender.join(BULK_SEND_SECONDS)
+
+    assert not sender.is_alive()
+    assert sum(1 for _ in (tmp_path / "deck").rglob("*")) == MAXIMUM_ENTRIES
+
+
+@pytest.mark.parametrize("tag", [RecordTag.DIR, RecordTag.FILE])
+def test_the_entry_after_the_maximum_is_refused_at_its_tag_without_waiting_for_its_path(
+    wire: tuple[socket.socket, socket.socket],
+    deck: int,
+    tmp_path: Path,
+    tag: RecordTag,
+) -> None:
+    reading_end, writing_end = wire
+    release = threading.Event()
+    sender = sent_from_a_thread(
+        writing_end, entries_at_the_maximum() + bytes([tag]), release
+    )
+    try:
+        with pytest.raises(WireRefusedError):
+            receive_entries(reading_end, deck, DEFAULT_MEGABYTES)
+    finally:
+        release.set()
+        sender.join(BULK_SEND_SECONDS)
+
+    assert not sender.is_alive()
+    assert sum(1 for _ in (tmp_path / "deck").rglob("*")) == MAXIMUM_ENTRIES

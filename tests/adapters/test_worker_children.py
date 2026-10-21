@@ -70,13 +70,14 @@ serving = worker_serving.Serving(
     sweep=lambda _deadline: True,
     create_record=worker.create_request_record,
     seal=lambda _record: None,
-    open_deck=lambda: None,
-    close_deck=lambda: None,
+    open_deck=lambda _deck: None,
+    close_deck=lambda _deck: None,
     deck=Path("/unused/deck"),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,
     build_timeout_seconds=300.0,
+    build_output_megabytes=300,
 )
 sys.exit(
     worker.serve(

@@ -197,6 +197,8 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         str(spawned.pass_fds[1]),
         "--deck",
         str(UNUSED_DECK),
+        "--megabytes",
+        "300",
     ]
 
 
@@ -265,6 +267,41 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
         "close-deck",
         *CHILD_LEG,
     ]
+
+
+def consume_an_accepted_step(volume: Path, life: ScriptedLife) -> None:
+    with listening_with(volume, accepts=1) as listener:
+        connect(volume)
+        accept_from(life, listener, OWN_UID)
+
+
+def test_every_role_is_spawned_with_the_deck_and_the_megabytes_of_the_serving(
+    volume: Path,
+) -> None:
+    life = ScriptedLife(
+        exit_status=WireExit.ACCEPTED, build_output_megabytes=7, deck=Path("/a/deck")
+    )
+
+    consume_an_accepted_step(volume, life)
+
+    assert [spawned.command[-4:] for spawned in life.spawned] == [
+        ["--deck", "/a/deck", "--megabytes", "7"]
+    ] * 3
+    assert [
+        spawned.command[spawned.command.index("--role") + 1] for spawned in life.spawned
+    ] == [
+        "idle",
+        "upload",
+        "send",
+    ]
+
+
+def test_the_deck_effects_receive_the_deck_of_the_serving(volume: Path) -> None:
+    life = ScriptedLife(exit_status=WireExit.ACCEPTED, deck=Path("/a/deck"))
+
+    consume_an_accepted_step(volume, life)
+
+    assert life.decks_handled == [Path("/a/deck")] * 2
 
 
 LIFE_ENDS = {

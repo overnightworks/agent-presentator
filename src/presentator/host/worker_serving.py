@@ -132,13 +132,14 @@ class Serving:
     sweep: Callable[[float], bool]
     create_record: Callable[[], int]
     seal: Callable[[int], None]
-    open_deck: Callable[[], None]
-    close_deck: Callable[[], None]
+    open_deck: Callable[[Path], None]
+    close_deck: Callable[[Path], None]
     deck: Path
     watchdog: Watchdog
     clock: Callable[[], float]
     readable: Callable[[Sequence[int], float], frozenset[int]]
     build_timeout_seconds: float
+    build_output_megabytes: int
 
 
 def _admitted_at_gate(child: WireChild, serving: Serving) -> bool:
@@ -188,7 +189,9 @@ class _ChildRun:
     life_end: LifeEnd | None = None
 
 
-def _command(role: WireRole, connection: int, record: int, deck: Path) -> list[str]:
+def _command(
+    role: WireRole, connection: int, record: int, serving: Serving
+) -> list[str]:
     return [
         sys.executable,
         "-I",
@@ -201,7 +204,9 @@ def _command(role: WireRole, connection: int, record: int, deck: Path) -> list[s
         "--record-fd",
         str(record),
         "--deck",
-        str(deck),
+        str(serving.deck),
+        "--megabytes",
+        str(serving.build_output_megabytes),
     ]
 
 
@@ -221,7 +226,7 @@ def _run_gated(
     """Spawn behind the gate, release and wait until the phase ends; kill on expiry."""
     try:
         child = serving.spawn(
-            _command(phase.role, *descriptors, serving.deck),
+            _command(phase.role, *descriptors, serving),
             environment={"PATH": os.environ["PATH"]},
             pass_fds=descriptors,
         )
@@ -306,7 +311,7 @@ def _sealed(serving: Serving, record: int) -> bool:
 
 def _opened_deck(serving: Serving) -> bool:
     try:
-        serving.open_deck()
+        serving.open_deck(serving.deck)
     except OSError:
         logger.exception("deck not opened")
         return False
@@ -319,9 +324,11 @@ def _run_upload_with_deck(
     try:
         upload = _run_gated(serving, phase, descriptors)
     except BaseException as original:
-        _noting_cleanup_failure(serving.close_deck, original, "closing the deck")
+        _noting_cleanup_failure(
+            partial(serving.close_deck, serving.deck), original, "closing the deck"
+        )
         raise
-    serving.close_deck()
+    serving.close_deck(serving.deck)
     return upload
 
 

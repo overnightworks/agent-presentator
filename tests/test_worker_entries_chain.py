@@ -1,14 +1,16 @@
 """DIR and FILE entries through the real roles: the upload child writes the deck."""
 
 import os
+import socket
 import stat
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 
+from presentator.adapters.build_wire import MEGABYTE, RecordTag
 from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
 from tests.test_worker_record_chain import (
@@ -33,9 +35,12 @@ from tests.worker_support import (
     OWN_UID,
     directory_entry,
     end_entry,
+    entries_at_the_maximum,
     file_entry,
+    file_header,
 )
 
+BULK_SEND_SECONDS = 60
 CONTROLLER_UMASK = 0o077
 DIRECTORY_MODE = 0o755
 FILE_MODE = 0o644
@@ -53,6 +58,10 @@ REFUSED_UPLOADS = {
     "an order fault": file_entry(b"b", b"") + file_entry(b"a", b"") + end_entry(2, 0),
     "an END mismatch": file_entry(b"a", b"x") + end_entry(1, 2),
     "a top-level node_modules": directory_entry(b"node_modules") + end_entry(1, 0),
+}
+CAPPED_UPLOADS = {
+    "a file over the megabytes": file_header(b"f", MEGABYTE + 1),
+    "an entry after the maximum": entries_at_the_maximum() + bytes([RecordTag.FILE]),
 }
 
 
@@ -122,14 +131,32 @@ def spawn_controller(volume: Path, log: Path, deck: Path) -> GatedChild:
 def test_a_refused_upload_over_a_controller_closes_with_no_reply_and_spawns_no_step(
     volume: Path, tmp_path: Path, refused: bytes
 ) -> None:
+    assert_refused_upload_closes(volume, tmp_path, refused, read_to_end_or_reset)
+
+
+@pytest.mark.parametrize("capped", CAPPED_UPLOADS.values(), ids=CAPPED_UPLOADS.keys())
+def test_a_capped_upload_over_a_controller_gets_status_then_eof_and_spawns_no_step(
+    volume: Path, tmp_path: Path, capped: bytes
+) -> None:
+    assert_refused_upload_closes(volume, tmp_path, capped, read_to_end)
+
+
+def assert_refused_upload_closes(
+    volume: Path,
+    tmp_path: Path,
+    refused: bytes,
+    read_reply: Callable[[socket.socket], bytes],
+) -> None:
     log = tmp_path / "controller.log"
     log.touch()
     controller = spawn_controller(volume, log, tmp_path / "deck")
     try:
         controller.release()
         with closing(connect_when_serving(volume, controller)) as client:
+            client.settimeout(BULK_SEND_SECONDS)
             client.sendall(VALID_STEP + refused)
-            reply = read_to_end_or_reset(client)
+            client.settimeout(WAIT_SECONDS)
+            reply = read_reply(client)
         exit_status = controller.wait_within(WAIT_SECONDS)
     finally:
         lines = end_controller(controller, log)
