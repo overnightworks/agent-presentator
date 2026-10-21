@@ -13,10 +13,9 @@ from fastapi import APIRouter, Form, Request, Response
 from pydantic import BeforeValidator
 from starlette.responses import RedirectResponse
 
-from presentator.api.pages import Pages, options, theme_choices
+from presentator.api.pages import Pages, gated_person, options, theme_choices
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
-from presentator.contracts.models import User
 from presentator.contracts.preferences import (
     InstanceSettings,
     PersonPreferences,
@@ -64,7 +63,7 @@ class _Surfaces:
 
     def settings_page(self, request: Request) -> Response:
         """Show the instance defaults to an admin."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         return self._settings(request)
 
@@ -76,7 +75,7 @@ class _Surfaces:
         name: Annotated[str, Form()] = InstanceSettings().name,
     ) -> Response:
         """Keep what every person without an override of their own reads."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         if not self.preferences.speaks(language):
             return _unspoken_language()
@@ -87,7 +86,7 @@ class _Surfaces:
 
     def account_page(self, request: Request) -> Response:
         """Show one person what is theirs."""
-        person = _signed_in(request)
+        person = gated_person(request)
         text = self.pages.appearance(request).text
         chosen = self.preferences.preferences_of(person.id)
         instance_default = (_NO_OVERRIDE, text.account_instance_default)
@@ -107,7 +106,7 @@ class _Surfaces:
 
     async def voice_page(self, request: Request) -> Response:
         """Show only an admin the verified private voice catalogue."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         try:
             snapshot = await self.voice.snapshot()
@@ -117,7 +116,7 @@ class _Surfaces:
 
     async def load_voice(self, request: Request, voice: VoiceId) -> Response:
         """Ask the verified private listener to make one downloaded voice active."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         with suppress(VoiceUnavailableError):
             await self.voice.load(voice)
@@ -127,7 +126,7 @@ class _Surfaces:
 
     async def download_qwen(self, request: Request) -> Response:
         """Start a fixed Qwen download only after the admin boundary."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         with suppress(VoiceUnavailableError):
             await self.voice.download_qwen()
@@ -139,7 +138,7 @@ class _Surfaces:
         self, request: Request, voice: str, language: str
     ) -> Response:
         """Return a fixed active-voice sample only after the admin check."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         try:
             typed_voice = VoiceId(voice)
@@ -164,7 +163,7 @@ class _Surfaces:
         if language is not None and not self.preferences.speaks(language):
             return _unspoken_language()
         self.preferences.save_preferences_of(
-            _signed_in(request).id,
+            gated_person(request).id,
             PersonPreferences(language_tag=language, theme=theme),
         )
         return _painted_again()
@@ -175,7 +174,7 @@ class _Surfaces:
         theme: Annotated[ThemeChoice, Form()],
     ) -> Response:
         """Write the theme row of the person menu into the Account preference."""
-        person = _signed_in(request)
+        person = gated_person(request)
         self.preferences.save_preferences_of(
             person.id,
             replace(self.preferences.preferences_of(person.id), theme=theme),
@@ -224,12 +223,6 @@ def preference_routes(*, pages: Pages, voice: VoiceStatusUse) -> APIRouter:
     router.add_api_route(ACCOUNT, surfaces.save_account, methods=["POST"])
     router.add_api_route(THEME, surfaces.choose_theme, methods=["POST"])
     return router
-
-
-def _signed_in(request: Request) -> User:
-    """The guard has already turned away everyone else on these addresses."""
-    person: User = request.state.signed_in_person
-    return person
 
 
 def _refused() -> Response:

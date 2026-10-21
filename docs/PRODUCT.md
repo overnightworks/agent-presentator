@@ -60,8 +60,10 @@ page with a Try again link; a failing
 store answers 500. A session that SQLite
 holds is carried by a signed cookie, and the session ends twelve hours after the
 sign-in that opened it, however often it is used. `webauth` v0.20.1 owns the cookie and
-CSRF-origin mechanism and formats the refusal for a missing session; its
-`admit_session` decides which SQLite session names a signed-in person. The
+CSRF-origin mechanism; its `SessionGate` refuses a request without a session and
+admits the others in a worker thread, and the co-presenter's WebSocket admits
+through `admit_session` in its own route. `admit_session` decides which SQLite
+session names a signed-in person. The
 session row holds no client address and no user agent, and holds the sign-in's refresh token in plain text (ADR 0013). A schedule of its own deletes
 expired session rows every five minutes, apart from the deck refresh.
 A signed-out browser navigation goes to `/login/oidc` with the requested path

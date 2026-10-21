@@ -6,7 +6,7 @@ another site submitted is refused, and no answer may be replayed from the
 browser cache (issue #8, lines 11 to 15).
 """
 
-import posixpath
+from contextlib import nullcontext
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
@@ -14,7 +14,6 @@ from typing import Final, assert_never, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import HTTPConnection
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.cookies import issue_session_cookies
@@ -23,10 +22,9 @@ from webauth.dependencies import (
     LoginRedirect,
     admit_session,
     session_id_from_request,
-    unauthenticated_response,
 )
-from webauth.middleware.csrf import CsrfOriginMiddleware, CsrfTokenMiddleware
-from webauth.middleware.security_headers import SecurityHeadersMiddleware
+from webauth.middleware.session_gate import SessionGate
+from webauth.middleware.stack import install_web_auth_middleware
 from webauth.oidc import OidcRefusal, OidcRelyingParty
 from webauth.oidc_login import (
     AdmissionConfig,
@@ -42,6 +40,7 @@ from webauth.policies import (
     CspDirective,
     CsrfPolicy,
     PathRules,
+    PublicRule,
     SecurityHeadersPolicy,
     default_content_security_policy,
 )
@@ -56,12 +55,12 @@ from presentator.api.copresenter import CoPresenterSurface, add_copresenter_rout
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.legal import DATENSCHUTZ, Emphasis
-from presentator.api.pages import TEMPLATES, Pages, state_word
+from presentator.api.pages import TEMPLATES, Pages, state_word, user_of_admitted
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
 from presentator.application.voice import VoiceStatusUse
-from presentator.contracts.models import Role, User
+from presentator.contracts.models import User
 from presentator.contracts.text import LobbyText
 
 _STATIC_DIR: Final = Path(__file__).parent / "static"
@@ -75,18 +74,37 @@ LOGOUT_PATH: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
 # Signing in (its start and the issuer's return) and signing out are the
-# addresses the guard leaves alone; logging out ends a session rather than
+# addresses the gate leaves alone; logging out ends a session rather than
 # using one. The theme stylesheet has to render the open pages themselves, so
-# it is public too.
+# it is public too, and so is a source host's POST under the hook prefix.
 # `/setup` is a retired address: it answers 404 to everyone, so a signed-out
 # reader is not sent to a login for a page that does not exist.
-_WITHOUT_A_SESSION: Final = frozenset(
-    {LOGIN_PATH, _START_SIGN_IN, SIGN_IN_CALLBACK_PATH, LOGOUT_PATH, _SETUP}
-)
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header there like on every
 # other page.
-_OPEN_TO_A_SIGNED_OUT_READER: Final = frozenset({_DATENSCHUTZ})
+_SESSION_GATE_RULES: Final = (
+    (
+        PublicRule(
+            PathRules(
+                exact=frozenset(
+                    {
+                        LOGIN_PATH,
+                        _START_SIGN_IN,
+                        SIGN_IN_CALLBACK_PATH,
+                        LOGOUT_PATH,
+                        _SETUP,
+                    }
+                )
+            )
+        ),
+        PublicRule(PathRules(prefixes=(_INSIDE_STATIC,))),
+        PublicRule(
+            PathRules(prefixes=(HOOK_CALLS,)),
+            methods=frozenset({HTTPMethod.POST}),
+        ),
+    ),
+    PathRules(exact=frozenset({_DATENSCHUTZ})),
+)
 _CSRF_POLICY: Final = CsrfPolicy(
     exempt=PathRules(prefixes=(HOOK_CALLS,)),
 )
@@ -131,18 +149,6 @@ def carry_set_cookies(source: Response, target: Response) -> None:
         target.headers.append("set-cookie", cookie)
 
 
-def _is_a_stylesheet(path: str) -> bool:
-    """Whether the address really stands inside the public stylesheet mount.
-
-    The written address and its normalised form both have to: `/static/../…`
-    carries the mount's prefix without standing inside it, and the guard must
-    not let the way an address is written widen what it lets past.
-    """
-    return path.startswith(_INSIDE_STATIC) and posixpath.normpath(path).startswith(
-        _INSIDE_STATIC,
-    )
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SignedInConnection:
     """The hash-free person and authoritative session behind one connection."""
@@ -168,12 +174,7 @@ def signed_in_connection(
     admitted = admit_session(session_id, sessions=sessions, config=config)
     if isinstance(admitted, ConnectionRefusal):
         return None
-    person = User(
-        id=admitted.id,
-        username=admitted.username,
-        role=Role(admitted.role),
-    )
-    return SignedInConnection(person=person, session_id=session_id)
+    return SignedInConnection(person=user_of_admitted(admitted), session_id=session_id)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -216,42 +217,6 @@ class _Surfaces:
     decks: Decks
     pages: Pages
     auth: InstalledAuth
-
-    async def only_signed_in(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        """Send every address but the open ones to the login."""
-        path = request.url.path
-        if (
-            path in _WITHOUT_A_SESSION
-            or _is_a_stylesheet(path)
-            or self._is_a_call_from_a_source_host(request)
-        ):
-            request.state.signed_in_person = None
-            return await call_next(request)
-        connection = signed_in_connection(request, self.sessions)
-        if connection is None:
-            if path in _OPEN_TO_A_SIGNED_OUT_READER:
-                request.state.signed_in_person = None
-                return await call_next(request)
-            return unauthenticated_response(request, _LOGIN_REDIRECT)
-        request.state.signed_in_person = connection.person
-        request.state.signed_in_session_id = connection.session_id
-        return await call_next(request)
-
-    def _is_a_call_from_a_source_host(self, request: Request) -> bool:
-        """Whether this is the sessionless, cross-origin POST the hook is for.
-
-        Only POST under `/sources/` is open; a read of the same address, and
-        every other method, stays behind the session the way any other address
-        does. The prefix, never one exact path, is what the exemption matches,
-        so a trailing slash cannot redirect into the guard.
-        """
-        return request.method == HTTPMethod.POST and request.url.path.startswith(
-            HOOK_CALLS
-        )
 
     def home(self, request: Request) -> Response:
         """List the decks the sources delivered, newest first."""
@@ -386,6 +351,38 @@ class _Surfaces:
         )
 
 
+def _install_middleware(
+    lobby: FastAPI,
+    content_security_policy: str,
+    sessions: SessionRecordStore,
+) -> None:
+    """Install the library's stack once, in its own order.
+
+    Every answer, including the gate's redirect and a refusal, carries the
+    security headers. Each store call commits on its own and `touch` is one
+    update-only statement (ADR 0003), so the gate's admission takes no lock.
+    """
+    public, optional = _SESSION_GATE_RULES
+    install_web_auth_middleware(
+        lobby,
+        security_headers=SecurityHeadersPolicy(
+            content_security_policy=content_security_policy,
+            permissions_policy="camera=(), microphone=(self), geolocation=()",
+            cache_control_rules=(
+                CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
+            ),
+        ),
+        csrf_origin=_CSRF_POLICY,
+        csrf_token=_COPRESENTER_CSRF_POLICY,
+        session_gate=SessionGate(
+            session_transaction=lambda: nullcontext(sessions),
+            login_redirect=_LOGIN_REDIRECT,
+            public=public,
+            optional=optional,
+        ),
+    )
+
+
 def create_lobby(
     *,
     sessions: SessionRecordStore,
@@ -408,21 +405,7 @@ def create_lobby(
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
-    # The outermost middleware is added last: every answer, including the
-    # guard's redirect and a refusal, carries the security headers.
-    lobby.add_middleware(BaseHTTPMiddleware, dispatch=surfaces.only_signed_in)
-    lobby.add_middleware(CsrfOriginMiddleware, policy=_CSRF_POLICY)
-    lobby.add_middleware(CsrfTokenMiddleware, policy=_COPRESENTER_CSRF_POLICY)
-    lobby.add_middleware(
-        SecurityHeadersMiddleware,
-        policy=SecurityHeadersPolicy(
-            content_security_policy=auth.content_security_policy,
-            permissions_policy="camera=(), microphone=(self), geolocation=()",
-            cache_control_rules=(
-                CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
-            ),
-        ),
-    )
+    _install_middleware(lobby, auth.content_security_policy, sessions)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
