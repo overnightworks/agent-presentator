@@ -13,14 +13,11 @@ import pytest
 
 from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
+from tests import worker_support as support
 from tests.test_worker_record_chain import (
-    END,
     EXITING_SENT,
     EXITING_SEVEN,
-    HELLO,
     PATH,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
@@ -28,7 +25,11 @@ from tests.test_worker_record_chain import (
     read_to_end_or_reset,
     run_life,
 )
-from tests.worker_support import DECK_CLOSED_MODE, DECK_OPEN_MODE, PRIVATE_MODE
+from tests.worker_support import (
+    DECK_CLOSED_MODE,
+    DECK_OPEN_MODE,
+    PRIVATE_MODE,
+)
 
 DECK_MODE_REPORTER = """
 import os, stat, sys
@@ -59,9 +60,9 @@ def deck_mode(sandbox: Path) -> int:
 
 def read_status(client: socket.socket) -> None:
     received = b""
-    while len(received) < len(STATUS):
-        received += client.recv(len(STATUS) - len(received))
-    assert received == STATUS
+    while len(received) < len(support.STATUS):
+        received += client.recv(len(support.STATUS) - len(received))
+    assert received == support.STATUS
 
 
 def test_an_end_only_upload_is_answered_with_status_and_a_fake_sender_consumes_the_life(
@@ -72,11 +73,11 @@ def test_an_end_only_upload_is_answered_with_status_and_a_fake_sender_consumes_t
     def status_then_end(client: socket.socket) -> None:
         read_status(client)
         modes_during_upload.append(deck_mode(sandbox))
-        client.sendall(END)
+        client.sendall(support.END)
 
     spawn = ChainSpawn(programs={"send": [EXITING_SENT]})
 
-    life = run_life(VALID_STEP, spawn, on_deck(sandbox), status_then_end)
+    life = run_life(support.VALID_STEP, spawn, on_deck(sandbox), status_then_end)
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.CONSUMED
@@ -93,27 +94,23 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
         programs={"upload": [DECK_MODE_REPORTER, str(deck)], "send": [EXITING_SENT]}
     )
 
-    life = run_life(VALID_STEP, spawn, LifeScenario(deck=deck))
+    life = run_life(support.VALID_STEP, spawn, LifeScenario(deck=deck))
 
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
     assert life.life_end == LifeEnd.CONSUMED
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
 
-def step_message(header: bytes) -> bytes:
-    return b"PBW\x01\x02" + len(header).to_bytes(2, "big") + header
-
-
 REJECTED_HEADERS = {
-    "bad magic": b"X" + VALID_STEP[1:],
-    "bad version": VALID_STEP[:3] + b"\x09" + VALID_STEP[4:],
-    "unknown kind": VALID_STEP[:4] + b"\x09" + VALID_STEP[5:],
-    "too short a length": step_message(b"{"),
-    "too long a length": VALID_STEP[:5] + b"\x10\x01",
-    "not JSON": step_message(b"nope"),
-    "unknown step": step_message(b'{"step":"x","slug":"my-deck"}'),
-    "slug ..": step_message(b'{"step":"build","slug":".."}'),
-    "a HELLO": HELLO,
+    "bad magic": b"X" + support.VALID_STEP[1:],
+    "bad version": support.VALID_STEP[:3] + b"\x09" + support.VALID_STEP[4:],
+    "unknown kind": support.VALID_STEP[:4] + b"\x09" + support.VALID_STEP[5:],
+    "too short a length": support.framed(b"{", support.STEP),
+    "too long a length": support.VALID_STEP[:5] + b"\x10\x01",
+    "not JSON": support.framed(b"nope", support.STEP),
+    "unknown step": support.framed(b'{"step":"x","slug":"my-deck"}', support.STEP),
+    "slug ..": support.framed(b'{"step":"build","slug":".."}', support.STEP),
+    "a HELLO": support.HELLO,
 }
 
 
@@ -145,7 +142,9 @@ def test_a_failing_seal_never_makes_the_deck(sandbox: Path) -> None:
         raise OSError(errno.EBUSY)
 
     life = run_life(
-        VALID_STEP, ChainSpawn(), LifeScenario(deck=sandbox / "deck", seal=refuse)
+        support.VALID_STEP,
+        ChainSpawn(),
+        LifeScenario(deck=sandbox / "deck", seal=refuse),
     )
 
     assert life.life_end == LifeEnd.SEAL_FAILED
@@ -172,7 +171,7 @@ def send_after_status(sent: bytes) -> Callable[[socket.socket], None]:
 
 def drip_past_the_budget(client: socket.socket) -> None:
     read_status(client)
-    client.sendall(END[:1])
+    client.sendall(support.END[:1])
 
 
 @dataclass(frozen=True)
@@ -215,7 +214,7 @@ def test_a_failed_upload_leaves_the_deck_0755_closes_without_reply_and_ends_the_
 
     started = time.monotonic()
     scenario = replace(on_deck(sandbox), reader=failure.reader)
-    life = run_life(VALID_STEP, spawn, scenario, failure.converse)
+    life = run_life(support.VALID_STEP, spawn, scenario, failure.converse)
 
     assert life.life_end == failure.life_end
     assert life.reply == b""
@@ -229,7 +228,7 @@ def test_an_existing_deck_ends_the_life_before_any_upload_spawn(
 ) -> None:
     (sandbox / "deck").mkdir(mode=PRIVATE_MODE)
 
-    life = run_life(VALID_STEP, ChainSpawn(), on_deck(sandbox))
+    life = run_life(support.VALID_STEP, ChainSpawn(), on_deck(sandbox))
 
     assert life.life_end == LifeEnd.DECK_FAILED
     assert life.reply == b""

@@ -22,6 +22,7 @@ from presentator.adapters.build_wire import (
     receive_entries,
 )
 from tests.worker_support import (
+    BULK_SEND_SECONDS,
     WAIT_SECONDS,
     directory_entry,
     end_entry,
@@ -31,7 +32,6 @@ from tests.worker_support import (
 )
 
 SENDER_JOIN_SECONDS = 10
-BULK_SEND_SECONDS = 60
 SHORT_RECEIVE_BYTES = 4096
 DEFAULT_MEGABYTES = 300
 DEEPEST = 32
