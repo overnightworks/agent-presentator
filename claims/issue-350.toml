@@ -1,0 +1,8 @@
+claim_id = "093bec2157d2400096b0d84d2dea1c76"
+agent = "claude"
+role = "builder"
+base = "ebade0e646db17476e76d2f1d71a4d3be6a3ceed"
+branch = "claude/issue-350-build-worker-a5b6-selector"
+scope = ["src/presentator/adapters/worker_children.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_exit_descriptor.py", "tests/adapters/test_worker_reply.py", "tests/adapters/test_worker_upload.py", "tests/conftest.py", "tests/test_worker_record_chain.py", "tests/test_worker_record_life.py", "tests/test_worker_reply_chain.py", "tests/test_worker_serving_loop.py", "tests/test_worker_side_chain.py", "tests/test_worker_watched_exit.py", "tests/worker_support.py"]
+opened_commit = "e02a88e4d3654b6050224d0dad839ea3a6cad682"
+whole_reason = "The pidfd, the readiness effect and the loop have no caller apart: the loop is what makes the pidfd and the side close observable, and every test that pins the U and R waits, the Serving fields or hand_over's arguments must change with them."
