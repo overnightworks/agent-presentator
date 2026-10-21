@@ -63,6 +63,16 @@ class FakeSpeaking:
         """The in-memory fake owns no external resources."""
 
 
+class GateTimeoutError(RuntimeError):
+    """A test gate stayed closed, so the synthesis fails instead of continuing."""
+
+
+def _pass_gate(gate: threading.Event) -> None:
+    if not gate.wait(timeout=GATE_TIMEOUT_SECONDS):
+        message = "gate stayed closed"
+        raise GateTimeoutError(message)
+
+
 class GatedSpeaking:
     """A synthesis fake whose first and last PCM chunks each wait for a gate."""
 
@@ -81,6 +91,12 @@ class GatedSpeaking:
         self._lock = threading.Lock()
         self.active_syntheses = 0
         self.most_concurrent_syntheses = 0
+        self.audio = sine_pcm(0.05, rate=self.sample_rate)
+
+    def release_all(self) -> None:
+        """Open every gate so a synthesis blocked by a failed test can finish."""
+        self.release_first_step.set()
+        self.release_last_chunk.set()
 
     def load(self) -> None:
         self.ready = True
@@ -94,12 +110,11 @@ class GatedSpeaking:
             )
         try:
             self.entered_first_step.set()
-            self.release_first_step.wait(timeout=GATE_TIMEOUT_SECONDS)
-            pcm = sine_pcm(0.05, rate=self.sample_rate)
-            mid = (len(pcm) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
-            yield pcm[:mid]
-            self.release_last_chunk.wait(timeout=GATE_TIMEOUT_SECONDS)
-            yield pcm[mid:]
+            _pass_gate(self.release_first_step)
+            mid = (len(self.audio) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
+            yield self.audio[:mid]
+            _pass_gate(self.release_last_chunk)
+            yield self.audio[mid:]
         finally:
             with self._lock:
                 self.active_syntheses -= 1

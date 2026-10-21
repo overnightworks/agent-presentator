@@ -15,13 +15,13 @@ import httpx2
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 from websockets.asyncio.client import ClientConnection, unix_connect
 
 from speech.__main__ import PrivateSocket
 from speech.config import HEAR_SAMPLE_RATE, Settings
 from speech.control import create_control_app
-from speech.pcm import BYTES_PER_SAMPLE, WAV_HEADER_BYTES, is_silence, pcm_from_wav
+from speech.pcm import BYTES_PER_SAMPLE, WAV_HEADER_BYTES, pcm_from_wav
 from speech.service import Runtime, create_app
 from tests.conftest import (
     GATE_TIMEOUT_SECONDS,
@@ -44,6 +44,7 @@ _ABSENT_FROM_TCP = [
 class _PrivateServer:
     path: Path
     hear_handler_returned: asyncio.Event
+    speak_disconnect_received: asyncio.Event
 
 
 @asynccontextmanager
@@ -54,23 +55,42 @@ async def _serving(directory: Path, runtime: Runtime) -> AsyncIterator[_PrivateS
     )
     app = create_control_app(settings, runtime)
     hear_handler_returned = asyncio.Event()
+    speak_disconnect_received = asyncio.Event()
 
     async def observed(scope: Scope, receive: Receive, send: Send) -> None:
+        async def watched_receive() -> Message:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                speak_disconnect_received.set()
+            return message
+
         try:
-            await app(scope, receive, send)
+            await app(scope, watched_receive, send)
         finally:
             if scope["type"] == "websocket":
                 hear_handler_returned.set()
 
     server = uvicorn.Server(uvicorn.Config(observed, log_level="warning"))
-    server.install_signal_handlers = lambda: None
     with PrivateSocket(directory, runtime_uid=os.geteuid()) as listener:
         serving = asyncio.create_task(server.serve(sockets=[listener]))
         try:
-            yield _PrivateServer(directory / "speech.sock", hear_handler_returned)
+            yield _PrivateServer(
+                directory / "speech.sock",
+                hear_handler_returned,
+                speak_disconnect_received,
+            )
         finally:
             server.should_exit = True
             await asyncio.wait_for(serving, timeout=GATE_TIMEOUT_SECONDS)
+
+
+@asynccontextmanager
+async def _gates_released(voice: GatedSpeaking) -> AsyncIterator[None]:
+    """Open the gates on exit, so a failed assertion still lets the server stop."""
+    try:
+        yield
+    finally:
+        voice.release_all()
 
 
 def _socket_client(server: _PrivateServer) -> httpx2.AsyncClient:
@@ -104,10 +124,11 @@ async def _wait_for(event: threading.Event) -> None:
     assert await asyncio.to_thread(event.wait, GATE_TIMEOUT_SECONDS)
 
 
-def _assert_whole_wav(body: bytes) -> None:
+def _assert_whole_wav(status_code: int, body: bytes, voice: GatedSpeaking) -> None:
+    assert status_code == 200
     rate, pcm = pcm_from_wav(body)
     assert rate == SPEAK_SAMPLE_RATE
-    assert not is_silence(pcm)
+    assert pcm == voice.audio
 
 
 async def _receive_event(connection: ClientConnection) -> dict[str, Any]:
@@ -144,12 +165,13 @@ def test_socket_health_equals_the_tcp_health_of_the_same_runtime(tmp_path) -> No
 
 
 def test_socket_streams_speak_while_the_voice_is_still_synthesizing(tmp_path) -> None:
-    async def scenario() -> tuple[bytes, bytes, list[int]]:
+    async def scenario() -> tuple[GatedSpeaking, int, bytes, bytes, list[int]]:
         voice = GatedSpeaking(hold_last_chunk=True)
         voice.release_first_step.set()
         async with (
             _serving(tmp_path, _gated_runtime(voice)) as server,
             _socket_client(server) as client,
+            _gates_released(voice),
             client.stream("POST", "/speak", json=_SPEAK_BODY) as response,
         ):
             assert response.headers["content-type"] == "audio/wav"
@@ -164,64 +186,69 @@ def test_socket_streams_speak_while_the_voice_is_still_synthesizing(tmp_path) ->
             ]
             voice.release_last_chunk.set()
             rest = b"".join([chunk async for chunk in chunks])
-        return first, first + rest, modes
+        return voice, response.status_code, first, first + rest, modes
 
-    first, whole, modes = asyncio.run(scenario())
+    voice, status_code, first, whole, modes = asyncio.run(scenario())
 
     first_rate, first_pcm = pcm_from_wav(first)
     assert first_rate == SPEAK_SAMPLE_RATE
-    assert 0 < len(first_pcm) < len(pcm_from_wav(whole)[1])
-    _assert_whole_wav(whole)
+    assert 0 < len(first_pcm) < len(voice.audio)
+    _assert_whole_wav(status_code, whole, voice)
     assert modes == [0o700, 0o600, os.geteuid(), os.geteuid()]
 
 
 def test_socket_speak_disconnect_frees_the_voice_for_the_next_caller(tmp_path) -> None:
-    async def scenario() -> httpx2.Response:
+    async def scenario() -> tuple[GatedSpeaking, httpx2.Response]:
         voice = GatedSpeaking(hold_last_chunk=True)
         voice.release_first_step.set()
         async with (
             _serving(tmp_path, _gated_runtime(voice)) as server,
             _socket_client(server) as client,
+            _gates_released(voice),
         ):
             async with client.stream("POST", "/speak", json=_SPEAK_BODY) as leaving:
                 await _first_chunk(leaving.aiter_bytes())
+            await asyncio.wait_for(
+                server.speak_disconnect_received.wait(), timeout=GATE_TIMEOUT_SECONDS
+            )
             voice.release_last_chunk.set()
-            return await client.post("/speak", json=_SPEAK_BODY)
+            return voice, await client.post("/speak", json=_SPEAK_BODY)
 
-    later = asyncio.run(scenario())
+    voice, later = asyncio.run(scenario())
 
-    assert later.status_code == 200
-    _assert_whole_wav(later.content)
+    _assert_whole_wav(later.status_code, later.content, voice)
 
 
-def test_both_listeners_share_one_synthesis_gate(tmp_path) -> None:
-    async def scenario() -> tuple[httpx2.Response, httpx2.Response, int]:
+@pytest.mark.parametrize("speaker", ["socket", "tcp"])
+def test_a_speak_on_either_listener_holds_the_one_synthesis_gate(
+    tmp_path, speaker: str
+) -> None:
+    async def scenario() -> tuple[
+        GatedSpeaking, httpx2.Response, httpx2.Response, httpx2.Response
+    ]:
         voice = GatedSpeaking()
         runtime = _gated_runtime(voice)
         async with (
             _serving(tmp_path, runtime) as server,
             _socket_client(server) as socket_client,
             _tcp_client(runtime) as tcp_client,
+            _gates_released(voice),
         ):
-            private = asyncio.create_task(
-                socket_client.post("/speak", json=_SPEAK_BODY)
-            )
+            speaking_client = socket_client if speaker == "socket" else tcp_client
+            talk = asyncio.create_task(speaking_client.post("/speak", json=_SPEAK_BODY))
             await _wait_for(voice.entered_first_step)
-            public = asyncio.create_task(tcp_client.post("/speak", json=_SPEAK_BODY))
-            # A bounded look: a second synthesis, if one could start, starts at once.
-            await asyncio.wait({public}, timeout=0.2)
-            assert not public.done()
+            busy = await socket_client.post("/voices/piper/sample/de")
             voice.release_first_step.set()
-            done = await asyncio.wait_for(
-                asyncio.gather(private, public), timeout=GATE_TIMEOUT_SECONDS
-            )
-        return done[0], done[1], voice.most_concurrent_syntheses
+            talked = await asyncio.wait_for(talk, timeout=GATE_TIMEOUT_SECONDS)
+            free = await socket_client.post("/voices/piper/sample/de")
+        return voice, busy, talked, free
 
-    private, public, most_concurrent = asyncio.run(scenario())
+    voice, busy, talked, free = asyncio.run(scenario())
 
-    assert most_concurrent == 1
-    _assert_whole_wav(private.content)
-    _assert_whole_wav(public.content)
+    assert (busy.status_code, busy.json()) == (409, {"detail": "speech is busy"})
+    assert voice.most_concurrent_syntheses == 1
+    _assert_whole_wav(talked.status_code, talked.content, voice)
+    _assert_whole_wav(free.status_code, free.content, voice)
 
 
 def test_socket_hear_sends_partials_then_a_final_and_a_second_utterance(
