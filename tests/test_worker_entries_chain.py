@@ -39,13 +39,14 @@ from tests.worker_support import (
 CONTROLLER_UMASK = 0o077
 DIRECTORY_MODE = 0o755
 FILE_MODE = 0o644
+LARGE_FILE = b"x" * (200 * 1024)
 NESTED_UPLOAD = (
     directory_entry(b"a")
     + directory_entry(b"a/b")
     + file_entry(b"a/b/c", b"deep")
     + file_entry(b"a/d", b"")
-    + file_entry(b"e", b"x" * 1000)
-    + end_entry(5, 1004)
+    + file_entry(b"e", LARGE_FILE)
+    + end_entry(5, 4 + len(LARGE_FILE))
 )
 REFUSED_UPLOADS = {
     "a path rule": directory_entry(b"..") + end_entry(1, 0),
@@ -94,7 +95,7 @@ def test_a_nested_upload_through_the_real_roles_is_stored_0755_and_0644(
         "a/d": (FILE_MODE, OWN_UID),
         "e": (FILE_MODE, OWN_UID),
     }
-    assert (deck / "e").read_bytes() == b"x" * 1000
+    assert (deck / "e").read_bytes() == LARGE_FILE
     assert stat.S_IMODE(deck.stat().st_mode) == DECK_CLOSED_MODE
 
 

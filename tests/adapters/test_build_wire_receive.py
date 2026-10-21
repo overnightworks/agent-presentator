@@ -2,19 +2,16 @@
 
 import os
 import socket
-import stat
 import threading
 import tracemalloc
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from presentator.adapters.build_wire import (
-    CHUNK_BYTES,
     LENGTH,
-    MAXIMUM_NAME_BYTES,
     MAXIMUM_PATH_BYTES,
     SIZE,
     RecordTag,
@@ -22,47 +19,39 @@ from presentator.adapters.build_wire import (
     path_components,
     receive_entries,
 )
-from tests.worker_support import directory_entry, end_entry, file_entry
+from tests.worker_support import WAIT_SECONDS, directory_entry, end_entry, file_entry
 
-SECONDS_TO_WAIT = 2
 SENDER_JOIN_SECONDS = 10
 SHORT_RECEIVE_BYTES = 4096
 MEBIBYTE = 1024 * 1024
 DEEPEST = 32
-DIRECTORY_MODE = 0o755
-FILE_MODE = 0o644
 
 
 class RecordingSocket(socket.socket):
-    """A socket that logs each recv request, answers it in short pieces and reports."""
+    """A socket that logs each recv request and the payload backlog after it."""
 
-    def __init__(self, fileno: int, deck: Path, header_bytes: int) -> None:
-        """Wrap the descriptor; the deck and header size serve the unwritten count."""
+    def __init__(
+        self, fileno: int, deck: Path, header_bytes: int, payload: int
+    ) -> None:
+        """Wrap the descriptor; the deck, header and payload sizes serve the backlog."""
         super().__init__(fileno=fileno)
         self.requests: list[int] = []
-        self.unwritten_at_each_recv: list[int] = []
+        self.backlog_after_each_recv: list[int] = []
         self._received = 0
         self._deck = deck
         self._header_bytes = header_bytes
+        self._payload = payload
 
     def recv(self, bufsize: int, flags: int = 0) -> bytes:
         self.requests.append(bufsize)
-        written = sum(path.stat().st_size for path in self._deck.iterdir())
-        self.unwritten_at_each_recv.append(
-            max(self._received - self._header_bytes, 0) - written
-        )
         piece = super().recv(min(bufsize, SHORT_RECEIVE_BYTES), flags)
         self._received += len(piece)
+        payload_received = min(
+            max(self._received - self._header_bytes, 0), self._payload
+        )
+        written = sum(path.stat().st_size for path in self._deck.iterdir())
+        self.backlog_after_each_recv.append(payload_received - written)
         return piece
-
-
-@pytest.fixture
-def wire() -> Iterator[tuple[socket.socket, socket.socket]]:
-    reading_end, writing_end = socket.socketpair()
-    reading_end.settimeout(SECONDS_TO_WAIT)
-    writing_end.settimeout(SECONDS_TO_WAIT)
-    with closing(reading_end), closing(writing_end):
-        yield reading_end, writing_end
 
 
 def deck_tree(tmp_path: Path) -> dict[bytes, bytes | None]:
@@ -97,6 +86,7 @@ ENTRY_MAKERS: dict[str, Callable[[bytes], bytes]] = {
     "FILE": lambda path: file_entry(path, b""),
 }
 REFUSED_PATHS = {
+    "an empty path": b"",
     "a leading slash": b"/a",
     "an empty component": b"a//b",
     "a trailing slash": b"a/",
@@ -105,7 +95,7 @@ REFUSED_PATHS = {
     "dot dot": b"..",
     "a trailing dot dot": b"a/..",
     "a NUL": b"a\0b",
-    "a component of 256 bytes": b"x" * (MAXIMUM_NAME_BYTES + 1),
+    "a component of 256 bytes": b"x" * 256,
     "a path of 1025 bytes": b"a/" * 512 + b"a",
     "depth 33": TOO_DEEP,
 }
@@ -120,8 +110,10 @@ def test_a_path_that_breaks_the_rule_is_refused_and_never_created(
     path: bytes,
     make: Callable[[bytes], bytes],
 ) -> None:
+    sent = DEEPEST_DIRECTORIES + make(path)
+
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, DEEPEST_DIRECTORIES + make(path))
+        receive_sent(wire, deck, sent)
 
     assert set(deck_tree(tmp_path)) == set(NESTED)
 
@@ -129,8 +121,10 @@ def test_a_path_that_breaks_the_rule_is_refused_and_never_created(
 def test_a_path_length_of_zero_is_refused(
     wire: tuple[socket.socket, socket.socket], deck: int
 ) -> None:
+    sent = bytes([RecordTag.FILE]) + LENGTH.pack(0)
+
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, bytes([RecordTag.FILE]) + LENGTH.pack(0))
+        receive_sent(wire, deck, sent)
 
 
 def test_a_path_length_over_the_maximum_is_refused_without_waiting_for_its_bytes(
@@ -227,15 +221,19 @@ END_MISMATCHES = {
 def test_an_end_that_does_not_match_what_was_received_is_refused(
     wire: tuple[socket.socket, socket.socket], deck: int, end: bytes
 ) -> None:
+    sent = file_entry(b"a", b"x") + end
+
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, file_entry(b"a", b"x") + end)
+        receive_sent(wire, deck, sent)
 
 
 def test_end_of_file_inside_a_payload_is_refused(
     wire: tuple[socket.socket, socket.socket], deck: int
 ) -> None:
+    sent = file_entry(b"a", b"abc")[:-1]
+
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, file_entry(b"a", b"abc")[:-1])
+        receive_sent(wire, deck, sent)
 
 
 @pytest.mark.parametrize("make", ENTRY_MAKERS.values(), ids=ENTRY_MAKERS.keys())
@@ -245,8 +243,10 @@ def test_a_top_level_node_modules_is_refused_before_it_is_created(
     tmp_path: Path,
     make: Callable[[bytes], bytes],
 ) -> None:
+    sent = make(b"node_modules")
+
     with pytest.raises(WireRefusedError):
-        receive_sent(wire, deck, make(b"node_modules"))
+        receive_sent(wire, deck, sent)
 
     assert deck_tree(tmp_path) == {}
 
@@ -298,31 +298,16 @@ def test_a_nested_upload_is_stored_byte_equal_and_the_read_stops_after_end(
     }
 
 
-def test_the_created_entries_get_the_modes_0755_and_0644(
-    wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
-) -> None:
-    previous = os.umask(0o022)
-    try:
-        receive_sent(
-            wire,
-            deck,
-            directory_entry(b"a") + file_entry(b"a/f", b"x") + end_entry(2, 1),
-        )
-    finally:
-        os.umask(previous)
-
-    assert stat.S_IMODE((tmp_path / "deck/a").stat().st_mode) == DIRECTORY_MODE
-    assert stat.S_IMODE((tmp_path / "deck/a/f").stat().st_mode) == FILE_MODE
-
-
 def test_a_symlink_in_the_deck_is_never_followed(
     wire: tuple[socket.socket, socket.socket], deck: int, tmp_path: Path
 ) -> None:
     (tmp_path / "outside").mkdir()
     (tmp_path / "deck/link").symlink_to(tmp_path / "outside")
 
+    sent = directory_entry(b"link") + end_entry(1, 0)
+
     with pytest.raises(FileExistsError):
-        receive_sent(wire, deck, directory_entry(b"link") + end_entry(1, 0))
+        receive_sent(wire, deck, sent)
 
     assert list((tmp_path / "outside").iterdir()) == []
 
@@ -366,8 +351,10 @@ def test_an_oserror_closes_every_descriptor_but_the_root_and_surfaces(
     (tmp_path / "deck/a").write_bytes(b"in the way")
     before = open_descriptors()
 
+    sent = file_entry(b"a", b"x")
+
     with pytest.raises(FileExistsError):
-        receive_sent(wire, deck, file_entry(b"a", b"x"))
+        receive_sent(wire, deck, sent)
 
     assert os.fstat(deck)
     assert open_descriptors() == before
@@ -381,8 +368,10 @@ def test_a_payload_is_received_in_chunks_and_written_before_the_next_is_read(
     content = os.urandom(200 * 1024)
     sent = file_entry(b"big", content) + end_entry(1, len(content))
     header_bytes = len(file_entry(b"big", b""))
-    recording = RecordingSocket(reading_end.detach(), tmp_path / "deck", header_bytes)
-    recording.settimeout(SECONDS_TO_WAIT)
+    recording = RecordingSocket(
+        reading_end.detach(), tmp_path / "deck", header_bytes, len(content)
+    )
+    recording.settimeout(WAIT_SECONDS)
     root = os.open(tmp_path / "deck", os.O_RDONLY | os.O_DIRECTORY)
     sender = threading.Thread(target=writing_end.sendall, args=(sent,))
     sender.start()
@@ -395,8 +384,8 @@ def test_a_payload_is_received_in_chunks_and_written_before_the_next_is_read(
 
     assert not sender.is_alive()
     assert (tmp_path / "deck/big").read_bytes() == content
-    assert max(recording.requests) <= CHUNK_BYTES
-    assert max(recording.unwritten_at_each_recv) <= CHUNK_BYTES
+    assert max(recording.requests) <= 64 * 1024
+    assert max(recording.backlog_after_each_recv) <= 64 * 1024
 
 
 def test_a_declared_size_far_beyond_the_payload_is_refused_without_allocating_it(
@@ -433,3 +422,9 @@ def test_a_valid_path_splits_on_slashes_into_raw_components(
     raw: bytes, components: tuple[bytes, ...]
 ) -> None:
     assert path_components(raw) == components
+
+
+@pytest.mark.parametrize("path", REFUSED_PATHS.values(), ids=REFUSED_PATHS.keys())
+def test_the_path_rule_refuses_every_broken_path(path: bytes) -> None:
+    with pytest.raises(WireRefusedError):
+        path_components(path)

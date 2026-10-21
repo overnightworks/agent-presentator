@@ -155,11 +155,15 @@ def read_record(descriptor: int) -> StepHeader:
         raise WireRefusedError from error
 
 
+def _path_length_allowed(length: int) -> bool:
+    return 1 <= length <= MAXIMUM_PATH_BYTES
+
+
 def path_components(raw: bytes) -> tuple[bytes, ...]:
     """Split a raw entry path on "/"; raise WireRefusedError unless every rule holds."""
     components = tuple(raw.split(b"/"))
     if (
-        not 1 <= len(raw) <= MAXIMUM_PATH_BYTES
+        not _path_length_allowed(len(raw))
         or len(components) > MAXIMUM_DEPTH
         or any(
             component in {b"", b".", b".."}
@@ -183,7 +187,7 @@ class _OpenDirectory:
 
 def _read_path(connection: socket.socket) -> tuple[bytes, ...]:
     (length,) = LENGTH.unpack(_read_exactly(connection, LENGTH.size))
-    if not 1 <= length <= MAXIMUM_PATH_BYTES:
+    if not _path_length_allowed(length):
         raise WireRefusedError
     return path_components(_read_exactly(connection, length))
 

@@ -2,8 +2,6 @@
 
 import json
 import socket
-from collections.abc import Iterator
-from contextlib import closing
 
 import pytest
 
@@ -20,17 +18,7 @@ from presentator.adapters.build_wire import (
 )
 from presentator.contracts.decks import StepKind
 
-SECONDS_TO_WAIT = 5
 HELLO = b"PBW\x01\x01\x00\x02{}"
-
-
-@pytest.fixture
-def wire() -> Iterator[tuple[socket.socket, socket.socket]]:
-    reading_end, writing_end = socket.socketpair()
-    reading_end.settimeout(SECONDS_TO_WAIT)
-    writing_end.settimeout(SECONDS_TO_WAIT)
-    with closing(reading_end), closing(writing_end):
-        yield reading_end, writing_end
 
 
 def test_status_is_the_wire_format_bytes(
