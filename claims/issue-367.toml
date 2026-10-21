@@ -1,8 +1,0 @@
-claim_id = "3a9cf7f9c9d84006bd6aa6696196c55d"
-agent = "claude"
-role = "builder"
-base = "fa32122732d51c4fd2ffcdfb60e4dfa38897e6de"
-branch = "claude/issue-367-build-worker-a5d1-das-upload-kind-begren"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/config.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_build_wire_receive.py", "tests/adapters/test_worker_children.py", "tests/adapters/test_worker_upload.py", "tests/test_worker.py", "tests/test_worker_entries_chain.py", "tests/test_worker_record_chain.py", "tests/test_worker_reply_chain.py", "tests/test_worker_serving_loop.py", "tests/test_worker_settings.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "85599a9273b4f3f75babf8c0418055e7e03eb2a5"
-whole_reason = "The output limit reaches the codec only through WorkerSettings, Serving, the wire child's argv and the upload role, so the setting, the field, the argv and the cap land together, with the deck-path fix that rides the same Serving change and the tests that pin the old argv and the old receive_entries signature."
