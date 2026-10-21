@@ -1,5 +1,6 @@
 """Shared arrangement for the sign-in tests: a lobby, a fake issuer, real stores."""
 
+import asyncio
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -38,6 +39,15 @@ _COUNTS = {
     "users": "SELECT count(*) FROM users",
     "sessions": "SELECT count(*) FROM sessions",
 }
+
+
+def on_an_event_loop() -> bool:
+    """Whether the caller runs on an asyncio event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 @dataclass

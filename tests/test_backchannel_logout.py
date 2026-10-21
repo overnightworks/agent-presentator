@@ -4,7 +4,6 @@ The issuer is the fake one, so every Logout Token is signed by a key the test
 generated; the accounts and the sessions are the real SQLite stores.
 """
 
-import asyncio
 import logging
 import sqlite3
 from collections.abc import Callable, Generator
@@ -33,12 +32,12 @@ from presentator.api.auth import (
 )
 from tests.api.fake_issuer import FakeIssuer
 from tests.api.lobby import A_BROWSERS_ADDRESS, a_content_security_policy
-from tests.sign_in_support import RecordingAudit, Scene, a_scene
+from tests.sign_in_support import RecordingAudit, Scene, a_scene, on_an_event_loop
 
 _FORM = "application/x-www-form-urlencoded"
 _KEYCLOAK_BY_NAME = "http://presentator-lobby:8000"
 _SIGNED_OUT_START = "/login/oidc?next=%2F"
-_A_THIRD_OF_A_MEGABYTE = 33 * 1024
+_OVER_THE_CAP = 33 * 1024
 _THE_CAP = 32 * 1024
 _BACKCHANNEL_ERROR = "presentator.api.auth"
 _ROWS_OF_SUBJECT_1 = 2
@@ -55,18 +54,10 @@ class RecordingLock:
 
     @contextmanager
     def hold(self) -> Generator[None]:
-        self.log.append(("held", _on_an_event_loop()))
+        self.log.append(("held", on_an_event_loop()))
         with self.real.hold():
             yield
             self.log.append(("leaving", self.sessions_seen()))
-
-
-def _on_an_event_loop() -> bool:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return False
-    return True
 
 
 @dataclass
@@ -485,7 +476,7 @@ def test_a_body_declared_over_32_kib_gets_413_before_the_route(world: World) -> 
         content=b"logout_token=",
         headers={
             "content-type": _FORM,
-            "content-length": str(_A_THIRD_OF_A_MEGABYTE),
+            "content-length": str(_OVER_THE_CAP),
         },
     )
 

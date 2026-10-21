@@ -90,14 +90,13 @@ class FakeIssuer:
         *,
         subject: str,
         seconds_ago: int = 0,
-        header: Mapping[str, object] | None = None,
         claims: Mapping[str, object | None] | None = None,
         by_another_key: bool = False,
     ) -> str:
         """A Logout Token for this client, issued `seconds_ago` before now.
 
-        `header` and `claims` override what a valid token carries; a claim
-        overridden with None is left out. `by_another_key` signs with a key the
+        `claims` override what a valid token carries; a claim overridden with
+        None is left out. `by_another_key` signs with a key the
         key set does not publish, under the same `kid`.
         """
         issued_at = int(self._now.timestamp()) - seconds_ago
@@ -114,7 +113,7 @@ class FakeIssuer:
         key = rsa.generate_private_key(65537, 2048) if by_another_key else self._key
         return _signed(
             key,
-            {"alg": "RS256", "typ": "logout+jwt", "kid": A_KEY_ID, **(header or {})},
+            {"alg": "RS256", "typ": "logout+jwt", "kid": A_KEY_ID},
             {name: value for name, value in valid_claims.items() if value is not None},
         )
 

@@ -240,7 +240,7 @@ settings. `RateLimitPolicy` is implemented without Redis, as is the
 `RateLimitBackend` port the extraction names. No `SessionCache` is implemented
 here at all — see below. `BodySizePolicy` is installed with a 32 KiB default
 and a 25 MiB budget for the hook prefix (amendment 2026-10-21 below); `AuditSink` is a logging sink
-that writes one line per account created or role changed. `SecurityHeadersPolicy` is
+that writes one line per account created, role changed or back-channel logout that ended sessions. `SecurityHeadersPolicy` is
 mounted: the lobby's `SecurityHeadersMiddleware` sends HSTS, a strict
 `Content-Security-Policy`, and a `Permissions-Policy` that grants only
 `microphone=(self)` — never the camera, which nothing in this product asks for —
@@ -329,8 +329,10 @@ registers the URL (edge#50 K3c); until then a Keycloak logout elsewhere ends a
 presentator session only at its twelve-hour cap.
 
 The stack also carries webauth's body cap: 32 KiB for every route, 25 MiB for
-`POST` under the hook prefix, the payload cap GitHub and GitLab document (25
-MB); Forgejo documents none, only a limit of 15 commits per push payload. A
+`POST` under the hook prefix, the budget that covers the 25 MB payload cap GitHub
+([webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads))
+and GitLab ([webhooks](https://docs.gitlab.com/user/project/integrations/webhooks/)) document (25 MiB
+is the larger unit); Forgejo documents none, only a limit of 15 commits per push payload. A
 declared length over the budget is answered 413 before the route. A body
 without a length is cut where the route reads past the budget: 413 on the
 back-channel, 400 on a route FastAPI parses. A sign-in that interleaves with a

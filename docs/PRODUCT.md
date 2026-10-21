@@ -69,7 +69,7 @@ expired session rows every five minutes, apart from the deck refresh.
 A signed-out browser navigation goes to `/login/oidc` with the requested path
 and query in `next`; a JSON request receives 401. Every mutating route is
 cross-origin protected by default; the sessionless `POST /sources/<name>/fetch`
-and Keycloak's `POST /auth/backchannel-logout` are the only exemptions. Logging out is a POST that deletes the session row at once and sends the browser to Keycloak's end-session endpoint (with the ID-token hint when usable), which returns it to `/login`. No answer may be replayed from the
+and Keycloak's `POST /auth/backchannel-logout` are the only exemptions. A verified Logout Token ends every session of its subject (not live until edge#50 K3c registers the route); bodies over 32 KiB are refused, with a 25 MiB budget on the hook prefix. Logging out is a POST that deletes the session row at once and sends the browser to Keycloak's end-session endpoint (with the ID-token hint when usable), which returns it to `/login`. No answer may be replayed from the
 browser cache.
 
 Every lobby page, signed in or out, ends with two links: Impressum goes to the

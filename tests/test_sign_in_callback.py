@@ -4,7 +4,6 @@ The issuer is a fake that signs with a key the test generated; the accounts and
 the sessions are the real SQLite stores on a temporary file.
 """
 
-import asyncio
 import logging
 import re
 import sqlite3
@@ -54,6 +53,7 @@ from tests.sign_in_support import (
     Scene,
     a_scene,
     cookie_names,
+    on_an_event_loop,
 )
 
 _BOUND = 30.0
@@ -99,17 +99,9 @@ class WatchedLock:
     def hold(self) -> Generator[None]:
         with self._mutex:
             self.holds += 1
-            self.held_on_the_event_loop |= _on_an_event_loop()
+            self.held_on_the_event_loop |= on_an_event_loop()
         with ProcessWriteLock(primitive=self.primitive).hold():
             yield
-
-
-def _on_an_event_loop() -> bool:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return False
-    return True
 
 
 @dataclass

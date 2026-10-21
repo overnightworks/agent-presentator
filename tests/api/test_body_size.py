@@ -22,7 +22,7 @@ from tests.sign_in_support import Scene, a_scene
 _FORM = "application/x-www-form-urlencoded"
 _JSON = "application/json"
 _CHUNK = 4096
-_CHUNKS = 16
+_BODY_SIZE = 16 * _CHUNK
 _CAP = 32 * 1024
 _FIRST_CHUNK_PASSING_THE_CAP = _CAP // _CHUNK + 1
 _A_NAME = "kleiner-fisch"
@@ -39,10 +39,13 @@ class Streamed:
     chunks_taken: int = 0
 
 
-def stream_to(app: ASGIApp, path: str, headers: dict[str, str]) -> Streamed:
-    """POST sixteen 4 KiB chunks to the app and count the chunks it takes."""
+def stream_to(
+    app: ASGIApp, path: str, headers: dict[str, str], body: bytes
+) -> Streamed:
+    """POST the body to the app in 4 KiB chunks and count the chunks it takes."""
     streamed = Streamed()
-    chunks = iter(range(_CHUNKS))
+    parts = [body[start : start + _CHUNK] for start in range(0, len(body), _CHUNK)]
+    chunks = iter(range(len(parts)))
 
     async def receive() -> Message:
         index = next(chunks, None)
@@ -51,8 +54,8 @@ def stream_to(app: ASGIApp, path: str, headers: dict[str, str]) -> Streamed:
         streamed.chunks_taken += 1
         return {
             "type": "http.request",
-            "body": b"a" * _CHUNK,
-            "more_body": index < _CHUNKS - 1,
+            "body": parts[index],
+            "more_body": index < len(parts) - 1,
         }
 
     async def send(message: Message) -> None:
@@ -108,14 +111,22 @@ def a_settings_form(padding: int) -> str:
     )
 
 
+def padded_to_the_stream_size(body: str) -> bytes:
+    """The body followed by `&padding=aaa…`, so it is still the same form."""
+    filler = "&padding=" + "a" * (_BODY_SIZE - len(body) - len("&padding="))
+    return (body + filler).encode()
+
+
 def test_a_streamed_body_over_the_cap_on_the_back_channel_gets_413(
     tmp_path: Path,
 ) -> None:
     scene: Scene = a_scene(tmp_path)
     scene.sign_in()
+    token = scene.issuer.mint_logout_token(subject="subject-1")
+    body = padded_to_the_stream_size(urlencode({"logout_token": token}))
 
     streamed = stream_to(
-        scene.lobby.app, BACKCHANNEL_LOGOUT_PATH, {"content-type": _FORM}
+        scene.lobby.app, BACKCHANNEL_LOGOUT_PATH, {"content-type": _FORM}, body
     )
 
     assert streamed.status == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
@@ -127,19 +138,25 @@ def test_a_streamed_body_over_the_cap_on_the_back_channel_gets_413(
 def test_a_streamed_settings_form_over_the_cap_gets_400_and_saves_nothing() -> None:
     admin = a_lobby()
     admin.sign_in()
+    before = admin.client.get(_SETTINGS).text
+    body = padded_to_the_stream_size(a_settings_form(0))
 
-    streamed = stream_to(admin.app, _SETTINGS, a_browsers_headers(admin.client, _FORM))
+    streamed = stream_to(
+        admin.app, _SETTINGS, a_browsers_headers(admin.client, _FORM), body
+    )
 
     assert streamed.status == HTTPStatus.BAD_REQUEST
     assert streamed.chunks_taken <= _FIRST_CHUNK_PASSING_THE_CAP
-    assert _A_NAME not in admin.client.get(_SETTINGS).text
+    assert admin.client.get(_SETTINGS).text == before
 
 
 def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     lobby.sign_in()
+    asked = json.dumps(QUESTION)
+    body = (asked + " " * (_BODY_SIZE - len(asked))).encode()
 
-    streamed = stream_to(lobby.app, _ASK, a_browsers_headers(lobby.client, _JSON))
+    streamed = stream_to(lobby.app, _ASK, a_browsers_headers(lobby.client, _JSON), body)
 
     assert streamed.status == HTTPStatus.BAD_REQUEST
     assert streamed.chunks_taken <= _FIRST_CHUNK_PASSING_THE_CAP
