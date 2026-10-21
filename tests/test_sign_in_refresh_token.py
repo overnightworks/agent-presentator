@@ -3,9 +3,11 @@
 import logging
 import sqlite3
 import traceback
+from collections.abc import Mapping, Sequence
 from contextlib import closing
 from http import HTTPStatus
 from pathlib import Path
+from typing import cast
 
 import pytest
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
@@ -110,6 +112,23 @@ def _everything_logged(log: pytest.LogCaptureFixture) -> str:
     return "\n".join(formatter.format(record) for record in log.records)
 
 
+def _text_of(value: object) -> str:
+    """The text of a log argument, descending into the containers that hold it."""
+    if isinstance(value, Mapping):
+        entries = cast("Mapping[object, object]", value)
+        return " ".join(
+            f"{_text_of(key)} {_text_of(item)}" for key, item in entries.items()
+        )
+    if isinstance(value, tuple | list):
+        elements = cast("Sequence[object]", value)
+        return " ".join(_text_of(item) for item in elements)
+    return repr(value)
+
+
+def _every_argument_logged(log: pytest.LogCaptureFixture) -> str:
+    return "\n".join(_text_of(record.args) for record in log.records)
+
+
 def test_a_sign_in_that_stores_the_token_leaks_it_to_neither_page_nor_log(
     scene: Scene, log: pytest.LogCaptureFixture
 ) -> None:
@@ -121,6 +140,7 @@ def test_a_sign_in_that_stores_the_token_leaks_it_to_neither_page_nor_log(
     assert scene.stored_tokens() == [_MARKER]
     assert _MARKER not in answer.text + str(answer.headers)
     assert _MARKER not in _everything_logged(log)
+    assert _MARKER not in _every_argument_logged(log)
 
 
 def test_a_refused_refresh_token_leaks_to_neither_page_nor_log(
@@ -134,6 +154,7 @@ def test_a_refused_refresh_token_leaks_to_neither_page_nor_log(
     assert "<h1>Login failed</h1>" in answer.text
     assert _MARKER not in answer.text + str(answer.headers)
     assert _MARKER not in _everything_logged(log)
+    assert _MARKER not in _every_argument_logged(log)
 
 
 def test_a_store_failure_holding_the_token_leaks_it_to_no_error_and_no_log(
@@ -148,3 +169,17 @@ def test_a_store_failure_holding_the_token_leaks_it_to_no_error_and_no_log(
 
     assert _MARKER not in "".join(traceback.format_exception(failure.value))
     assert _MARKER not in _everything_logged(log)
+    assert _MARKER not in _every_argument_logged(log)
+
+
+def test_a_store_failure_holding_the_token_answers_500_without_it(
+    scene: Scene,
+) -> None:
+    scene.issuer.issue_refresh_token(_MARKER)
+    with closing(sqlite3.connect(scene.database)) as connection:
+        connection.execute("DROP TABLE sessions")
+
+    answer = scene.sign_in(scene.browser(raise_server_exceptions=False))
+
+    assert answer.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert _MARKER not in answer.text + str(answer.headers)
