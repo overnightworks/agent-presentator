@@ -1,9 +1,10 @@
-"""The pages that sign a person in and out, and the guard on everything else.
+"""The pages that sign a person in and out, and the session gate on everything else.
 
-Every address but signing in, signing out, and the Datenschutzerklärung answers
-the redirect to the start of the sign-in while nobody is signed in, a form
-another site submitted is refused, and no answer may be replayed from the
-browser cache (issue #8, lines 11 to 15).
+The gate webauth's `SessionGate` installs decides every request: a gated address
+answers the redirect to the start of the sign-in (or 401 to a JSON caller) while
+nobody is signed in, the public and optional addresses below are the
+exceptions, a form another site submitted is refused, and no answer may be
+replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
 from contextlib import nullcontext
@@ -82,29 +83,28 @@ _SETUP: Final = "/setup"
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header there like on every
 # other page.
-_SESSION_GATE_RULES: Final = (
-    (
-        PublicRule(
-            PathRules(
-                exact=frozenset(
-                    {
-                        LOGIN_PATH,
-                        _START_SIGN_IN,
-                        SIGN_IN_CALLBACK_PATH,
-                        LOGOUT_PATH,
-                        _SETUP,
-                    }
-                )
+_PUBLIC_RULES: Final = (
+    PublicRule(
+        PathRules(
+            exact=frozenset(
+                {
+                    LOGIN_PATH,
+                    _START_SIGN_IN,
+                    SIGN_IN_CALLBACK_PATH,
+                    LOGOUT_PATH,
+                    _SETUP,
+                }
             )
-        ),
-        PublicRule(PathRules(prefixes=(_INSIDE_STATIC,))),
-        PublicRule(
-            PathRules(prefixes=(HOOK_CALLS,)),
-            methods=frozenset({HTTPMethod.POST}),
-        ),
+        )
     ),
-    PathRules(exact=frozenset({_DATENSCHUTZ})),
+    PublicRule(PathRules(prefixes=(_INSIDE_STATIC,))),
+    PublicRule(
+        PathRules(prefixes=(HOOK_CALLS,)),
+        methods=frozenset({HTTPMethod.POST}),
+    ),
 )
+_OPTIONAL_PATHS: Final = PathRules(exact=frozenset({_DATENSCHUTZ}))
+PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
 _CSRF_POLICY: Final = CsrfPolicy(
     exempt=PathRules(prefixes=(HOOK_CALLS,)),
 )
@@ -362,12 +362,11 @@ def _install_middleware(
     security headers. Each store call commits on its own and `touch` is one
     update-only statement (ADR 0003), so the gate's admission takes no lock.
     """
-    public, optional = _SESSION_GATE_RULES
     install_web_auth_middleware(
         lobby,
         security_headers=SecurityHeadersPolicy(
             content_security_policy=content_security_policy,
-            permissions_policy="camera=(), microphone=(self), geolocation=()",
+            permissions_policy=PERMISSIONS_POLICY,
             cache_control_rules=(
                 CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
             ),
@@ -377,8 +376,8 @@ def _install_middleware(
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
             login_redirect=_LOGIN_REDIRECT,
-            public=public,
-            optional=optional,
+            public=_PUBLIC_RULES,
+            optional=_OPTIONAL_PATHS,
         ),
     )
 

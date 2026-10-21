@@ -489,7 +489,9 @@ def test_an_admin_sets_the_instance_name_the_language_and_the_default_theme(
 
     assert saved.status_code == HTTPStatus.SEE_OTHER
     assert saved.headers["location"] == SETTINGS
-    page = instance.client.get(SETTINGS).text
+    answer = instance.client.get(SETTINGS)
+    assert answer.status_code == HTTPStatus.OK
+    page = answer.text
     assert _INSTANCE_NAME in page
     assert what_the_selects_show(page) == [
         ENGLISH.language_tag,
@@ -505,7 +507,9 @@ def test_an_admin_with_a_fresh_unnamed_instance_saves_the_default_theme(
 
     assert saved.status_code == HTTPStatus.SEE_OTHER
     assert saved.headers["location"] == SETTINGS
-    page = instance.client.get(SETTINGS).text
+    answer = instance.client.get(SETTINGS)
+    assert answer.status_code == HTTPStatus.OK
+    page = answer.text
     assert 'id="instance-name" name="name" value=""' in page
     assert what_the_selects_show(page) == [
         ENGLISH.language_tag,

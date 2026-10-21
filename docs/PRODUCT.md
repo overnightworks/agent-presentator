@@ -60,7 +60,7 @@ page with a Try again link; a failing
 store answers 500. A session that SQLite
 holds is carried by a signed cookie, and the session ends twelve hours after the
 sign-in that opened it, however often it is used. `webauth` v0.20.1 owns the cookie and
-CSRF-origin mechanism; its `SessionGate` refuses a request without a session and
+CSRF-origin mechanism; its `SessionGate` refuses a gated request without a session (the public and optional paths are the exceptions) and
 admits the others in a worker thread, and the co-presenter's WebSocket admits
 through `admit_session` in its own route. `admit_session` decides which SQLite
 session names a signed-in person. The

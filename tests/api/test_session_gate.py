@@ -6,11 +6,13 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from http import HTTPStatus
 
+import httpx2
 import pytest
 from fastapi import Request, Response
 from fastapi.testclient import TestClient
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
+from presentator.api.auth import PERMISSIONS_POLICY
 from presentator.api.hooks import hook_address
 from presentator.api.pages import gated_person, gated_session_id
 from presentator.application.identity import SESSION_LIFETIME
@@ -30,7 +32,7 @@ from tests.application.fakes import FakeSession, FakeSessionRecordStore, FakeUse
 
 _JSON = {"accept": "application/json"}
 _HTML = {"accept": "text/html"}
-_TO_THE_LOGIN = "/login/oidc?next=%2F"
+_START_SIGN_IN = "/login/oidc"
 _PUBLIC_PROBE = "/setup"
 
 
@@ -84,6 +86,15 @@ def a_lobby_over(
         raise_server_exceptions=False,
     )
     return replace(browser, client=quiet)
+
+
+def _assert_carries_the_security_headers(answer: httpx2.Response) -> None:
+    headers = answer.headers
+    assert headers["cache-control"] == "no-store"
+    assert headers["content-security-policy"] == a_content_security_policy()
+    assert headers["permissions-policy"] == PERMISSIONS_POLICY
+    assert headers["x-frame-options"] == "DENY"
+    assert headers["x-content-type-options"] == "nosniff"
 
 
 def _counts(lobby: Lobby) -> tuple[int, int]:
@@ -144,12 +155,22 @@ def test_a_public_path_answers_a_signed_out_browser_without_a_store_read(
     assert _counts(lobby) == (0, 0)
 
 
+@pytest.mark.parametrize("path", ["/setup", "/static/ui-console.css", "/login/oidc"])
+def test_a_signed_in_browser_on_a_public_path_costs_no_store_read(
+    signed_in_lobby: Lobby,
+    path: str,
+) -> None:
+    signed_in_lobby.client.get(path)
+
+    assert _counts(signed_in_lobby) == (0, 0)
+
+
 def test_the_sign_in_callback_is_not_turned_to_the_login_by_the_gate(
     lobby: Lobby,
 ) -> None:
     answer = lobby.client.get("/auth/callback")
 
-    assert answer.headers.get("location") != _TO_THE_LOGIN
+    assert not answer.headers.get("location", "").startswith(_START_SIGN_IN)
     assert _counts(lobby) == (0, 0)
 
 
@@ -254,16 +275,20 @@ def test_an_unreadable_session_store_runs_no_route_and_keeps_the_headers() -> No
 
     assert answer.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
     assert reached == []
-    assert answer.headers["content-security-policy"] == a_content_security_policy()
+    _assert_carries_the_security_headers(answer)
 
 
 @pytest.mark.parametrize("reader", [gated_person, gated_session_id])
+@pytest.mark.parametrize("fixture", ["lobby", "signed_in_lobby"])
 def test_a_gated_reader_fails_loud_on_a_path_the_gate_let_past(
-    lobby: Lobby,
+    request: pytest.FixtureRequest,
+    fixture: str,
     reader: Callable[[Request], object],
 ) -> None:
-    def probe(request: Request) -> Response:
-        reader(request)
+    lobby: Lobby = request.getfixturevalue(fixture)
+
+    def probe(incoming: Request) -> Response:
+        reader(incoming)
         return Response()
 
     lobby.app.add_api_route(_PUBLIC_PROBE, probe, methods=["POST"])
@@ -318,6 +343,4 @@ def test_the_gates_refusals_carry_the_security_headers(
     refused = lobby.client.get("/", headers=accept)
 
     assert refused.status_code == status
-    assert refused.headers["cache-control"] == "no-store"
-    assert refused.headers["content-security-policy"] == a_content_security_policy()
-    assert "microphone=(self)" in refused.headers["permissions-policy"]
+    _assert_carries_the_security_headers(refused)
