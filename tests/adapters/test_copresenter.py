@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import socket
-from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import pytest
-import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 from httpcore2._backends.auto import AutoBackend
@@ -31,6 +28,7 @@ from presentator.contracts.copresenter import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from pathlib import Path
+from tests.adapters.serving import Serving, unix_listener
 
 
 def test_uds_adapter_maps_narrow_readiness_and_native_incremental_sse(
@@ -71,7 +69,7 @@ async def _read_readiness_and_answer(tmp_path: Path) -> None:
     app.add_api_route("/ask", _ask, methods=["POST"])
 
     socket_path = tmp_path / "copresenter.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         adapter = UdsCoPresenter(socket_path)
         readiness = await adapter.readiness()
         async with adapter.answer(
@@ -112,7 +110,7 @@ async def _use_hearing(tmp_path: Path) -> None:
     app.add_api_websocket_route("/hear", _hear)
 
     socket_path = tmp_path / "copresenter.sock"
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         adapter = UdsCoPresenter(socket_path)
         async with CoPresenterUse(private=adapter).hear("de") as hearing:
             await hearing.send_pcm(b"pcm")
@@ -148,7 +146,7 @@ async def _read_private_hearing_endings(tmp_path: Path) -> None:
     app.add_api_websocket_route("/hear", _hear)
     socket_path = tmp_path / "copresenter.sock"
 
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         adapter = UdsCoPresenter(socket_path)
         async with adapter.hear("unavailable") as hearing:
             unavailable = await hearing.receive()
@@ -246,7 +244,7 @@ async def _refuse_private_failures(tmp_path: Path) -> None:
     socket_path = tmp_path / "copresenter.sock"
     adapter = UdsCoPresenter(socket_path)
 
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         with pytest.raises(CoPresenterUnavailableError):
             await adapter.readiness()
         with pytest.raises(CoPresenterUnavailableError):
@@ -296,39 +294,9 @@ async def _cancel_native_answer(tmp_path: Path) -> None:
     app.add_api_route("/ask", _ask, methods=["POST"])
     socket_path = tmp_path / "copresenter.sock"
 
-    async with _Serving(app, socket_path):
+    async with Serving(app, unix_listener(socket_path)):
         async with UdsCoPresenter(socket_path).answer(
             Question(said="Frage", slide=1, language=None)
         ) as answer:
             assert await anext(answer) == AnswerText(text="Antwort")
         await asyncio.wait_for(stream_closed.wait(), timeout=1)
-
-
-class _Serving:
-    def __init__(self, app: FastAPI, path: Path) -> None:
-        self._app = app
-        self._path = path
-        self._listener: socket.socket | None = None
-        self._server: uvicorn.Server | None = None
-        self._task: asyncio.Task[None] | None = None
-
-    async def __aenter__(self) -> None:
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(str(self._path))
-        listener.listen()
-        listener.settimeout(0.0)
-        server = uvicorn.Server(
-            uvicorn.Config(self._app, log_level="error", proxy_headers=False),
-        )
-        self._listener = listener
-        self._server = server
-        self._task = asyncio.create_task(server.serve(sockets=[listener]))
-
-    async def __aexit__(self, *_error: object) -> None:
-        assert self._server is not None
-        assert self._task is not None
-        assert self._listener is not None
-        await self._server.shutdown(sockets=[self._listener])
-        self._task.cancel()
-        with suppress(asyncio.CancelledError):
-            await self._task

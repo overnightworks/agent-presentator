@@ -16,6 +16,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx2", extra = ["ws"] },
     { name = "jinja2" },
+    { name = "overnightworks-agent-client" },
     { name = "overnightworks-webauth" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -39,6 +40,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx2", extras = ["ws"], specifier = "==2.13.1" },
     { name = "jinja2", specifier = "==3.1.6" },
+    { name = "overnightworks-agent-client", url = "https://github.com/overnightworks/agent-providers/releases/download/v0.5.0/overnightworks_agent_client-0.5.0-py3-none-any.whl" },
     { name = "overnightworks-webauth", url = "https://github.com/overnightworks/webauth/releases/download/v0.18.0/overnightworks_webauth-0.18.0-py3-none-any.whl" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -646,6 +648,20 @@ sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
 ]
+
+[[package]]
+name = "overnightworks-agent-client"
+version = "0.5.0"
+source = { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.5.0/overnightworks_agent_client-0.5.0-py3-none-any.whl" }
+dependencies = [
+    { name = "pydantic" },
+]
+wheels = [
+    { url = "https://github.com/overnightworks/agent-providers/releases/download/v0.5.0/overnightworks_agent_client-0.5.0-py3-none-any.whl", hash = "sha256:9019e18411e6338629a5397a4f58b0b3cbd70f4b2cbd8184b97a3d53ee8ed94a" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.7,<3" }]
 
 [[package]]
 name = "overnightworks-webauth"

@@ -2,7 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08 and 2026-10-20, see below
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20 and 2026-10-21, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -262,6 +262,17 @@ lobby process is the only writer of `users` and `sessions`
 A failure between two statements leaves one of three states: an account without
 a session, a signed-out browser, or ended sessions answered with 400. Each one
 either fails closed or is healed by the next sign-in.
+
+### Amendment 2026-10-21 — model access comes from the operator's agent service
+
+Authority: [#356](https://github.com/overnightworks/agent-presentator/issues/356)
+(A3a of [#355](https://github.com/overnightworks/agent-presentator/issues/355)),
+and the operator's ruling of 2026-10-21 to use the service.
+
+Model access comes from the operator's agent service through `agent_client`
+(adapters only); this repository writes the POST itself, and `agent_providers`
+is no longer the target. The co-presenter host process is retired, and its call
+moves into the web process. The slice table of #355 is the plan.
 
 ## Consequences
 
