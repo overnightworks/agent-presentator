@@ -31,7 +31,7 @@ Logging out deletes the row. The Keycloak client must register `<PRESENTATOR_PUB
 its row every five minutes, apart from the deck refresh.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
-`webauth` v0.18.0's mechanism (`issue_session_cookies` /
+`webauth` v0.20.1's mechanism (`issue_session_cookies` /
 `clear_session_cookies` / `session_id_from_request`), as are the fail-closed
 CSRF-origin policy, the browser-or-JSON answer for a missing session, and the
 refusal of a request that carries the session cookie twice: it is treated as
@@ -89,7 +89,7 @@ and no first admin: accounts arrive with the Keycloak sign-in of
 
 A database file written by an older version (`login_attempts`, or a `users` or
 `sessions` table whose columns differ from the current ones, such as a
-`sessions` table without `created_at`) is refused at start, before
+`sessions` table without `created_at` or without `refresh_token`) is refused at start, before
 the file or its `-wal` is written to; a `-shm` may appear. The order matters:
 
 1. Stop presentator.
