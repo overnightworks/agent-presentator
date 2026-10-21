@@ -18,6 +18,7 @@ from webauth.https_client import KeySetFetchError
 from webauth.oidc import TokenEndpointAnswer, TokenEndpointError, TokenRequest
 
 A_KEY_ID = "the-key-only-this-test-has"
+A_BACKCHANNEL_EVENT = "http://schemas.openid.net/event/backchannel-logout"
 _TOKEN_LIFETIME_SECONDS = 300
 
 
@@ -31,6 +32,14 @@ def _base64url_json(document: Mapping[str, object]) -> str:
 
 def _base64url_integer(number: int) -> str:
     return _base64url(number.to_bytes((number.bit_length() + 7) // 8, "big"))
+
+
+def _signed(
+    key: rsa.RSAPrivateKey, header: Mapping[str, object], claims: Mapping[str, object]
+) -> str:
+    signing_input = f"{_base64url_json(header)}.{_base64url_json(claims)}"
+    signature = key.sign(signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
+    return f"{signing_input}.{_base64url(signature)}"
 
 
 class FakeIssuer:
@@ -72,12 +81,42 @@ class FakeIssuer:
         }
         if username is not None:
             claims["preferred_username"] = username
-        header = {"alg": "RS256", "typ": "JWT", "kid": A_KEY_ID}
-        signing_input = f"{_base64url_json(header)}.{_base64url_json(claims)}"
-        signature = self._key.sign(
-            signing_input.encode(), padding.PKCS1v15(), hashes.SHA256()
+        return _signed(
+            self._key, {"alg": "RS256", "typ": "JWT", "kid": A_KEY_ID}, claims
         )
-        return f"{signing_input}.{_base64url(signature)}"
+
+    def mint_logout_token(
+        self,
+        *,
+        subject: str,
+        seconds_ago: int = 0,
+        header: Mapping[str, object] | None = None,
+        claims: Mapping[str, object | None] | None = None,
+        by_another_key: bool = False,
+    ) -> str:
+        """A Logout Token for this client, issued `seconds_ago` before now.
+
+        `header` and `claims` override what a valid token carries; a claim
+        overridden with None is left out. `by_another_key` signs with a key the
+        key set does not publish, under the same `kid`.
+        """
+        issued_at = int(self._now.timestamp()) - seconds_ago
+        valid_claims: dict[str, object | None] = {
+            "iss": self._issuer,
+            "aud": self._client_id,
+            "sub": subject,
+            "iat": issued_at,
+            "exp": issued_at + _TOKEN_LIFETIME_SECONDS,
+            "jti": secrets.token_urlsafe(8),
+            "events": {A_BACKCHANNEL_EVENT: {}},
+            **(claims or {}),
+        }
+        key = rsa.generate_private_key(65537, 2048) if by_another_key else self._key
+        return _signed(
+            key,
+            {"alg": "RS256", "typ": "logout+jwt", "kid": A_KEY_ID, **(header or {})},
+            {name: value for name, value in valid_claims.items() if value is not None},
+        )
 
     def authorize(
         self,

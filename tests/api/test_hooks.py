@@ -1,5 +1,6 @@
 """The fetch-now hook as a git host calls it: no session, no page, no payload."""
 
+import json
 from datetime import timedelta
 from http import HTTPStatus
 
@@ -19,6 +20,8 @@ _WORDS_B = "the words only source B was given"
 _A_GUESS = "guessed"
 _PUSHED = "kundenfeedback"
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
+_ONE_MEBIBYTE = 1024 * 1024
+_PUSH_BUDGET = 25 * _ONE_MEBIBYTE
 
 
 def a_source(name: str, *, identifier: str, url: str) -> Source:
@@ -138,6 +141,47 @@ def test_whatever_a_host_posts_in_its_body_changes_nothing(hooked: Lobby) -> Non
 
     assert called.status_code == HTTPStatus.NO_CONTENT
     assert "Kundenfeedback Q3" in hooked.client.get("/").text
+
+
+def test_a_large_push_payload_from_a_git_host_is_taken_in(hooked: Lobby) -> None:
+    payload = json.dumps({"commits": ["a" * 1024] * 1024}).encode()
+
+    called = call_hook(
+        hooked.client,
+        headers={**carrying_bearer(_WORDS_A), "content-type": "application/json"},
+        content=payload,
+    )
+    hooked.sign_in()
+
+    assert len(payload) > _ONE_MEBIBYTE
+    assert called.status_code == HTTPStatus.NO_CONTENT
+    assert "Kundenfeedback Q3" in hooked.client.get("/").text
+
+
+@pytest.mark.parametrize(
+    ("declared", "status", "taken_in"),
+    [
+        pytest.param(_PUSH_BUDGET, HTTPStatus.NO_CONTENT, True, id="the-budget"),
+        pytest.param(
+            _PUSH_BUDGET + 1,
+            HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            False,
+            id="one-byte-over",
+        ),
+    ],
+)
+def test_a_hook_call_declaring_over_25_mebibytes_is_refused_before_the_route(
+    hooked: Lobby, declared: int, status: HTTPStatus, *, taken_in: bool
+) -> None:
+    called = call_hook(
+        hooked.client,
+        headers={**carrying_bearer(_WORDS_A), "content-length": str(declared)},
+        content=b"",
+    )
+    hooked.sign_in()
+
+    assert called.status_code == status
+    assert ("Kundenfeedback Q3" in hooked.client.get("/").text) is taken_in
 
 
 def test_source_bs_secret_does_not_open_source_a(hooked: Lobby) -> None:

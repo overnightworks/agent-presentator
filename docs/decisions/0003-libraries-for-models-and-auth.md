@@ -238,15 +238,16 @@ From `webauth`: `SessionRecordStore` is implemented on SQLite ([ADR
 0006](0006-sqlite-and-files.md)); the host builds `WebAuthConfig` from its
 settings. `RateLimitPolicy` is implemented without Redis, as is the
 `RateLimitBackend` port the extraction names. No `SessionCache` is implemented
-here at all — see below. `BodySizePolicy` is taken with its
-default and stubbed until something here needs it; `AuditSink` is a logging sink
+here at all — see below. `BodySizePolicy` is installed with a 32 KiB default
+and a 25 MiB budget for the hook prefix (amendment 2026-10-21 below); `AuditSink` is a logging sink
 that writes one line per account created or role changed. `SecurityHeadersPolicy` is
 mounted: the lobby's `SecurityHeadersMiddleware` sends HSTS, a strict
 `Content-Security-Policy`, and a `Permissions-Policy` that grants only
 `microphone=(self)` — never the camera, which nothing in this product asks for —
 because the co-presenter deck's own component (`CoPresenter.vue`) is the one
 surface that calls `getUserMedia`, and only for audio. `CsrfPolicy` exempts the
-sessionless webhook prefix; its default protects every mutating path (13c).
+two sessionless addresses another server posts to, the webhook prefix and the
+exact back-channel logout path; its default protects every mutating path (13c).
 
 **No Redis.** `SessionRecordStore` and `RateLimitPolicy`
 are app-supplied ports with no Redis requirement — #825 confirms that. What is
@@ -292,8 +293,7 @@ commits. This host keeps autocommit stores instead: each statement commits on
 its own, so there is nothing to commit or roll back. `WriteLock.hold()` takes
 one `threading.RLock` per process. The sign-in callback takes it twice, for
 admission and for `open_session`; the host's calls of webauth's `log_out` and
-`receive_backchannel_logout` take it when the logout and back-channel slices
-(#242 S5, S6) build them. That suffices because one
+`receive_backchannel_logout` take it as well. That suffices because one
 lobby process is the only writer of `users` and `sessions`
 ([ADR 0006](0006-sqlite-and-files.md)).
 
@@ -311,6 +311,31 @@ Model access comes from the operator's agent service through `agent_client`
 (adapters only); this repository writes the POST itself, and `agent_providers`
 is no longer the target. The co-presenter host process is retired, and its call
 moves into the web process. The slice table of #355 is the plan.
+
+### Amendment 2026-10-21: the back-channel logout and the body budget
+
+Authority: [#382](https://github.com/overnightworks/agent-presentator/issues/382)
+(S6 of [#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+
+`POST /auth/backchannel-logout` hands Keycloak's Logout Token to webauth's
+`receive_backchannel_logout` on a worker thread, under the one write lock. A
+verified token ends every session of its subject through `delete_for_user` and
+is answered 200 after the delete; anything else, and any failure, is answered
+400 and ends nothing, except that an audit line failing after the delete still
+answers 400 (the accepted residual of the 2026-10-20 amendment). The origin
+check exempts, and the gate opens for POST, exactly this path and the hook
+prefix, nothing beside them. Keycloak does not use the route until its client
+registers the URL (edge#50 K3c); until then a Keycloak logout elsewhere ends a
+presentator session only at its twelve-hour cap.
+
+The stack also carries webauth's body cap: 32 KiB for every route, 25 MiB for
+`POST` under the hook prefix, the payload cap GitHub and GitLab document (25
+MB); Forgejo documents none, only a limit of 15 commits per push payload. A
+declared length over the budget is answered 413 before the route. A body
+without a length is cut where the route reads past the budget: 413 on the
+back-channel, 400 on a route FastAPI parses. A sign-in that interleaves with a
+back-channel logout of the same person can leave the new session open until its
+cap; the remedy is a unit of work, kept in #242's "Trigger to revisit".
 
 ## Consequences
 
