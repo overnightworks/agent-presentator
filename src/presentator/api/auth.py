@@ -338,7 +338,7 @@ class _Surfaces:
         session = open_session(
             request,
             config,
-            login.account,
+            login,
             sessions=self.sessions,
             lock=self.auth.lock,
             max_sessions=None,

@@ -157,9 +157,7 @@ def signed_in(
     seed_user(database, _ADMIN)
     now = datetime.now(UTC)
     session = SqliteSessionRecordStore(database).create(
-        _ADMIN.id,
-        now=now,
-        expires_at=now + SESSION_LIFETIME,
+        _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
     )
     client = TestClient(
         instance.lobby,
@@ -808,9 +806,7 @@ def test_an_instance_restarts_on_a_crash_that_left_only_current_frames_in_the_lo
         seed_user(database, _ADMIN)
         now = datetime.now(UTC)
         opened = SqliteSessionRecordStore(database).create(
-            _ADMIN.id,
-            now=now,
-            expires_at=now + SESSION_LIFETIME,
+            _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
         )
         session_ids.append(opened.id)
 

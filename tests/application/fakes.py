@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, BinaryIO, Final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pydantic import SecretStr
+
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.decks import (
     RECENT_SOURCE_RUNS,
@@ -29,7 +31,7 @@ from presentator.contracts.decks import (
     SourceWrite,
     local_mount_path_of,
 )
-from presentator.contracts.models import Session, User
+from presentator.contracts.models import User
 from presentator.contracts.preferences import InstanceSettings, PersonPreferences
 from presentator.contracts.text import LobbyText
 
@@ -58,28 +60,47 @@ class FakeUserStore:
         return self.users.get(user_id)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FakeSession:
+    """One session row, as the fake store keeps it."""
+
+    id: str
+    user: User
+    created_at: datetime
+    expires_at: datetime
+    refresh_token: SecretStr | None
+
+
 @dataclass
 class FakeSessionRecordStore:
     """Session rows in a dictionary, joined to the accounts like the real table."""
 
     users: FakeUserStore
-    rows: dict[str, Session] = field(default_factory=dict[str, Session])
+    rows: dict[str, FakeSession] = field(default_factory=dict[str, FakeSession])
     minted: int = 0
     loads: int = 0
     touches: int = 0
 
-    def create(self, user_id: str, *, now: datetime, expires_at: datetime) -> Session:
+    def create(
+        self,
+        user_id: str,
+        *,
+        now: datetime,
+        expires_at: datetime,
+        refresh_token: SecretStr | None,
+    ) -> FakeSession:
         self.minted += 1
-        session = Session(
+        session = FakeSession(
             id=f"session-{self.minted}",
             user=self.users.users[user_id],
             created_at=now,
             expires_at=expires_at,
+            refresh_token=refresh_token,
         )
         self.rows[session.id] = session
         return session
 
-    def load(self, session_id: str) -> Session | None:
+    def load(self, session_id: str) -> FakeSession | None:
         self.loads += 1
         session = self.rows.get(session_id)
         account = None if session is None else self.users.get(session.user.id)
@@ -94,6 +115,19 @@ class FakeSessionRecordStore:
         if session_id not in self.rows:
             return False
         self.rows[session_id] = replace(self.rows[session_id], expires_at=expires_at)
+        return True
+
+    def replace_refresh_token(
+        self,
+        session_id: str,
+        *,
+        refresh_token: SecretStr,
+    ) -> bool:
+        if session_id not in self.rows:
+            return False
+        self.rows[session_id] = replace(
+            self.rows[session_id], refresh_token=refresh_token
+        )
         return True
 
     def delete(self, session_id: str) -> None:
@@ -135,6 +169,7 @@ class FakePeople:
             person.id,
             now=now,
             expires_at=now + SESSION_LIFETIME,
+            refresh_token=None,
         ).id
 
 

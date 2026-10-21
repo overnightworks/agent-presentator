@@ -25,6 +25,7 @@ import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
+from pydantic import SecretStr
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 from webauth.oidc_login import AdmissionConfig
 from webauth.ports import (
@@ -41,11 +42,11 @@ from presentator.adapters.identity import (
     ProcessWriteLock,
     SqliteSessionRecordStore,
     SqliteSubjectUserStore,
+    StoredSession,
     create_identity_tables,
 )
 from presentator.api.auth import LOGOUT_PATH, carry_set_cookies
 from presentator.application.identity import SESSION_LIFETIME
-from presentator.contracts.models import Session
 from presentator.host import main
 from tests.api.fake_issuer import FakeIssuer
 from tests.api.lobby import (
@@ -201,6 +202,14 @@ class Scene:
             username=username,
         )
         return client.get(f"/auth/callback?{query}")
+
+    def stored_tokens(self) -> list[str | None]:
+        """The refresh token of every session row, as the file holds it."""
+        with closing(sqlite3.connect(self.database)) as connection:
+            return [
+                token
+                for (token,) in connection.execute("SELECT refresh_token FROM sessions")
+            ]
 
     def count(self, table: Literal["users", "sessions"]) -> int:
         with closing(sqlite3.connect(self.database)) as connection:
@@ -673,10 +682,17 @@ def test_a_store_failure_after_the_admission_keeps_the_account_and_sets_no_cooki
         *,
         now: datetime,
         expires_at: datetime,
-    ) -> Session:
+        refresh_token: SecretStr | None,
+    ) -> StoredSession:
         if failures:
             raise failures.pop()
-        return create(store, user_id, now=now, expires_at=expires_at)
+        return create(
+            store,
+            user_id,
+            now=now,
+            expires_at=expires_at,
+            refresh_token=refresh_token,
+        )
 
     monkeypatch.setattr(
         SqliteSessionRecordStore, "create", create_unless_the_disk_fails
@@ -749,3 +765,111 @@ def test_an_audit_record_reaches_stderr_after_the_hosts_and_uvicorns_logging_set
     )
 
     assert "user_created" in capsys.readouterr().err
+
+
+def test_the_sign_ins_refresh_token_is_stored_with_its_session(scene: Scene) -> None:
+    scene.issuer.issue_refresh_token("rt-MARKER")
+
+    scene.sign_in()
+
+    assert scene.stored_tokens() == ["rt-MARKER"]
+
+
+def test_a_sign_in_without_a_refresh_token_succeeds_and_stores_none(
+    scene: Scene,
+) -> None:
+    answer = scene.sign_in()
+
+    assert answer.status_code == HTTPStatus.SEE_OTHER
+    assert scene.stored_tokens() == [None]
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("rt\x01control", id="control character"),
+        pytest.param("rt-MARKERé", id="non-ascii letter"),
+    ],
+)
+def test_a_refresh_token_outside_printable_ascii_fails_the_login_with_no_session(
+    scene: Scene, token: str
+) -> None:
+    scene.issuer.issue_refresh_token(token)
+
+    page = scene.sign_in()
+
+    assert page.status_code == HTTPStatus.FORBIDDEN
+    assert "<h1>Login failed</h1>" in page.text
+    assert scene.count("sessions") == 0
+    assert DEFAULT_SESSION_COOKIE_NAME not in " ".join(_cookie_names(page))
+
+
+def test_a_refresh_token_with_a_space_is_printable_ascii_and_is_stored(
+    scene: Scene,
+) -> None:
+    scene.issuer.issue_refresh_token("rt with space")
+
+    answer = scene.sign_in()
+
+    assert answer.status_code == HTTPStatus.SEE_OTHER
+    assert scene.stored_tokens() == ["rt with space"]
+
+
+def test_a_sign_in_over_an_older_session_replaces_its_row_and_its_token(
+    scene: Scene,
+) -> None:
+    browser = scene.browser()
+    scene.issuer.issue_refresh_token("rt-OLD")
+    scene.sign_in(browser)
+    scene.issuer.issue_refresh_token("rt-NEW")
+
+    scene.sign_in(browser)
+
+    assert scene.stored_tokens() == ["rt-NEW"]
+
+
+def test_logging_out_deletes_the_session_row_with_its_token(scene: Scene) -> None:
+    scene.issuer.issue_refresh_token("rt-MARKER")
+    scene.sign_in()
+
+    scene.lobby.client.post(LOGOUT_PATH)
+
+    assert scene.stored_tokens() == []
+
+
+@pytest.mark.parametrize(
+    ("token", "disk_fails"),
+    [
+        pytest.param("rt-MARKER", False, id="stored"),
+        pytest.param("rt-MARKER", True, id="store failure"),
+        pytest.param("rt-MARKER\u00e9", False, id="refused"),
+    ],
+)
+def test_no_log_record_and_no_error_body_carries_the_refresh_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    token: str,
+    *,
+    disk_fails: bool,
+) -> None:
+    scene = a_scene(tmp_path)
+    scene.issuer.issue_refresh_token(token)
+    if disk_fails:
+
+        def create_on_a_failing_disk(*_arguments: object, **_keywords: object) -> None:
+            message = "disk I/O error"
+            raise sqlite3.OperationalError(message)
+
+        monkeypatch.setattr(
+            SqliteSessionRecordStore, "create", create_on_a_failing_disk
+        )
+
+    with caplog.at_level(logging.DEBUG):
+        answer = scene.sign_in(scene.browser(raise_server_exceptions=False))
+
+    assert "rt-MARKER" not in answer.text
+    for record in caplog.records:
+        assert "rt-MARKER" not in record.getMessage()
+        assert "rt-MARKER" not in str(record.args)
+        assert "rt-MARKER" not in str(record.exc_info)
