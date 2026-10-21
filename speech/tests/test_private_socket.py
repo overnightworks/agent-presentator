@@ -208,6 +208,7 @@ def test_socket_speak_disconnect_frees_the_voice_for_the_next_caller(tmp_path) -
         ):
             async with client.stream("POST", "/speak", json=_SPEAK_BODY) as leaving:
                 await _first_chunk(leaving.aiter_bytes())
+                await _wait_for(voice.entered_last_step)
             await asyncio.wait_for(
                 server.speak_disconnect_received.wait(), timeout=GATE_TIMEOUT_SECONDS
             )

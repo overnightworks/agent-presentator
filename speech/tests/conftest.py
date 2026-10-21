@@ -85,6 +85,7 @@ class GatedSpeaking:
     def __init__(self, *, hold_last_chunk: bool = False) -> None:
         self.entered_first_step = threading.Event()
         self.release_first_step = threading.Event()
+        self.entered_last_step = threading.Event()
         self.release_last_chunk = threading.Event()
         if not hold_last_chunk:
             self.release_last_chunk.set()
@@ -113,6 +114,7 @@ class GatedSpeaking:
             _pass_gate(self.release_first_step)
             mid = (len(self.audio) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
             yield self.audio[:mid]
+            self.entered_last_step.set()
             _pass_gate(self.release_last_chunk)
             yield self.audio[mid:]
         finally:
