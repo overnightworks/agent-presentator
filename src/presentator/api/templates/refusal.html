@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<main data-column>
+  <p>{{ text.wordmark }}</p>
+  <h1>{% block title_text %}{% endblock %}</h1>
+  <div class="banner banner--fail">
+    <span class="glyph" aria-hidden="true"></span>
+    <div class="banner-body">
+      <p>{% block explanation %}{% endblock %}</p>
+    </div>
+  </div>
+  <div data-actions>
+    {% block actions %}{% endblock %}
+  </div>
+</main>
+{% block scripts %}{% endblock %}
+{% endblock %}

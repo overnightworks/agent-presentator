@@ -94,6 +94,9 @@ LobbyText.log_in
 LobbyText.login_failed_title
 LobbyText.login_failed_explanation
 LobbyText.login_failed_retry
+LobbyText.no_access_title
+LobbyText.no_access_explanation
+LobbyText.no_access_back
 LobbyText.decks_title
 LobbyText.decks_column_deck
 LobbyText.deck_back

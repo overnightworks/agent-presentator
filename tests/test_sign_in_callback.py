@@ -1,4 +1,4 @@
-"""A member signs in through the issuer's return; every refusal shows one page.
+"""A member signs in through the issuer's return; every refusal shows its page.
 
 The issuer is a fake that signs with a key the test generated; the accounts and
 the sessions are the real SQLite stores on a temporary file.
@@ -6,6 +6,7 @@ the sessions are the real SQLite stores on a temporary file.
 
 import asyncio
 import logging
+import re
 import sqlite3
 import threading
 from collections.abc import Callable, Generator
@@ -17,6 +18,7 @@ from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
@@ -411,8 +413,16 @@ def _the_person_declined(scene: Scene) -> BrowserAnswer:
     return scene.lobby.client.get(f"/auth/callback?error=access_denied&state={state}")
 
 
-def _not_a_member(scene: Scene) -> BrowserAnswer:
+def _in_another_group(scene: Scene) -> BrowserAnswer:
     return scene.sign_in(groups=["/apps/another"])
+
+
+def _in_no_group(scene: Scene) -> BrowserAnswer:
+    return scene.sign_in(groups=[])
+
+
+def _in_groups_named_without_a_path(scene: Scene) -> BrowserAnswer:
+    return scene.sign_in(groups=["presentator", "admin"])
 
 
 def _a_username_another_subject_holds(scene: Scene) -> BrowserAnswer:
@@ -426,9 +436,15 @@ _REFUSALS = [
     pytest.param(_token_endpoint_down, id="token endpoint down"),
     pytest.param(_key_set_down, id="key set down"),
     pytest.param(_the_person_declined, id="the person declined"),
-    pytest.param(_not_a_member, id="not a member"),
     pytest.param(_a_username_another_subject_holds, id="username taken"),
 ]
+_NO_ACCESS = [
+    pytest.param(_in_another_group, id="another group"),
+    pytest.param(_in_no_group, id="no group"),
+    pytest.param(_in_groups_named_without_a_path, id="bare group names"),
+]
+_ALL_REFUSALS = [*_REFUSALS, *_NO_ACCESS]
+_LEGAL_LINKS = ('href="https://hallucinai.de/impressum"', 'href="/datenschutz"')
 
 
 @pytest.mark.parametrize("drive", _REFUSALS)
@@ -443,13 +459,92 @@ def test_every_refusal_shows_the_one_login_failed_page_without_an_identity(
     assert (
         page.text.count('data-action data-wide href="/login/oidc">Try again</a>') == 1
     )
-    assert 'href="https://hallucinai.de/impressum"' in page.text
-    assert 'href="/datenschutz"' in page.text
+    assert "No access" not in page.text
+    assert all(link in page.text for link in _LEGAL_LINKS)
     assert "felix" not in page.text
     assert int(page.headers["content-length"]) == len(page.content)
 
 
-@pytest.mark.parametrize("drive", _REFUSALS)
+@pytest.mark.parametrize("drive", _NO_ACCESS)
+def test_a_person_outside_the_group_gets_the_no_access_page_without_an_identity(
+    scene: Scene, drive: Callable[[Scene], BrowserAnswer]
+) -> None:
+    page = drive(scene)
+
+    assert page.status_code == HTTPStatus.FORBIDDEN
+    assert "<h1>No access</h1>" in page.text
+    assert (
+        "You are signed in, but this account has no access to presentator." in page.text
+    )
+    assert "Login failed" not in page.text
+    assert all(link in page.text for link in _LEGAL_LINKS)
+    for identity in ("felix", "subject-1", "/apps/another"):
+        assert identity not in page.text
+    assert int(page.headers["content-length"]) == len(page.content)
+
+
+def test_the_no_access_page_offers_log_out_and_a_back_that_needs_no_script(
+    scene: Scene,
+) -> None:
+    page = _in_another_group(scene).text
+
+    assert page.count('<form method="post" action="/logout">') == 1
+    assert page.count('type="submit"') == 1
+    assert "Log out" in page
+    assert 'data-action data-quiet data-history-back href="/login"' in page
+    assert '<script src="/static/history-back.js" defer></script>' in page
+    assert re.search(r"\son[a-z]+=", page) is None
+    assert page.count("<script") == page.count('<script src="')
+
+
+def test_the_back_script_is_served_without_a_session(scene: Scene) -> None:
+    script = scene.lobby.client.get("/static/history-back.js")
+
+    assert script.status_code == HTTPStatus.OK
+    assert "history.back()" in script.text
+
+
+def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
+    scene: Scene,
+) -> None:
+    _in_another_group(scene)
+
+    answer = scene.lobby.client.post(
+        LOGOUT_PATH, headers={"content-type": "application/x-www-form-urlencoded"}
+    )
+
+    assert answer.status_code == HTTPStatus.SEE_OTHER
+    query = parse_qs(urlsplit(answer.headers["location"]).query)
+    assert "post_logout_redirect_uri" in query
+    assert "id_token_hint" not in query
+    assert scene.count("sessions") == 0
+    for name in (
+        DEFAULT_SESSION_COOKIE_NAME,
+        DEFAULT_CSRF_COOKIE_NAME,
+        _LOGOUT_HINT_NAME,
+    ):
+        assert "Max-Age=0" in _cookie(answer, name)
+
+
+def test_a_member_who_left_the_group_is_refused_and_returns_to_the_same_account(
+    scene: Scene,
+) -> None:
+    scene.sign_in()
+    account = scene.users.get("subject-1")
+
+    refused = scene.sign_in(groups=["/apps/another"])
+
+    assert "<h1>No access</h1>" in refused.text
+    assert (scene.count("users"), scene.count("sessions")) == (1, 1)
+    assert [event.kind for event in scene.audit.events] == [
+        AccountEventKind.USER_CREATED
+    ]
+    assert scene.sign_in().status_code == HTTPStatus.SEE_OTHER
+    assert scene.count("users") == 1
+    assert scene.users.get("subject-1") == account
+
+
+@pytest.mark.parametrize("drive", _ALL_REFUSALS)
 def test_a_refusal_sets_no_session_cookie_and_keeps_only_what_the_library_cleared(
     scene: Scene, drive: Callable[[Scene], BrowserAnswer]
 ) -> None:
@@ -461,7 +556,7 @@ def test_a_refusal_sets_no_session_cookie_and_keeps_only_what_the_library_cleare
     assert _LOGOUT_HINT_NAME not in cleared
 
 
-@pytest.mark.parametrize("drive", _REFUSALS)
+@pytest.mark.parametrize("drive", _ALL_REFUSALS)
 def test_a_refusal_writes_no_session_and_no_account(
     scene: Scene, drive: Callable[[Scene], BrowserAnswer]
 ) -> None:

@@ -370,14 +370,6 @@ def test_a_same_site_or_schemeless_form_post_is_refused(
     assert signed_in_lobby.client.get("/").status_code == HTTPStatus.OK
 
 
-def test_a_form_post_carrying_no_origin_signal_at_all_is_refused() -> None:
-    lobby = a_lobby_that_claims_no_origin_of_its_own()
-
-    refused = submit_the_logout_form(lobby, {})
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-
-
 def test_the_three_stylesheets_are_linked_on_the_open_login_page(
     lobby: Lobby,
 ) -> None:

@@ -435,13 +435,9 @@ main code {
   white-space: pre-wrap;
 }
 
-/* The picture draws the two ways into a deck as buttons, but they navigate, so
- * they stay anchors: `role="button"` would have a link claim to be a button and
- * owe the keyboard handling of one. Pico shapes an anchor only under that role,
- * so the shape is written here, against Pico's own measurements and this
- * theme's colours. Each rule repeats under the link states, because Pico
- * styles `a:hover` at a specificity a single attribute would lose to.
- */
+/* Pico shapes an anchor only under `role="button"`, which would owe the
+ * keyboard handling of one, so the shape is written here and a form's submit
+ * button wears it too. Pico styles `a:hover` above one attribute: repeat it. */
 [data-actions] {
   display: flex;
   flex-wrap: wrap;
@@ -451,6 +447,10 @@ main code {
 /* The picture's 16 px gap below a sign-in-state banner. */
 .banner + [data-actions] {
   margin-top: 16px;
+  @media (max-width: 520px) {
+    flex-direction: column;
+    text-align: center;
+  }
 }
 
 [data-action],
@@ -916,7 +916,7 @@ td form {
   text-transform: uppercase;
 }
 
-[data-source] [data-actions] form {
+[data-actions] :is(form, [data-action]) {
   margin-bottom: 0;
 }
 
