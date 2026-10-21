@@ -12,8 +12,8 @@ from presentator.adapters.build_wire import (
     RecordTag,
     StepHeader,
     WireRefusedError,
-    read_end,
     read_request,
+    receive_entries,
     send_end,
     send_failed,
     send_status,
@@ -178,12 +178,12 @@ def test_a_worker_direction_kind_is_refused(
 
 
 def test_a_thirteen_byte_end_with_no_entries_is_accepted_and_read_no_further(
-    wire: tuple[socket.socket, socket.socket],
+    wire: tuple[socket.socket, socket.socket], deck: int
 ) -> None:
     reading_end, writing_end = wire
     writing_end.sendall(b"\x03" + bytes(12) + b"more")
 
-    read_end(reading_end)
+    receive_entries(reading_end, deck)
 
     assert reading_end.recv(64) == b"more"
 
@@ -191,8 +191,8 @@ def test_a_thirteen_byte_end_with_no_entries_is_accepted_and_read_no_further(
 END_REFUSALS = {
     "a short read": b"\x03" + bytes(11),
     "no bytes": b"",
-    "a directory tag": bytes([RecordTag.DIR]) + bytes(12),
-    "a file tag": bytes([RecordTag.FILE]) + bytes(12),
+    "a directory tag with no path": bytes([RecordTag.DIR]) + bytes(12),
+    "a file tag with no path": bytes([RecordTag.FILE]) + bytes(12),
     "an unknown tag": b"\x00" + bytes(12),
     "a non-zero count": b"\x03\x00\x00\x00\x01" + bytes(8),
     "a non-zero sum": b"\x03" + bytes(11) + b"\x01",
@@ -201,21 +201,21 @@ END_REFUSALS = {
 
 @pytest.mark.parametrize("sent", END_REFUSALS.values(), ids=END_REFUSALS.keys())
 def test_an_end_that_is_short_wrongly_tagged_or_not_empty_is_refused(
-    wire: tuple[socket.socket, socket.socket], sent: bytes
+    wire: tuple[socket.socket, socket.socket], deck: int, sent: bytes
 ) -> None:
     reading_end, writing_end = wire
     writing_end.sendall(sent)
     writing_end.shutdown(socket.SHUT_WR)
 
     with pytest.raises(WireRefusedError):
-        read_end(reading_end)
+        receive_entries(reading_end, deck)
 
 
-def test_a_lone_wrong_tag_is_refused_without_waiting_for_the_rest(
-    wire: tuple[socket.socket, socket.socket],
+def test_a_lone_unknown_tag_is_refused_without_waiting_for_the_rest(
+    wire: tuple[socket.socket, socket.socket], deck: int
 ) -> None:
     reading_end, writing_end = wire
-    writing_end.sendall(bytes([RecordTag.FILE]))
+    writing_end.sendall(b"\x00")
 
     with pytest.raises(WireRefusedError):
-        read_end(reading_end)
+        receive_entries(reading_end, deck)

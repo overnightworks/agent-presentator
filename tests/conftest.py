@@ -152,3 +152,14 @@ def volume(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     directory.chmod(0o700)
     yield directory
     os.umask(before)
+
+
+@pytest.fixture
+def deck(tmp_path: Path) -> Iterator[int]:
+    """An open descriptor on an empty scratch deck, closed at the end."""
+    (tmp_path / "deck").mkdir()
+    descriptor = os.open(tmp_path / "deck", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        yield descriptor
+    finally:
+        os.close(descriptor)

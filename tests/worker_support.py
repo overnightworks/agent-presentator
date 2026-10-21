@@ -14,13 +14,22 @@ from pathlib import Path
 import pytest
 
 from presentator.adapters import worker_children
-from presentator.adapters.build_wire import read_request
+from presentator.adapters.build_wire import (
+    END_COUNTS,
+    LENGTH,
+    SIZE,
+    RecordTag,
+    read_request,
+)
 from presentator.host import worker
 from presentator.host.worker import create_request_record
 from presentator.host.worker_serving import Serving, WireChild
 from presentator.host.worker_wire import WireExit, WireRole
 
 OWN_UID = os.getuid()
+
+
+UNUSED_DECK = Path("/unused/deck")
 
 
 OWN_GID = os.getgid()
@@ -42,6 +51,27 @@ CONNECTIONS = 2
 
 
 WAIT_SECONDS = 5
+
+
+def directory_entry(path: bytes) -> bytes:
+    """A DIR record: the tag, the path length and the raw path."""
+    return bytes([RecordTag.DIR]) + LENGTH.pack(len(path)) + path
+
+
+def file_entry(path: bytes, content: bytes) -> bytes:
+    """A FILE record: the tag, the path, the content length and the content."""
+    return (
+        bytes([RecordTag.FILE])
+        + LENGTH.pack(len(path))
+        + path
+        + SIZE.pack(len(content))
+        + content
+    )
+
+
+def end_entry(count: int, total: int) -> bytes:
+    """An END record carrying the claimed entry count and byte sum."""
+    return bytes([RecordTag.END]) + END_COUNTS.pack(count, total)
 
 
 @contextmanager
@@ -344,6 +374,7 @@ class ScriptedLife:
             seal=self.seal,
             open_deck=self.open_deck,
             close_deck=self.close_deck,
+            deck=UNUSED_DECK,
             watchdog=self,
             clock=self.clock,
             readable=self.readable,
@@ -463,6 +494,7 @@ def serving_with(
         seal=worker.seal_record,
         open_deck=nothing,
         close_deck=nothing,
+        deck=UNUSED_DECK,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         readable=worker_children.readable_within,

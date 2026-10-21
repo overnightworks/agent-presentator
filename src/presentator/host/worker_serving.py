@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
+from pathlib import Path
 from typing import Protocol
 
 from presentator.host.worker_termination import (
@@ -133,6 +134,7 @@ class Serving:
     seal: Callable[[int], None]
     open_deck: Callable[[], None]
     close_deck: Callable[[], None]
+    deck: Path
     watchdog: Watchdog
     clock: Callable[[], float]
     readable: Callable[[Sequence[int], float], frozenset[int]]
@@ -186,7 +188,7 @@ class _ChildRun:
     life_end: LifeEnd | None = None
 
 
-def _command(role: WireRole, connection: int, record: int) -> list[str]:
+def _command(role: WireRole, connection: int, record: int, deck: Path) -> list[str]:
     return [
         sys.executable,
         "-I",
@@ -198,6 +200,8 @@ def _command(role: WireRole, connection: int, record: int) -> list[str]:
         str(connection),
         "--record-fd",
         str(record),
+        "--deck",
+        str(deck),
     ]
 
 
@@ -217,7 +221,7 @@ def _run_gated(
     """Spawn behind the gate, release and wait until the phase ends; kill on expiry."""
     try:
         child = serving.spawn(
-            _command(phase.role, *descriptors),
+            _command(phase.role, *descriptors, serving.deck),
             environment={"PATH": os.environ["PATH"]},
             pass_fds=descriptors,
         )

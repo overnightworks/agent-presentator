@@ -676,6 +676,7 @@ def real_serving(settings: WorkerSettings) -> Serving:
         seal=seal_record,
         open_deck=partial(open_deck, deck),
         close_deck=partial(close_deck, deck),
+        deck=deck,
         watchdog=FaultHandlerWatchdog(),
         clock=time.monotonic,
         readable=readable_within,
