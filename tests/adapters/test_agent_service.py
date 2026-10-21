@@ -176,6 +176,10 @@ class _RaisedBeforeAwaitingError(RuntimeError):
     """An error a token callable raises before it returns an awaitable."""
 
 
+class _CustomBaseError(BaseException):
+    """A BaseException subclass of a supplier's own."""
+
+
 class _Token:
     """A token callable that counts its calls and may raise instead.
 
@@ -210,7 +214,11 @@ class _Outcome:
 
 
 async def _ask(
-    answerer: ServiceAnswerer, person: _Token, *, system: str, message: str
+    answerer: ServiceAnswerer,
+    person: Callable[[], Awaitable[str]],
+    *,
+    system: str,
+    message: str,
 ) -> _Outcome:
     texts: list[str] = []
     try:
@@ -552,6 +560,37 @@ def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
     assert asker.wire.requests == []
 
 
+@pytest.mark.parametrize("which", ["person", "workload"])
+@pytest.mark.parametrize("when", ["before-awaiting", "after-awaiting"])
+@pytest.mark.parametrize(
+    "error", [KeyboardInterrupt(), SystemExit(1)], ids=["keyboard", "exit"]
+)
+def test_a_token_callable_that_interrupts_leaves_answer_to_the_caller(
+    which: str, when: str, error: BaseException
+) -> None:
+    async def read() -> str:
+        raise error
+
+    def interrupting() -> Awaitable[str]:
+        if when == "before-awaiting":
+            raise error
+        return read()
+
+    async def drive() -> BaseException:
+        wire = _Wire(_answer())
+        answerer = ServiceAnswerer(
+            runs_url=RUNS_URL,
+            workload_token=interrupting if which == "workload" else _Token(WORKLOAD),
+            transport=wire.transport,
+        )
+        person = interrupting if which == "person" else _Token(PERSON)
+        with pytest.raises(type(error)) as caught:
+            await _ask(answerer, person, system=SYSTEM, message=QUESTION)
+        return caught.value
+
+    assert asyncio.run(drive()) is error
+
+
 def test_a_transport_that_cannot_connect_is_unavailable() -> None:
     asker = _asker(_Reply(refuses_connection=True))
 
@@ -691,6 +730,13 @@ _LEAK_CASES = {
     "workload-raises": _Leak(_answer(), workload=RuntimeError(WORKLOAD)),
     "person-raises-before-awaiting": _Leak(
         _answer(), person=_RaisedBeforeAwaitingError(PERSON)
+    ),
+    "person-raises-exception-group": _Leak(
+        _answer(),
+        person=BaseExceptionGroup("g", [RuntimeError(PERSON), _CustomBaseError()]),
+    ),
+    "workload-raises-custom-base-exception": _Leak(
+        _answer(), workload=_CustomBaseError(WORKLOAD)
     ),
     "person-crlf": _Leak(_answer(), person=f"{PERSON}\r\n"),
     "workload-space": _Leak(_answer(), workload=f"{WORKLOAD} x"),

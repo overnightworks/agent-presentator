@@ -64,20 +64,15 @@ def _is_event_stream(response: httpx2.Response) -> bool:
     return media_type.strip().lower() == _EVENT_STREAM
 
 
-async def _awaited(source: TokenSource) -> str:
-    return await source()
-
-
 async def _bearer_token(source: TokenSource) -> str:
-    # A source's exception is foreign and may hold the token, so it is read
-    # here as a value and never raised, logged or chained. The source is called
-    # inside the awaited coroutine so that one raising before it returns an
-    # awaitable is read the same way.
-    (token,) = await asyncio.gather(_awaited(source), return_exceptions=True)
-    if isinstance(token, BaseException):
-        if not isinstance(token, Exception):
-            raise token
-        _fail(f"token source raised {type(token).__name__}")
+    # A source's exception is foreign and may hold the token, so it is never
+    # raised, logged or chained. Cancellation and process control pass through.
+    try:
+        token = await source()
+    except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as error:  # noqa: BLE001 - the boundary sanitises every other supplier failure; gather routes measured worse
+        _fail(f"token source raised {type(error).__name__}")
     if _BEARER_TOKEN.fullmatch(token) is None:
         _fail("token is not a bearer token")
     return token
