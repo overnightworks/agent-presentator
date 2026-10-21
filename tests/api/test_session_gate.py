@@ -11,6 +11,10 @@ import pytest
 from fastapi import Request, Response
 from fastapi.testclient import TestClient
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
+from webauth.middleware.security_headers import (
+    REFERRER_POLICY,
+    STRICT_TRANSPORT_SECURITY,
+)
 
 from presentator.api.auth import PERMISSIONS_POLICY
 from presentator.api.hooks import hook_address
@@ -95,6 +99,8 @@ def _assert_carries_the_security_headers(answer: httpx2.Response) -> None:
     assert headers["permissions-policy"] == PERMISSIONS_POLICY
     assert headers["x-frame-options"] == "DENY"
     assert headers["x-content-type-options"] == "nosniff"
+    assert headers["referrer-policy"] == REFERRER_POLICY
+    assert headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
 
 
 def _counts(lobby: Lobby) -> tuple[int, int]:

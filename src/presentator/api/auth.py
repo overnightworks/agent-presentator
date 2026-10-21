@@ -1,6 +1,6 @@
 """The pages that sign a person in and out, and the session gate on everything else.
 
-The gate webauth's `SessionGate` installs decides every request: a gated address
+webauth's `SessionGate` decides every request: a gated address
 answers the redirect to the start of the sign-in (or 401 to a JSON caller) while
 nobody is signed in, the public and optional addresses below are the
 exceptions, a form another site submitted is refused, and no answer may be
