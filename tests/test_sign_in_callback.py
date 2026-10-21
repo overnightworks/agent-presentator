@@ -11,19 +11,17 @@ import sqlite3
 import threading
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing, contextmanager
-from dataclasses import dataclass, field, replace
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
 from fastapi import FastAPI, Response
-from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
 from pydantic import SecretStr
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
@@ -34,7 +32,6 @@ from webauth.ports import (
     AuditSink,
     SubjectUserStore,
     UserRecord,
-    WriteLock,
 )
 
 from presentator.adapters.audit import LoggingAuditSink
@@ -43,48 +40,27 @@ from presentator.adapters.identity import (
     SqliteSessionRecordStore,
     SqliteSubjectUserStore,
     StoredSession,
-    create_identity_tables,
 )
 from presentator.api.auth import LOGOUT_PATH, carry_set_cookies
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.host import main
-from tests.api.fake_issuer import FakeIssuer
 from tests.api.lobby import (
-    A_BROWSERS_ADDRESS,
-    A_BROWSERS_HEADERS,
-    A_CLIENT_ID,
     AN_ISSUER,
-    Lobby,
-    SigningIn,
-    a_browser_at,
-    a_crowd,
-    a_lobby_app,
-    a_relying_party,
     a_settings,
-    an_installed_auth,
+)
+from tests.sign_in_support import (
+    ADMIN,
+    MEMBER,
+    Scene,
+    a_scene,
+    cookie_names,
 )
 
-_MEMBER = ["/apps/presentator"]
-_ADMIN = ["/apps/presentator", "/apps/presentator/admin"]
 _BOUND = 30.0
 _TOO_LONG_FOR_A_COOKIE = 4000
 _COOKIES_OF_A_SIGN_IN = 4
 _HOLDS_OF_A_SIGN_IN = 2
 _LOGOUT_HINT_NAME = "id_token_hint"
-_COUNTS = {
-    "users": "SELECT count(*) FROM users",
-    "sessions": "SELECT count(*) FROM sessions",
-}
-
-
-@dataclass
-class RecordingAudit:
-    """The audit lines a sign-in wrote."""
-
-    events: list[AccountEvent] = field(default_factory=list[AccountEvent])
-
-    def account_event(self, event: AccountEvent) -> None:
-        self.events.append(event)
 
 
 @dataclass
@@ -160,109 +136,9 @@ class GatedAccounts:
         return self.accounts.set_role(user_id, role)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Scene:
-    """A lobby that signs people in through a fake issuer, over real stores."""
-
-    lobby: Lobby
-    issuer: FakeIssuer
-    database: Path
-    users: SqliteSubjectUserStore
-    audit: RecordingAudit
-
-    def browser(self, *, raise_server_exceptions: bool = True) -> TestClient:
-        return TestClient(
-            self.lobby.app,
-            base_url=A_BROWSERS_ADDRESS,
-            follow_redirects=False,
-            headers=A_BROWSERS_HEADERS,
-            raise_server_exceptions=raise_server_exceptions,
-        )
-
-    def begin(self, browser: TestClient, next_path: str | None = None) -> str:
-        """Start the sign-in and return the issuer's authorization address."""
-        params = {} if next_path is None else {"next": next_path}
-        return browser.get("/login/oidc", params=params).headers["location"]
-
-    def sign_in(
-        self,
-        browser: TestClient | None = None,
-        *,
-        subject: str = "subject-1",
-        groups: list[str] | None = None,
-        username: str | None = "felix",
-        next_path: str | None = None,
-    ) -> BrowserAnswer:
-        """A person signs in at the issuer and the browser comes back."""
-        client = browser or self.lobby.client
-        query = self.issuer.authorize(
-            self.begin(client, next_path),
-            subject=subject,
-            groups=_MEMBER if groups is None else groups,
-            username=username,
-        )
-        return client.get(f"/auth/callback?{query}")
-
-    def stored_tokens(self) -> list[str | None]:
-        """The refresh token of every session row, as the file holds it."""
-        with closing(sqlite3.connect(self.database)) as connection:
-            return [
-                token
-                for (token,) in connection.execute("SELECT refresh_token FROM sessions")
-            ]
-
-    def count(self, table: Literal["users", "sessions"]) -> int:
-        with closing(sqlite3.connect(self.database)) as connection:
-            (count,) = connection.execute(_COUNTS[table]).fetchone()
-        return int(count)
-
-
-def a_scene(
-    tmp_path: Path,
-    *,
-    accounts: Callable[[SqliteSubjectUserStore], SubjectUserStore] = lambda real: real,
-    lock: WriteLock | None = None,
-    admission: AdmissionConfig | None = None,
-) -> Scene:
-    database = tmp_path / "identity.sqlite3"
-    create_identity_tables(database)
-    people = a_crowd()
-    issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=people.clock.now())
-    users = SqliteSubjectUserStore(database)
-    audit = RecordingAudit()
-    auth = an_installed_auth(
-        people.clock,
-        relying_party=a_relying_party(
-            people.clock,
-            post_token_request=issuer.post_token_request,
-            fetch_key_set=issuer.fetch_key_set,
-        ),
-        accounts=accounts(users),
-        lock=lock,
-        audit=audit,
-    )
-    app, _ = a_lobby_app(
-        people=people,
-        signing_in=SigningIn(
-            sessions=SqliteSessionRecordStore(database),
-            auth=auth if admission is None else replace(auth, admission=admission),
-        ),
-    )
-    lobby = a_browser_at(
-        app, people=people, base_url=A_BROWSERS_ADDRESS, headers=A_BROWSERS_HEADERS
-    )
-    return Scene(
-        lobby=lobby, issuer=issuer, database=database, users=users, audit=audit
-    )
-
-
 @pytest.fixture
 def scene(tmp_path: Path) -> Scene:
     return a_scene(tmp_path)
-
-
-def _cookie_names(answer: BrowserAnswer) -> list[str]:
-    return [cookie.split("=", 1)[0] for cookie in answer.headers.get_list("set-cookie")]
 
 
 def _cookie(answer: BrowserAnswer, name_part: str) -> str:
@@ -300,7 +176,7 @@ def test_a_member_signs_in_and_the_303_carries_every_cookie_the_sign_in_needs(
         if "Max-Age=0" in cookie and _LOGOUT_HINT_NAME not in cookie
     )
     assert pending.startswith("__Host-")
-    assert len(_cookie_names(answer)) == _COOKIES_OF_A_SIGN_IN
+    assert len(cookie_names(answer)) == _COOKIES_OF_A_SIGN_IN
 
 
 def test_a_token_too_long_for_a_cookie_clears_the_hint_the_way_the_library_does(
@@ -315,8 +191,8 @@ def test_a_token_too_long_for_a_cookie_clears_the_hint_the_way_the_library_does(
 @pytest.mark.parametrize(
     ("groups", "role"),
     [
-        pytest.param(_MEMBER, "user", id="member"),
-        pytest.param(_ADMIN, "admin", id="admin group member"),
+        pytest.param(MEMBER, "user", id="member"),
+        pytest.param(ADMIN, "admin", id="admin group member"),
         pytest.param(["/apps/presentator/admin"], "admin", id="admin group alone"),
     ],
 )
@@ -333,9 +209,9 @@ def test_the_groups_the_issuer_names_decide_the_role_the_account_gets(
 def test_a_changed_membership_changes_the_role_at_the_next_sign_in_and_is_audited(
     scene: Scene,
 ) -> None:
-    scene.sign_in(groups=_ADMIN)
-    scene.sign_in(groups=_ADMIN)
-    scene.sign_in(groups=_MEMBER)
+    scene.sign_in(groups=ADMIN)
+    scene.sign_in(groups=ADMIN)
+    scene.sign_in(groups=MEMBER)
 
     account = scene.users.get("subject-1")
     assert account is not None
@@ -398,7 +274,7 @@ def _state_mismatch(scene: Scene) -> BrowserAnswer:
 def _expired_pending_login(scene: Scene) -> BrowserAnswer:
     authorization = scene.begin(scene.lobby.client)
     query = scene.issuer.authorize(
-        authorization, subject="subject-1", groups=_MEMBER, username="felix"
+        authorization, subject="subject-1", groups=MEMBER, username="felix"
     )
     scene.lobby.clock.advance(timedelta(hours=1))
     return scene.lobby.client.get(f"/auth/callback?{query}")
@@ -417,7 +293,7 @@ def _key_set_down(scene: Scene) -> BrowserAnswer:
 def _the_person_declined(scene: Scene) -> BrowserAnswer:
     authorization = scene.begin(scene.lobby.client)
     state = scene.issuer.authorize(
-        authorization, subject="subject-1", groups=_MEMBER, username="felix"
+        authorization, subject="subject-1", groups=MEMBER, username="felix"
     ).split("state=")[1]
     return scene.lobby.client.get(f"/auth/callback?error=access_denied&state={state}")
 
@@ -765,111 +641,3 @@ def test_an_audit_record_reaches_stderr_after_the_hosts_and_uvicorns_logging_set
     )
 
     assert "user_created" in capsys.readouterr().err
-
-
-def test_the_sign_ins_refresh_token_is_stored_with_its_session(scene: Scene) -> None:
-    scene.issuer.issue_refresh_token("rt-MARKER")
-
-    scene.sign_in()
-
-    assert scene.stored_tokens() == ["rt-MARKER"]
-
-
-def test_a_sign_in_without_a_refresh_token_succeeds_and_stores_none(
-    scene: Scene,
-) -> None:
-    answer = scene.sign_in()
-
-    assert answer.status_code == HTTPStatus.SEE_OTHER
-    assert scene.stored_tokens() == [None]
-
-
-@pytest.mark.parametrize(
-    "token",
-    [
-        pytest.param("rt\x01control", id="control character"),
-        pytest.param("rt-MARKERé", id="non-ascii letter"),
-    ],
-)
-def test_a_refresh_token_outside_printable_ascii_fails_the_login_with_no_session(
-    scene: Scene, token: str
-) -> None:
-    scene.issuer.issue_refresh_token(token)
-
-    page = scene.sign_in()
-
-    assert page.status_code == HTTPStatus.FORBIDDEN
-    assert "<h1>Login failed</h1>" in page.text
-    assert scene.count("sessions") == 0
-    assert DEFAULT_SESSION_COOKIE_NAME not in " ".join(_cookie_names(page))
-
-
-def test_a_refresh_token_with_a_space_is_printable_ascii_and_is_stored(
-    scene: Scene,
-) -> None:
-    scene.issuer.issue_refresh_token("rt with space")
-
-    answer = scene.sign_in()
-
-    assert answer.status_code == HTTPStatus.SEE_OTHER
-    assert scene.stored_tokens() == ["rt with space"]
-
-
-def test_a_sign_in_over_an_older_session_replaces_its_row_and_its_token(
-    scene: Scene,
-) -> None:
-    browser = scene.browser()
-    scene.issuer.issue_refresh_token("rt-OLD")
-    scene.sign_in(browser)
-    scene.issuer.issue_refresh_token("rt-NEW")
-
-    scene.sign_in(browser)
-
-    assert scene.stored_tokens() == ["rt-NEW"]
-
-
-def test_logging_out_deletes_the_session_row_with_its_token(scene: Scene) -> None:
-    scene.issuer.issue_refresh_token("rt-MARKER")
-    scene.sign_in()
-
-    scene.lobby.client.post(LOGOUT_PATH)
-
-    assert scene.stored_tokens() == []
-
-
-@pytest.mark.parametrize(
-    ("token", "disk_fails"),
-    [
-        pytest.param("rt-MARKER", False, id="stored"),
-        pytest.param("rt-MARKER", True, id="store failure"),
-        pytest.param("rt-MARKER\u00e9", False, id="refused"),
-    ],
-)
-def test_no_log_record_and_no_error_body_carries_the_refresh_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    token: str,
-    *,
-    disk_fails: bool,
-) -> None:
-    scene = a_scene(tmp_path)
-    scene.issuer.issue_refresh_token(token)
-    if disk_fails:
-
-        def create_on_a_failing_disk(*_arguments: object, **_keywords: object) -> None:
-            message = "disk I/O error"
-            raise sqlite3.OperationalError(message)
-
-        monkeypatch.setattr(
-            SqliteSessionRecordStore, "create", create_on_a_failing_disk
-        )
-
-    with caplog.at_level(logging.DEBUG):
-        answer = scene.sign_in(scene.browser(raise_server_exceptions=False))
-
-    assert "rt-MARKER" not in answer.text
-    for record in caplog.records:
-        assert "rt-MARKER" not in record.getMessage()
-        assert "rt-MARKER" not in str(record.args)
-        assert "rt-MARKER" not in str(record.exc_info)

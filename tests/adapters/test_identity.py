@@ -549,12 +549,19 @@ def test_a_replaced_refresh_token_is_read_back_and_the_answer_is_true(
         "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
     )
 
+    other = sessions.create(
+        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token("rt-other")
+    )
+
     answer = sessions.replace_refresh_token(created.id, refresh_token=a_token("rt-2"))
 
     loaded = sessions.load(created.id)
+    untouched = sessions.load(other.id)
     assert answer is True
     assert loaded is not None
     assert loaded.refresh_token == a_token("rt-2")
+    assert untouched is not None
+    assert untouched.refresh_token == a_token("rt-other")
 
 
 @pytest.mark.parametrize("session_id", ["never-existed", "deleted"])

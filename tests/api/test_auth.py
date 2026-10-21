@@ -481,12 +481,10 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
     assert "Keycloak-Subject-ID und Rolle" in document
 
 
-def test_the_datenschutz_carries_the_approved_session_storage_sentence() -> None:
-    document = " ".join(
-        "".join(phrase.words for phrase in paragraph)
-        for section in DATENSCHUTZ.sections
-        for paragraph in section.paragraphs
-    )
+def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
 
     assert (
         "Gespeichert werden Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
@@ -495,7 +493,7 @@ def test_the_datenschutz_carries_the_approved_session_storage_sentence() -> None
         "Sitzungszeile, ist ohne das Client-Geheimnis von Presentator bei Keycloak "
         "nicht verwendbar und wird mit der Sitzung gelöscht. Das Zugriffstoken der "
         "Anmeldung wird nicht gespeichert."
-    ) in document
+    ) in page
 
 
 def test_the_datenschutz_renders_every_section_and_links_the_impressum(

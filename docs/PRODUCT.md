@@ -62,7 +62,7 @@ holds is carried by a signed cookie, and the session ends twelve hours after the
 sign-in that opened it, however often it is used. `webauth` v0.20.1 owns the cookie and
 CSRF-origin mechanism and formats the refusal for a missing session; its
 `admit_session` decides which SQLite session names a signed-in person. The
-session row holds no client address and no user agent. A schedule of its own deletes
+session row holds no client address and no user agent, and holds the sign-in's refresh token in plain text (ADR 0013). A schedule of its own deletes
 expired session rows every five minutes, apart from the deck refresh.
 A signed-out browser navigation goes to `/login/oidc` with the requested path
 and query in `next`; a JSON request receives 401. Every mutating route is
