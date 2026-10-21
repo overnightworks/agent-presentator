@@ -7,6 +7,7 @@ exceptions, a form another site submitted is refused, and no answer may be
 replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
+import logging
 from contextlib import nullcontext
 from dataclasses import dataclass
 from http import HTTPMethod, HTTPStatus
@@ -15,6 +16,7 @@ from typing import Final, assert_never, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
 from webauth.config import WebAuthConfig, install_web_auth_config, web_auth_config
 from webauth.cookies import issue_session_cookies
@@ -31,12 +33,16 @@ from webauth.oidc_login import (
     AdmissionConfig,
     AdmissionRefusal,
     AdmittedLogin,
+    BackchannelLogoutResult,
     finish_login,
     log_out,
     open_session,
+    receive_backchannel_logout,
     start_login,
 )
 from webauth.policies import (
+    BodySizePolicy,
+    BodySizeRule,
     CacheControlRule,
     CspDirective,
     CsrfPolicy,
@@ -64,6 +70,8 @@ from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.models import User
 from presentator.contracts.text import LobbyText
 
+_logger = logging.getLogger(__name__)
+
 _STATIC_DIR: Final = Path(__file__).parent / "static"
 _STATIC_PATH: Final = "/static"
 _INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
@@ -71,18 +79,24 @@ _LOBBY: Final = "/"
 LOGIN_PATH: Final = "/login"
 _START_SIGN_IN: Final = "/login/oidc"
 SIGN_IN_CALLBACK_PATH: Final = "/auth/callback"
+BACKCHANNEL_LOGOUT_PATH: Final = "/auth/backchannel-logout"
 LOGOUT_PATH: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
 # Signing in (its start and the issuer's return) and signing out are the
 # addresses the gate leaves alone; logging out ends a session rather than
 # using one. The theme stylesheet has to render the open pages themselves, so
-# it is public too, and so is a source host's POST under the hook prefix.
+# it is public too, and so are the two addresses another server posts to: a
+# source host's POST under the hook prefix and Keycloak's back-channel logout.
 # `/setup` is a retired address: it answers 404 to everyone, so a signed-out
 # reader is not sent to a login for a page that does not exist.
 # The Datenschutzerklärung has to be readable before anyone signs in (ADR
 # 0015), yet a reader who is signed in keeps the header there like on every
 # other page.
+_SERVER_CALLS: Final = PathRules(
+    exact=frozenset({BACKCHANNEL_LOGOUT_PATH}),
+    prefixes=(HOOK_CALLS,),
+)
 _PUBLIC_RULES: Final = (
     PublicRule(
         PathRules(
@@ -98,18 +112,25 @@ _PUBLIC_RULES: Final = (
         )
     ),
     PublicRule(PathRules(prefixes=(_INSIDE_STATIC,))),
-    PublicRule(
-        PathRules(prefixes=(HOOK_CALLS,)),
-        methods=frozenset({HTTPMethod.POST}),
-    ),
+    PublicRule(_SERVER_CALLS, methods=frozenset({HTTPMethod.POST})),
 )
 _OPTIONAL_PATHS: Final = PathRules(exact=frozenset({_DATENSCHUTZ}))
 PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
-_CSRF_POLICY: Final = CsrfPolicy(
-    exempt=PathRules(prefixes=(HOOK_CALLS,)),
-)
+_CSRF_POLICY: Final = CsrfPolicy(exempt=_SERVER_CALLS)
 _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
+)
+# Every route has this budget, forms and the ask included; the hook keeps a git
+# host's push budget, since GitHub documents payloads of up to 25 MB.
+_BODY_SIZE: Final = BodySizePolicy(
+    default_max_bytes=32 * 1024,
+    rules=(
+        BodySizeRule(
+            PathRules(prefixes=(HOOK_CALLS,)),
+            max_bytes=25 * 1024 * 1024,
+            methods=frozenset({HTTPMethod.POST}),
+        ),
+    ),
 )
 _LOGIN_REDIRECT: Final = LoginRedirect(
     path=_START_SIGN_IN,
@@ -341,6 +362,42 @@ class _Surfaces:
         )
         return answer
 
+    async def backchannel_logout(self, request: Request) -> Response:
+        """End every session of the person Keycloak's Logout Token names.
+
+        The body is read outside any catch-all, so a streamed body over the
+        cap reaches the cap's middleware and gets its 413. Everything else
+        that goes wrong answers 400, the profile's refusal.
+        """
+        body = await request.body()
+        content_type = request.headers.get("content-type")
+        try:
+            result = await run_in_threadpool(
+                self._end_the_sessions_of, body, content_type
+            )
+        except Exception:
+            _logger.exception("back-channel logout failed")
+            result = BackchannelLogoutResult.REFUSED
+        status = (
+            HTTPStatus.OK
+            if result is BackchannelLogoutResult.ACCEPTED
+            else HTTPStatus.BAD_REQUEST
+        )
+        return Response(status_code=status)
+
+    def _end_the_sessions_of(
+        self, body: bytes, content_type: str | None
+    ) -> BackchannelLogoutResult:
+        return receive_backchannel_logout(
+            self.auth.relying_party,
+            body,
+            content_type,
+            accounts=self.auth.accounts,
+            sessions=self.sessions,
+            lock=self.auth.lock,
+            audit=self.auth.audit,
+        )
+
     def datenschutz_page(self, request: Request) -> Response:
         """Show the Datenschutzerklärung to anyone, signed in or not."""
         return self.pages.page(
@@ -371,6 +428,7 @@ def _install_middleware(
                 CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
             ),
         ),
+        body_size=_BODY_SIZE,
         csrf_origin=_CSRF_POLICY,
         csrf_token=_COPRESENTER_CSRF_POLICY,
         session_gate=SessionGate(
@@ -412,6 +470,9 @@ def create_lobby(
         SIGN_IN_CALLBACK_PATH, surfaces.sign_in_callback, methods=["GET"]
     )
     lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
+    lobby.add_api_route(
+        BACKCHANNEL_LOGOUT_PATH, surfaces.backchannel_logout, methods=["POST"]
+    )
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))

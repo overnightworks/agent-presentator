@@ -173,9 +173,8 @@ class ProcessWriteLock:
     """The one lock the sign-in callback takes for admission and `open_session`.
 
     The host's calls of webauth's `log_out` and `receive_backchannel_logout`
-    take it when the logout and back-channel slices build them.
-    It defaults to a re-entrant `threading.RLock`, and is held only on worker
-    threads, never on the event loop.
+    take it too. It defaults to a re-entrant `threading.RLock`, and is held only
+    on worker threads, never on the event loop.
     """
 
     primitive: AbstractContextManager[object] = field(default_factory=threading.RLock)

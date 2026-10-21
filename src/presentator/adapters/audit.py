@@ -1,4 +1,4 @@
-"""Where the account events of a sign-in are written down."""
+"""Where the account events of a sign-in and a back-channel logout are written."""
 
 import logging
 

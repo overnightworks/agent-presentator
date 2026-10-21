@@ -27,7 +27,14 @@ must send full paths (`full.path` on): with bare group names nobody matches
 `/apps/presentator` and every sign-in shows "No access". A session ends
 twelve hours after it opened, however often it is used; the store keeps the
 sign-in time and the expiry for that, and no client address or user agent.
-Logging out deletes the row. The Keycloak client must register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as its post-logout redirect URI, or Keycloak shows an error page at every logout. A session past its expiry is refused, and a sweep of its own deletes
+Logging out deletes the row. The Keycloak client must register
+`<internal lobby address>/auth/backchannel-logout` as its back-channel logout URL;
+a valid Logout Token then ends every session of its subject, on every device. The
+route is not live until the client registers it. Request bodies are capped at
+32 KiB, and `POST /sources/<name>/fetch` at 25 MiB (a budget above the 25 MB payload cap that
+[GitHub](https://docs.github.com/en/webhooks/webhook-events-and-payloads) and
+[GitLab](https://docs.gitlab.com/administration/instance_limits/#webhook-payload-size) document, as
+25 MiB is the larger unit); a larger declared length gets 413. The Keycloak client must register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as its post-logout redirect URI, or Keycloak shows an error page at every logout. A session past its expiry is refused, and a sweep of its own deletes
 its row every five minutes, apart from the deck refresh.
 
 The session cookie itself — signed, set, cleared, `SameSite=Lax` — is
@@ -41,7 +48,7 @@ that decides whether the cookie's session id names a person. A signed-out browse
 `/login/oidc?next=<requested-path-and-query>`, which answers 303 to the issuer
 with PKCE, `state` and `nonce`; a JSON request receives 401. Every
 mutating path is protected unless it is exempted, and only the sessionless
-webhook prefix `/sources/` is exempt. The public origin is https, so both
+webhook prefix `/sources/` and the exact path `/auth/backchannel-logout` are exempt. The public origin is https, so both
 cookies are `Secure` and carry the library's host-only names
 `__Host-session_id` and `__Host-csrf_token`, which only this exact host can
 set; an `http://` origin refuses the start, because a browser does not send a
