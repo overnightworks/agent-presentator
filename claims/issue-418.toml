@@ -1,0 +1,8 @@
+claim_id = "92879e725a4242d09370be7d44e20e7f"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "1dd2b99a5549952b9752138ad8b757b226e2a8b6"
+branch = "claude/issue-418-s9a-erase-person"
+scope = ["src/presentator/adapters/decks.py", "src/presentator/adapters/identity.py", "src/presentator/adapters/preferences.py", "src/presentator/adapters/schema.py", "src/presentator/application/decks.py", "src/presentator/application/people.py", "src/presentator/contracts/people.py", "src/presentator/host/main.py", "src/presentator/ports/decks.py", "src/presentator/ports/identity.py", "src/presentator/ports/preferences.py", "tests/adapters/test_person_erasure_sqlite.py", "tests/adapters/test_person_records.py", "tests/adapters/test_schema_guard.py", "tests/adapters/test_subject_users.py", "tests/api/talk_support.py", "tests/application/test_person_erasure.py", "tests/sign_in_support.py"]
+opened_commit = "0a3962c86b48dc523bc0643c277db56c6edb1f45"
+whole_reason = "One erasure use case whose done-when needs every kind of row removed through it; split by adapter, each half would be dead code with no done-when of its own."
