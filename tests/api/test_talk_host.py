@@ -34,6 +34,7 @@ def either_visitor(request: pytest.FixtureRequest, lobby: Lobby) -> Lobby:
     return lobby
 
 
+# T9b.
 @pytest.mark.parametrize(
     ("state", "title", "explanation"),
     [
@@ -56,6 +57,7 @@ def test_the_lobby_shows_a_refused_talk_sign_in_alike_with_and_without_a_session
     assert _DATENSCHUTZ in page.text
 
 
+# T9b.
 def test_no_access_logs_out_at_the_lobby_and_login_failed_retries_at_the_talk_host(
     lobby: Lobby,
 ) -> None:
@@ -66,6 +68,7 @@ def test_no_access_logs_out_at_the_lobby_and_login_failed_retries_at_the_talk_ho
     assert f'href="{A_TALK_ADDRESS}/login/oidc"' in login_failed
 
 
+# T9b.
 def test_an_unknown_talk_refusal_is_not_found(signed_in_lobby: Lobby) -> None:
     unknown = signed_in_lobby.client.get("/login/talk/other")
 
@@ -102,6 +105,7 @@ def _is_the_talk_host(answer: Response) -> bool:
     return answer.headers.get("permissions-policy") == TALK_PERMISSIONS_POLICY
 
 
+# T5a.
 @pytest.mark.parametrize("path", _LOBBY_ONLY_PAGES)
 def test_a_lobby_page_is_not_found_on_the_talk_host(hosts: Hosts, path: str) -> None:
     talk = hosts.signed_in_at(A_TALK_ADDRESS)
@@ -112,6 +116,7 @@ def test_a_lobby_page_is_not_found_on_the_talk_host(hosts: Hosts, path: str) -> 
     assert _is_the_talk_host(answer)
 
 
+# T5a.
 @pytest.mark.parametrize("path", _LOBBY_ONLY_POSTS)
 def test_a_lobby_form_is_not_found_on_the_talk_host(hosts: Hosts, path: str) -> None:
     talk = hosts.signed_in_at(A_TALK_ADDRESS)
@@ -121,6 +126,7 @@ def test_a_lobby_form_is_not_found_on_the_talk_host(hosts: Hosts, path: str) -> 
     assert answer.status_code == HTTPStatus.NOT_FOUND
 
 
+# T5a.
 def test_the_deck_page_address_is_only_the_mounts_slash_redirect_on_the_talk_host(
     hosts: Hosts,
 ) -> None:
@@ -130,6 +136,7 @@ def test_the_deck_page_address_is_only_the_mounts_slash_redirect_on_the_talk_hos
     assert answer.headers["location"].endswith(f"/deck/{A_DECK}/")
 
 
+# T5b.
 @pytest.mark.parametrize("path", [*_LOBBY_ONLY_PAGES, f"/deck/{A_DECK}"])
 def test_signed_out_the_talk_host_sends_every_page_to_its_own_sign_in(
     hosts: Hosts, path: str
@@ -140,6 +147,7 @@ def test_signed_out_the_talk_host_sends_every_page_to_its_own_sign_in(
     assert answer.headers["location"].startswith("/login/oidc?next=")
 
 
+# T5b.
 @pytest.mark.parametrize("path", _LOBBY_ONLY_POSTS)
 def test_signed_out_a_form_to_the_talk_host_is_sent_to_its_sign_in_too(
     hosts: Hosts, path: str
@@ -150,6 +158,7 @@ def test_signed_out_a_form_to_the_talk_host_is_sent_to_its_sign_in_too(
     assert answer.headers["location"].startswith("/login/oidc?next=")
 
 
+# T5b.
 def test_signed_out_a_caller_that_asks_for_json_gets_a_401_from_the_talk_host(
     hosts: Hosts,
 ) -> None:
@@ -158,6 +167,7 @@ def test_signed_out_a_caller_that_asks_for_json_gets_a_401_from_the_talk_host(
     assert browser.get("/settings").status_code == HTTPStatus.UNAUTHORIZED
 
 
+# T5c.
 @pytest.mark.parametrize("signed_in", [True, False], ids=["signed in", _SIGNED_OUT])
 def test_the_talk_hosts_root_sends_the_browser_to_the_lobby(
     hosts: Hosts,
@@ -178,6 +188,7 @@ def test_the_talk_hosts_root_sends_the_browser_to_the_lobby(
 # ---- signing in at the talk host ---------------------------------------------
 
 
+# T6.
 def test_asking_for_a_talk_signed_out_signs_in_at_the_talk_host_and_lands_on_it(
     hosts: Hosts,
 ) -> None:
@@ -195,6 +206,7 @@ def test_asking_for_a_talk_signed_out_signs_in_at_the_talk_host_and_lands_on_it(
     assert opened.status_code == HTTPStatus.OK
 
 
+# T6.
 def test_the_talk_host_sends_the_issuer_the_talk_callback_and_a_pkce_challenge(
     hosts: Hosts,
 ) -> None:
@@ -207,6 +219,7 @@ def test_the_talk_host_sends_the_issuer_the_talk_callback_and_a_pkce_challenge(
     assert query["code_challenge"]
 
 
+# T6.
 def test_a_hostile_next_lands_on_the_talk_hosts_root(hosts: Hosts) -> None:
     returned = hosts.sign_in(
         hosts.browser(A_TALK_ADDRESS),
@@ -217,6 +230,7 @@ def test_a_hostile_next_lands_on_the_talk_hosts_root(hosts: Hosts) -> None:
     assert returned.headers["location"] == "/"
 
 
+# T7d.
 def test_each_host_sends_the_issuer_its_own_callback_when_it_exchanges_the_code(
     hosts: Hosts,
 ) -> None:
@@ -229,6 +243,7 @@ def test_each_host_sends_the_issuer_its_own_callback_when_it_exchanges_the_code(
     ]
 
 
+# T8.
 def test_the_talk_hosts_cookies_are_host_only_secure_and_its_session_is_lax(
     hosts: Hosts,
 ) -> None:
@@ -245,6 +260,7 @@ def test_the_talk_hosts_cookies_are_host_only_secure_and_its_session_is_lax(
         assert "domain" not in cookie.lower()
 
 
+# T7a.
 @pytest.mark.parametrize("started_at", [A_BROWSERS_ADDRESS, A_TALK_ADDRESS])
 def test_a_session_cookie_of_one_host_is_no_session_at_the_other(
     hosts: Hosts, started_at: str
@@ -259,6 +275,7 @@ def test_a_session_cookie_of_one_host_is_no_session_at_the_other(
     assert answer.headers["location"].startswith("/login/oidc?next=")
 
 
+# T7b.
 @pytest.mark.parametrize("started_at", [A_BROWSERS_ADDRESS, A_TALK_ADDRESS])
 def test_a_pending_login_of_one_host_cannot_be_completed_at_the_other(
     hosts: Hosts, started_at: str
@@ -286,6 +303,7 @@ def test_a_pending_login_of_one_host_cannot_be_completed_at_the_other(
         assert f"<h1>{ENGLISH.login_failed_title}</h1>" in answer.text
 
 
+# T7c.
 @pytest.mark.parametrize(
     "lobby_first", [True, False], ids=["lobby first", "talk first"]
 )
@@ -349,6 +367,7 @@ _REFUSALS = [
 ]
 
 
+# T9a.
 @pytest.mark.parametrize(("reason", "state"), _REFUSALS)
 def test_a_refused_talk_sign_in_goes_to_the_lobbys_refusal_route_with_no_session(
     tmp_path: Path, reason: str, state: str
@@ -362,6 +381,7 @@ def test_a_refused_talk_sign_in_goes_to_the_lobbys_refusal_route_with_no_session
     assert hosts.session_count() == 0
 
 
+# T9a.
 @pytest.mark.parametrize("reason", [reason for reason, _state in _REFUSALS])
 def test_a_refused_talk_sign_in_clears_the_talk_hosts_pending_login(
     tmp_path: Path, reason: str
@@ -373,6 +393,7 @@ def test_a_refused_talk_sign_in_clears_the_talk_hosts_pending_login(
     assert "max-age=0" in pending[0].lower()
 
 
+# T9c.
 def test_trying_again_after_a_refusal_signs_in_and_the_talk_host_sends_on_to_the_lobby(
     tmp_path: Path,
 ) -> None:
@@ -389,6 +410,7 @@ def test_trying_again_after_a_refusal_signs_in_and_the_talk_host_sends_on_to_the
 # ---- ending sessions ---------------------------------------------------------
 
 
+# T10.
 def test_a_verified_logout_token_at_the_lobby_ends_the_talk_session(
     hosts: Hosts,
 ) -> None:
@@ -409,6 +431,7 @@ def test_a_verified_logout_token_at_the_lobby_ends_the_talk_session(
     assert talk.get(presenter).status_code == HTTPStatus.FOUND
 
 
+# T11.
 def test_a_lobby_logout_leaves_the_talk_session_standing(hosts: Hosts) -> None:
     browser = hosts.browser(A_BROWSERS_ADDRESS)
     hosts.sign_in(browser, A_BROWSERS_ADDRESS)
@@ -448,6 +471,7 @@ def _six_requests(talk: TestClient, slug: str) -> list[Response]:
     ]
 
 
+# T12a.
 def test_the_owner_gets_the_talk_its_assets_ranges_and_validators(
     hosts: Hosts,
 ) -> None:
@@ -463,6 +487,7 @@ def test_the_owner_gets_the_talk_its_assets_ranges_and_validators(
     assert conditional.status_code == HTTPStatus.NOT_MODIFIED
 
 
+# T12b.
 @pytest.mark.parametrize("slug", [B_DECK, NO_DECK])
 def test_a_deck_of_someone_else_and_a_deck_that_is_nobodys_answer_alike(
     hosts: Hosts, slug: str
@@ -476,6 +501,7 @@ def test_a_deck_of_someone_else_and_a_deck_that_is_nobodys_answer_alike(
         assert "last-modified" not in answer.headers
 
 
+# T13.
 @pytest.mark.parametrize(
     "arrange",
     ["gate", "not found", "refusal", "talk"],
@@ -508,6 +534,7 @@ _FROM_THE_LOBBY = [
 ]
 
 
+# T14a.
 @pytest.mark.parametrize("claims", _FROM_THE_LOBBY)
 def test_the_talk_host_refuses_a_form_that_the_lobby_or_a_stranger_submitted(
     hosts: Hosts, claims: dict[str, str]
@@ -519,6 +546,7 @@ def test_the_talk_host_refuses_a_form_that_the_lobby_or_a_stranger_submitted(
     assert answer.status_code == HTTPStatus.FORBIDDEN
 
 
+# T14a.
 def test_the_talk_host_passes_its_own_origin_to_the_talk_files(hosts: Hosts) -> None:
     talk = hosts.signed_in_at(A_TALK_ADDRESS)
 
@@ -527,6 +555,7 @@ def test_the_talk_host_passes_its_own_origin_to_the_talk_files(hosts: Hosts) -> 
     assert answer.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
+# T14b.
 @pytest.mark.parametrize(
     "claims",
     [

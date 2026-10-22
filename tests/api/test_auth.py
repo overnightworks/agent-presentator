@@ -600,6 +600,7 @@ def test_the_datenschutz_names_every_cookie_and_storage_key(
     assert cookie_name in lobby.client.get("/datenschutz").text
 
 
+# #414 Done when, the Datenschutz names the talk host cookie.
 def test_the_datenschutz_names_the_talk_hosts_own_session_cookie(lobby: Lobby) -> None:
     page = lobby.client.get("/datenschutz").text
 

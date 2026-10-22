@@ -122,6 +122,7 @@ def test_two_generated_deploy_keys_never_share_their_private_half() -> None:
     assert first.public_key != second.public_key
 
 
+# T2.
 def test_the_talk_session_secret_is_the_same_for_one_key_and_differs_per_key() -> None:
     assert talk_session_secret(_INSTANCE_KEY) == talk_session_secret(_INSTANCE_KEY)
     assert talk_session_secret(_INSTANCE_KEY) != talk_session_secret(
@@ -129,6 +130,7 @@ def test_the_talk_session_secret_is_the_same_for_one_key_and_differs_per_key() -
     )
 
 
+# T2.
 def test_the_talk_session_secret_is_long_and_shares_no_bytes_with_another_purpose() -> (
     None
 ):

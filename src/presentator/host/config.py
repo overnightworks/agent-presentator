@@ -3,10 +3,16 @@
 import threading
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, Field, SecretStr, ValidationError
+from pydantic import (
+    AfterValidator,
+    Field,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from webauth.proxies import TrustedProxies
 
@@ -187,6 +193,13 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
 
+    @model_validator(mode="after")
+    def _two_hostnames(self) -> Self:
+        # The cookies of the two origins stay apart only on two hostnames.
+        if urlsplit(self.talk_origin).hostname == urlsplit(self.public_origin).hostname:
+            raise ValueError(_ONE_HOSTNAME)
+        return self
+
 
 class WorkerSettings(BaseSettings):
     """What the build worker reads of its container's environment, and no file."""
@@ -243,12 +256,6 @@ def load_settings() -> Settings:
         # A refused value is often a real secret, and the library's own message
         # quotes it; only the field and the reason may leave this call.
         raise cannot_start(_what_is_wrong(refused)) from None
-    if (
-        urlsplit(settings.talk_origin).hostname
-        == urlsplit(settings.public_origin).hostname
-    ):
-        # The cookies of the two origins stay apart only on two hostnames.
-        raise cannot_start(_ONE_HOSTNAME)
     return settings
 
 

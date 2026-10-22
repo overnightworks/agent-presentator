@@ -56,6 +56,7 @@ def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
     assert config.scopes == ("openid", "profile", "groups")
 
 
+# T3.
 def test_the_lobby_and_the_talk_host_sign_in_through_one_client_at_their_own_callbacks(
     tmp_path: Path,
 ) -> None:
@@ -244,6 +245,7 @@ def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None
     assert A_CLIENT_CREDENTIAL not in str(refused.value)
 
 
+# T1.
 @pytest.mark.parametrize(
     "origin",
     [
@@ -270,6 +272,7 @@ def test_the_talk_origin_must_be_another_canonical_https_hostname(
     assert origin is None or origin not in str(refused.value)
 
 
+# T15.
 def test_both_hosts_share_one_lock_one_account_store_and_one_audit_sink(
     environment: pytest.MonkeyPatch,
 ) -> None:
