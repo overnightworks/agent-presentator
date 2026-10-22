@@ -27,6 +27,7 @@ from presentator.host.worker import create_request_record
 from presentator.host.worker_serving import Serving, StepEffects, WireChild
 from presentator.host.worker_wire import WireExit, WireRole
 from tests.step_support import (
+    EXIT_DESCRIPTOR,
     GATED_STATUS,
     STEP_ENVIRONMENT,
     STEP_EXIT_DESCRIPTOR,
@@ -148,9 +149,6 @@ SENDER_LEG = [
 
 
 IDLE_LEG = ["spawn", "status", "release", "wait-within", "close"]
-
-
-EXIT_DESCRIPTOR = 1_000_000
 
 
 @dataclass(frozen=True)

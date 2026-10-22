@@ -15,7 +15,6 @@ GATE_SCRIPT = (
 RELEASE = b"go\n"
 CHILD_WORKING_DIRECTORY = "/"
 CHILD_UMASK = 0o022
-DISCARDED_OUTPUT = subprocess.DEVNULL
 
 
 @dataclass(frozen=True)
@@ -32,7 +31,7 @@ class ChildSurroundings:
     """Where a child runs and where its output goes; by default its parent's streams."""
 
     cwd: Path = Path(CHILD_WORKING_DIRECTORY)
-    stdout: int | None = None
+    discard_stdout: bool = False
     stderr: int | None = None
 
 
@@ -134,7 +133,7 @@ def spawn_gated(
         process = subprocess.Popen(
             ["/bin/sh", "-c", GATE_SCRIPT, *command],
             stdin=gate_read,
-            stdout=surroundings.stdout,
+            stdout=subprocess.DEVNULL if surroundings.discard_stdout else None,
             stderr=surroundings.stderr,
             pass_fds=tuple(pass_fds),
             cwd=surroundings.cwd,

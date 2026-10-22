@@ -15,8 +15,8 @@ from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
 from tests import step_support
 from tests import worker_support as support
+from tests.step_support import OWN_IDENTITY
 from tests.test_worker_record_chain import (
-    OWN_IDENTITY,
     PATH,
     SLEEPER,
     WAIT_SECONDS,

@@ -20,6 +20,7 @@ from presentator.adapters.build_wire import (
     send_status,
     write_record,
 )
+from presentator.contracts.decks import DECK_DIRECTORY
 
 
 class WireRole(StrEnum):
@@ -49,8 +50,6 @@ class WireArguments:
     megabytes: int
 
 
-DECK_DIRECTORY = "deck"
-OUTPUT_DIRECTORY = "out"
 STEP_ERROR_FILE = "step.err"
 KEPT_LIFE_EXITS = frozenset({WireExit.CLOSED, WireExit.ANSWERED})
 

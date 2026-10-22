@@ -39,15 +39,20 @@ from typing import IO, BinaryIO, Final, Protocol, cast
 from gitmirror.model import MirrorError, Revision
 from presentator.adapters.decks import SourceMirrors
 from presentator.contracts.decks import (
-    FAILURE_TEXT_LIMIT,
+    DECK_DIRECTORY,
+    FAILURE_TAIL_BYTES,
+    OUTPUT_DIRECTORY,
+    PDF_FILE,
     SLIDES_FILE,
+    TALK_DIRECTORY,
     TALK_PAGE,
+    TOOLCHAIN_SCRATCH_DIRECTORY,
     Artefacts,
     BuildFailure,
     Deck,
     Source,
     StepKind,
-    bounded_failure,
+    failure_text,
     talk_address,
 )
 
@@ -63,12 +68,6 @@ _PACKAGE_JSON: Final = "package.json"
 _THEME_PACKAGE_PREFIX: Final = "@slidev/theme-"
 _DEFAULT_THEME: Final = "default"
 _DEPENDENCY_SECTIONS: Final = ("dependencies", "devDependencies")
-# The three directories one run of the build owns: the deck's own tree as the
-# toolchain reads it, everything that run writes, and the talk inside that.
-_DECK_IN: Final = "deck"
-_OUT: Final = "out"
-_TALK: Final = "talk"
-_PDF_FILE: Final = "deck.pdf"
 _UP: Final = ".."
 # Only what a Node toolchain needs to run; a step inherits nothing else, so
 # neither a source's read-only secret nor this instance's key is in reach of a
@@ -100,7 +99,6 @@ _SEALED: Final = (
 # there, because a tmpfs page is charged to the container that wrote it. Docker
 # mounts it as root's, so the toolchain's own user needs it open — and nothing
 # outside this one container can see it.
-_TOOLCHAIN_SCRATCH: Final = "node_modules"
 _SCRATCH_IS_EVERYONES: Final = "mode=1777"
 # A build that spawns without end is a build that takes the machine down with
 # it; a Slidev export and its browser stay far below this.
@@ -128,7 +126,6 @@ _REMOVAL_WITHIN: Final = timedelta(seconds=30)
 _READ_AT_ONCE: Final = 64 * 1024
 # A page shows the end of what a build printed, so only that much of it is ever
 # held: four bytes is the longest one character can be.
-_TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
 _A_MEGABYTE: Final = 1024 * 1024
 _OWNER_MAY_ENTER: Final = 0o700
 # A descriptor pinned to a directory nobody may read is still that directory;
@@ -273,11 +270,16 @@ def slidev_arguments(
     kind: StepKind, *, place: BuildPlace, slug: str
 ) -> tuple[str, ...]:
     """The arguments Slidev is given for one step of a deck's build."""
-    entry = str(place.here / _DECK_IN / SLIDES_FILE)
-    written = place.here / _OUT
+    entry = str(place.here / DECK_DIRECTORY / SLIDES_FILE)
+    written = place.here / OUTPUT_DIRECTORY
     flags = {
-        StepKind.BUILD: ("--base", talk_address(slug), "--out", str(written / _TALK)),
-        StepKind.EXPORT: ("--output", str(written / _PDF_FILE)),
+        StepKind.BUILD: (
+            "--base",
+            talk_address(slug),
+            "--out",
+            str(written / TALK_DIRECTORY),
+        ),
+        StepKind.EXPORT: ("--output", str(written / PDF_FILE)),
     }
     return (entry, *flags[kind])
 
@@ -348,7 +350,7 @@ class ContainerToolchain:
         # Slidev writes into the deck it reads, which this container is given
         # read-only, so that one directory is a mount of its own — and a mount
         # needs a place to stand that the deck's own tree does not carry.
-        scratch = step.place.here / _DECK_IN / _TOOLCHAIN_SCRATCH
+        scratch = step.place.here / DECK_DIRECTORY / TOOLCHAIN_SCRATCH_DIRECTORY
         scratch.mkdir(exist_ok=True)
         return _what_a_step_said(
             (
@@ -385,9 +387,9 @@ class ContainerToolchain:
     def _mounts(self, place: BuildPlace, *, scratch: Path) -> tuple[str, ...]:
         """The deck read-only in, its toolchain's scratch, and the run's own out."""
         return (
-            self._mount(place, _DECK_IN, "readonly"),
+            self._mount(place, DECK_DIRECTORY, "readonly"),
             f"--tmpfs={scratch}:{_SCRATCH_IS_EVERYONES}",
-            self._mount(place, _OUT),
+            self._mount(place, OUTPUT_DIRECTORY),
         )
 
     def _mount(self, place: BuildPlace, directory: str, *access: str) -> str:
@@ -415,7 +417,7 @@ class ContainerToolchain:
             _log.warning(_STILL_RUNNING, place.run, unanswered)
             return False
         if asked.returncode != 0:
-            _log.warning(_STILL_RUNNING, place.run, _tail(asked.stderr))
+            _log.warning(_STILL_RUNNING, place.run, failure_text(asked.stderr))
             return False
         return not asked.stdout.strip()
 
@@ -573,9 +575,9 @@ class SlidevBuilds:
             broke = self._what_broke(deck, source=source, place=place)
             if broke is not None:
                 return broke
-            written = place.here / _OUT
+            written = place.here / OUTPUT_DIRECTORY
             delivered = True
-            return Artefacts(directory=written / _TALK, pdf=written / _PDF_FILE)
+            return Artefacts(directory=written / TALK_DIRECTORY, pdf=written / PDF_FILE)
         finally:
             if not delivered:
                 self._taken_away(place)
@@ -659,7 +661,7 @@ class SlidevBuilds:
         root = self.builds.absolute()
         root.mkdir(parents=True, exist_ok=True)
         run = Path(mkdtemp(dir=root))
-        (run / _OUT).mkdir()
+        (run / OUTPUT_DIRECTORY).mkdir()
         return BuildPlace(root=root, run=Path(run.name))
 
     def _what_broke(
@@ -670,7 +672,7 @@ class SlidevBuilds:
         place: BuildPlace,
     ) -> BuildFailure | None:
         """Write the deck out, build the talk, export the PDF, or say what broke."""
-        if not self._exported(deck, source=source, into=place.here / _DECK_IN):
+        if not self._exported(deck, source=source, into=place.here / DECK_DIRECTORY):
             # A tree this server cannot read out of its own mirror is a fault
             # of this host, not words a deck's author could act on.
             return BuildFailure(text=None)
@@ -705,7 +707,7 @@ class SlidevBuilds:
         this host can act on stays in the log.
         """
         added = _added_up(
-            place.here / _OUT,
+            place.here / OUTPUT_DIRECTORY,
             ends_by=monotonic() + _ADDING_UP_WITHIN.total_seconds(),
         )
         if added.unreadable is not None:
@@ -824,7 +826,7 @@ def _the_client_did(*arguments: str) -> _HowItAnswered:
         _log.warning(_NO_SIZE_IS_TAKEN, unavailable)
         return _HowItAnswered.NEVER_SAID
     if asked.returncode != 0:
-        _log.warning(_NO_SIZE_IS_TAKEN, _tail(asked.stderr))
+        _log.warning(_NO_SIZE_IS_TAKEN, failure_text(asked.stderr))
         return _HowItAnswered.REFUSED
     return _HowItAnswered.DID
 
@@ -842,7 +844,7 @@ def _taken_down(container: str, *, within: timedelta) -> str | None:
     except (OSError, subprocess.TimeoutExpired) as stayed:
         return str(stayed)
     if removal.returncode != 0:
-        return _tail(removal.stderr)
+        return failure_text(removal.stderr)
     return None
 
 
@@ -859,7 +861,7 @@ def _what_the_client_said(*arguments: str) -> str:
     except (OSError, subprocess.TimeoutExpired) as unavailable:
         raise DaemonRefusedError(_NO_CLIENT.format(said=unavailable)) from None
     if asked.returncode != 0:
-        raise DaemonRefusedError(_NO_DAEMON.format(said=_tail(asked.stderr)))
+        raise DaemonRefusedError(_NO_DAEMON.format(said=failure_text(asked.stderr)))
     return asked.stdout.decode(errors="replace").strip()
 
 
@@ -917,7 +919,7 @@ def _what_a_step_said(
         # of a run nobody waited for, and the page says so in its own sentence.
         return BuildFailure(text=None)
     if process.returncode != 0:
-        words = _tail(went.said)
+        words = failure_text(went.said)
         _log.warning(_TOOLCHAIN_FAILED, step.name, step.slug, words)
         return BuildFailure(text=words or None)
     return None
@@ -962,7 +964,7 @@ def _the_end_of_what_it_printed(
                 refused=None,
                 in_time=_ended_within(process, ends_by),
             )
-        said = (said + printed_now)[-_TAIL_BYTES:]
+        said = (said + printed_now)[-FAILURE_TAIL_BYTES:]
 
 
 def _ended_within(process: subprocess.Popen[bytes], ends_by: float) -> bool:
@@ -1169,7 +1171,3 @@ def _the_environment_of_this_server() -> dict[str, str]:
 def _a_client_environment() -> dict[str, str]:
     """That, and the one version this server will speak to a daemon in."""
     return {**_the_environment_of_this_server(), _PINNED_API: _AS_A_VERSION}
-
-
-def _tail(output: bytes) -> str:
-    return bounded_failure(output.decode(errors="replace").strip())

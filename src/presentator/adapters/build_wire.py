@@ -9,7 +9,11 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ValidationError
 
-from presentator.contracts.decks import StepKind, is_a_plain_folder_name
+from presentator.contracts.decks import (
+    TOOLCHAIN_SCRATCH_DIRECTORY,
+    StepKind,
+    is_a_plain_folder_name,
+)
 
 MAGIC = b"PBW"
 VERSION = 1
@@ -24,7 +28,7 @@ MAXIMUM_DEPTH = 32
 CHUNK_BYTES = 64 * 1024
 MAXIMUM_ENTRIES = 100_000
 MEGABYTE = 1024 * 1024
-TOOLCHAIN_SCRATCH_NAME = b"node_modules"
+TOOLCHAIN_SCRATCH_NAME = TOOLCHAIN_SCRATCH_DIRECTORY.encode()
 
 
 class MessageKind(IntEnum):

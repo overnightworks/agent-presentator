@@ -1,18 +1,17 @@
 """A gated child's working directory and streams."""
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 from presentator.adapters.worker_children import ChildSurroundings, spawn_gated
 from tests.adapters.test_worker_children import (
-    OWN_IDENTITY,
     PATH,
     WAIT_SECONDS,
     end_child,
     release_and_close,
 )
+from tests.step_support import OWN_IDENTITY
 
 PRINTING_ITS_DIRECTORY = "import os, sys; print(os.getcwd(), file=sys.stderr); print(1)"
 
@@ -29,7 +28,7 @@ def test_a_child_runs_in_the_given_directory_with_its_streams_where_it_is_told(
             environment={"PATH": PATH},
             pass_fds=(),
             surroundings=ChildSurroundings(
-                cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=descriptor
+                cwd=tmp_path, discard_stdout=True, stderr=descriptor
             ),
         )
     finally:

@@ -14,9 +14,9 @@ from presentator.adapters.build_wire import MEGABYTE, RecordTag
 from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
 from tests import worker_support as support
+from tests.step_support import OWN_IDENTITY
 from tests.test_worker_record_chain import (
     EXITING_SENT,
-    OWN_IDENTITY,
     PATH,
     WAIT_SECONDS,
     ChainSpawn,
