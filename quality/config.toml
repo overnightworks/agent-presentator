@@ -530,6 +530,94 @@ date = 2026-10-21
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
 
+[[advisories.allow]]
+id = "GHSA-24rc-8hj2-v98c"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-3j72-p6qg-6xp7"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-4rm8-3hmm-39fg"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-78g4-xqwv-q3g8"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-9v9v-9qvf-h2hj"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g4qv-2jxx-769h"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g7cr-3p24-7wf7"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g842-9rc4-69pw"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-mrfp-p49p-3hf2"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-p8hx-v2p6-rp84"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-v9pv-5gc8-w2m6"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
 # speech/providers/magpie/uv.lock: advisories no relock reaches
 [[advisories.allow]]
 id = "PYSEC-2026-4217"
@@ -852,6 +940,94 @@ date = 2026-10-21
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio requires pillow<13.0, even its latest 6.30.0; local TTS worker, text over a local socket"
 
+[[advisories.allow]]
+id = "GHSA-24rc-8hj2-v98c"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-3j72-p6qg-6xp7"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-4rm8-3hmm-39fg"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-78g4-xqwv-q3g8"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-9v9v-9qvf-h2hj"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g4qv-2jxx-769h"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g7cr-3p24-7wf7"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g842-9rc4-69pw"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-mrfp-p49p-3hf2"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-p8hx-v2p6-rp84"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-v9pv-5gc8-w2m6"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
+
 # speech/providers/voxcpm/uv.lock: advisories no relock reaches
 [[advisories.allow]]
 id = "PYSEC-2026-3716"
@@ -1093,3 +1269,90 @@ date = 2026-10-21
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio requires pillow<13.0, and voxcpm needs gradio>=6; local TTS worker, text over a local socket"
 
+[[advisories.allow]]
+id = "GHSA-24rc-8hj2-v98c"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-3j72-p6qg-6xp7"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-4rm8-3hmm-39fg"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-78g4-xqwv-q3g8"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-9v9v-9qvf-h2hj"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g4qv-2jxx-769h"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g7cr-3p24-7wf7"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-g842-9rc4-69pw"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-mrfp-p49p-3hf2"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-p8hx-v2p6-rp84"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-v9pv-5gc8-w2m6"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-22
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"

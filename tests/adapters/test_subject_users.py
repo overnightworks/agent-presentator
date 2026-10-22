@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 from webauth.ports import UsernameTakenError
 
-from presentator.adapters.identity import SqliteSubjectUserStore, create_identity_tables
+from presentator.adapters.identity import (
+    ProcessWriteLock,
+    SqliteSubjectUserStore,
+    create_identity_tables,
+)
 from presentator.contracts.models import Role
 
 
@@ -20,7 +24,7 @@ def database(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def accounts(database: Path) -> SqliteSubjectUserStore:
-    return SqliteSubjectUserStore(database)
+    return SqliteSubjectUserStore(database, ProcessWriteLock())
 
 
 def test_an_account_created_for_a_subject_is_found_by_that_subject(

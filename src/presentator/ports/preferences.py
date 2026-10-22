@@ -28,3 +28,7 @@ class PersonPreferencesStore(Protocol):
     @abstractmethod
     def write(self, user_id: str, preferences: PersonPreferences) -> None:
         """Keep that person's overrides, replacing whatever stood there."""
+
+    @abstractmethod
+    def delete(self, user_id: str) -> int:
+        """Delete that person's overrides; how many rows went."""

@@ -14,6 +14,7 @@ from webauth.oidc_login import AdmissionConfig
 from webauth.ports import AccountEvent, AuditSink, SubjectUserStore, WriteLock
 
 from presentator.adapters.identity import (
+    ProcessWriteLock,
     SqliteSessionRecordStore,
     SqliteSubjectUserStore,
     create_identity_tables,
@@ -129,7 +130,7 @@ def a_scene(
     create_identity_tables(database)
     people = a_crowd()
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=people.clock.now())
-    users = SqliteSubjectUserStore(database)
+    users = SqliteSubjectUserStore(database, ProcessWriteLock())
     recording = RecordingAudit()
     auth = an_installed_auth(
         people.clock,
