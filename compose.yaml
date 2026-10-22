@@ -63,6 +63,9 @@ services:
   build-worker:
     image: presentator
     pull_policy: never
+    # The base image's entrypoint is a shell that exports its own variables
+    # into the controller's environment, which the self-check refuses.
+    entrypoint: []
     command: ["presentator-worker"]
     # Root with the runtime user's group: the controller is PID 1, drops to the
     # unprivileged users per child, and owns the socket for that group.

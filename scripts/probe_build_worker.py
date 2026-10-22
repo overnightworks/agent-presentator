@@ -616,7 +616,6 @@ def drive() -> None:
         prove_fast_lives(report)
         prove_stop(report)
     finally:
-        subprocess.run(("docker","compose","run","--rm","--no-deps","-T","--entrypoint","python",SERVICE,"-c","import os;print(sorted(os.environ))"),check=False)
         subprocess.run(
             ("docker", "compose", "--file", str(REPOSITORY / "compose.yaml"),
              "logs", "--no-color", SERVICE),

@@ -68,6 +68,7 @@ def _service_lines(name: str) -> list[str]:
     "sealing_line",
     [
         '    user: "0:presentator"',
+        "    entrypoint: []",
         "    cap_drop:\n      - ALL",
         "    cap_add:\n      - SETUID\n      - SETGID\n      - KILL",
         "    security_opt:\n      - no-new-privileges",

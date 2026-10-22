@@ -379,6 +379,14 @@ def test_the_settings_keys_pass_the_environment_predicate() -> None:
     assert worker.first_failing_predicate(snapshot) is None
 
 
+def test_the_locale_key_python_sets_itself_passes_the_environment_predicate() -> None:
+    snapshot = with_fields(environment_keys=frozenset({"PATH", "LC_CTYPE"}))(
+        sealed_snapshot()
+    )
+
+    assert worker.first_failing_predicate(snapshot) is None
+
+
 def test_the_real_boundary_serves_the_socket_directory_bounded_by_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
