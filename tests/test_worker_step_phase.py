@@ -1,5 +1,6 @@
 """The step phase on a scripted life: its gate, its deadlines and its cancellation."""
 
+import os
 import socket
 import sys
 from collections.abc import Callable
@@ -507,6 +508,39 @@ def test_a_deck_close_that_outlasts_the_life_prepares_and_spawns_no_step(
 
     assert "prepare" not in life.events
     assert life.step.spawned == []
+
+
+PREPARED_PAST_THE_END = {
+    "exactly at the life's deadline": (381.0, 1.0),
+    "after the life's deadline": (381.0, 2.0),
+    "exactly at the gate's own end": (0.0, 5.0),
+    "after the gate's own end": (0.0, 6.0),
+}
+
+
+@pytest.mark.parametrize(
+    ("deck_close_takes", "prepare_takes"),
+    PREPARED_PAST_THE_END.values(),
+    ids=PREPARED_PAST_THE_END.keys(),
+)
+def test_a_preparation_that_returns_at_or_past_the_phase_end_spawns_no_step(
+    connection: socket.socket,
+    listener: socket.socket,
+    deck_close_takes: float,
+    prepare_takes: float,
+) -> None:
+    life = accepted_life(
+        deck_close_takes=deck_close_takes,
+        upload_runs_for=60.0,
+        step=ScriptedStep(prepare_takes=prepare_takes),
+    )
+
+    run(life, connection, listener)
+
+    [stderr] = life.prepared_descriptors
+    assert life.step.spawned == []
+    with pytest.raises(OSError, match="Bad file descriptor"):
+        os.fstat(stderr)
 
 
 def test_a_deck_close_that_takes_long_leaves_the_step_the_rest_of_the_life(

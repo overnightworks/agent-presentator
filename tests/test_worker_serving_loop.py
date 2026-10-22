@@ -734,6 +734,24 @@ def test_the_life_is_kept_after_an_expiry_only_when_the_sweep_is_quiet(
     assert ("cancel" in life.events) == sweep_quiet
 
 
+@pytest.mark.parametrize("sweep_quiet", [True, False], ids=["quiet", "not quiet"])
+def test_a_stall_that_spends_the_header_budget_before_the_launch_spawns_no_idle_child(
+    volume: Path, *, sweep_quiet: bool
+) -> None:
+    life = ScriptedLife(arm_takes=HEADER_SECONDS, sweep_quiet=sweep_quiet)
+    with listening_with(volume, accepts=1) as listener:
+        client = connect(volume)
+        if sweep_quiet:
+            with pytest.raises(StopServingError):
+                accept_from(life, listener, OWN_UID)
+        else:
+            assert accept_from(life, listener, OWN_UID) == LifeEnd.SWEEP
+        assert client.recv(1) == b""
+
+    assert life.spawned == []
+    assert ("cancel" in life.events) == sweep_quiet
+
+
 def test_a_gate_mismatch_is_a_gate_end_whatever_the_clock_says(volume: Path) -> None:
     life = ScriptedLife(gate_admits=False, inspection_takes=HEADER_SECONDS)
     with listening_with(volume, accepts=1) as listener:

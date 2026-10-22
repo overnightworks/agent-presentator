@@ -268,7 +268,7 @@ class _Launch:
     """A gated child's name, its spawn and the gate that judges it."""
 
     name: str
-    spawn: Callable[[], WireChild]
+    spawn: Callable[[], WireChild | None]
     gate_admits: Callable[[str], bool]
 
 
@@ -302,18 +302,24 @@ def _wire_launch(
     return _Launch(role, spawn, serving.gate_admits)
 
 
+def _expired_run(phase: _Phase) -> _ChildRun:
+    logger.warning("%s deadline", phase.launch.name)
+    return _ChildRun(None, phase.expired)
+
+
 def _run_gated(serving: Serving, phase: _Phase) -> _ChildRun:
     """Spawn behind the gate, release and wait until the phase ends; kill on expiry.
 
-    A phase whose end has already come spawns nothing.
+    A phase whose end has already come spawns nothing, before or during its launch.
     """
     if serving.clock() >= phase.ends_at:
-        logger.warning("%s deadline", phase.launch.name)
-        return _ChildRun(None, phase.expired)
+        return _expired_run(phase)
     try:
         child = phase.launch.spawn()
     except OSError:
         return _ChildRun(None, LifeEnd.SPAWN)
+    if child is None:
+        return _expired_run(phase)
     try:
         return _released_run(child, serving, phase)
     except BaseException as original:
@@ -479,10 +485,15 @@ def _step_command(record: int, serving: Serving) -> list[str]:
     ]
 
 
-def _spawn_step(serving: Serving, record: int) -> WireChild:
-    """Make the step's paths, then start it with its stderr in the prepared file."""
+def _spawn_step(serving: Serving, record: int, ends_at: float) -> WireChild | None:
+    """Make the step's paths, then start it with its stderr in the prepared file.
+
+    Preparation that outlasts the phase starts nothing.
+    """
     stderr = serving.step.prepare(serving.work)
     try:
+        if serving.clock() >= ends_at:
+            return None
         return serving.step.spawn(
             _step_command(record, serving),
             environment=serving.step.environment,
@@ -516,12 +527,15 @@ def _hand_over_step(
     life_ends_at: float,
 ) -> LifeEnd | None:
     """Run the step, then quiesce; only a cancellation ends the life, else the reply."""
+    gate_ends_at = _phase_end(serving, GATE_SECONDS, life_ends_at)
     launch = _Launch(
-        "step", partial(_spawn_step, serving, record), serving.step.gate_admits
+        "step",
+        partial(_spawn_step, serving, record, gate_ends_at),
+        serving.step.gate_admits,
     )
     phase = _Phase(
         launch,
-        _phase_end(serving, GATE_SECONDS, life_ends_at),
+        gate_ends_at,
         None,
         partial(_bounded_step_exit, serving, listener, connection, life_ends_at),
     )

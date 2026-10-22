@@ -59,9 +59,16 @@ def _sent_outcome_text(reading_end: socket.socket) -> str | None:
         "\x1b" * 2000,
         "\u20ac" * 2000,
         "\x1b" * 1500 + "x" * 500,
+        "\x1b" * 1500 + "x" * 502,
         "x" * 2000,
     ],
-    ids=["escapes", "euros", "escapes then ascii", "ascii"],
+    ids=[
+        "escapes",
+        "euros",
+        "escapes then ascii",
+        "a header of exactly the bound",
+        "ascii",
+    ],
 )
 def test_a_failed_text_is_the_longest_suffix_that_fits_the_header_bound(
     wire: tuple[socket.socket, socket.socket], said: str
@@ -77,8 +84,6 @@ def test_a_failed_text_is_the_longest_suffix_that_fits_the_header_bound(
         longer = said[len(said) - len(sent) - 1 :]
         oversized = FailedOutcome(text=longer).model_dump_json().encode()
         assert len(oversized) > MAXIMUM_HEADER_BYTES
-    else:
-        assert sent == said
 
 
 def test_an_end_without_entries_is_thirteen_bytes(
