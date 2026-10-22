@@ -17,6 +17,7 @@ dependencies = [
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.21.0/overnightworks_webauth-0.21.0-py3-none-any.whl#sha256=87153ece90108270ba9ea9c364a163bd2dd5ed4c2a1cd1fbed4e5d92554fa37a",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
+    "syntok==1.4.4",
     "uvicorn==0.54.0",
 ]
 
@@ -220,6 +221,23 @@ source_modules = [
     "presentator.contracts",
 ]
 forbidden_modules = ["tomllib", "babel"]
+as_packages = true
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "sentence-library"
+name = "Only adapters find sentence boundaries"
+type = "forbidden"
+# ADR 0001: a third-party library lives in the adapter that owns it. `syntok`
+# finds the boundaries, so a layer above is handed the function instead.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["syntok"]
 as_packages = true
 allow_indirect_imports = true
 

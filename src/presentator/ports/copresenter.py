@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -63,3 +64,7 @@ class DeckTexts(Protocol):
         Raises CoPresenterUnavailableError when its mirror cannot be read.
         """
         ...
+
+
+SentenceBoundaries = Callable[[str], tuple[str, ...]]
+"""Splits text into its sentences; the last may still be unfinished."""
