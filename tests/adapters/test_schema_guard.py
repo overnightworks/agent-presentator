@@ -43,6 +43,7 @@ def test_the_tables_reaching_accounts_are_the_tables_the_erased_person_has_rows_
 def test_a_table_with_an_account_column_but_no_reference_reaches_accounts(
     tmp_path: Path, column: str
 ) -> None:
+    """#419 matrix: a later table with only a user_id or owner_id reaches accounts."""
     database = tmp_path / "later.db"
     create_tables(database)
 
