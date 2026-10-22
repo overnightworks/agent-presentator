@@ -27,8 +27,9 @@ _FILE_SCHEME: Final = "file"
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
 FAILURE_TEXT_LIMIT: Final = 2000
-# What is read from the end of a step's output, so that decoding and stripping
-# still leave the full limit.
+# A page shows the end of what a step printed, so only that much of it is ever
+# held: four bytes is the longest one character can be, so decoding and
+# stripping still leave the full limit.
 FAILURE_TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
 # A folder's name is one path element: it stays one word of a header value and
 # never reaches past the directory it is joined under.

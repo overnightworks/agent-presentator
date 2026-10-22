@@ -124,8 +124,6 @@ _NOTHING_AT_ALL: Final = "true"
 _DAEMON_ANSWERS_WITHIN: Final = timedelta(seconds=20)
 _REMOVAL_WITHIN: Final = timedelta(seconds=30)
 _READ_AT_ONCE: Final = 64 * 1024
-# A page shows the end of what a build printed, so only that much of it is ever
-# held: four bytes is the longest one character can be.
 _A_MEGABYTE: Final = 1024 * 1024
 _OWNER_MAY_ENTER: Final = 0o700
 # A descriptor pinned to a directory nobody may read is still that directory;
