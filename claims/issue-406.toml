@@ -1,8 +1,0 @@
-claim_id = "0e855c3bb4de4ba6bcb3c27f1820a45a"
-agent = "claude"
-role = "builder"
-base = "7b838d0542d1318b803992fa17a460d4830ec93b"
-branch = "claude/issue-406-s7o-ein-deck-geh-rt-dem-besitzer-seiner"
-scope = ["docs/reference/decks.md", "docs/reference/sources.md", "src/presentator/api/auth.py", "src/presentator/api/decks.py", "src/presentator/api/sources.py", "src/presentator/application/decks.py", "src/presentator/contracts/decks.py", "tests/api/lobby.py", "tests/api/test_deck_owner.py", "tests/api/test_deck_page.py", "tests/api/test_sources.py", "tests/application/test_deck_owner.py", "tests/application/test_decks.py"]
-opened_commit = "73862eb3694061aff379f7a0d31108cc1d0c5015"
-whole_reason = "The owner rule has one decider in the deck use cases and four readers in four route modules, and a reader left out leaves another person's deck visible there."
