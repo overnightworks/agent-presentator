@@ -195,6 +195,9 @@ class ScriptedStep:
         return frozenset({STEP_EXIT_DESCRIPTOR})
 
 
+TALK_INDEX = b"<html>talk</html>"
+
+
 def fake_pnpm(directory: Path, program: str) -> Path:
     """A directory holding an executable `pnpm` that runs the Python program."""
     directory.mkdir()
@@ -211,6 +214,15 @@ def announcing(fifo: Path) -> str:
         f"announced = os.open({str(fifo)!r}, os.O_WRONLY)\n"
         "os.write(announced, str(os.getpid()).encode())\n"
         "os.close(announced)\n"
+    )
+
+
+def announcing_and_building(fifo: Path, talk: Path) -> str:
+    """Python source that announces itself, then writes talk/index.html."""
+    return (
+        announcing(fifo)
+        + f"import pathlib\npathlib.Path({str(talk)!r}).mkdir(parents=True)\n"
+        + f"pathlib.Path({str(talk / 'index.html')!r}).write_bytes({TALK_INDEX!r})\n"
     )
 
 

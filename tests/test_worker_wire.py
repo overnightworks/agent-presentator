@@ -475,7 +475,6 @@ def sent_text(received: bytes) -> str | None:
     "case",
     [
         (ReplyPlan.FAILED_NULL, b"ignored", None),
-        (ReplyPlan.WALK, b"ignored", None),
         (ReplyPlan.FAILED_TEXT, b"x" * 3000, "x" * 2000),
         (
             ReplyPlan.FAILED_TEXT,
@@ -485,7 +484,7 @@ def sent_text(received: bytes) -> str | None:
         (ReplyPlan.FAILED_TEXT, b" \n ", None),
         (ReplyPlan.FAILED_TEXT, b"bad \xff\xfe bytes", "bad \ufffd\ufffd bytes"),
     ],
-    ids=["null", "walk", "ascii flood", "megabyte flood", "blank", "invalid utf-8"],
+    ids=["null", "ascii flood", "megabyte flood", "blank", "invalid utf-8"],
 )
 def test_the_send_entry_answers_failed_with_the_planned_text_exiting_sent(
     client_and_descriptor: tuple[socket.socket, int],
@@ -499,6 +498,33 @@ def test_the_send_entry_answers_failed_with_the_planned_text_exiting_sent(
 
     assert run_sender(client, descriptor, record, work, plan) == WireExit.SENT
     assert sent_text(read_to_end_or_reset(client)) == expected_text
+
+
+def test_the_send_entry_under_walk_refuses_an_empty_output_as_shape_exiting_sent(
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
+) -> None:
+    """Cell W2 (30)."""
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.BUILD, slug="my-deck"))
+    (work / "out").mkdir()
+
+    assert run_sender(client, descriptor, record, work, ReplyPlan.WALK) == (
+        WireExit.SENT
+    )
+    assert read_to_end_or_reset(client) == support.OUTCOME_REFUSED_SHAPE + support.END
+
+
+def test_the_send_entry_under_walk_exits_closed_without_a_reply_when_out_is_absent(
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
+) -> None:
+    """Decision 1: any other OSError passes through; the life ends without a reply."""
+    client, descriptor = client_and_descriptor
+    write_record(record, StepHeader(step=StepKind.BUILD, slug="my-deck"))
+
+    assert run_sender(client, descriptor, record, work, ReplyPlan.WALK) == (
+        WireExit.CLOSED
+    )
+    assert read_to_end_or_reset(client) == b""
 
 
 def test_the_send_entry_sends_nothing_without_a_plan(

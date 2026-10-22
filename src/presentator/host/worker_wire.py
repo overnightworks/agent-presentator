@@ -18,11 +18,13 @@ from presentator.adapters.build_wire import (
     send_end,
     send_failed,
     send_status,
+    send_tree_reply,
     write_record,
 )
 from presentator.contracts.decks import (
     DECK_DIRECTORY,
     FAILURE_TAIL_BYTES,
+    OUTPUT_DIRECTORY,
     failure_text,
 )
 
@@ -106,14 +108,29 @@ def _step_text(work: Path) -> str | None:
     return failure_text(tail) or None
 
 
+def _send_walked(connection: socket.socket, arguments: WireArguments) -> None:
+    step = read_record(arguments.record_fd).step
+    output = os.open(
+        arguments.work / OUTPUT_DIRECTORY,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    try:
+        send_tree_reply(connection, output, step, arguments.megabytes)
+    finally:
+        os.close(output)
+
+
 def _send(connection: socket.socket, arguments: WireArguments) -> WireExit:
     if arguments.plan is None:
         raise WireRefusedError
+    if arguments.plan is ReplyPlan.WALK:
+        _send_walked(connection, arguments)
+        return WireExit.SENT
     send_failed(
         connection,
         _step_text(arguments.work) if arguments.plan is ReplyPlan.FAILED_TEXT else None,
     )
-    send_end(connection)
+    send_end(connection, 0, 0)
     return WireExit.SENT
 
 

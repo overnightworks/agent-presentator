@@ -124,14 +124,15 @@ class ControllerLife:
 
 
 def controller_life(volume: Path, workspace: Path, sent: bytes) -> ControllerLife:
-    """Run a controller process over a fake pnpm that announces itself and exits 0."""
+    """Run a controller process over a fake pnpm that announces itself and builds."""
     log = workspace / "controller.log"
     log.touch()
     work = workspace / "work"
     work.mkdir()
     with step_support.announcements(workspace) as (fifo, reader):
         bin_directory = step_support.fake_pnpm(
-            workspace / "bin", step_support.announcing(fifo)
+            workspace / "bin",
+            step_support.announcing_and_building(fifo, work / "out" / "talk"),
         )
         controller = spawn_gated(
             [
@@ -177,12 +178,16 @@ def sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_a_valid_upload_over_a_controller_process_gets_status_failed_end_and_eof(
+def test_a_valid_upload_over_a_controller_gets_status_built_talk_entries_end_and_eof(
     volume: Path, tmp_path: Path
 ) -> None:
     life = controller_life(volume, tmp_path, support.VALID_STEP + support.END)
 
-    assert life.reply == support.STATUS + support.OUTCOME_FAILED + support.END
+    assert life.reply == (
+        support.STATUS
+        + support.OUTCOME_BUILT
+        + support.talk_entries(step_support.TALK_INDEX)
+    )
     assert life.exit_status == 0
     assert life.roles == ["idle", "upload", "step", "send"]
     assert life.announced_pid == life.step_pid

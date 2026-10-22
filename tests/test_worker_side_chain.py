@@ -17,7 +17,13 @@ from tests.test_worker_record_chain import (
     read_to_end_or_reset,
     run_life,
 )
-from tests.worker_support import END, OUTCOME_FAILED, STATUS, VALID_STEP
+from tests.worker_support import (
+    END,
+    OUTCOME_FAILED,
+    OUTCOME_REFUSED_SHAPE,
+    STATUS,
+    VALID_STEP,
+)
 
 SENDING_AFTER_THE_SIDE_CLIENT = f"""
 import os, sys, time
@@ -95,7 +101,7 @@ def test_a_side_client_during_the_upload_is_closed_while_the_main_reply_complete
     )
 
     assert heard == [STATUS]
-    assert life.reply == OUTCOME_FAILED + END
+    assert life.reply == OUTCOME_REFUSED_SHAPE + END
     assert life.life_end == LifeEnd.CONSUMED
     assert spawn.roles == ["idle", "upload", "step", "send"]
 

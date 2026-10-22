@@ -75,6 +75,10 @@ def framed(header: bytes, preamble: bytes = b"PBW\x01\x01") -> bytes:
 HELLO = b"PBW\x01\x01\x00\x02{}"
 STATUS = b"PBW\x01\x03\x00\x02{}"
 OUTCOME_FAILED = b'PBW\x01\x05\x00\x20{"outcome":"failed","text":null}'
+OUTCOME_BUILT = framed(b'{"outcome":"built"}', b"PBW\x01\x05")
+OUTCOME_REFUSED_SHAPE = framed(
+    b'{"outcome":"refused","limit":"shape","written":null}', b"PBW\x01\x05"
+)
 END = b"\x03" + bytes(12)
 STEP_HEADER = b'{"step":"build","slug":"my-deck"}'
 VALID_STEP = framed(STEP_HEADER, STEP)
@@ -99,6 +103,15 @@ def file_entry(path: bytes, content: bytes) -> bytes:
 def file_header(path: bytes, size: int) -> bytes:
     """A FILE record up to its declared size, with no payload."""
     return file_entry(path, b"")[: -SIZE.size] + SIZE.pack(size)
+
+
+def talk_entries(index: bytes) -> bytes:
+    """The entries of a build whose talk holds only index.html, with their END."""
+    return (
+        directory_entry(b"talk")
+        + file_entry(b"talk/index.html", index)
+        + end_entry(2, len(index))
+    )
 
 
 def entries_at_the_maximum() -> bytes:
