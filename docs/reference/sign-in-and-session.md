@@ -30,6 +30,15 @@ sign-in, and no password is stored.
 - A valid Logout Token at `POST /auth/backchannel-logout` ends every session
   of its subject, on every device.
 
+The talk host signs in by itself ([ADR 0016](../decisions/0016-a-talk-host-signs-in-by-itself.md)):
+the same client, the redirect URI `<PRESENTATOR_TALK_ORIGIN>/auth/callback`, and
+its own host-only `__Host-session_id`, signed under a key derived for it. It
+serves only the signed-in owner's talk under `/deck/<slug>/`, sends `/` to the
+lobby, and answers every lobby route with 404. A refused talk sign-in is
+redirected to `/login/talk/no-access` or `/login/talk/login-failed` on the
+lobby; Try again restarts the sign-in at the talk host. A Logout Token ends the
+sessions of both hosts, a logout at the lobby ends the lobby's alone.
+
 ## Session
 
 A session that SQLite holds is carried by a signed cookie and ends twelve
@@ -66,9 +75,14 @@ signed `SameSite=Lax` session cookie.
   cross-site` or `none` is refused outright, and so is a form POST carrying
   neither `Sec-Fetch-Site` nor `Origin`/`Referer`. A request without
   `Sec-Fetch-Site`, or with `same-site`, is judged by its `Origin` (or
-  `Referer`) against the host of `PRESENTATOR_PUBLIC_ORIGIN`, the only host the
-  allowlist names (`allowed_hosts_exact`): a form naming it is admitted, any
-  other host is refused. The guard does not depend on the trusted-proxy list.
+  `Referer`) against the hostname of the origin the app answers for
+  (`PRESENTATOR_PUBLIC_ORIGIN` for the lobby, `PRESENTATOR_TALK_ORIGIN` for the
+  talk host), the only host its allowlist names (`allowed_hosts_exact`): a form
+  naming it is admitted, any other host, the other app's included, is refused.
+  The match is by hostname, so no party may be given another port or scheme of
+  either hostname ([webauth#401](https://github.com/overnightworks/webauth/issues/401)).
+  A direct run must send the public `Host`. The guard does not depend on the
+  trusted-proxy list.
   A native call to a route that needs a session answers as any missing session
   does.
 - Request bodies are capped at 32 KiB, and `POST /sources/<name>/fetch` at

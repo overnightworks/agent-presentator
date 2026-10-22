@@ -3,10 +3,16 @@
 import threading
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, Field, SecretStr, ValidationError
+from pydantic import (
+    AfterValidator,
+    Field,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from webauth.proxies import TrustedProxies
 
@@ -20,6 +26,7 @@ NO_BOUND_AT_ALL: Final = "none"
 
 _INVALID_PORT: Final = "has an invalid port"
 _REFUSED: Final = "this environment cannot start an instance"
+_ONE_HOSTNAME: Final = "talk_origin: is another hostname than public_origin"
 
 ENVIRONMENT_PREFIX: Final = "PRESENTATOR_"
 # What the web and the build worker both bound one build step by.
@@ -170,6 +177,9 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     host: str = "127.0.0.1"
     port: int = 8000
     public_origin: Annotated[str, AfterValidator(_one_public_origin)]
+    # The talk host is an origin of its own, so a deck's code runs on a site the
+    # lobby's cookies never reach. It is a deployment fact: no default.
+    talk_origin: Annotated[str, AfterValidator(_one_public_origin)]
     # The issuer is the realm the lobby signs people in at; the secret is read
     # from a file once at start, so it never rides the environment.
     oidc_issuer: Annotated[str, AfterValidator(_an_https_realm_url)]
@@ -182,6 +192,13 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # Empty: the client address is the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
+
+    @model_validator(mode="after")
+    def _two_hostnames(self) -> Self:
+        # The cookies of the two origins stay apart only on two hostnames.
+        if urlsplit(self.talk_origin).hostname == urlsplit(self.public_origin).hostname:
+            raise ValueError(_ONE_HOSTNAME)
+        return self
 
 
 class WorkerSettings(BaseSettings):
@@ -234,15 +251,19 @@ def load_settings() -> Settings:
     argument instead of looking for it.
     """
     try:
-        return Settings.model_validate({})
+        settings = Settings.model_validate({})
     except ValidationError as refused:
         # A refused value is often a real secret, and the library's own message
         # quotes it; only the field and the reason may leave this call.
         raise cannot_start(_what_is_wrong(refused)) from None
+    return settings
 
 
 def _what_is_wrong(refused: ValidationError) -> str:
     return ", ".join(
-        f"{'.'.join(str(part) for part in fault['loc'])}: {fault['msg']}"
+        # A fault of the whole model has no field; its reason already names one.
+        str(fault.get("ctx", {}).get("error", fault["msg"]))
+        if not fault["loc"]
+        else f"{'.'.join(str(part) for part in fault['loc'])}: {fault['msg']}"
         for fault in refused.errors()
     )

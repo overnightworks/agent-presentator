@@ -18,10 +18,12 @@ Reader: the operator of this machine's deployment.
 1. Build both images: `docker compose --profile images build`. Without the
    profile only the instance is built.
 2. Write `.env` beside `compose.yaml` (a file this repository never writes and
-   git never sees). Compose refuses to start the service without these six and
+   git never sees). Compose refuses to start the service without these seven and
    names each one missing:
    - `PRESENTATOR_SECRET_KEY`: a fresh random value of at least 32 bytes.
    - `PRESENTATOR_PUBLIC_ORIGIN`: the canonical https origin.
+   - `PRESENTATOR_TALK_ORIGIN`: the talk host's canonical https origin, another
+     hostname that reaches the same listener.
    - `PRESENTATOR_DOCKER_GROUP`: the numeric id of this machine's `docker`
      group, `getent group docker | cut -d: -f3`, because the server asks the
      daemon for a container for every build and a group id is not a name.

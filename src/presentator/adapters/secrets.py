@@ -31,6 +31,7 @@ _SALT: Final = b"presentator/secrets/v1"
 # HMAC among them — never derive the same bytes.
 _PURPOSE: Final = b"presentator/source-access-secret/v1"
 _FINGERPRINT_PURPOSE: Final = b"presentator/source-check-fingerprint/v1"
+_TALK_SESSION_PURPOSE: Final = b"presentator/talk-session/v1"
 _KEY_LENGTH: Final = 32
 # The one comment every deploy key this instance mints carries, so the far
 # end's list of registered keys names which server it came from.
@@ -114,3 +115,18 @@ def connection_fingerprint_key(instance_key: str) -> bytes:
         salt=_SALT,
         info=_FINGERPRINT_PURPOSE,
     ).derive(instance_key.encode())
+
+
+def talk_session_secret(instance_key: str) -> str:
+    """The secret the talk host signs its session cookies with.
+
+    Derived under a purpose of its own, so a cookie the lobby signed with the raw
+    key never verifies on the talk host, and the reverse.
+    """
+    derived = HKDF(
+        algorithm=SHA256(),
+        length=_KEY_LENGTH,
+        salt=_SALT,
+        info=_TALK_SESSION_PURPOSE,
+    ).derive(instance_key.encode())
+    return urlsafe_b64encode(derived).decode()

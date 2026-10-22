@@ -31,6 +31,7 @@ services:
     environment:
       PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
       PRESENTATOR_PUBLIC_ORIGIN: ${PRESENTATOR_PUBLIC_ORIGIN:?set it to the one canonical browser origin}
+      PRESENTATOR_TALK_ORIGIN: ${PRESENTATOR_TALK_ORIGIN:?set it to the talk host's canonical browser origin, on another hostname}
       PRESENTATOR_COPRESENTER_SOCKET: /run/presentator-copresenter/copresenter.sock
       PRESENTATOR_SPEECH_SOCKET: /run/presentator-speech/speech.sock
       PRESENTATOR_BUILD_IMAGE: *build_image

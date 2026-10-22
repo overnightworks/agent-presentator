@@ -23,7 +23,7 @@ from presentator.contracts.voice import (
     VoiceLoadOutcome,
     VoiceState,
 )
-from presentator.host.config import WorkerSettings
+from presentator.host.config import Settings, WorkerSettings
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
@@ -201,3 +201,6 @@ AskRequest.empty_language_is_no_language
 
 # pydantic reads a model's `model_config` by name when the class is built.
 WorkerSettings.model_config
+
+# Pydantic runs this `model_validator` after every `Settings` validation.
+Settings._two_hostnames  # noqa: SLF001 - pydantic, not Python code, is the caller  # pyright: ignore[reportPrivateUsage]

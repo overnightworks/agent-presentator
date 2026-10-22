@@ -16,7 +16,11 @@ from webauth.cookies import (
 
 from presentator.api.auth import LOGIN_PATH, LOGOUT_PATH, content_security_policy
 from presentator.host.oidc import end_session_origin, oidc_client_config
-from tests.api.lobby import A_CLIENT_CREDENTIAL, a_settings
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_CLIENT_CREDENTIAL,
+    a_settings,
+)
 from tests.sign_in_support import Scene, a_scene
 from tests.test_sign_in_callback import WatchedLock
 
@@ -26,7 +30,9 @@ _UNUSABLE_HINTS = {
     "malformed": "not-a-compact-jws",
     "oversized": f"{'a' * MAX_ID_TOKEN_HINT_CHARS}.b.c",
 }
-_END_SESSION = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
+_END_SESSION = oidc_client_config(
+    a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+)
 
 
 @pytest.fixture
@@ -237,7 +243,9 @@ def test_the_end_session_origin_keeps_a_port_and_drops_the_path() -> None:
         update={"oidc_issuer": "https://auth.example.test:8443/realms/test"}
     )
 
-    origin = end_session_origin(oidc_client_config(settings, SecretStr("s")))
+    origin = end_session_origin(
+        oidc_client_config(settings, SecretStr("s"), origin=A_BROWSERS_ADDRESS)
+    )
 
     assert origin == "https://auth.example.test:8443"
 

@@ -600,6 +600,14 @@ def test_the_datenschutz_names_every_cookie_and_storage_key(
     assert cookie_name in lobby.client.get("/datenschutz").text
 
 
+# #414 Done when, the Datenschutz names the talk host cookie.
+def test_the_datenschutz_names_the_talk_hosts_own_session_cookie(lobby: Lobby) -> None:
+    page = lobby.client.get("/datenschutz").text
+
+    assert "Talk-Host" in page
+    assert page.index("Talk-Host") < page.index("__Host-session_id ist ein eigenes")
+
+
 @pytest.mark.parametrize("path", ["/login", "/datenschutz"])
 def test_a_signed_out_page_links_the_impressum_and_the_datenschutz(
     lobby: Lobby,
