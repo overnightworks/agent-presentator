@@ -1,8 +1,0 @@
-claim_id = "e481b34e72f943f397d879947590feff"
-agent = "claude"
-role = "builder"
-base = "9050653b3a5d8b58c89f467abbe39ef6bead328d"
-branch = "claude/issue-409-umbenennung-r2-sonar-schl-ssel-links-und"
-scope = [".github/workflows/sonar-bootstrap.yml", "README.md", "docs/VISION.md", "docs/decisions", "docs/reference/ci-and-branch-protection.md", "examples/hello-deck/README.md", "quality/config.toml", "sonar-project.properties", "speech/README.md"]
-opened_commit = "17ffde6993b406f0db6466b09ff82e74d15cefd2"
-whole_reason = "The key and every link follow the one rename together, so the tree never names two repositories."
