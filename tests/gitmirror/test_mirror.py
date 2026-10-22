@@ -29,7 +29,6 @@ from gitmirror.mirror import (
     connection_state_for_failure,
     credential_arguments,
     is_ssh_remote,
-    split_user_name,
     unattended_environment,
 )
 from gitmirror.model import (
@@ -494,142 +493,6 @@ def test_a_resolved_credential_reaches_git_without_riding_on_its_command_line() 
     assert _WHAT_THE_RESOLVER_ANSWERS not in " ".join(arguments)
 
 
-def test_the_helper_answers_with_the_user_name_git_puts_in_the_request() -> None:
-    # A helper that answers `username=` unconditionally overrides the request's
-    # own (verified with real git), so the helper must only fill a gap.
-    answered = _fill("protocol=https\nhost=git.example\nusername=token-user\n\n")
-
-    assert answered.splitlines() == [
-        "protocol=https",
-        "host=git.example",
-        "username=token-user",
-        f"password={_WHAT_THE_RESOLVER_ANSWERS}",
-    ]
-
-
-@pytest.mark.parametrize(
-    ("url", "expected"),
-    [
-        ("https://alice@host.example/r.git", ("https://host.example/r.git", "alice")),
-        ("http://alice@host.example/r.git", ("http://host.example/r.git", "alice")),
-        ("https://host.example/r.git", ("https://host.example/r.git", None)),
-        (
-            "https://alice:pw@host.example/r.git",
-            ("https://alice:pw@host.example/r.git", None),
-        ),
-        (
-            "ssh://git@host.example/r.git",
-            ("ssh://git@host.example/r.git", None),
-        ),
-        ("git@host.example:r.git", ("git@host.example:r.git", None)),
-        (
-            "https://host.example?alice@other.example/r.git",
-            ("https://host.example?alice@other.example/r.git", None),
-        ),
-        (
-            "https://host.example#alice@other.example/r.git",
-            ("https://host.example#alice@other.example/r.git", None),
-        ),
-        (
-            "https://host.example/r.git?user=a@b",
-            ("https://host.example/r.git?user=a@b", None),
-        ),
-        (
-            "https://me%40mail.com@host.example/r.git",
-            ("https://host.example/r.git", "me@mail.com"),
-        ),
-        (
-            "https://alice@host.example/r.git?",
-            ("https://host.example/r.git?", "alice"),
-        ),
-        (
-            "https://alice@host.example/r.git#",
-            ("https://host.example/r.git#", "alice"),
-        ),
-        (
-            "HTTPS://alice@Host.Example:8443/r.git",
-            ("HTTPS://Host.Example:8443/r.git", "alice"),
-        ),
-        *[
-            (url, (url, None))
-            for url in (
-                "https://alice@good.example@evil.example/r.git",
-                "https://alice@good.example\\@evil.example/r.git",
-                "https://alice@good.example%2F@evil.example/r.git",
-                "https://al\tice@host.example/r.git",
-                "https://alice@host.example/r.git\n",
-                "https://alice@host.example/r\r.git",
-                "http://alice@[::1/r.git",
-                "https://alice@/host.example/r.git",
-                "https://alice@/127.0.0.1:9/r.git",
-                "https://alice@host.example%2F/r.git",
-                "https://alice@host.example:abc/r.git",
-                "https://al ice@host.example/r.git",
-                "https://al\u00e9ice@host.example/r.git",
-                "https://al%zzice@host.example/r.git",
-                "http\u017f://alice@host.example/r.git",
-            )
-        ],
-    ],
-)
-def test_only_an_http_url_naming_a_user_alone_gives_that_user_up(
-    url: str, expected: tuple[str, str | None]
-) -> None:
-    assert split_user_name(url) == expected
-
-
-_UNPRINTABLE_USER_URLS = [
-    f"https://al{escape}ice@host.example/r.git" for escape in ("%00", "%0A", "%0D")
-]
-
-
-@pytest.mark.parametrize("url", _UNPRINTABLE_USER_URLS)
-def test_a_user_name_that_decodes_to_a_control_character_is_refused(url: str) -> None:
-    with pytest.raises(InvalidCredentialError):
-        split_user_name(url)
-
-
-def test_a_user_name_that_is_not_utf8_is_refused() -> None:
-    with pytest.raises(InvalidCredentialError):
-        split_user_name("https://al%FFice@host.example/r.git")
-
-
-@pytest.mark.parametrize("url", _UNPRINTABLE_USER_URLS)
-def test_a_mirror_refuses_a_control_character_user_name_before_it_reaches_git(
-    url: str, tmp_path: Path
-) -> None:
-    mirror = a_mirror(url, directory=tmp_path, credential=None)
-
-    with pytest.raises(InvalidCredentialError):
-        mirror.connect()
-
-
-@pytest.mark.parametrize("url", _UNPRINTABLE_USER_URLS)
-def test_a_check_refuses_a_control_character_user_name_before_it_reaches_git(
-    url: str,
-) -> None:
-    checked = check_connection(
-        url=url, ref=MAIN_BRANCH, secret=None, timeout=_A_GENEROUS_BOUND
-    )
-
-    assert checked.state is ConnectionState.REFUSED
-
-
-def test_a_refused_user_name_leaves_no_mirror_on_disk(tmp_path: Path) -> None:
-    mirror = a_mirror("https://al%00ice@host.example/r.git", directory=tmp_path)
-
-    with pytest.raises(InvalidCredentialError):
-        mirror.connect()
-
-    assert not mirror.directory.exists()
-
-
-def test_a_user_name_survives_a_missing_secret() -> None:
-    arguments = credential_arguments(None, user_name="alice")
-
-    assert "credential.username=alice" in arguments
-
-
 def test_the_helper_answers_a_user_name_when_the_url_carries_none() -> None:
     answered = _fill("protocol=https\nhost=git.example\n\n")
 
@@ -1050,47 +913,6 @@ def test_a_url_without_a_user_name_authenticates_as_the_constant_user(
     assert served.authorization == expected
 
 
-def test_a_url_with_its_own_user_name_keeps_it(
-    remote: GitRemote,
-    tmp_path: Path,
-) -> None:
-    bare = _prepared_bare_repo(remote)
-    resolved = f"{_WHAT_THE_RESOLVER_ANSWERS} for {_TOKEN_REFERENCE.name}"
-    expected = _basic_auth("alice", resolved)
-    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
-        with_own_username = url.replace("://", "://alice@")
-        mirror = a_mirror(
-            with_own_username,
-            directory=tmp_path,
-            credential=_TOKEN_REFERENCE,
-            resolver=OneKnownSecret(),
-        )
-        connection = mirror.connect()
-
-    assert connection.state is ConnectionState.READY
-    assert served.authorization == expected
-
-
-def test_a_percent_encoded_user_name_authenticates_as_the_decoded_user(
-    remote: GitRemote,
-    tmp_path: Path,
-) -> None:
-    bare = _prepared_bare_repo(remote)
-    resolved = f"{_WHAT_THE_RESOLVER_ANSWERS} for {_TOKEN_REFERENCE.name}"
-    expected = _basic_auth("me@mail.com", resolved)
-    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
-        mirror = a_mirror(
-            url.replace("://", "://me%40mail.com@"),
-            directory=tmp_path,
-            credential=_TOKEN_REFERENCE,
-            resolver=OneKnownSecret(),
-        )
-        connection = mirror.connect()
-
-    assert connection.state is ConnectionState.READY
-    assert served.authorization == expected
-
-
 def test_a_url_with_a_second_at_sends_no_secret_to_the_host_after_it(
     remote: GitRemote,
     tmp_path: Path,
@@ -1274,40 +1096,6 @@ def test_a_reachable_check_answers_with_the_heads_full_commit(
     assert checked.state is ConnectionState.READY
     assert checked.commit == remote.head
     assert checked.detail is None
-    assert served.authorization == expected
-
-
-def test_a_check_of_a_url_with_its_own_user_name_authenticates_as_that_user(
-    remote: GitRemote,
-) -> None:
-    bare = _prepared_bare_repo(remote)
-    expected = _basic_auth("alice", _WHAT_THE_RESOLVER_ANSWERS)
-    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
-        checked = check_connection(
-            url=url.replace("://", "://alice@"),
-            ref=MAIN_BRANCH,
-            secret=_WHAT_THE_RESOLVER_ANSWERS,
-            timeout=_A_GENEROUS_BOUND,
-        )
-
-    assert checked.state is ConnectionState.READY
-    assert served.authorization == expected
-
-
-def test_a_check_of_a_percent_encoded_user_name_authenticates_as_the_decoded_user(
-    remote: GitRemote,
-) -> None:
-    bare = _prepared_bare_repo(remote)
-    expected = _basic_auth("me@mail.com", _WHAT_THE_RESOLVER_ANSWERS)
-    with _dumb_http_remote(bare, expected_authorization=expected) as (url, served):
-        checked = check_connection(
-            url=url.replace("://", "://me%40mail.com@"),
-            ref=MAIN_BRANCH,
-            secret=_WHAT_THE_RESOLVER_ANSWERS,
-            timeout=_A_GENEROUS_BOUND,
-        )
-
-    assert checked.state is ConnectionState.READY
     assert served.authorization == expected
 
 

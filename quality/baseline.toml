@@ -15,13 +15,13 @@
 "speech/tests/test_voice_status.py" = 1513
 "src/presentator/adapters/builds.py" = 1172
 "src/presentator/adapters/decks.py" = 876
-"src/presentator/application/decks.py" = 984
+"src/presentator/application/decks.py" = 974
 "tests/adapters/test_builds.py" = 1816
 "tests/adapters/test_decks.py" = 1424
 "tests/api/test_copresenter.py" = 1073
 "tests/api/test_sources.py" = 1719
-"tests/application/test_decks.py" = 2071
-"tests/gitmirror/test_mirror.py" = 1441
+"tests/application/test_decks.py" = 2057
+"tests/gitmirror/test_mirror.py" = 1229
 
 [function_lines."copresenter/scripts/prove_loop.py"]
 "_drive_late_microphone_after_lease_loss" = 75

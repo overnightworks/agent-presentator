@@ -68,3 +68,14 @@ class DeckTexts(Protocol):
 
 SentenceBoundaries = Callable[[str], tuple[str, ...]]
 """Splits text into its sentences; the last may still be unfinished."""
+
+
+class Speaking(Protocol):
+    """Speaks one sentence through the private speech service."""
+
+    async def speak(self, text: str, language: str) -> bytes:
+        """The sentence as one whole WAV.
+
+        Raises CoPresenterUnavailableError when speech cannot speak it.
+        """
+        ...

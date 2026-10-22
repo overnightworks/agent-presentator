@@ -143,12 +143,12 @@ _PORT: Final = r"(?::[0-9]+)?"
 _HTTPS_PATH: Final = r"[^\s\\]*"
 _SCP_PATH: Final = r"[^\s\\\[\]]*"
 _SSH_URL_PATH: Final = r"[^\s\\\[\]%?#]*"
-_URL_USER: Final = r"[A-Za-z0-9._~!$&'()*+,;=:-]"
-_HTTPS_URL: Final = re.compile(
-    rf"https://(?:(?:{_URL_USER}|%[0-9A-Fa-f]{{2}})+@)?{_HOST}{_PORT}/{_HTTPS_PATH}"
+_LOGIN_NAME: Final = r"[A-Za-z0-9._~-]+"
+_HTTPS_URL: Final = re.compile(rf"https://{_HOST}{_PORT}/{_HTTPS_PATH}")
+_SSH_URL: Final = re.compile(
+    rf"ssh://(?:{_LOGIN_NAME}@)?{_HOST}{_PORT}/{_SSH_URL_PATH}"
 )
-_SSH_URL: Final = re.compile(rf"ssh://(?:{_URL_USER}+@)?{_HOST}{_PORT}/{_SSH_URL_PATH}")
-_SCP_ADDRESS: Final = re.compile(rf"[A-Za-z0-9._~-]+@{_HOST}:{_SCP_PATH}")
+_SCP_ADDRESS: Final = re.compile(rf"{_LOGIN_NAME}@{_HOST}:{_SCP_PATH}")
 
 
 def _names_a_host(address: re.Match[str] | None) -> bool:
