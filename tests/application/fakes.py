@@ -32,6 +32,7 @@ from presentator.contracts.decks import (
     local_mount_path_of,
 )
 from presentator.contracts.models import User
+from presentator.contracts.people import SessionTimes
 from presentator.contracts.preferences import InstanceSettings, PersonPreferences
 from presentator.contracts.text import LobbyText
 
@@ -58,6 +59,9 @@ class FakeUserStore:
 
     def get(self, user_id: str) -> User | None:
         return self.users.get(user_id)
+
+    def delete_account(self, user_id: str) -> None:
+        self.users.pop(user_id, None)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -143,6 +147,13 @@ class FakeSessionRecordStore:
             del self.rows[session_id]
         return len(owned)
 
+    def sessions_of(self, user_id: str) -> tuple[SessionTimes, ...]:
+        return tuple(
+            SessionTimes(created_at=session.created_at, expires_at=session.expires_at)
+            for session in self.rows.values()
+            if session.user.id == user_id
+        )
+
     def prune_overflow(self, user_id: str, keep_newest: int) -> None:
         owned = sorted(
             (session for session in self.rows.values() if session.user.id == user_id),
@@ -212,6 +223,9 @@ class FakePersonPreferencesStore:
 
     def write(self, user_id: str, preferences: PersonPreferences) -> None:
         self.chosen[user_id] = preferences
+
+    def delete(self, user_id: str) -> int:
+        return int(self.chosen.pop(user_id, None) is not None)
 
 
 @dataclass
@@ -352,6 +366,12 @@ class FakeDeployKeyDrafts:
             for owner, draft in self.drafts.items()
             if draft.created_at >= older_than
         }
+
+    def count_for_owner(self, owner_id: str) -> int:
+        return int(owner_id in self.drafts)
+
+    def remove_for_owner(self, owner_id: str) -> int:
+        return int(self.drafts.pop(owner_id, None) is not None)
 
 
 @dataclass

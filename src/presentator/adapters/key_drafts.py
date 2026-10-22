@@ -125,6 +125,25 @@ class SqliteSourceKeyDrafts:
             cursor.execute(REMOVE_DRAFT, (draft_id,))
         return draft_of_row(found, box=self.box)
 
+    def count_for_owner(self, owner_id: str) -> int:
+        """How many drafts this person holds, whether or not their key still opens."""
+        with rows(self.database) as cursor:
+            return int(
+                cursor.execute(
+                    "SELECT COUNT(*) FROM source_key_drafts WHERE owner_id = ?",
+                    (owner_id,),
+                ).fetchone()[0],
+            )
+
+    def remove_for_owner(self, owner_id: str) -> int:
+        """Delete this person's drafts unread; how many rows went."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "DELETE FROM source_key_drafts WHERE owner_id = ?",
+                (owner_id,),
+            )
+            return int(cursor.rowcount)
+
     def sweep(self, *, older_than: datetime) -> None:
         """Delete every draft minted before that moment, private key and all."""
         with rows(self.database) as cursor:
