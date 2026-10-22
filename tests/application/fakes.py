@@ -154,6 +154,13 @@ class FakeSessionRecordStore:
             if session.user.id == user_id
         )
 
+    def refresh_tokens_held(self, user_id: str) -> int:
+        return sum(
+            session.refresh_token is not None
+            for session in self.rows.values()
+            if session.user.id == user_id
+        )
+
     def prune_overflow(self, user_id: str, keep_newest: int) -> None:
         owned = sorted(
             (session for session in self.rows.values() if session.user.id == user_id),

@@ -62,7 +62,7 @@ def test_every_kind_of_row_is_in_the_data_and_each_secret_is_counted_withheld() 
         _secret(PersonKind.SOURCE_CREDENTIAL, _TWO_OF_EACH),
         _secret(PersonKind.HOOK_SECRET_HASH, _TWO_OF_EACH),
         _secret(PersonKind.KEY_DRAFT_PRIVATE_KEY, 1),
-        _secret(PersonKind.REFRESH_TOKEN, _TWO_OF_EACH),
+        _secret(PersonKind.REFRESH_TOKEN, 1),
     )
 
 
@@ -82,7 +82,7 @@ def test_a_second_persons_rows_are_absent() -> None:
 
 
 def test_an_unknown_subject_answers_empty_and_creates_nothing() -> None:
-    """people.md: an unknown subject answers empty and is never created."""
+    """S10 (#293) Done when: an unknown subject answers empty and is never created."""
     instance = an_instance()
     accounts_before = dict(instance.users.users)
 

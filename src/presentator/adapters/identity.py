@@ -326,6 +326,15 @@ class SqliteSessionRecordStore:
             for created_at, expires_at in found
         )
 
+    def refresh_tokens_held(self, user_id: str) -> int:
+        """How many sessions of one account hold a refresh token, never the token."""
+        with rows(self.database) as cursor:
+            (held,) = cursor.execute(
+                "SELECT COUNT(refresh_token) FROM sessions WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return int(held)
+
     def delete_expired(self, at: datetime) -> int:
         """Delete every session that ended before `at`; one ending at `at` stands.
 

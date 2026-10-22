@@ -90,7 +90,10 @@ class People:
                 PersonKind.KEY_DRAFT_PRIVATE_KEY,
                 self.key_drafts.count_for_owner(subject),
             ),
-            (PersonKind.REFRESH_TOKEN, len(sessions)),
+            (
+                PersonKind.REFRESH_TOKEN,
+                self.sessions.refresh_tokens_held(subject),
+            ),
         )
         return PersonExport(
             data=data,
