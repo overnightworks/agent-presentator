@@ -360,6 +360,7 @@ def test_one_asks_end_leaves_another_intact() -> None:
     "origin", ["http://agent-service.test", "http://agent-service.test/"]
 )
 def test_the_run_is_posted_to_the_origins_runs_path(origin: str) -> None:
+    """#452: the origin with or without a trailing slash posts to /runs."""
     asker = an_asker(reply_with(*whole(event_frames(*GOOD_ANSWER))), origin=origin)
 
     asyncio.run(asker.ask())
@@ -370,6 +371,7 @@ def test_the_run_is_posted_to_the_origins_runs_path(origin: str) -> None:
 
 @pytest.mark.parametrize("code", list(RejectionCode))
 def test_only_a_not_enabled_refusal_is_a_not_enabled_error(code: RejectionCode) -> None:
+    """#452: only not_enabled raises NotEnabledError."""
     asker = an_asker(refusal_reply(code, 403))
 
     error = unavailable(asyncio.run(asker.ask()))
@@ -393,6 +395,7 @@ def _summary_of_a_run(reply: Reply, caplog: pytest.LogCaptureFixture) -> str:
 def test_a_good_run_logs_its_event_types_and_times_counted_from_the_post(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """#452: the run summary of a good run."""
     summary = _summary_of_a_run(reply_with(*whole(event_frames(*GOOD_ANSWER))), caplog)
 
     assert summary == (
@@ -404,6 +407,7 @@ def test_a_good_run_logs_its_event_types_and_times_counted_from_the_post(
 def test_a_failed_run_logs_one_summary_without_the_service_message(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """#452: the run summary of a failed run."""
     reply = reply_with(
         *event_frames(
             run_started(), assistant_text("Hallo"), failed(FailureCode.PROVIDER_ERROR)
@@ -419,6 +423,7 @@ def test_a_failed_run_logs_one_summary_without_the_service_message(
 def test_a_stream_violation_logs_its_kind_and_not_its_detail(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """#452: the run summary of a violation."""
     summary = _summary_of_a_run(reply_with(violating_frame()), caplog)
 
     assert "events=StreamViolation:1 violation=unsupported_version" in summary
@@ -429,6 +434,7 @@ def test_a_stream_violation_logs_its_kind_and_not_its_detail(
 def test_leaving_before_the_first_read_logs_one_summary(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """#452: the run summary of an early leave."""
     caplog.set_level(logging.INFO)
     asker = an_asker(
         reply_with(*whole(event_frames(*GOOD_ANSWER))), monotonic=_ticking_clock()
@@ -447,6 +453,7 @@ def test_leaving_before_the_first_read_logs_one_summary(
 def test_a_refusal_before_the_stream_logs_no_summary(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """#452: a refusal opens no run, so no summary."""
     caplog.set_level(logging.INFO)
     asker = an_asker(refusal_reply(RejectionCode.BUSY, 429))
 

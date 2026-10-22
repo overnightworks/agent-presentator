@@ -29,6 +29,7 @@ def test_expected_private_refusal_has_one_neutral_exception() -> None:
 
 
 def test_a_person_token_shows_no_value_in_repr_or_str() -> None:
+    """#452: a PersonToken hides its value."""
     token = PersonToken("person-token-MARKER")
 
     assert "person-token-MARKER" not in f"{token!r} {token!s}"

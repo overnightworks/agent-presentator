@@ -80,6 +80,7 @@ def test_a_failure_before_the_run_sends_no_run(
     message: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """cells 9-10 (#452): a token failure sends no run."""
     asker = an_asker(
         reply_with(*whole(event_frames(*GOOD_ANSWER))), person=person, workload=workload
     )
@@ -97,6 +98,7 @@ def test_a_failure_before_the_run_sends_no_run(
 def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
     which: str,
 ) -> None:
+    """cell 17 (#452, #360): cancellation passes through unchanged."""
     cancelled = asyncio.CancelledError()
     asker = an_asker(
         reply_with(*whole(event_frames(*GOOD_ANSWER))),
@@ -122,6 +124,7 @@ def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
 def test_a_token_callable_that_interrupts_leaves_answer_to_the_caller(
     which: str, when: str, error: BaseException
 ) -> None:
+    """cell 17 (#452, #360): process control passes through unchanged."""
     async def read() -> str:
         raise error
 
@@ -209,6 +212,7 @@ _LEAK_CASES = {
 def test_no_secret_and_no_question_leaks(
     case: str, transport: str, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """cells 15-18 (#452): no sink holds a secret or the question."""
     leak = _LEAK_CASES[case]
     reply, person, workload, message = (
         leak.reply,
@@ -286,8 +290,10 @@ def _cyclic_error() -> RuntimeError:
     ],
 )
 def test_a_marker_held_anywhere_is_found(shown: str) -> None:
+    """defect #355 (#452): the leak walker finds a marker in every sink."""
     assert _WALK_MARKER in shown
 
 
 def test_a_record_and_an_error_without_the_marker_show_none() -> None:
+    """defect #355 (#452): the leak walker invents no marker."""
     assert _WALK_MARKER not in everything_shown([_a_record()], [RuntimeError("other")])

@@ -104,6 +104,7 @@ def _failure_of(work: Awaitable[object]) -> CoPresenterUnavailableError:
 def test_a_signed_in_session_gets_a_person_token_and_the_workload_its_own(
     arranged: Arranged,
 ) -> None:
+    """cell 1 (#452): the happy path."""
     person = asyncio.run(arranged.person.fresh(arranged.session_id))
     workload = asyncio.run(arranged.workload())
 
@@ -113,6 +114,7 @@ def test_a_signed_in_session_gets_a_person_token_and_the_workload_its_own(
 
 
 def test_the_workload_token_is_fetched_on_every_call(arranged: Arranged) -> None:
+    """cell 1 (#452): the workload source keeps no token between calls."""
     asyncio.run(arranged.workload())
     first = arranged.scene.issuer.grant_types.count("client_credentials")
     asyncio.run(arranged.workload())
@@ -153,6 +155,7 @@ def test_a_session_without_a_standing_token_gets_its_refusal(
     expected: AccessRefusal,
     asks_the_issuer: bool,  # noqa: FBT001
 ) -> None:
+    """cells 2-5 (#452): each refusal and whether the issuer was asked."""
     break_it(arranged)
     before = arranged.grants_so_far()
 
@@ -165,6 +168,7 @@ def test_a_session_without_a_standing_token_gets_its_refusal(
 def test_an_issuer_that_is_down_is_one_warning_naming_the_reason(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """cell 6 (#452): an unavailable issuer is one warning."""
     arranged.scene.issuer.token_endpoint_is_down = True
 
     refusal = asyncio.run(arranged.person.fresh(arranged.session_id))
@@ -177,6 +181,7 @@ def test_an_issuer_that_is_down_is_one_warning_naming_the_reason(
 def test_a_rotated_refresh_token_is_stored_and_the_new_access_token_returned(
     arranged: Arranged,
 ) -> None:
+    """cell 7 (#452): the rotation is stored."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     person = asyncio.run(arranged.person.fresh(arranged.session_id))
@@ -188,6 +193,7 @@ def test_a_rotated_refresh_token_is_stored_and_the_new_access_token_returned(
 def test_a_row_deleted_between_the_two_transactions_ends_the_session(
     arranged: Arranged,
 ) -> None:
+    """cell 8 (#452): a row deleted mid-rotation ends the session."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
     arranged.scene.issuer.during_token_request = lambda: _gone(arranged)
 
@@ -200,6 +206,7 @@ def test_a_row_deleted_between_the_two_transactions_ends_the_session(
 def test_a_workload_the_issuer_refuses_is_one_warning_naming_reason_and_code(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """cell 9 (#452): a refused workload."""
     arranged.scene.issuer.workload_is_refused = True
 
     _failure_of(arranged.workload())
@@ -219,6 +226,7 @@ def _raise_in_the_thread(error: Exception) -> Callable[[], None]:
 def test_a_workload_thread_that_raises_is_one_warning_naming_only_its_type(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """cells 10, 15, 16 (#452): a raising workload thread leaks nothing."""
     error = RuntimeError(THREAD_ERROR)
     error.__context__ = RuntimeError(THREAD_ERROR)
     arranged.scene.issuer.during_token_request = _raise_in_the_thread(error)
@@ -253,6 +261,7 @@ def test_a_person_thread_that_raises_is_one_warning_naming_only_its_type(
     named: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """cells 11, 15, 16 (#452): a raising person thread leaks nothing."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
     scene = arranged.scene
     person = PersonAccessTokens(
@@ -302,6 +311,7 @@ def _cancelled_before_the_thread(arranged: Arranged) -> asyncio.CancelledError:
 def test_a_cancellation_before_the_thread_asks_no_issuer_and_leaves_no_chain(
     arranged: Arranged,
 ) -> None:
+    """cell 12 (#452): cancellation before the thread."""
     before = arranged.grants_so_far()
 
     error = _cancelled_before_the_thread(arranged)
@@ -354,6 +364,7 @@ def test_a_cancelled_ask_still_stores_the_rotation_and_leaves_no_chain(
     arranged: Arranged,
     cancel: Callable[[Arranged, RecordingExecutor], Awaitable[asyncio.CancelledError]],
 ) -> None:
+    """cells 13-14 (#452): cancellation inside and after the thread."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     async def drive() -> asyncio.CancelledError:
@@ -373,6 +384,7 @@ def test_a_cancelled_ask_still_stores_the_rotation_and_leaves_no_chain(
 def test_the_real_suppliers_feed_the_answerer_over_a_socket_and_leak_nothing(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """cell 19 (#452): real socket, every logger at DEBUG."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     async def person() -> str:
