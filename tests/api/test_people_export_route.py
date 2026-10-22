@@ -42,9 +42,11 @@ _ADMINS: Final = ["/apps/presentator", "/apps/presentator/admin"]
 _PATH: Final = "/api/admin/people/"
 _A_HOOK_HASH: Final = b"hook-hash-nobody-may-read"
 _A_REFRESH_WORD: Final = "refresh-word-nobody-may-read"
+_A_CREDENTIAL_WORD: Final = "credential-nobody-may-read"
 _SECRET_WORDS: Final = (
     "hook-hash-nobody-may-read",
     _A_REFRESH_WORD,
+    _A_CREDENTIAL_WORD,
     "OPENSSH PRIVATE KEY",
 )
 _SHARED_KEYS: Final = {
@@ -80,7 +82,8 @@ class Scene:
 def a_scene() -> Scene:
     instance = an_instance(
         source_store=FakeSourceStore(
-            hashes=dict.fromkeys(("decks", "talks", "notes"), _A_HOOK_HASH)
+            hashes=dict.fromkeys(("decks", "talks", "notes"), _A_HOOK_HASH),
+            secrets=dict.fromkeys(("decks-id", "talks-id"), _A_CREDENTIAL_WORD),
         ),
     )
     instance.sessions.create(
@@ -110,6 +113,7 @@ def a_scene() -> Scene:
                 key_drafts=instance.fakes.key_drafts,
             ),
             clients=frozenset({_HAL}),
+            clock=clock,
         ),
     )
     lobby = a_browser_at(
@@ -145,7 +149,7 @@ def test_the_zip_holds_export_json_alone_in_the_shared_shape() -> None:
 
 
 def test_exported_at_is_utc_with_z_and_whole_seconds() -> None:
-    """Edge people.md: RFC 3339 in UTC with `Z`, whole seconds."""
+    """S10, edge people.md: `exported_at` RFC 3339 in UTC with `Z`, whole seconds."""
     document = _document(a_scene().export(THE_PERSON.id))
 
     assert document["exported_at"] == "2026-01-15T09:00:00Z"
@@ -158,6 +162,31 @@ def test_every_kind_of_row_is_exported_and_each_secret_kind_counted_withheld() -
     data = cast("dict[str, object]", document["data"])
     assert set(data) == {"account", "sessions", "preferences", "key_draft", "sources"}
     assert data["account"] == {"id": THE_PERSON.id, "username": "pia", "role": "admin"}
+    assert data["preferences"] == {"language_tag": "de", "theme": None}
+    assert data["key_draft"] == {
+        "created_at": "2026-01-15T09:00:00Z",
+        "public_key": "ssh-ed25519 AAAAtestkey1 presentator",
+    }
+    assert (
+        data["sessions"]
+        == [
+            {"created_at": "2026-01-15T09:00:00Z", "expires_at": "2026-01-15T10:00:00Z"}
+        ]
+        * 2
+    )
+    sources = cast("list[dict[str, object]]", data["sources"])
+    assert [
+        (source["name"], source["url"], source["ref"], source["public_key"])
+        for source in sources
+    ] == [
+        ("decks", "git@example.invalid:decks.git", "main", None),
+        ("talks", "git@example.invalid:talks.git", "main", None),
+    ]
+    for source in sources:
+        decks = cast("list[dict[str, object]]", source["decks"])
+        runs = cast("list[dict[str, object]]", source["runs"])
+        assert [deck["slug"] for deck in decks] == [f"{source['name']}-deck"]
+        assert [run["outcome"] for run in runs] == ["success"]
     assert document["withheld"] == [
         {"kind": "source-credential", "reason": "secret", "count": 2},
         {"kind": "hook-secret-hash", "reason": "secret", "count": 2},
