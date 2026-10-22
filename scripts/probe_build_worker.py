@@ -616,6 +616,11 @@ def drive() -> None:
         prove_fast_lives(report)
         prove_stop(report)
     finally:
+        subprocess.run(
+            ("docker", "compose", "--file", str(REPOSITORY / "compose.yaml"),
+             "logs", "--no-color", SERVICE),
+            check=False,
+        )  # fmt: skip
         subprocess.run(("docker", "rm", "--force", HOLDER), check=False)
         subprocess.run(
             ("docker", "compose", "--file", str(REPOSITORY / "compose.yaml"),
