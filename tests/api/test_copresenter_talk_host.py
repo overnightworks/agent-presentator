@@ -33,7 +33,7 @@ from tests.api.test_copresenter import (
     TALK_ORIGIN,
     ManualDeadline,
     RecordingPrivateCoPresenter,
-    a_copresenter_lobby,
+    a_copresenter_talk_host,
     a_use,
 )
 from tests.application.fakes import FakeDeckStore, FrozenClock
@@ -72,7 +72,7 @@ def test_who_answers_the_admin_only(
     status: HTTPStatus,
     reaches_the_service: bool,  # noqa: FBT001
 ) -> None:
-    talk, private, _clock = a_copresenter_lobby()
+    talk, private, _clock = a_copresenter_talk_host()
     talk.sign_in(role=role)
 
     answer = talk.client.get("/copresenter/who", headers=_JSON)
@@ -83,7 +83,7 @@ def test_who_answers_the_admin_only(
 
 # C5.
 def test_ask_streams_for_an_admin_with_the_talk_hosts_own_token() -> None:
-    talk, _private, _clock = a_copresenter_lobby()
+    talk, _private, _clock = a_copresenter_talk_host()
     talk.sign_in()
     token = talk.client.cookies[DEFAULT_CSRF_COOKIE_NAME]
 
@@ -106,7 +106,7 @@ def test_ask_streams_for_an_admin_with_the_talk_hosts_own_token() -> None:
 def test_a_valid_token_does_not_excuse_a_post_from_another_site(
     claims: dict[str, str],
 ) -> None:
-    talk, private, _clock = a_copresenter_lobby()
+    talk, private, _clock = a_copresenter_talk_host()
     talk.sign_in()
     token = talk.client.cookies[DEFAULT_CSRF_COOKIE_NAME]
 
@@ -120,7 +120,7 @@ def test_a_valid_token_does_not_excuse_a_post_from_another_site(
 
 # C5.
 def test_a_same_origin_ask_still_needs_the_token() -> None:
-    talk, private, _clock = a_copresenter_lobby()
+    talk, private, _clock = a_copresenter_talk_host()
     talk.sign_in()
 
     refused = talk.client.post(_ASK, json=QUESTION)
@@ -131,7 +131,7 @@ def test_a_same_origin_ask_still_needs_the_token() -> None:
 
 # C5.
 def test_the_lobbys_csrf_token_does_not_excuse_an_ask_at_the_talk_host() -> None:
-    talk, private, clock = a_copresenter_lobby()
+    talk, private, clock = a_copresenter_talk_host()
     session_id = talk.people.open_session_for(
         User(id="id-of-an-admin", username=USERNAME, role=Role.ADMIN)
     )
@@ -159,7 +159,7 @@ def test_the_lobbys_csrf_token_does_not_excuse_an_ask_at_the_talk_host() -> None
 def test_hear_is_accepted_only_from_the_talk_origin(
     origin: str | None, closed_with: int | None
 ) -> None:
-    talk, _private, _clock = a_copresenter_lobby()
+    talk, _private, _clock = a_copresenter_talk_host()
     talk.sign_in()
 
     assert _hear_with_origin(talk.client, origin) == closed_with
@@ -167,7 +167,7 @@ def test_hear_is_accepted_only_from_the_talk_origin(
 
 # C6.
 def test_hear_is_refused_to_a_user_even_from_the_talk_origin() -> None:
-    talk, private, _clock = a_copresenter_lobby()
+    talk, private, _clock = a_copresenter_talk_host()
     talk.sign_in(role=Role.USER)
 
     assert _hear_with_origin(talk.client, TALK_ORIGIN) == POLICY_VIOLATION
@@ -176,7 +176,7 @@ def test_hear_is_refused_to_a_user_even_from_the_talk_origin() -> None:
 
 # C7.
 def test_the_lobbys_session_cookie_does_not_sign_in_at_the_talk_host() -> None:
-    talk, private, clock = a_copresenter_lobby()
+    talk, private, clock = a_copresenter_talk_host()
     session_id = talk.people.open_session_for(
         User(id="id-of-an-admin", username=USERNAME, role=Role.ADMIN)
     )
@@ -191,7 +191,7 @@ def test_the_lobbys_session_cookie_does_not_sign_in_at_the_talk_host() -> None:
 
 # C8.
 def test_an_admin_demoted_while_signed_in_loses_the_copresenter_at_once() -> None:
-    talk, private, _clock = a_copresenter_lobby()
+    talk, private, _clock = a_copresenter_talk_host()
     talk.sign_in(role=Role.ADMIN)
     (admin,) = talk.people.users.users.values()
     talk.people.users.users[admin.id] = replace(admin, role=Role.USER)

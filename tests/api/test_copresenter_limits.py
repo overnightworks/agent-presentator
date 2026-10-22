@@ -24,7 +24,7 @@ from tests.api.test_copresenter import (
     QUESTION,
     TALK_ORIGIN,
     RecordingPrivateCoPresenter,
-    a_copresenter_lobby,
+    a_copresenter_talk_host,
     a_use,
     ask,
     the_admins_decks,
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     invalid: dict[str, object],
 ) -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -76,7 +76,7 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
 def test_ask_accepts_the_limit_and_the_offered_languages(
     allowed: dict[str, object], language_handed_on: str | None
 ) -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -88,7 +88,7 @@ def test_ask_accepts_the_limit_and_the_offered_languages(
 
 def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> None:
     limiter_clock = FrozenClock(instant=NOW)
-    lobby, private, _clock = a_copresenter_lobby(
+    lobby, private, _clock = a_copresenter_talk_host(
         limiter=AskLimiter(clock=limiter_clock)
     )
     client = lobby.client
@@ -108,7 +108,7 @@ def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> 
 
 
 def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
     second: list[Response] = []
@@ -134,7 +134,7 @@ def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> Non
 
 def test_each_session_has_its_own_question_budget() -> None:
     limiter_clock = FrozenClock(instant=NOW)
-    first_lobby, _private, _clock = a_copresenter_lobby(
+    first_lobby, _private, _clock = a_copresenter_talk_host(
         limiter=AskLimiter(clock=limiter_clock)
     )
     first = first_lobby.client

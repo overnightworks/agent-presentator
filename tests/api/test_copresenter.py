@@ -218,7 +218,7 @@ def a_use(private: RecordingPrivateCoPresenter, decks: FakeDeckStore) -> CoPrese
     return CoPresenterUse(answers=private, speech=private, decks=decks, sources=sources)
 
 
-def a_copresenter_lobby(
+def a_copresenter_talk_host(
     *,
     users: FakeUserStore | None = None,
     delay: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -254,7 +254,7 @@ def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
 
 
 def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
 
     signed_out = client.get("/copresenter/who", headers={"accept": "application/json"})
@@ -310,7 +310,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
 
 
 def test_the_admin_receives_only_speech_readiness() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in(role=Role.ADMIN)
 
@@ -324,7 +324,7 @@ def test_the_admin_receives_only_speech_readiness() -> None:
 
 
 def test_a_signed_in_non_admin_is_refused_every_copresenter_route() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in(role=Role.USER)
 
@@ -347,7 +347,7 @@ def test_a_signed_in_non_admin_is_refused_every_copresenter_route() -> None:
 def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
     users = RefusingUserStore()
     deadline = ManualDeadline()
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     lobby.sign_in(role=Role.ADMIN)
 
     with lobby.client.websocket_connect(
@@ -375,7 +375,7 @@ def test_a_running_hearing_with_audio_ends_when_its_session_loses_the_admin_role
 ):
     users = RefusingUserStore()
     deadline = ManualDeadline()
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     lobby.sign_in(role=Role.ADMIN)
 
     with lobby.client.websocket_connect(
@@ -407,7 +407,7 @@ def test_an_answer_in_flight_stops_when_its_session_loses_the_admin_role() -> No
             _demote(users)
             deadline.release_first()
 
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     private.busy_answer_events = event_count
     private.answer_event_hook = demote_mid_answer
     lobby.sign_in(role=Role.ADMIN)
@@ -424,7 +424,7 @@ def test_an_answer_in_flight_stops_when_its_session_loses_the_admin_role() -> No
 def test_a_refused_non_admin_question_keeps_the_sessions_ask_capacity() -> None:
     users = RefusingUserStore()
     limiter = AskLimiter(clock=FrozenClock(instant=NOW), limits=AskLimits(per_window=1))
-    lobby, private, _clock = a_copresenter_lobby(users=users, limiter=limiter)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, limiter=limiter)
     lobby.sign_in(role=Role.USER)
 
     refused = ask(lobby.client)
@@ -438,7 +438,7 @@ def test_a_refused_non_admin_question_keeps_the_sessions_ask_capacity() -> None:
 
 
 def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -456,7 +456,7 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
 
 
 def test_private_answer_events_preserve_the_public_stream_contract() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.answer_events = [
         AnswerText(text="Der Anfang"),
@@ -476,7 +476,7 @@ def test_private_answer_events_preserve_the_public_stream_contract() -> None:
 
 
 def test_private_answer_refusal_and_clean_end_do_not_invent_an_answer() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -493,7 +493,7 @@ def test_private_answer_refusal_and_clean_end_do_not_invent_an_answer() -> None:
 
 
 def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
-    lobby, private, clock = a_copresenter_lobby()
+    lobby, private, clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
     clock.advance(timedelta(minutes=5))
@@ -532,7 +532,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
 
 
 def test_browser_disconnect_before_pcm_opens_no_private_hearing() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -547,7 +547,7 @@ def test_browser_disconnect_before_pcm_opens_no_private_hearing() -> None:
 
 def test_an_active_session_keeps_hearing_after_an_authoritative_recheck() -> None:
     deadline = ManualDeadline()
-    lobby, private, _clock = a_copresenter_lobby(delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(delay=deadline.wait)
     client = lobby.client
     lobby.sign_in()
 
@@ -565,7 +565,7 @@ def test_an_active_session_keeps_hearing_after_an_authoritative_recheck() -> Non
 
 
 def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.hearing.events = [
         HearingTranscript(text="erste Antwort", final=False),
@@ -590,7 +590,7 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
 
 
 def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.grouped_hearing_context = True
     lobby.sign_in()
@@ -602,7 +602,7 @@ def test_transcript_delivery_disconnect_closes_the_private_child() -> None:
 
 
 def test_private_failure_notice_disconnect_closes_the_private_child() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.hearing.events = [None]
     lobby.sign_in()
@@ -659,7 +659,7 @@ async def _send_hearing_event_to_a_disconnected_browser(client: TestClient) -> N
 
 
 def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -679,7 +679,7 @@ def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
 
 
 def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.hearing.events = [None]
     lobby.sign_in()
@@ -703,7 +703,7 @@ def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None
 def test_browser_fallback_refuses_text_frames_without_reopening_private_hearing() -> (
     None
 ):
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.hearing.events = [None]
     lobby.sign_in()
@@ -724,7 +724,7 @@ def test_browser_fallback_refuses_text_frames_without_reopening_private_hearing(
 
 
 def test_unexpected_private_hearing_failure_closes_the_public_connection() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     private.hearing.events = [RuntimeError("private hearing failed")]
     lobby.sign_in()
@@ -743,7 +743,7 @@ def test_unexpected_private_hearing_failure_closes_the_public_connection() -> No
 
 
 def test_private_failures_expose_only_public_failure_shapes() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
     private.readiness_unavailable = True
@@ -769,7 +769,7 @@ def test_private_failures_expose_only_public_failure_shapes() -> None:
 
 
 def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
     lobby.sign_in()
 
@@ -784,7 +784,7 @@ def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
 
 
 def test_a_session_in_use_is_refused_a_page_past_the_cap() -> None:
-    lobby, private, clock = a_copresenter_lobby()
+    lobby, private, clock = a_copresenter_talk_host()
     lobby.sign_in()
     for _ in range(2):
         clock.advance(SESSION_LIFETIME / 2)
@@ -797,7 +797,7 @@ def test_a_session_in_use_is_refused_a_page_past_the_cap() -> None:
 
 
 def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
-    lobby, private, clock = a_copresenter_lobby()
+    lobby, private, clock = a_copresenter_talk_host()
     lobby.sign_in()
     for _ in range(2):
         clock.advance(SESSION_LIFETIME / 2)
@@ -829,7 +829,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
     closed: bool,
 ) -> None:
     deadline = ManualDeadline()
-    lobby, private, clock = a_copresenter_lobby(delay=deadline.wait)
+    lobby, private, clock = a_copresenter_talk_host(delay=deadline.wait)
     lobby.sign_in()
     clock.advance(SESSION_LIFETIME - timedelta(seconds=30))
 
@@ -858,7 +858,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
 
 
 def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> None:
-    expired_lobby, expired_private, clock = a_copresenter_lobby()
+    expired_lobby, expired_private, clock = a_copresenter_talk_host()
     expired = expired_lobby.client
     expired_lobby.sign_in()
     clock.advance(SESSION_LIFETIME + timedelta(seconds=1))
@@ -866,7 +866,7 @@ def test_expired_and_logged_out_sessions_are_refused_before_private_use() -> Non
     assert expired.get("/copresenter/who").status_code == HTTPStatus.FOUND
     assert expired_private.readiness_calls == 0
 
-    logged_out_lobby, logged_out_private, _clock = a_copresenter_lobby()
+    logged_out_lobby, logged_out_private, _clock = a_copresenter_talk_host()
     logged_out = logged_out_lobby.client
     logged_out_lobby.sign_in()
     old_cookie = logged_out.cookies[DEFAULT_SESSION_COOKIE_NAME]
@@ -923,7 +923,7 @@ def _complete(check: asyncio.Future[None]) -> None:
 @pytest.mark.parametrize("failure", ["account-gone", "store-error"])
 def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
     users = RefusingUserStore()
-    lobby, private, _clock = a_copresenter_lobby(users=users)
+    lobby, private, _clock = a_copresenter_talk_host(users=users)
     client = lobby.client
     lobby.sign_in(role=Role.ADMIN)
 
@@ -940,7 +940,7 @@ def test_identity_loss_fails_closed_before_private_use(failure: str) -> None:
 
 def test_session_store_failure_refuses_websocket_admission_before_private_use() -> None:
     users = RefusingUserStore()
-    lobby, private, _clock = a_copresenter_lobby(users=users)
+    lobby, private, _clock = a_copresenter_talk_host(users=users)
     client = lobby.client
     lobby.sign_in()
     users.fail_reads = True
@@ -965,7 +965,7 @@ def test_session_store_loss_cancels_an_accepted_answer_at_its_deadline() -> None
             await asyncio.sleep(0)
         users.fail_reads = True
 
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=lose_store)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=lose_store)
     client = lobby.client
     private.hold_answers = True
     lobby.sign_in()
@@ -994,7 +994,7 @@ def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
             users.refuse_reads = True
             deadline.release_first()
 
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     client = lobby.client
     private.busy_answer_events = event_count
     private.answer_event_hook = end_session
@@ -1014,7 +1014,7 @@ def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
 ) -> None:
     users = RefusingUserStore()
     deadline = ManualDeadline()
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     client = lobby.client
     private.hearing.events = [
         HearingTranscript(text="eins", final=True),
@@ -1049,7 +1049,7 @@ def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
 ) -> None:
     users = RefusingUserStore()
     deadline = ManualDeadline()
-    lobby, private, _clock = a_copresenter_lobby(users=users, delay=deadline.wait)
+    lobby, private, _clock = a_copresenter_talk_host(users=users, delay=deadline.wait)
     client = lobby.client
     private.hearing.events = [None]
     lobby.sign_in()

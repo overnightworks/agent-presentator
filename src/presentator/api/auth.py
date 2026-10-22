@@ -92,8 +92,8 @@ _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
 
 
-class TalkRefusal(StrEnum):
-    """Why a sign-in was refused, and the last segment of the lobby's route for it.
+class TalkSignInRefusal(StrEnum):
+    """Why a sign-in at the talk host was refused, and the lobby route's last segment.
 
     The talk host has no page of its own, so its refused sign-in is answered
     with a redirect to the lobby, whose footer links Impressum and Datenschutz.
@@ -104,12 +104,12 @@ class TalkRefusal(StrEnum):
 
 
 _REFUSAL_PAGES: Final = {
-    TalkRefusal.NO_ACCESS: "no_access.html",
-    TalkRefusal.LOGIN_FAILED: "login_failed.html",
+    TalkSignInRefusal.NO_ACCESS: "no_access.html",
+    TalkSignInRefusal.LOGIN_FAILED: "login_failed.html",
 }
 
 
-def talk_refusal_path(refusal: TalkRefusal) -> str:
+def talk_sign_in_refusal_path(refusal: TalkSignInRefusal) -> str:
     """The lobby's address that shows a talk sign-in refusal."""
     return f"/login/talk/{refusal.value}"
 
@@ -138,7 +138,10 @@ _PUBLIC_RULES: Final = (
                     SIGN_IN_CALLBACK_PATH,
                     LOGOUT_PATH,
                     _SETUP,
-                    *(talk_refusal_path(refusal) for refusal in TalkRefusal),
+                    *(
+                        talk_sign_in_refusal_path(refusal)
+                        for refusal in TalkSignInRefusal
+                    ),
                 }
             )
         )
@@ -297,7 +300,7 @@ class SignIn:
         self,
         request: Request,
         *,
-        refused: Callable[[TalkRefusal, Response], Response],
+        refused: Callable[[TalkSignInRefusal, Response], Response],
     ) -> Response:
         """Complete the sign-in the issuer returns to, or hand the refusal on.
 
@@ -321,13 +324,13 @@ class SignIn:
             case AdmittedLogin():
                 return self._signed_in(request, answer, outcome)
             case AdmissionRefusal.NOT_A_MEMBER:
-                return refused(TalkRefusal.NO_ACCESS, answer)
+                return refused(TalkSignInRefusal.NO_ACCESS, answer)
             case (
                 OidcRefusal()
                 | AdmissionRefusal.FOREIGN_ISSUER
                 | AdmissionRefusal.USERNAME_TAKEN
             ):
-                return refused(TalkRefusal.LOGIN_FAILED, answer)
+                return refused(TalkSignInRefusal.LOGIN_FAILED, answer)
             case _:
                 assert_never(outcome)
 
@@ -402,7 +405,9 @@ class _Surfaces:
         """Send the browser to the issuer."""
         return self.sign_in.start(request)
 
-    def talk_refusal_page(self, refusal: TalkRefusal) -> Callable[[Request], Response]:
+    def talk_sign_in_refusal_page(
+        self, refusal: TalkSignInRefusal
+    ) -> Callable[[Request], Response]:
         """The route that shows why the talk host refused a sign-in.
 
         Its retry restarts the sign-in at the talk host, and the page is one
@@ -422,7 +427,7 @@ class _Surfaces:
     def _refused_page(
         self,
         request: Request,
-        refusal: TalkRefusal,
+        refusal: TalkSignInRefusal,
         *,
         kept: Response,
         retry: str,
@@ -561,10 +566,10 @@ def create_lobby(
     lobby.add_api_route(
         SIGN_IN_CALLBACK_PATH, surfaces.sign_in_callback, methods=["GET"]
     )
-    for refusal in TalkRefusal:
+    for refusal in TalkSignInRefusal:
         lobby.add_api_route(
-            talk_refusal_path(refusal),
-            surfaces.talk_refusal_page(refusal),
+            talk_sign_in_refusal_path(refusal),
+            surfaces.talk_sign_in_refusal_page(refusal),
             methods=["GET"],
         )
     lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])

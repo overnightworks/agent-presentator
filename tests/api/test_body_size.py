@@ -16,7 +16,7 @@ from presentator.api.copresenter import MAX_SAID_LENGTH
 from presentator.contracts.models import Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG
 from tests.api.lobby import A_BROWSERS_ADDRESS, a_content_security_policy, a_lobby
-from tests.api.test_copresenter import QUESTION, a_copresenter_lobby
+from tests.api.test_copresenter import QUESTION, a_copresenter_talk_host
 from tests.sign_in_support import Scene, a_scene
 
 _FORM = "application/x-www-form-urlencoded"
@@ -151,7 +151,7 @@ def test_a_streamed_settings_form_over_the_cap_gets_400_and_saves_nothing() -> N
 
 
 def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     lobby.sign_in()
     asked = json.dumps(QUESTION)
     body = (asked + " " * (_BODY_SIZE - len(asked))).encode()
@@ -164,7 +164,7 @@ def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -
 
 
 def test_the_longest_ask_in_the_widest_json_spelling_still_fits_the_cap() -> None:
-    lobby, private, _clock = a_copresenter_lobby()
+    lobby, private, _clock = a_copresenter_talk_host()
     lobby.sign_in()
     escaped_surrogate_pair = "\\ud83d\\ude00"
     body = json.dumps({**QUESTION, "said": "SAID"}).replace(

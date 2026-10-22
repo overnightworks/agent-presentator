@@ -75,7 +75,7 @@ def test_no_access_logs_out_at_the_lobby_and_login_failed_retries_at_the_talk_ho
 
 
 # T9b.
-def test_an_unknown_talk_refusal_is_not_found(signed_in_lobby: Lobby) -> None:
+def test_an_unknown_talk_sign_in_refusal_is_not_found(signed_in_lobby: Lobby) -> None:
     unknown = signed_in_lobby.client.get("/login/talk/other")
 
     assert unknown.status_code == HTTPStatus.NOT_FOUND
