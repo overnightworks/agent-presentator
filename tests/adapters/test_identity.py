@@ -377,7 +377,7 @@ def test_a_file_from_an_older_version_is_refused_and_left_untouched(
     before = database.read_bytes()
     folder_before = sorted(tmp_path.iterdir())
 
-    with pytest.raises(OldDatabaseError, match=r"OPERATIONS\.md"):
+    with pytest.raises(OldDatabaseError, match=r"start-over-from-an-old-database\.md"):
         create_identity_tables(database)
 
     assert database.read_bytes() == before
@@ -420,7 +420,7 @@ def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untou
     bytes_before = [path.read_bytes() for path in companions]
     folder_before = set(database.parent.iterdir())
 
-    with pytest.raises(OldDatabaseError, match=r"OPERATIONS\.md"):
+    with pytest.raises(OldDatabaseError, match=r"start-over-from-an-old-database\.md"):
         create_identity_tables(database)
 
     assert [path.read_bytes() for path in companions] == bytes_before
@@ -673,7 +673,7 @@ def test_a_file_with_the_first_sessions_table_is_refused_and_left_byte_unchanged
         )
     before = database.read_bytes()
 
-    with pytest.raises(OldDatabaseError, match=r"OPERATIONS\.md"):
+    with pytest.raises(OldDatabaseError, match=r"start-over-from-an-old-database\.md"):
         create_identity_tables(database)
 
     assert database.read_bytes() == before
@@ -689,7 +689,7 @@ def test_the_first_sessions_table_committed_only_in_the_log_is_refused_untouched
     companions = [database.with_name(database.name + "-wal"), database]
     bytes_before = [path.read_bytes() for path in companions]
 
-    with pytest.raises(OldDatabaseError, match=r"OPERATIONS\.md"):
+    with pytest.raises(OldDatabaseError, match=r"start-over-from-an-old-database\.md"):
         create_identity_tables(database)
 
     assert [path.read_bytes() for path in companions] == bytes_before

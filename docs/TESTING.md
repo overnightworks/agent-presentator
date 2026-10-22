@@ -74,7 +74,7 @@ Local runs are targeted — a named module or `-k` on the behaviour, from the
 repository root with `uv run --locked pytest`, or a named file from `frontend/`
 with `pnpm exec vitest run`; never the whole suite or a Playwright suite unless
 the operator asked. CI on the pull request is the full run and the gate. What
-`main` requires is [OPERATIONS.md](OPERATIONS.md). What the workflow runs is
+`main` requires is [ci-and-branch-protection.md](reference/ci-and-branch-protection.md). What the workflow runs is
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The coverage floor is
 the configuration above, not a number restated here.
 

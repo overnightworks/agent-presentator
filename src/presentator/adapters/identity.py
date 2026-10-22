@@ -47,8 +47,7 @@ _OLD_VERSION_REFUSAL: Final = (
     "%s was written by an older version (login_attempts, or a users or"
     " sessions table with other columns than this version's). Take the backup,"
     " then move the database and its -wal and -shm files aside so the instance"
-    " starts a fresh one (docs/OPERATIONS.md, 'Starting over from an old"
-    " database')."
+    " starts a fresh one (docs/runbooks/start-over-from-an-old-database.md)."
 )
 
 
