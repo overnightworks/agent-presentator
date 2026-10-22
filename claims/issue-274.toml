@@ -1,7 +1,0 @@
-claim_id = "b52561b4859541dd84e092119e2da22c"
-agent = "claude"
-role = "builder"
-base = "1234085df806783e9b18a06cad4ed6667c9fa2f7"
-branch = "claude/issue-274-frontend-lock-neu-ver-ffentlichte-sicher"
-scope = ["frontend/package.json", "frontend/pnpm-lock.yaml"]
-opened_commit = "4331095ad69611cca42078f91dcc1845f29d96da"
