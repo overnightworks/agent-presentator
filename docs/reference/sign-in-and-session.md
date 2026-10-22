@@ -94,9 +94,10 @@ signed `SameSite=Lax` session cookie.
   `webauth`'s `SecurityHeadersMiddleware` headers: `Cache-Control: no-store`
   (no answer may be replayed from the browser cache), a
   `Content-Security-Policy` admitting only this origin's own scripts, styles
-  and connections, and a `Permissions-Policy` granting `microphone=(self)` on the talk host for
-  the co-presenter deck and nothing else; the lobby sends `microphone=()`. `Strict-Transport-Security` follows
-  the always-on `Secure` cookie setting, so it is always sent.
+  and connections, and a `Permissions-Policy` granting `microphone=(self)` on
+  the talk host for the co-presenter deck and nothing else; the lobby sends
+  `microphone=()`. `Strict-Transport-Security` follows the always-on `Secure`
+  cookie setting, so it is always sent.
 
 ## Legal links
 
