@@ -87,7 +87,7 @@ HEADER_CLASSES = {
     "slug not a plain folder name": _framed(b'{"step":"build","slug":"../a"}'),
     "dripped past the header deadline": _framed(VALID_STEP[:9], len(VALID_STEP)),
 }
-CELLS = ("5", "6", "48", "49", "51", "52", "54", "D1", "D2", "D4", "D5", "D6")
+CELLS = ("5", "6", "48", "49", "51", "52", "54", "A8", "D1", "D2", "D4", "D5", "D6")
 
 
 def refuse(claim: str) -> NoReturn:
@@ -456,6 +456,24 @@ def prove_socket_identity(report: Report, name: str) -> None:
     report.cell(name, f"directory {directory}; socket {socket_file}")
 
 
+def prove_wire_user(report: Report) -> None:
+    """A8: the wire user is 10002:10002 with no groups and no capabilities."""
+    done = subprocess.run(
+        ("docker", "exec", "--user", "10002:10002", worker(), "sh", "-c",
+         "echo $(id -u):$(id -g):$(id -G); grep -E '^Cap(Eff|Prm)' /proc/self/status"),
+        check=False, capture_output=True, text=True,
+    )  # fmt: skip
+    identity, *capabilities = done.stdout.splitlines()
+    if (
+        done.returncode
+        or identity != "10002:10002:10002"
+        or not capabilities
+        or any(line.split()[1].strip("0") for line in capabilities)
+    ):
+        refuse(f"wire user: {done.returncode} {done.stdout}{done.stderr}")
+    report.cell("A8", "exec as 10002:10002: no other group, no capabilities")
+
+
 def start_holder() -> None:
     """Hold the socket volume in a runtime-user container, as the web will."""
     volume = f"{os.environ['COMPOSE_PROJECT_NAME']}_build-socket"
@@ -551,20 +569,22 @@ def prove_builds(report: Report) -> None:
             ("pdftotext", str(output / "export-render" / "deck.pdf"), "-"),
             check=True, capture_output=True, text=True,
         ).stdout  # fmt: skip
-        label = "Probe node alpha" in words
+    if "Probe node alpha" not in words:
+        refuse("the exported render PDF carries no mermaid node label")
     report.cell("54", "hello-deck built and exported through the real worker")
-    report.cell(
-        "D4", f"KaTeX markup in the talk; mermaid label in the PDF text: {label}"
-    )
+    report.cell("D4", "KaTeX markup in the talk; mermaid label in the PDF text")
 
 
 def prove_fast_lives(report: Report) -> None:
     """Cell 48: a fast life leaves a stale socket that the next life replaces."""
     delays: list[str] = []
     for _ in range(FAST_LIVES):
+        _, restarts_before = state()
         probe_client("bad-upload")
         delays.append(f"{timed(lambda: probe_client('hello')):.2f}")
-    prove_socket_identity(report, "48")
+        if int(state()[1]) != int(restarts_before) + 1:
+            refuse("a fast life did not end in exactly one restart")
+        prove_socket_identity(report, "48")
     say(f"cell 48: restart delays in seconds {delays}")
 
 
@@ -609,6 +629,7 @@ def drive() -> None:
         say(f"first STATUS {probe_client('hello')}")
         prove_socket_identity(report, "5")
         prove_inspect_sealing(report)
+        prove_wire_user(report)
         prove_unsealed_refusal_and_sealed_check(report)
         prove_refused_at_accept(report)
         prove_header_classes(report)
