@@ -2,7 +2,7 @@
 
 import logging
 import traceback
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import cast
 
 
@@ -15,7 +15,9 @@ def everything_shown(
     A record shows its message, `args`, `exc_info`, `exc_text` and `stack_info`;
     an error shows its text, `args`, formatted traceback, `__cause__`,
     `__context__` and group members. Containers are walked iteratively and each
-    object once, so a cyclic chain ends.
+    object once, so a cyclic chain ends. A container is never formatted whole,
+    because that recurses through its children; only its leaves are. Where an
+    object's own text cannot be formed at a depth, its parts still are walked.
     """
     pending: list[object] = [*records, *errors]
     visited: set[int] = set()
@@ -25,15 +27,27 @@ def everything_shown(
         if id(current) in visited:
             continue
         visited.add(id(current))
-        leaves.extend((str(current), repr(current)))
         pending.extend(_parts_of(current))
+        if not _is_container(current):
+            leaves.extend([*_shown(str, current), *_shown(repr, current)])
     return "\n".join(leaves)
+
+
+def _is_container(value: object) -> bool:
+    return isinstance(value, Mapping | tuple | list | set | frozenset)
+
+
+def _shown[Subject](render: Callable[[Subject], str], subject: Subject) -> list[str]:
+    try:
+        return [render(subject)]
+    except RecursionError:
+        return []
 
 
 def _parts_of(value: object) -> list[object]:
     if isinstance(value, logging.LogRecord):
         return [
-            value.getMessage(),
+            *_shown(logging.LogRecord.getMessage, value),
             value.args,
             value.exc_info,
             value.exc_text,
@@ -50,7 +64,7 @@ def _parts_of(value: object) -> list[object]:
 
 
 def _parts_of_error(error: BaseException) -> list[object]:
-    formatted = "".join(traceback.format_exception(error))
+    formatted = _shown(_formatted, error)
     members: tuple[object, ...] = (
         tuple(cast("BaseExceptionGroup[BaseException]", error).exceptions)
         if isinstance(error, BaseExceptionGroup)
@@ -60,6 +74,10 @@ def _parts_of_error(error: BaseException) -> list[object]:
         error.args,
         error.__cause__,
         error.__context__,
-        formatted,
+        *formatted,
         *members,
     ]
+
+
+def _formatted(error: BaseException) -> str:
+    return "".join(traceback.format_exception(error))

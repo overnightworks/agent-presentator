@@ -80,7 +80,7 @@ def test_a_failure_before_the_run_sends_no_run(
     message: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """cells 9-10 (#452): a token failure sends no run."""
+    """Cells 9-10 (#452): a token failure sends no run."""
     asker = an_asker(
         reply_with(*whole(event_frames(*GOOD_ANSWER))), person=person, workload=workload
     )
@@ -98,7 +98,7 @@ def test_a_failure_before_the_run_sends_no_run(
 def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
     which: str,
 ) -> None:
-    """cell 17 (#452, #360): cancellation passes through unchanged."""
+    """Cell 17 (#452, #360): cancellation passes through unchanged."""
     cancelled = asyncio.CancelledError()
     asker = an_asker(
         reply_with(*whole(event_frames(*GOOD_ANSWER))),
@@ -124,7 +124,8 @@ def test_a_token_callable_that_is_cancelled_propagates_the_cancellation(
 def test_a_token_callable_that_interrupts_leaves_answer_to_the_caller(
     which: str, when: str, error: BaseException
 ) -> None:
-    """cell 17 (#452, #360): process control passes through unchanged."""
+    """Cell 17 (#452, #360): process control passes through unchanged."""
+
     async def read() -> str:
         raise error
 
@@ -212,7 +213,7 @@ _LEAK_CASES = {
 def test_no_secret_and_no_question_leaks(
     case: str, transport: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """cells 15-18 (#452): no sink holds a secret or the question."""
+    """Cells 15-18 (#452): no sink holds a secret or the question."""
     leak = _LEAK_CASES[case]
     reply, person, workload, message = (
         leak.reply,
@@ -290,10 +291,75 @@ def _cyclic_error() -> RuntimeError:
     ],
 )
 def test_a_marker_held_anywhere_is_found(shown: str) -> None:
-    """defect #355 (#452): the leak walker finds a marker in every sink."""
+    """Defect #355 (#452): the leak walker finds a marker in every sink."""
     assert _WALK_MARKER in shown
 
 
 def test_a_record_and_an_error_without_the_marker_show_none() -> None:
-    """defect #355 (#452): the leak walker invents no marker."""
+    """Defect #355 (#452): the leak walker invents no marker."""
     assert _WALK_MARKER not in everything_shown([_a_record()], [RuntimeError("other")])
+
+
+def _nested(depth: int, shape: type) -> object:
+    held: object = _WALK_MARKER
+    for _ in range(depth):
+        held = {"k": held} if shape is dict else [held]
+    return held
+
+
+@pytest.mark.parametrize("shape", [list, dict], ids=["lists", "dicts"])
+@pytest.mark.parametrize("sink", ["record-args", "error-args"])
+def test_a_marker_under_a_container_nested_past_the_recursion_limit_is_found(
+    shape: type, sink: str
+) -> None:
+    """Defect #355 (#452): the walker formats no container, so depth cannot stop it."""
+    deep = _nested(50_000, shape)
+
+    shown = (
+        everything_shown([_a_record(args=(deep,))])
+        if sink == "record-args"
+        else everything_shown(errors=[RuntimeError(deep)])
+    )
+
+    assert _WALK_MARKER in shown
+
+
+def _raise_with_the_marker() -> None:
+    raise RuntimeError(PERSON)
+
+
+@pytest.mark.parametrize("which", ["person", "workload"])
+def test_a_token_source_cancelled_inside_its_error_handler_leaves_no_chain(
+    which: str,
+) -> None:
+    """Cell 17 (#452, #360): cancelled while suspended in a marker-holding handler."""
+
+    async def drive() -> BaseException:
+        suspended = asyncio.Event()
+
+        async def source() -> str:
+            try:
+                _raise_with_the_marker()
+            except RuntimeError:
+                suspended.set()
+                await asyncio.Event().wait()
+            raise AssertionError
+
+        wire = Wire(reply_with())
+        answerer = ServiceAnswerer(
+            origin=ORIGIN,
+            workload_token=source if which == "workload" else Token(WORKLOAD),
+            transport=wire.transport,
+        )
+        person = source if which == "person" else Token(PERSON)
+        task = asyncio.create_task(ask_once(answerer, person, message=QUESTION))
+        await suspended.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await task
+        return caught.value
+
+    error = asyncio.run(drive())
+
+    assert (error.__cause__, error.__context__) == (None, None)
+    assert PERSON not in everything_shown(errors=[error])
