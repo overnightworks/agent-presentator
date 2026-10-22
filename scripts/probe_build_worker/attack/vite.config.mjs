@@ -10,14 +10,15 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
-const TEMPORARY = path.join('/', 'tmp')
-const SHARED_MEMORY = path.join('/', 'dev', 'shm')
+// The life's shared 1777 tmpfs and shared memory, by design: the rendezvous of the two attackers.
+const TEMPORARY = '/tmp'
+const SHARED_MEMORY = '/dev/shm'
 const DECK = '/work/deck'
 const PYTHON = '/opt/venv/bin/python'
 const ATTACKS = `${DECK}/kernel_attacks.py`
 const SOCKET_DIRECTORY = '/run/presentator-build'
 const UNREACHABLE_ADDRESS = '192.0.2.1'
-const UNRESOLVABLE_NAME = 'attack.invalid'
+const RESOLVABLE_NAME = 'example.com'
 const WAIT_MILLISECONDS = 60_000
 const POLL_MILLISECONDS = 100
 const STATUS_FIELDS = new Set(['Uid', 'Gid', 'Groups', 'CapInh', 'CapPrm', 'CapEff', 'CapAmb', 'NoNewPrivs', 'Seccomp'])
@@ -124,7 +125,7 @@ function filesystemAttacks() {
   check('fs.write.deck', () => fs.writeFileSync(`${DECK}/attack-marker`, 'x'))
   check('fs.create.root', () => fs.writeFileSync('/attack-marker', 'x'))
   check('fs.create.frontend', () => fs.writeFileSync('/app/frontend/attack-marker', 'x'))
-  check('fs.write.package-json', () => fs.openSync('/app/frontend/package.json', 'w'))
+  check('fs.write.package-json', () => fs.closeSync(fs.openSync('/app/frontend/package.json', 'r+')))
   // The read-only mount answers EROFS whatever the mode says, so the mode is
   // read as well: neither this user nor this group nor anyone else may write it.
   const manifest = fs.statSync('/app/frontend/package.json')
@@ -136,12 +137,7 @@ async function networkAttacks() {
   await checkAsync('bind.socket-directory', () => bindOutcome(`${SOCKET_DIRECTORY}/attack.sock`))
   await checkAsync('connect.worker-socket', () => connectOutcome({ path: `${SOCKET_DIRECTORY}/worker.sock` }))
   await checkAsync('net.connect.ip', () => connectOutcome({ host: UNREACHABLE_ADDRESS, port: 53 }))
-  try {
-    await dns.lookup(UNRESOLVABLE_NAME)
-    record('check net.dns succeeded')
-  } catch {
-    record('check net.dns failed')
-  }
+  await checkAsync('net.dns', () => dns.lookup(RESOLVABLE_NAME))
 }
 
 async function attack() {

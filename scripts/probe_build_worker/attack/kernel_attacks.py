@@ -19,9 +19,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-# The life's shared 1777 tmpfs, by design; built from parts so no literal names it.
-RENDEZVOUS = Path("/") / "tmp"
-SHARED_MEMORY = Path("/") / "dev" / "shm"
+# The life's shared 1777 tmpfs and shared memory, by design: the attackers' rendezvous.
+RENDEZVOUS = Path("/tmp")  # noqa: S108
+SHARED_MEMORY = Path("/dev/shm")  # noqa: S108
 WORK_HOME = Path("/work/home")
 WAIT_SECONDS = 60
 POLL_SECONDS = 0.1
@@ -82,6 +82,17 @@ def report_status(who: str) -> None:
         name, _, values = line.partition(":")
         if name in STATUS_FIELDS:
             emit(f"status {who} {name} {values.strip()}")
+
+
+def report_confinement() -> None:
+    """Print the AppArmor profile and whether this process shares PID 1's cgroup."""
+    try:
+        profile = Path("/proc/self/attr/current").read_text().strip("\n\x00")
+    except OSError as refusal:
+        profile = f"unreadable-{errno.errorcode.get(refusal.errno or 0, 'unknown')}"
+    emit(f"profile {profile}")
+    same = Path("/proc/self/cgroup").read_text() == Path("/proc/1/cgroup").read_text()
+    emit(f"cgroup {'same-as-pid-1' if same else 'differs-from-pid-1'}")
 
 
 def published(name: str) -> str | None:
@@ -229,6 +240,7 @@ def deck_attacks(one: int, probe: int) -> None:
 def probe_attacks() -> None:
     """Everything the exec'd 10002 probe does, in the rendezvous order."""
     report_status("probe")
+    report_confinement()
     if (deck := wait_for("deck.pid")) is None:
         return
     step = int(deck)

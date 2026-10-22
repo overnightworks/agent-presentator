@@ -32,7 +32,8 @@ from probe_build_worker_harness import (
 
 ATTACK_SLUG = "attack"
 ATTACKS_FILE = "attacks.txt"
-TEMPORARY = PurePosixPath("/") / "tmp"
+# The life's shared 1777 tmpfs, by design: the attackers' rendezvous.
+TEMPORARY = PurePosixPath("/tmp")  # noqa: S108
 PYTHON = "/opt/venv/bin/python"
 BUILD_IDENTITY = "10001"
 WIRE_IDENTITY = "10002"
@@ -46,7 +47,9 @@ NO_CAPABILITIES = "0000000000000000"
 CAPABILITY_FIELDS = ("CapInh", "CapPrm", "CapEff", "CapAmb")
 LIFE_ENDED = "life ended:"
 SYSV_TABLES = ("shm", "msg", "sem")
-MARKER_ROOTS = (str(TEMPORARY), str(PurePosixPath("/") / "dev" / "shm"), "/work")
+MARKER_ROOTS = (str(TEMPORARY), "/dev/shm", "/work")  # noqa: S108
+CONFINEMENT_PROFILE = "docker-default (enforce)"
+SHARED_CGROUP = "same-as-pid-1"
 
 DECK_REFUSALS = {
     "36": {
@@ -69,7 +72,7 @@ DECK_REFUSALS = {
         "fs.write.package-json": "EROFS",
         "fs.package-json.denied-by-mode": "yes",
     },
-    "43": {"net.connect.ip": "ENETUNREACH", "net.dns": "failed"},
+    "43": {"net.connect.ip": "ENETUNREACH", "net.dns": "EAI_AGAIN"},
     "44": {"keyctl": "EPERM", "unshare.user": "EPERM"},
 }
 DECK_CREATIONS = {
@@ -111,6 +114,8 @@ class Observations:
     checks: dict[str, str] = field(default_factory=dict[str, str])
     markers: tuple[str, ...] = ()
     children: tuple[tuple[str, str], ...] = ()
+    profile: str | None = None
+    cgroup: str | None = None
     complete: bool = False
     not_driven: tuple[str, ...] = ()
 
@@ -122,6 +127,8 @@ def parse_observations(text: str) -> Observations:
     markers: list[str] = []
     children: list[tuple[str, str]] = []
     not_driven: list[str] = []
+    profile: str | None = None
+    cgroup: str | None = None
     complete = False
     for line in text.splitlines():
         kind, _, rest = line.partition(" ")
@@ -134,6 +141,10 @@ def parse_observations(text: str) -> Observations:
                 markers.append(path)
             case "child", [pid, uid]:
                 children.append((pid, uid))
+            case "profile", [_, *_]:
+                profile = rest
+            case "cgroup", [value]:
+                cgroup = value
             case "complete", []:
                 complete = True
             case "not-driven", _:
@@ -141,7 +152,14 @@ def parse_observations(text: str) -> Observations:
             case _:
                 refuse(f"an unknown line from an attacker: {line}")
     return Observations(
-        statuses, checks, tuple(markers), tuple(children), complete, tuple(not_driven)
+        statuses,
+        checks,
+        tuple(markers),
+        tuple(children),
+        profile,
+        cgroup,
+        complete,
+        tuple(not_driven),
     )
 
 
@@ -170,6 +188,28 @@ def require_identity(
     wrong = identity_mismatches(fields, uid, groups)
     if wrong:
         refuse(f"{who} is not {uid}:{uid} bare: {wrong} in {fields}")
+
+
+def require_confinement(observed: Observations, who: str) -> None:
+    """Fail unless the attacker runs under the container's profile and cgroup."""
+    if observed.profile != CONFINEMENT_PROFILE:
+        refuse(f"{who} runs under {observed.profile!r}, not {CONFINEMENT_PROFILE!r}")
+    if observed.cgroup != SHARED_CGROUP:
+        refuse(f"{who} cgroup is {observed.cgroup!r}, not PID 1's")
+
+
+def require_markers(observed: Observations, who: str) -> None:
+    """Fail unless this attacker's own writes into every marker root succeeded."""
+    failed = {
+        key: value
+        for key, value in observed.checks.items()
+        if key.startswith("marker.")
+    }
+    if failed:
+        refuse(f"{who} could not write its markers: {failed}")
+    for root in MARKER_ROOTS:
+        if not any(marker.startswith(root) for marker in observed.markers):
+            refuse(f"{who} wrote no marker under {root}: {observed.markers}")
 
 
 def require_checks(observed: Observations, expected: dict[str, str], who: str) -> None:
@@ -222,17 +262,26 @@ def wait_for_deck(step: "subprocess.Popen[str]") -> None:
 def run_probe() -> str:
     """Run the 10002 probe with its program on stdin and return what it printed."""
     program = (PROBE_SOURCES / "attack" / "kernel_attacks.py").read_text()
-    done = subprocess.run(
-        exec_in_worker(PYTHON, "-I", "-", "probe", user=WIRE_USER),
-        input=program, capture_output=True, text=True, check=False,
-        timeout=PROBE_SECONDS,
-    )  # fmt: skip
+    try:
+        done = subprocess.run(
+            exec_in_worker(PYTHON, "-I", "-", "probe", user=WIRE_USER),
+            input=program, capture_output=True, text=True, check=False,
+            timeout=PROBE_SECONDS,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired:
+        refuse(f"the 10002 probe not driven: no end within {PROBE_SECONDS} seconds")
+    if done.returncode:
+        refuse(f"the 10002 probe crashed: {done.stdout}{done.stderr}")
     return done.stdout
 
 
 def finish_step(step: "subprocess.Popen[str]") -> None:
     """The held step answered OUTCOME built and END, having stayed silent."""
-    stdout, stderr = step.communicate(timeout=STEP_SECONDS)
+    try:
+        stdout, stderr = step.communicate(timeout=STEP_SECONDS)
+    except subprocess.TimeoutExpired:
+        step.kill()
+        refuse(f"the attacked step not driven: no end within {STEP_SECONDS} seconds")
     if step.returncode or f"build of {ATTACK_SLUG} built and received" not in stdout:
         refuse(f"the attacked step: {step.returncode} {stdout}{stderr}")
 
@@ -289,9 +338,9 @@ def prove_nothing_reaches_the_next_life(
     expected = (BUILD_IDENTITY, WIRE_IDENTITY)
     if [uid for _, uid in (*deck.children, *probe.children)] != list(expected):
         refuse(f"double-forked children: {deck.children} {probe.children}")
+    require_markers(deck, "deck")
+    require_markers(probe, "probe")
     markers = (*deck.markers, *probe.markers)
-    if not all(any(m.startswith(root) for m in markers) for root in MARKER_ROOTS):
-        refuse(f"markers do not cover {MARKER_ROOTS}: {markers}")
     left = left_in_next_life(markers)
     if left.owners & set(expected):
         refuse(f"the next life carries processes of {sorted(left.owners)}")
@@ -315,6 +364,7 @@ def prove_attacked_life(report: Report) -> None:
     deck = read_attack_talk()
     # `docker exec --user 10002:10002` lists the primary group, no other.
     require_identity(probe, "probe", WIRE_IDENTITY, (WIRE_IDENTITY,))
+    require_confinement(probe, "probe")
     if not probe.complete:
         refuse(f"the probe did not complete: {probe}")
     for who in ("node", "python"):
@@ -325,7 +375,9 @@ def prove_attacked_life(report: Report) -> None:
     for cell, expected in PROBE_REFUSALS.items():
         require_checks(probe, expected, f"probe cell {cell}")
     prove_same_life_answered(restarts_before, endings_before)
-    for cell in (*DECK_REFUSALS, *PROBE_REFUSALS):
-        report.cell(cell, "refused as the row says; the controller still answers")
+    for cell, recorded in {**DECK_REFUSALS, **PROBE_REFUSALS}.items():
+        report.cell(
+            cell, ", ".join(f"{key} {errno}" for key, errno in recorded.items())
+        )
     prove_nothing_reaches_the_next_life(report, deck, probe)
     say("attacked life judged")
