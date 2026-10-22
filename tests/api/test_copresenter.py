@@ -27,6 +27,7 @@ from presentator.contracts.copresenter import (
     AnswerEvent,
     AnswerText,
     AnswerUnavailable,
+    AskedDeck,
     Audio,
     CoPresenterReadiness,
     CoPresenterUnavailableError,
@@ -35,18 +36,27 @@ from presentator.contracts.copresenter import (
     Question,
     Sentence,
 )
+from presentator.contracts.decks import Source
 from presentator.contracts.models import Role, User
 from tests.api.lobby import (
     A_BROWSERS_HEADERS,
     A_TALK_ADDRESS,
     A_TALK_SOCKET_ADDRESS,
+    ADMIN,
     NOW,
+    SOURCE_ID,
     Lobby,
     a_browser_at,
     a_crowd,
     a_talk_app,
 )
-from tests.application.fakes import FakeUserStore, FrozenClock
+from tests.api.test_deck_page import a_build, a_deck_store
+from tests.application.fakes import (
+    FakeDeckStore,
+    FakeSourceStore,
+    FakeUserStore,
+    FrozenClock,
+)
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -54,15 +64,28 @@ if TYPE_CHECKING:
         AsyncIterator,
         Awaitable,
         Callable,
+        Mapping,
     )
 
+    from httpx2 import Response
     from starlette.requests import HTTPConnection
     from starlette.types import Message, Scope
 
     from presentator.ports.copresenter import PrivateHearing
 
 TALK_ORIGIN = A_TALK_ADDRESS
-QUESTION = {"said": "Was ist wichtig?", "slide": 2, "language": "de"}
+A_DECK = "kundenfeedback"
+QUESTION = {"said": "Was ist wichtig?", "slide": 2, "language": "de", "deck": A_DECK}
+A_SOURCE = Source(id=SOURCE_ID, name="s", url="u", ref="main", owner_id=ADMIN)
+
+
+def the_admins_decks() -> FakeDeckStore:
+    return a_deck_store(slug=A_DECK, built=a_build())
+
+
+ASKED = AskedDeck(deck=the_admins_decks().kept[A_DECK], source=A_SOURCE)
+
+
 HEARING = f"{A_TALK_SOCKET_ADDRESS}/copresenter/hear?language=de"
 POLICY_VIOLATION = 1008
 UNSUPPORTED_DATA = 1003
@@ -190,18 +213,24 @@ class RecordingPrivateCoPresenter:
         return operation()
 
 
+def a_use(private: RecordingPrivateCoPresenter, decks: FakeDeckStore) -> CoPresenterUse:
+    sources = FakeSourceStore(sources=[A_SOURCE])
+    return CoPresenterUse(answers=private, speech=private, decks=decks, sources=sources)
+
+
 def a_copresenter_lobby(
     *,
     users: FakeUserStore | None = None,
     delay: Callable[[float], Awaitable[None]] = asyncio.sleep,
     limiter: AskLimiter | None = None,
+    decks: FakeDeckStore | None = None,
 ) -> tuple[Lobby, RecordingPrivateCoPresenter, FrozenClock]:
     private = RecordingPrivateCoPresenter()
     people = a_crowd(users)
     app = a_talk_app(
         people=people,
         copresenter=CoPresenterSurface(
-            use=CoPresenterUse(answers=private, speech=private),
+            use=a_use(private, decks or the_admins_decks()),
             limiter=limiter or AskLimiter(clock=FrozenClock(instant=NOW)),
             browser_origin=TALK_ORIGIN,
             delay=delay,
@@ -214,6 +243,14 @@ def a_copresenter_lobby(
         headers=A_BROWSERS_HEADERS,
     )
     return browser, private, people.clock
+
+
+def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
+    return client.post(
+        "/copresenter/ask",
+        json=body,
+        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
+    )
 
 
 def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> None:
@@ -255,7 +292,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
     add_copresenter_routes(
         app,
         surface=CoPresenterSurface(
-            use=CoPresenterUse(answers=private, speech=private),
+            use=a_use(private, FakeDeckStore()),
             limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
             browser_origin=TALK_ORIGIN,
         ),
@@ -292,11 +329,7 @@ def test_a_signed_in_non_admin_is_refused_every_copresenter_route() -> None:
     lobby.sign_in(role=Role.USER)
 
     who = client.get("/copresenter/who")
-    answer = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    answer = ask(client)
     with (
         pytest.raises(WebSocketDisconnect) as refused,
         client.websocket_connect(HEARING, headers={"origin": TALK_ORIGIN}),
@@ -322,8 +355,7 @@ def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
         headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
-        (admin,) = users.users.values()
-        users.users[admin.id] = replace(admin, role=Role.USER)
+        _demote(users)
         deadline.release_first()
         socket.send_text("force an observable close if the hearing stood")
         with pytest.raises(WebSocketDisconnect) as ended:
@@ -381,11 +413,7 @@ def test_an_answer_in_flight_stops_when_its_session_loses_the_admin_role() -> No
     lobby.sign_in(role=Role.ADMIN)
     client = lobby.client
 
-    response = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    response = ask(client)
 
     assert response.status_code == HTTPStatus.OK
     assert response.text.count("event: text") < event_count
@@ -398,13 +426,11 @@ def test_a_refused_non_admin_question_keeps_the_sessions_ask_capacity() -> None:
     limiter = AskLimiter(clock=FrozenClock(instant=NOW), limits=AskLimits(per_window=1))
     lobby, private, _clock = a_copresenter_lobby(users=users, limiter=limiter)
     lobby.sign_in(role=Role.USER)
-    client = lobby.client
-    headers = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
 
-    refused = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+    refused = ask(lobby.client)
     (person,) = users.users.values()
     users.users[person.id] = replace(person, role=Role.ADMIN)
-    answered = client.post("/copresenter/ask", json=QUESTION, headers=headers)
+    answered = ask(lobby.client)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert answered.status_code == HTTPStatus.OK
@@ -417,11 +443,7 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
     lobby.sign_in()
 
     refused = client.post("/copresenter/ask", json=QUESTION)
-    response = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    response = ask(client)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert response.status_code == HTTPStatus.OK
@@ -429,7 +451,7 @@ def test_ask_requires_the_session_csrf_token_and_streams_only_public_events() ->
     assert "event: audio" in response.text
     assert "UklGRg==" in response.text
     assert private.questions == [
-        Question(said="Was ist wichtig?", slide=2, language="de")
+        Question(said="Was ist wichtig?", slide=2, language="de", deck=ASKED)
     ]
 
 
@@ -443,11 +465,7 @@ def test_private_answer_events_preserve_the_public_stream_contract() -> None:
     ]
     lobby.sign_in()
 
-    response = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    response = ask(client)
 
     assert response.text == (
         'event: text\ndata: {"text": "Der Anfang"}\n\n'
@@ -461,12 +479,11 @@ def test_private_answer_refusal_and_clean_end_do_not_invent_an_answer() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
     lobby.sign_in()
-    csrf = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
 
     private.answer_events = [AnswerUnavailable()]
-    refused = client.post("/copresenter/ask", json=QUESTION, headers=csrf)
+    refused = ask(client)
     private.answer_events = []
-    ended = client.post("/copresenter/ask", json=QUESTION, headers=csrf)
+    ended = ask(client)
 
     assert refused.text == (
         'event: error\ndata: {"message": "the answer could not be spoken"}\n\n'
@@ -734,11 +751,7 @@ def test_private_failures_expose_only_public_failure_shapes() -> None:
     who = client.get("/copresenter/who")
     private.readiness_unavailable = False
     private.answer_unavailable = True
-    answer = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    answer = ask(client)
     private.hearing_unavailable = True
     with client.websocket_connect(
         HEARING,
@@ -759,13 +772,8 @@ def test_local_allowlist_refuses_extra_fields_methods_and_paths() -> None:
     lobby, private, _clock = a_copresenter_lobby()
     client = lobby.client
     lobby.sign_in()
-    csrf = {"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]}
 
-    unknown_field = client.post(
-        "/copresenter/ask",
-        json={**QUESTION, "cookie": "must not travel"},
-        headers=csrf,
-    )
+    unknown_field = ask(client, {**QUESTION, "cookie": "must not travel"})
     wrong_method = client.put("/copresenter/who")
     unknown_path = client.get("/copresenter/private")
 
@@ -962,18 +970,14 @@ def test_session_store_loss_cancels_an_accepted_answer_at_its_deadline() -> None
     private.hold_answers = True
     lobby.sign_in()
 
-    response = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    response = ask(client)
 
     assert response.status_code == HTTPStatus.OK
     assert "event: text" in response.text
     assert "event: audio" not in response.text
     assert "event: done" not in response.text
     assert private.questions == [
-        Question(said="Was ist wichtig?", slide=2, language="de")
+        Question(said="Was ist wichtig?", slide=2, language="de", deck=ASKED)
     ]
     assert private.answer_exits == 1
     assert private.answer_reader_closed_before_context_exit
@@ -996,11 +1000,7 @@ def test_busy_answer_stops_at_its_persistent_authorization_deadline() -> None:
     private.answer_event_hook = end_session
     lobby.sign_in()
 
-    response = client.post(
-        "/copresenter/ask",
-        json=QUESTION,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
+    response = ask(client)
 
     assert response.status_code == HTTPStatus.OK
     assert response.text.count("event: text") < event_count

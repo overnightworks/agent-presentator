@@ -10,15 +10,18 @@ from threading import Lock
 
 from presentator.contracts.copresenter import (
     AnswerEvent,
+    AskedDeck,
     CoPresenterReadiness,
     Question,
 )
+from presentator.contracts.decks import is_a_plain_folder_name
 from presentator.ports.clock import Clock
 from presentator.ports.copresenter import (
     PrivateCoPresenter,
     PrivateHearing,
     SpeechHearing,
 )
+from presentator.ports.decks import DeckStore, SourceStore
 
 type CoPresenterHearing = PrivateHearing
 
@@ -29,6 +32,20 @@ class CoPresenterUse:
 
     answers: PrivateCoPresenter
     speech: SpeechHearing
+    decks: DeckStore
+    sources: SourceStore
+
+    def asked_deck(self, slug: str, *, viewer: str) -> AskedDeck | None:
+        """The viewer's own built deck and its source, or nothing for any other."""
+        if not is_a_plain_folder_name(slug):
+            return None
+        deck = self.decks.get(slug)
+        if deck is None or not deck.is_owned_by(viewer) or deck.build is None:
+            return None
+        source = next(
+            (item for item in self.sources.all() if item.id == deck.source_id), None
+        )
+        return None if source is None else AskedDeck(deck=deck, source=source)
 
     async def readiness(self) -> CoPresenterReadiness:
         """Return speech's narrow readiness report."""
