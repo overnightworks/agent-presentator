@@ -71,3 +71,26 @@ class HearingTranscript:
 
     text: str
     final: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SlideText:
+    """One slide's words as its deck carries them."""
+
+    number: int
+    title: str
+    body: str
+    notes: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeckText:
+    """The words of one deck at its built commit; no language means unnamed."""
+
+    title: str
+    language: str | None
+    slides: tuple[SlideText, ...]
+
+    def at(self, number: int) -> SlideText | None:
+        """The slide with this 1-based number, or nothing."""
+        return next((slide for slide in self.slides if slide.number == number), None)

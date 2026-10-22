@@ -11,9 +11,11 @@ if TYPE_CHECKING:
     from presentator.contracts.copresenter import (
         AnswerEvent,
         CoPresenterReadiness,
+        DeckText,
         HearingTranscript,
         Question,
     )
+    from presentator.contracts.decks import Deck, Source
 
 
 class PrivateHearing(Protocol):
@@ -49,4 +51,15 @@ class SpeechHearing(Protocol):
 
     def hear(self, language: str) -> AbstractAsyncContextManager[PrivateHearing]:
         """Open one hearing connection."""
+        ...
+
+
+class DeckTexts(Protocol):
+    """Reads the words of a deck's built commit."""
+
+    def text_of(self, deck: Deck, source: Source) -> DeckText | None:
+        """The deck's words, or nothing while it has no build or no slides.
+
+        Raises CoPresenterUnavailableError when its mirror cannot be read.
+        """
         ...
