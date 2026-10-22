@@ -44,3 +44,20 @@ def test_flush_empties_the_answer() -> None:
     answer.feed("Rest")
     answer.flush()
     assert answer.flush() == ()
+
+
+@pytest.mark.parametrize("line", ["- Punkt eins ohne Ende\n", "am 3. ", "wort "])
+def test_unterminated_stream_hands_the_boundaries_linear_text(line: str) -> None:
+    handed_over = 0
+
+    def counting_boundaries(text: str) -> tuple[str, ...]:
+        nonlocal handed_over
+        handed_over += len(text)
+        return split_after_terminators(text)
+
+    answer = SpokenAnswer(counting_boundaries)
+    text = (line * 1000)[:10_000]
+    for character in text:
+        answer.feed(character)
+
+    assert handed_over < 100 * len(text)
