@@ -778,20 +778,20 @@ _A_USER_PART_URL = "https://user:token@git.example.invalid/talks.git"
 
 
 @pytest.mark.parametrize(
-    ("checked", "url", "words"),
+    ("checked", "words"),
     [
-        (_A_REFUSED_CHECK, _HTTPS_URL, (ENGLISH.source_run_refused,)),
-        (_AN_UNREACHABLE_CHECK, _HTTPS_URL, (ENGLISH.source_run_unreachable,)),
-        (_A_FAILED_CHECK, _HTTPS_URL, (ENGLISH.source_run_failed, _FAILED_DETAIL)),
+        (_A_REFUSED_CHECK, (ENGLISH.source_run_refused,)),
+        (_AN_UNREACHABLE_CHECK, (ENGLISH.source_run_unreachable,)),
+        (_A_FAILED_CHECK, (ENGLISH.source_run_failed, _FAILED_DETAIL)),
     ],
 )
 def test_a_check_that_found_no_commit_reads_the_words_the_source_list_uses(
-    checked: ConnectionCheckResult, url: str, words: tuple[str, ...]
+    checked: ConnectionCheckResult, words: tuple[str, ...]
 ) -> None:
-    """#439 Q2: the probe-failure banners keep the source list's own words."""
+    """#97: a check the probe answered without a commit reads the source list's own words."""
     lobby = a_signed_in_lobby(GivenDecks(checked=checked))
 
-    shown = check_source(lobby, url=url)
+    shown = check_source(lobby)
 
     assert all(word in shown.text for word in words)
     assert not fingerprint_of(shown)

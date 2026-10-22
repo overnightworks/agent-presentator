@@ -678,7 +678,8 @@ def _check_banner(
     never folded into the sources list's own coarser `SourceState` — a wrong
     token and a dead host must read apart here, not both as one error. Their
     words are exactly `_run_reason`'s own, so a check and a recorded run read
-    alike; only `failed` carries git's own sanitised line beneath it.
+    alike; only `failed` carries git's own sanitised line beneath it. An address
+    the form refuses reads that refusal's own sentence, before any probe.
     """
     if isinstance(checked, SourceRefusal):
         return CheckBanner(
