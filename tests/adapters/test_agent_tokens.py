@@ -93,17 +93,14 @@ def _markers_seen(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [marker for marker in MARKERS if marker in shown]
 
 
-@pytest.fixture
-def the_call_phase_leak_is_seen(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
-    caplog.set_level(logging.DEBUG)
-    yield
-    assert _markers_seen(caplog) == [PERSON_ACCESS]
-
-
-@pytest.mark.usefixtures("the_call_phase_leak_is_seen")
-def test_a_marker_logged_during_the_test_is_seen_after_it() -> None:
+def test_a_marker_logged_during_the_test_is_seen_after_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Defect (#452 cell walk): the leak walk reads the call phase's records."""
+    caplog.set_level(logging.DEBUG)
     logging.getLogger(LOGGER).warning("token %s", PERSON_ACCESS)
+
+    assert _markers_seen(caplog) == [PERSON_ACCESS]
 
 
 def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -118,8 +115,9 @@ def _failure_of(work: Awaitable[object]) -> CoPresenterUnavailableError:
     async def drive() -> object:
         return await work
 
+    driven = drive()
     with pytest.raises(CoPresenterUnavailableError) as caught:
-        asyncio.run(drive())
+        asyncio.run(driven)
     error = caught.value
     assert (error.__cause__, error.__context__) == (None, None)
     assert not [m for m in MARKERS if m in everything_shown(errors=[error])]
