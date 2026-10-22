@@ -207,4 +207,4 @@ WorkerSettings.model_config
 Settings._two_hostnames  # noqa: SLF001 - pydantic, not Python code, is the caller  # pyright: ignore[reportPrivateUsage]
 
 # pytest applies this autouse fixture to every worker-settings test by itself.
-no_worker_variables
+no_worker_variables  # pyright: ignore[reportUnusedExpression]
