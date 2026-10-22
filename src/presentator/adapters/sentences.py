@@ -17,11 +17,16 @@ def split_sentences(text: str) -> tuple[str, ...]:
     sentence goes on after it instead of ending there.
     """
     merged: list[str] = []
+    searched_from = 0
+    merged_start = 0
     for sentence in _segmented(text):
+        start = text.index(sentence, searched_from)
+        searched_from = start + len(sentence)
         if merged and _ENDS_IN_ORDINAL.search(merged[-1]):
-            merged[-1] = f"{merged[-1]} {sentence}"
+            merged[-1] = text[merged_start:searched_from]
         else:
             merged.append(sentence)
+            merged_start = start
     return tuple(merged)
 
 

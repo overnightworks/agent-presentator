@@ -34,3 +34,11 @@ def test_streamed_abbreviation_is_not_released_as_a_sentence() -> None:
     answer = SpokenAnswer(split_sentences)
     assert answer.feed("Das ist Dr.") == ()
     assert answer.feed(" Müller. Er") == ("Das ist Dr. Müller.",)
+
+
+@pytest.mark.parametrize("gap", ["\n", "  ", "\n\n"])
+def test_streamed_ordinal_followed_by_any_whitespace_is_released_whole(
+    gap: str,
+) -> None:
+    answer = SpokenAnswer(split_sentences)
+    assert answer.feed(f"Am 3.{gap}Mai kommt er. Ja") == (f"Am 3.{gap}Mai kommt er.",)
