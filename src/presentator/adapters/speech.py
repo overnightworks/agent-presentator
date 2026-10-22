@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 _PRIVATE_ORIGIN: Final = "http://speech.localhost"
 _STATUS_TIMEOUT: Final = 5.0
 _BUSY_STATUS: Final = 409
+_SPEAK_READ_TIMEOUT: Final = 30.0
 
 
 class _VoicePayload(BaseModel):
@@ -104,6 +105,45 @@ class _SpeechHearing:
         await self._socket.close()
 
 
+def _uds_client(socket_path: Path, timeout: httpx2.Timeout) -> httpx2.AsyncClient:
+    return httpx2.AsyncClient(
+        base_url=_PRIVATE_ORIGIN,
+        transport=httpx2.AsyncHTTPTransport(uds=str(socket_path)),
+        timeout=timeout,
+        trust_env=False,
+    )
+
+
+class UdsSpeaking:
+    """Speak one sentence through speech's private socket."""
+
+    def __init__(
+        self, socket_path: Path, *, read_timeout: float = _SPEAK_READ_TIMEOUT
+    ) -> None:
+        """Keep the socket path and how long speech may stay silent mid-body."""
+        self._socket_path = socket_path
+        self._timeout = httpx2.Timeout(
+            connect=5.0, write=5.0, pool=5.0, read=read_timeout
+        )
+
+    async def speak(self, text: str, language: str) -> bytes:
+        """Read the whole WAV, or close the connection and raise."""
+        try:
+            async with (
+                _uds_client(self._socket_path, self._timeout) as client,
+                client.stream(
+                    "POST", "/speak", json={"text": text, "language": language}
+                ) as response,
+            ):
+                response.raise_for_status()
+                audio = b"".join([chunk async for chunk in response.aiter_bytes()])
+        except httpx2.HTTPError as refused:
+            raise CoPresenterUnavailableError from refused
+        if not audio:
+            raise CoPresenterUnavailableError
+        return audio
+
+
 class UdsSpeechHearing:
     """Read speech's readiness and hear through its private socket."""
 
@@ -112,12 +152,7 @@ class UdsSpeechHearing:
         self._socket_path = socket_path
 
     def _client(self) -> httpx2.AsyncClient:
-        return httpx2.AsyncClient(
-            base_url=_PRIVATE_ORIGIN,
-            transport=httpx2.AsyncHTTPTransport(uds=str(self._socket_path)),
-            timeout=httpx2.Timeout(_STATUS_TIMEOUT),
-            trust_env=False,
-        )
+        return _uds_client(self._socket_path, httpx2.Timeout(_STATUS_TIMEOUT))
 
     async def readiness(self) -> CoPresenterReadiness:
         """Validate the two health fields the browser consumes."""
