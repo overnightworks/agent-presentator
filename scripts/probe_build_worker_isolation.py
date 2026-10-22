@@ -75,8 +75,10 @@ DECK_REFUSALS = {
     "44": {"keyctl": "EPERM", "unshare.user": "EPERM"},
 }
 # The read-only root answers EROFS before the mode is looked at, so the second
-# layer (root-owned, not writable by 10001) is observed, not counted as a refusal.
-DECK_OBSERVATIONS = {"observe.package-json": "owner=0 mode=0644"}
+# layer (owned by the image's runtime user, not by 10001, not writable by others)
+# is observed, not counted as a refusal.
+MANIFEST_OBSERVATION = "observe.package-json"
+MANIFEST_MODE = "mode=0644"
 DECK_CREATIONS = {
     "ipc.shmget": "succeeded",
     "ipc.msgget": "succeeded",
@@ -226,6 +228,13 @@ def require_checks(observed: Observations, expected: dict[str, str], who: str) -
         refuse(f"{who} recorded {wrong}, expected {expected}")
 
 
+def require_manifest_not_the_decks(deck: Observations) -> None:
+    """Fail unless the manifest the EROFS cell wrote at is not the deck's own."""
+    owner, _, mode = deck.checks.get(MANIFEST_OBSERVATION, "").partition(" ")
+    if owner in ("", f"owner={BUILD_IDENTITY}") or mode != MANIFEST_MODE:
+        refuse(f"the manifest is {owner} {mode}, not another's with {MANIFEST_MODE}")
+
+
 def life_endings() -> int:
     """How many lives the worker's log says ended badly."""
     return compose("logs", "--no-color", SERVICE).count(LIFE_ENDED)
@@ -372,7 +381,7 @@ def prove_attacked_life(report: Report) -> None:
     for who in ("node", "python"):
         require_identity(deck, who, BUILD_IDENTITY)
     require_checks(deck, DECK_CREATIONS, "deck")
-    require_checks(deck, DECK_OBSERVATIONS, "deck observations")
+    require_manifest_not_the_decks(deck)
     for cell, expected in DECK_REFUSALS.items():
         require_checks(deck, expected, f"deck cell {cell}")
     for cell, expected in PROBE_REFUSALS.items():
@@ -382,7 +391,6 @@ def prove_attacked_life(report: Report) -> None:
         report.cell(
             cell, ", ".join(f"{key} {errno}" for key, errno in recorded.items())
         )
-    for name in DECK_OBSERVATIONS:
-        say(f"{name} {deck.checks[name]}")
+    say(f"{MANIFEST_OBSERVATION} {deck.checks[MANIFEST_OBSERVATION]}")
     prove_nothing_reaches_the_next_life(report, deck, probe)
     say("attacked life judged")
