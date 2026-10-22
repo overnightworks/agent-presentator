@@ -105,6 +105,9 @@ to register, and neither updates the Git host nor keeps an old-key overlap;
 HTTPS renewal takes a new value and shows nothing back; webhook renewal shows
 its new value exactly once to the session that created or renewed it.
 
+On the Sources list, each row's *Fetch now* refreshes only that source and
+returns to the list; on the source's page it returns to that page.
+
 Remove, at the bottom, asks once for a confirm naming the source's decks and
 runs, then deletes the source row, its runs, its decks, its mirror, and every
 built talk those decks left on disk, so the same URL can be added again

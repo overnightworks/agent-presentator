@@ -36,6 +36,7 @@ One task each, in [`runbooks/`](runbooks/).
 - Sign-in: [configure Keycloak](runbooks/configure-keycloak.md).
 - Sources: [add a Git source](runbooks/add-a-source.md),
   [renew a secret](runbooks/renew-a-source-secret.md),
+  [renew a webhook secret](runbooks/renew-a-webhook-secret.md),
   [add a folder on this box](runbooks/add-a-folder-on-this-box.md),
   [call the fetch-now hook](runbooks/call-the-fetch-now-hook.md).
 - Decks: [prepare a talk for the build](runbooks/prepare-a-deck-for-the-build.md).

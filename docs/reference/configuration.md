@@ -65,7 +65,7 @@ fixes). The guard against another site's form does not depend on this list
 
 ## In the container image
 
-The first five rows are a fact of the image's filesystem and network, so the
+The first six rows are a fact of the image's filesystem and network, so the
 image sets them and the defaults above do not apply; compose sets the rest.
 
 | Setting | In this image |

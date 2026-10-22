@@ -12,7 +12,7 @@ in with; the secret guards it instead
 
 The source's webhook secret. It is generated, shown exactly once to the session
 that created the source, stored only as a SHA-256 hash, and never shown again
-until [Renew](renew-a-source-secret.md) mints another.
+until [Renew](renew-a-webhook-secret.md) mints another.
 
 ## Steps
 

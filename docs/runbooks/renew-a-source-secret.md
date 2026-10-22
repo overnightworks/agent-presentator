@@ -1,8 +1,9 @@
 # Runbook: renew a source's secret
 
-Reader: an admin of the instance. Use it when a token, deploy key or webhook
-secret is leaked, expired, or unreadable (for example after a restore without
-`PRESENTATOR_SECRET_KEY`).
+Reader: an admin of the instance. Use it when a Git access token or deploy key
+is leaked, expired, or unreadable (for example after a restore without
+`PRESENTATOR_SECRET_KEY`). The webhook secret has its own
+[runbook](renew-a-webhook-secret.md).
 
 ## Before you start
 
@@ -17,9 +18,6 @@ stay listed.
   pair and shows the replacement public key. Register it at the Git host
   before the next fetch; renewal neither contacts that host nor keeps an
   old-key overlap.
-- Webhook secret: choose its own Renew. The new value is shown exactly once, to
-  the session that renewed it; update the caller of the
-  [fetch-now hook](call-the-fetch-now-hook.md).
 
 ## Check
 
