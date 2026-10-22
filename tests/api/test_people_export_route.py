@@ -190,12 +190,30 @@ def test_every_kind_of_row_is_exported_and_each_secret_kind_counted_withheld() -
         runs = cast("list[dict[str, object]]", source["runs"])
         assert [deck["slug"] for deck in decks] == [f"{source['name']}-deck"]
         assert [run["outcome"] for run in runs] == ["success"]
+        assert [run["at"] for run in runs] == ["2026-01-15T09:00:00Z"]
     assert document["withheld"] == [
         {"kind": "source-credential", "reason": "secret", "count": 2},
         {"kind": "hook-secret-hash", "reason": "secret", "count": 2},
         {"kind": "key-draft-private-key", "reason": "secret", "count": 1},
         {"kind": "refresh-token", "reason": "secret", "count": 1},
     ]
+
+
+def _every_object_has_sorted_keys(value: object) -> bool:
+    if isinstance(value, dict):
+        return list(value) == sorted(value) and all(
+            _every_object_has_sorted_keys(inner) for inner in value.values()
+        )
+    if isinstance(value, list):
+        return all(_every_object_has_sorted_keys(inner) for inner in value)
+    return True
+
+
+def test_data_keys_are_sorted_at_every_depth() -> None:
+    """D14: `data` is the records as JSON with keys sorted."""
+    document = _document(a_scene().export(THE_PERSON.id))
+
+    assert _every_object_has_sorted_keys(document["data"])
 
 
 def test_no_secret_is_in_any_decompressed_member_or_member_name() -> None:
