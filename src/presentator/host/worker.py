@@ -18,11 +18,15 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from presentator.adapters.build_wire import TOOLCHAIN_SCRATCH_NAME
 from presentator.adapters.worker_children import (
     ChildIdentity,
     readable_within,
     spawn_gated,
+)
+from presentator.contracts.decks import (
+    DECK_DIRECTORY,
+    OUTPUT_DIRECTORY,
+    TOOLCHAIN_SCRATCH_DIRECTORY,
 )
 from presentator.host.config import (
     ConfigurationError,
@@ -42,11 +46,7 @@ from presentator.host.worker_termination import (
     reap_children,
     sweep,
 )
-from presentator.host.worker_wire import (
-    DECK_DIRECTORY,
-    OUTPUT_DIRECTORY,
-    STEP_ERROR_FILE,
-)
+from presentator.host.worker_wire import STEP_ERROR_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -676,7 +676,7 @@ def prepare_step_paths(work: Path) -> int:
     would narrow it.
     """
     for directory in (
-        work / DECK_DIRECTORY / TOOLCHAIN_SCRATCH_NAME.decode(),
+        work / DECK_DIRECTORY / TOOLCHAIN_SCRATCH_DIRECTORY,
         work / HOME_DIRECTORY,
         work / OUTPUT_DIRECTORY,
         work / VITE_DIRECTORY,

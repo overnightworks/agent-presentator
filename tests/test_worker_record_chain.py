@@ -17,7 +17,6 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from presentator.adapters.worker_children import (
-    ChildIdentity,
     ChildSurroundings,
     GatedChild,
     readable_within,
@@ -32,6 +31,7 @@ from presentator.host.worker_serving import (
     hand_over,
 )
 from presentator.host.worker_wire import WireExit
+from tests.step_support import OWN_IDENTITY
 from tests.worker_support import (
     END,
     STATUS,
@@ -47,7 +47,6 @@ from tests.worker_support import (
     role_of,
 )
 
-OWN_IDENTITY = ChildIdentity(os.getuid(), os.getgid(), extra_groups=None)
 WAIT_SECONDS = 20
 PATH = "/usr/bin:/bin"
 FORGER = """

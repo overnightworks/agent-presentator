@@ -1,7 +1,6 @@
 """The step phase on a scripted life: its gate, its deadlines and its cancellation."""
 
 import socket
-import subprocess
 import sys
 from contextlib import closing
 from dataclasses import replace
@@ -175,7 +174,7 @@ def test_the_step_is_spawned_as_the_launcher_with_the_record_and_its_own_streams
     assert tuple(spawned.pass_fds) == (record,)
     assert spawned.environment == STEP_ENVIRONMENT
     assert spawned.surroundings.cwd == STEP_PROJECT
-    assert spawned.surroundings.stdout == subprocess.DEVNULL
+    assert spawned.surroundings.discard_stdout is True
     assert spawned.surroundings.stderr == stderr
     assert open_descriptor_count() == descriptors_before
 

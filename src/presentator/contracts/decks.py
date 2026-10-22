@@ -13,12 +13,24 @@ from urllib.parse import unquote, urlparse
 
 MANIFEST_FILE: Final = "deck.toml"
 SLIDES_FILE: Final = "slides.md"
+# The names one run of the build owns: the deck's own tree as the toolchain
+# reads it, everything that run writes, and the talk and the PDF inside that.
+DECK_DIRECTORY: Final = "deck"
+OUTPUT_DIRECTORY: Final = "out"
+TALK_DIRECTORY: Final = "talk"
+PDF_FILE: Final = "deck.pdf"
+# The directory the toolchain writes into the deck it reads.
+TOOLCHAIN_SCRATCH_DIRECTORY: Final = "node_modules"
 DECK_PATH: Final = "/deck"
 _FILE_SCHEME: Final = "file"
 # What a failed build may say on a page: the end of what its toolchain printed,
 # where the reason stands. A deck's own build can print without limit, and a
 # page is read by a person shortly before they speak.
 FAILURE_TEXT_LIMIT: Final = 2000
+# A page shows the end of what a step printed, so only that much of it is ever
+# held: four bytes is the longest one character can be, so decoding and
+# stripping still leave the full limit.
+FAILURE_TAIL_BYTES: Final = 4 * FAILURE_TEXT_LIMIT
 # A folder's name is one path element: it stays one word of a header value and
 # never reaches past the directory it is joined under.
 _NAMES_NO_FOLDER: Final = frozenset({"", ".", ".."})
@@ -35,6 +47,11 @@ class StepKind(StrEnum):
 def bounded_failure(said: str) -> str:
     """The last of what a build said, short enough for a page to carry."""
     return said[-FAILURE_TEXT_LIMIT:]
+
+
+def failure_text(said: bytes) -> str:
+    """What a step printed, decoded and bounded for a page."""
+    return bounded_failure(said.decode(errors="replace").strip())
 
 
 def is_a_plain_folder_name(candidate: str) -> bool:

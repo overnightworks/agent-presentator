@@ -12,14 +12,14 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from presentator.adapters.worker_children import DISCARDED_OUTPUT, ChildSurroundings
+from presentator.adapters.worker_children import ChildSurroundings
+from presentator.contracts.decks import DECK_DIRECTORY
 from presentator.host.worker_termination import (
     SWEEP_SECONDS,
     WATCHDOG_SECONDS,
     Watchdog,
 )
 from presentator.host.worker_wire import (
-    DECK_DIRECTORY,
     KEPT_LIFE_EXITS,
     WireExit,
     WireRole,
@@ -448,7 +448,7 @@ def _spawn_step(serving: Serving, record: int) -> WireChild:
             environment=serving.step.environment,
             pass_fds=(record,),
             surroundings=ChildSurroundings(
-                cwd=serving.step.project, stdout=DISCARDED_OUTPUT, stderr=stderr
+                cwd=serving.step.project, discard_stdout=True, stderr=stderr
             ),
         )
     finally:

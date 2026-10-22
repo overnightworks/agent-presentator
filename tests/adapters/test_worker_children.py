@@ -35,7 +35,7 @@ from presentator.host.worker_serving import (
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
 from tests import worker_support as support
-from tests.step_support import quick_step
+from tests.step_support import OWN_IDENTITY, quick_step
 from tests.worker_support import (
     accept_time,
     open_descriptor_count,
@@ -46,7 +46,6 @@ from tests.worker_support import (
 
 OWN_UID = os.getuid()
 OWN_GID = os.getgid()
-OWN_IDENTITY = ChildIdentity(OWN_UID, OWN_GID, extra_groups=None)
 REAL_SPAWN = partial(spawn_gated, identity=OWN_IDENTITY)
 WAIT_SECONDS = 10
 WATCHDOG_WINDOW = (6.0, 8.0)
