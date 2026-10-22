@@ -1,0 +1,142 @@
+# Measured by `quality baseline write`. Entries only ever go down.
+
+[ccn."copresenter/scripts/prove_loop.py"]
+"_ok_standin" = 20
+
+[ccn."speech/scripts/prove.py"]
+"_speak_measured" = 16
+
+[ccn."speech/src/presentator_speech/service.py"]
+"Runtime._activate_voice" = 18
+
+[ccn."tests/api/lobby.py"]
+"a_lobby_app" = 17
+
+[file_lines]
+"copresenter/scripts/prove_loop.py" = 849
+"speech/tests/test_provider_process.py" = 872
+"speech/tests/test_voice_status.py" = 1513
+"src/presentator/adapters/builds.py" = 1172
+"src/presentator/adapters/decks.py" = 1019
+"src/presentator/application/decks.py" = 984
+"tests/adapters/test_builds.py" = 1825
+"tests/adapters/test_decks.py" = 1533
+"tests/api/test_copresenter.py" = 1073
+"tests/api/test_sources.py" = 1719
+"tests/application/test_decks.py" = 2071
+"tests/gitmirror/test_mirror.py" = 1441
+"tests/test_host.py" = 832
+
+[function_lines."copresenter/scripts/prove_loop.py"]
+"_drive_late_microphone_after_lease_loss" = 75
+
+[function_lines."copresenter/src/copresenter/app.py"]
+"create_app" = 62
+
+[function_lines."speech/providers/chatterbox/src/presentator_chatterbox/model.py"]
+"speech_token_chunks" = 84
+
+[function_lines."speech/providers/magpie/tests/test_entrypoint.py"]
+"test_entrypoint_reserves_stdout_before_importing_the_provider" = 88
+
+[function_lines."speech/providers/voxcpm/tests/test_entrypoint.py"]
+"test_entrypoint_reserves_stdout_before_importing_the_provider" = 89
+
+[function_lines."speech/scripts/contract_client.py"]
+"_run" = 75
+
+[function_lines."speech/scripts/prove.py"]
+"main" = 76
+
+[function_lines."speech/src/presentator_speech/speaking.py"]
+"speaking_for_voice" = 77
+
+[function_lines."speech/tests/test_main.py"]
+"test_orchestrator_serves_health_from_its_loading_runtime" = 62
+"test_owned_speaking_failure_stops_both_servers_and_returns_failure" = 61
+"test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks" = 100
+
+[function_lines."speech/tests/test_provider_process.py"]
+"test_direct_closed_entrypoint_streams_after_transient_loader_exits" = 80
+
+[function_lines."speech/tests/test_sample.py"]
+"test_sample_keeps_its_engine_and_rate_when_the_selection_changes" = 73
+"test_sample_waits_for_an_actual_public_speak_stream_then_succeeds" = 68
+
+[function_lines."speech/tests/test_voice_status.py"]
+"test_magpie_load_restore_samples_public_speech_and_deselect_reap" = 70
+"test_voxcpm_catalogue_and_factory_import_no_provider_packages" = 66
+"test_voxcpm_load_restore_samples_and_public_disconnect_cancel_the_child" = 67
+
+[function_lines."src/presentator/api/copresenter.py"]
+"add_copresenter_routes" = 83
+
+[function_lines."src/presentator/application/decks.py"]
+"Decks.add_source" = 81
+
+[function_lines."src/presentator/host/main.py"]
+"build_instance" = 91
+
+[function_lines."tests/adapters/test_decks.py"]
+"test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair" = 67
+
+[function_lines."tests/api/lobby.py"]
+"a_lobby_app" = 91
+
+[clones."copresenter/src/copresenter/main.py"]
+_probe_is_dead = [["speech/src/presentator_speech/__main__.py", "_probe_is_dead"]]
+
+[clones."speech/providers/chatterbox/src/presentator_chatterbox/__main__.py"]
+_arguments = [["speech/providers/magpie/src/presentator_magpie/__main__.py", "_arguments"], ["speech/providers/qwen/src/presentator_qwen/__main__.py", "_arguments"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "_arguments"]]
+install_parent_death_signal = [["speech/providers/magpie/src/presentator_magpie/__main__.py", "install_parent_death_signal"], ["speech/providers/qwen/src/presentator_qwen/__main__.py", "install_parent_death_signal"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "install_parent_death_signal"]]
+main = [["speech/providers/magpie/src/presentator_magpie/__main__.py", "main"], ["speech/providers/qwen/src/presentator_qwen/__main__.py", "main"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "main"]]
+
+[clones."speech/providers/chatterbox/src/presentator_chatterbox/model.py"]
+float_to_pcm = [["speech/providers/magpie/src/presentator_magpie/model.py", "_float_to_pcm"], ["speech/providers/qwen/src/presentator_qwen/model.py", "_float_to_pcm"]]
+
+[clones."speech/providers/magpie/src/presentator_magpie/__main__.py"]
+_arguments = [["speech/providers/qwen/src/presentator_qwen/__main__.py", "_arguments"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "_arguments"]]
+install_parent_death_signal = [["speech/providers/qwen/src/presentator_qwen/__main__.py", "install_parent_death_signal"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "install_parent_death_signal"]]
+main = [["speech/providers/qwen/src/presentator_qwen/__main__.py", "main"], ["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "main"]]
+
+[clones."speech/providers/magpie/src/presentator_magpie/model.py"]
+_float_to_pcm = [["speech/providers/qwen/src/presentator_qwen/model.py", "_float_to_pcm"]]
+
+[clones."speech/providers/magpie/tests/test_entrypoint.py"]
+test_entrypoint_reserves_stdout_before_importing_the_provider = [["speech/providers/voxcpm/tests/test_entrypoint.py", "test_entrypoint_reserves_stdout_before_importing_the_provider"]]
+"test_entrypoint_reserves_stdout_before_importing_the_provider.RecordingModule.__getattribute__" = [["speech/providers/voxcpm/tests/test_entrypoint.py", "test_entrypoint_reserves_stdout_before_importing_the_provider.RecordingModule.__getattribute__"]]
+
+[clones."speech/providers/qwen/src/presentator_qwen/__main__.py"]
+_arguments = [["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "_arguments"]]
+install_parent_death_signal = [["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "install_parent_death_signal"]]
+main = [["speech/providers/voxcpm/src/presentator_voxcpm/__main__.py", "main"]]
+
+[clones."speech/scripts/contract_client.py"]
+_pcm_from_wav = [["speech/scripts/prove.py", "_pcm_from_wav"]]
+_resample = [["speech/scripts/prove.py", "_resample"]]
+_rms = [["speech/scripts/prove.py", "_rms"]]
+
+[clones."src/presentator/adapters/decks.py"]
+"SqliteDeckStore.get" = [["src/presentator/adapters/identity.py", "SqliteSubjectUserStore.get"]]
+"SqliteSourceRunStore.newest" = [["src/presentator/adapters/identity.py", "SqliteSubjectUserStore.get"]]
+
+[clones."src/presentator/api/pages.py"]
+state_word = [["src/presentator/api/sources.py", "_refusal_sentence"], ["src/presentator/api/sources.py", "_run_reason"], ["src/presentator/api/sources.py", "_state_word"]]
+
+[clones."src/presentator/api/sources.py"]
+_run_state_of = [["src/presentator/application/decks.py", "_source_state_of"]]
+
+[clones."tests/adapters/test_copresenter.py"]
+test_missing_socket_maps_to_typed_unavailability_without_tcp_retry = [["tests/adapters/test_speech_hearing.py", "test_a_missing_socket_is_unavailable_without_a_tcp_retry"]]
+
+[clones."tests/adapters/test_worker_reply.py"]
+test_the_sender_wait_is_what_remains_of_the_reply_budget = [["tests/test_worker_record_life.py", "test_the_upload_wait_is_what_remains_of_the_budget_taken_at_the_accepted_exit"]]
+
+[clones."tests/api/test_preferences.py"]
+test_only_an_admin_is_offered_the_settings_section = [["tests/api/test_sources.py", "test_only_an_admin_is_offered_the_settings_section"]]
+
+[clones."tests/application/fakes.py"]
+"HeldDeckFolders._enter" = [["tests/test_polling.py", "HeldRefresh._enter"]]
+
+[clones."tests/test_worker_entries_chain.py"]
+sandbox = [["tests/test_worker_upload_chain.py", "sandbox"]]
