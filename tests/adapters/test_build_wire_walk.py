@@ -161,7 +161,7 @@ def test_a_fifo_is_refused_without_ever_being_opened(
 ) -> None:
     """Cell W1 (29): the entry's type is judged before any open."""
     a_fifo(build_talk(output))
-    opened: list[object] = []
+    opened: list[str | bytes] = []
     open_entry = os.open
 
     def recording_open(path: object, *arguments: int, **keywords: int) -> int:
@@ -171,7 +171,7 @@ def test_a_fifo_is_refused_without_ever_being_opened(
     monkeypatch.setattr(os, "open", recording_open)
 
     assert reply_to(output, StepKind.BUILD) == refused("shape")
-    assert b"pipe" not in opened
+    assert not [path for path in opened if os.fsencode(path).split(b"/")[-1] == b"pipe"]
 
 
 def build_without_talk(output: Path) -> None:
