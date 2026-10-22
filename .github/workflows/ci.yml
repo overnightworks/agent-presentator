@@ -409,23 +409,23 @@ jobs:
           persist-credentials: false
 
       - name: Build the image
-        run: docker build --tag agent-presentator:${{ github.sha }} .
+        run: docker build --tag presentator:${{ github.sha }} .
 
       - name: Prove a configured UID that already belongs to the base image
         run: |
-          docker build --build-arg PRESENTATOR_RUNTIME_UID=1000 --tag agent-presentator:uid-1000 .
-          test "$(docker inspect --format '{{.Config.User}}' agent-presentator:uid-1000)" = presentator
-          docker run --rm agent-presentator:uid-1000 sh -c 'test "$(id -u)" = 1000 && test "$HOME" = /home/presentator'
+          docker build --build-arg PRESENTATOR_RUNTIME_UID=1000 --tag presentator:uid-1000 .
+          test "$(docker inspect --format '{{.Config.User}}' presentator:uid-1000)" = presentator
+          docker run --rm presentator:uid-1000 sh -c 'test "$(id -u)" = 1000 && test "$HOME" = /home/presentator'
 
       - name: Prove the build and wire users exist (cell 1)
         run: |
-          image=agent-presentator:${{ github.sha }}
+          image=presentator:${{ github.sha }}
           test "$(docker run --rm "$image" getent passwd presentator-build)" = \
             'presentator-build:x:10001:10001::/work/home:/usr/sbin/nologin'
           test "$(docker run --rm "$image" getent passwd presentator-wire)" = \
             'presentator-wire:x:10002:10002::/nonexistent:/usr/sbin/nologin'
           for uid in 10001 10002; do
-            if docker build --build-arg PRESENTATOR_RUNTIME_UID=$uid --tag agent-presentator:uid-$uid .; then
+            if docker build --build-arg PRESENTATOR_RUNTIME_UID=$uid --tag presentator:uid-$uid .; then
               echo "a runtime uid of $uid was accepted" >&2
               exit 1
             fi
@@ -439,10 +439,10 @@ jobs:
 
       - name: Prove the image builds and exports a deck, as its users (cell 2)
         run: |
-          docker build --target toolchain --tag agent-presentator-build:${{ github.sha }} .
+          docker build --target toolchain --tag presentator-build:${{ github.sha }} .
           uv sync --locked
           uv run --locked python scripts/prove_container_build.py \
-            agent-presentator-build:${{ github.sha }} agent-presentator:${{ github.sha }}
+            presentator-build:${{ github.sha }} presentator:${{ github.sha }}
 
       # An image without CA certificates builds cleanly and only fails once a
       # real HTTPS source is added, so the proof has to be an actual TLS
@@ -450,7 +450,7 @@ jobs:
       # distinct from this one, so the test does not depend on this
       # repository's own reachability.
       - name: Smoke test HTTPS reachability
-        run: docker run --rm agent-presentator:${{ github.sha }} git ls-remote https://github.com/git/git.git HEAD
+        run: docker run --rm presentator:${{ github.sha }} git ls-remote https://github.com/git/git.git HEAD
 
   coverage:
     name: "Coverage report"

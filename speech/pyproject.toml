@@ -3,9 +3,9 @@ requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
-name = "presentator-speech"
+name = "overnightworks-presentator-speech"
 version = "0.0.0"
-description = "Local speaking and hearing for agent-presentator, one process on the card."
+description = "Local speaking and hearing, one process on the card."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.141.1",
