@@ -91,7 +91,7 @@ def test_an_end_without_entries_is_thirteen_bytes(
 ) -> None:
     reading_end, writing_end = wire
 
-    send_end(writing_end)
+    send_end(writing_end, 0, 0)
 
     assert reading_end.recv(64) == support.END
 
