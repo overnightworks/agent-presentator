@@ -222,16 +222,20 @@ def _talk(
         decks=decks,
         auth=auth,
         lobby_origin=settings.public_origin,
-        copresenter=_copresenter_surface(settings, clock),
+        copresenter=_copresenter_surface(settings, clock, decks),
     )
 
 
-def _copresenter_surface(settings: Settings, clock: SystemClock) -> CoPresenterSurface:
+def _copresenter_surface(
+    settings: Settings, clock: SystemClock, decks: Decks
+) -> CoPresenterSurface:
     """What only a signed-in admin may reach at the talk host: the host's sockets."""
     return CoPresenterSurface(
         use=CoPresenterUse(
             answers=UdsCoPresenter(settings.copresenter_socket),
             speech=UdsSpeechHearing(settings.speech_socket),
+            decks=decks.store,
+            sources=decks.sources,
         ),
         limiter=AskLimiter(clock=clock),
         browser_origin=settings.talk_origin,

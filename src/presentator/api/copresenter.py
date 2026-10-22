@@ -28,6 +28,7 @@ from presentator.contracts.copresenter import (
     Question,
     Sentence,
 )
+from presentator.contracts.decks import MAXIMUM_NAME_BYTES
 from presentator.contracts.voice import SampleLanguage
 
 if TYPE_CHECKING:
@@ -57,6 +58,11 @@ class SignedIn(Protocol):
     @property
     def session_id(self) -> str:
         """The authoritative session id retained by an operation."""
+        ...
+
+    @property
+    def user_id(self) -> str:
+        """The account the session belongs to."""
         ...
 
     @property
@@ -97,6 +103,7 @@ class AskRequest(BaseModel, extra="forbid"):
 
     said: str = Field(min_length=1, max_length=MAX_SAID_LENGTH)
     slide: int = Field(ge=1)
+    deck: str = Field(default="", max_length=MAXIMUM_NAME_BYTES)
     language: SampleLanguage | None = None
 
     @field_validator("language", mode="before")
@@ -136,34 +143,6 @@ def add_copresenter_routes(
             },
         )
 
-    def _ask(request: Request, question: AskRequest) -> Response:
-        connection = admission(request)
-        if not _may_use(connection):
-            return _refusal(connection)
-        ticket = surface.limiter.admit(connection.session_id)
-        if isinstance(ticket, RetryAfter):
-            return JSONResponse(
-                {"detail": "Too many questions"},
-                HTTPStatus.TOO_MANY_REQUESTS,
-                headers={"Retry-After": str(ticket.seconds)},
-            )
-        return StreamingResponse(
-            _answer_events(
-                request,
-                question=Question(
-                    said=question.said,
-                    slide=question.slide,
-                    language=question.language and question.language.value,
-                ),
-                use=use,
-                guard=guard,
-                ticket=ticket,
-            ),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            background=BackgroundTask(ticket.release),
-        )
-
     async def _hear(socket: WebSocket, language: str = "de") -> None:
         if (
             socket.headers.get("origin") != surface.browser_origin
@@ -186,9 +165,49 @@ def add_copresenter_routes(
         )
 
     router.add_api_route("/who", _who, methods=["GET"])
-    router.add_api_route("/ask", _ask, methods=["POST"])
+    router.add_api_route(
+        "/ask", _ask_route(surface, admission=admission, guard=guard), methods=["POST"]
+    )
     router.add_api_websocket_route("/hear", _hear)
     app.include_router(router)
+
+
+def _ask_route(
+    surface: CoPresenterSurface, *, admission: Admission, guard: _SessionGuard
+) -> Callable[[Request, AskRequest], Response]:
+    def _ask(request: Request, question: AskRequest) -> Response:
+        connection = admission(request)
+        if not _may_use(connection):
+            return _refusal(connection)
+        asked = surface.use.asked_deck(question.deck, viewer=connection.user_id)
+        if asked is None:
+            return JSONResponse({"detail": "Not found"}, HTTPStatus.NOT_FOUND)
+        ticket = surface.limiter.admit(connection.session_id)
+        if isinstance(ticket, RetryAfter):
+            return JSONResponse(
+                {"detail": "Too many questions"},
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(ticket.seconds)},
+            )
+        return StreamingResponse(
+            _answer_events(
+                request,
+                question=Question(
+                    said=question.said,
+                    slide=question.slide,
+                    language=question.language and question.language.value,
+                    deck=asked,
+                ),
+                use=surface.use,
+                guard=guard,
+                ticket=ticket,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            background=BackgroundTask(ticket.release),
+        )
+
+    return _ask
 
 
 def _may_use(admitted: SignedIn | None) -> TypeGuard[SignedIn]:
