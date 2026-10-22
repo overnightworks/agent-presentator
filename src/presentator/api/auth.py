@@ -208,6 +208,11 @@ class SignedInConnection:
     session_id: str
 
     @property
+    def user_id(self) -> str:
+        """The signed-in person's account id."""
+        return self.person.id
+
+    @property
     def is_admin(self) -> bool:
         """Whether the signed-in person holds the admin role."""
         return self.person.is_admin

@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BaseModel, StringConstraints, ValidationErr
 
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
+    MAXIMUM_NAME_BYTES,
     PDF_FILE,
     TALK_DIRECTORY,
     TOOLCHAIN_SCRATCH_DIRECTORY,
@@ -30,7 +31,6 @@ SIZE = struct.Struct(">Q")
 MINIMUM_HEADER_BYTES = 2
 MAXIMUM_HEADER_BYTES = 4096
 MAXIMUM_PATH_BYTES = 1024
-MAXIMUM_NAME_BYTES = 255
 MAXIMUM_DEPTH = 32
 CHUNK_BYTES = 64 * 1024
 MAXIMUM_ENTRIES = 100_000

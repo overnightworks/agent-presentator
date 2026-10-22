@@ -22,7 +22,7 @@ from presentator.contracts.copresenter import (
     Question,
 )
 from presentator.ports.copresenter import PrivateHearing
-from tests.application.fakes import FrozenClock
+from tests.application.fakes import FakeDeckStore, FakeSourceStore, FrozenClock
 
 
 @dataclass
@@ -94,7 +94,12 @@ def test_cancelling_an_answer_awaits_the_private_operation() -> None:
 
 async def _cancel_answer() -> None:
     private = FakePrivateCoPresenter()
-    use = CoPresenterUse(answers=private, speech=private)
+    use = CoPresenterUse(
+        answers=private,
+        speech=private,
+        decks=FakeDeckStore(),
+        sources=FakeSourceStore(),
+    )
 
     async with use.answer(Question(said="Frage", slide=1, language=None)) as events:
         assert await anext(events) == AnswerText(text="Frage")
@@ -108,7 +113,12 @@ def test_ending_hearing_closes_and_awaits_the_private_child() -> None:
 
 async def _end_hearing() -> None:
     private = FakePrivateCoPresenter()
-    use = CoPresenterUse(answers=private, speech=private)
+    use = CoPresenterUse(
+        answers=private,
+        speech=private,
+        decks=FakeDeckStore(),
+        sources=FakeSourceStore(),
+    )
 
     async with use.hear("de") as hearing:
         await hearing.send_pcm(b"pcm")
@@ -122,7 +132,14 @@ def test_readiness_comes_from_speech_and_never_touches_the_answer_port() -> None
     answers = FakePrivateCoPresenter()
     speech = FakePrivateCoPresenter()
 
-    readiness = asyncio.run(CoPresenterUse(answers=answers, speech=speech).readiness())
+    readiness = asyncio.run(
+        CoPresenterUse(
+            answers=answers,
+            speech=speech,
+            decks=FakeDeckStore(),
+            sources=FakeSourceStore(),
+        ).readiness()
+    )
 
     assert readiness == CoPresenterReadiness(
         hearing_sample_rate=16_000, local_hearing_ready=True

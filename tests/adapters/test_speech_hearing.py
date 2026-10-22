@@ -19,6 +19,7 @@ from presentator.contracts.copresenter import (
     HearingTranscript,
 )
 from tests.adapters.serving import Serving, unix_listener
+from tests.application.fakes import FakeDeckStore, FakeSourceStore
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -281,6 +282,8 @@ def test_ending_the_hearing_closes_speechs_side(tmp_path: Path) -> None:
         use = CoPresenterUse(
             answers=UdsCoPresenter(tmp_path / "unused.sock"),
             speech=UdsSpeechHearing(socket_path),
+            decks=FakeDeckStore(),
+            sources=FakeSourceStore(),
         )
         async with Serving(speech_app(hear=_hear), unix_listener(socket_path)):
             async with use.hear("de"):
