@@ -1,6 +1,7 @@
 """The serving loop admits only the runtime uid and ends the life by name."""
 
 import errno
+import logging
 import socket
 import threading
 from collections.abc import Callable
@@ -404,13 +405,14 @@ def test_a_failing_step_ends_the_life_and_leaves_the_watchdog_armed(
 @pytest.mark.parametrize(
     ("make_life", "life_end", "_events"), LIFE_ENDS.values(), ids=LIFE_ENDS.keys()
 )
-def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life(
+def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life_at_its_level(
     volume: Path,
     caplog: pytest.LogCaptureFixture,
     make_life: Callable[[], ScriptedLife],
     life_end: LifeEnd,
     _events: list[str],
 ) -> None:
+    caplog.set_level(logging.INFO)
     life = make_life()
     outcome: list[int] = []
     thread = threading.Thread(
@@ -434,7 +436,9 @@ def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life(
         wake_until_ended(volume, thread)
 
     assert outcome == [0]
-    assert f"life ended: {life_end}" in caplog.text
+    ended = [r for r in caplog.records if r.getMessage() == f"life ended: {life_end}"]
+    expected = logging.INFO if life_end is LifeEnd.CONSUMED else logging.ERROR
+    assert [r.levelno for r in ended] == [expected]
 
 
 def test_a_sweep_that_fails_for_another_reason_surfaces_with_its_error(

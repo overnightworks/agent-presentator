@@ -618,7 +618,7 @@ def serve(
             life_end = accept_connections(listener, runtime_uid, serving)
     except StartRefusedError as refused:
         return _refuse(refused.refusal)
-    logger.error("life ended: %s", life_end)
+    logger.log(life_end.log_level, "life ended: %s", life_end)
     return 0
 
 
