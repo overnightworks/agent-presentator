@@ -140,6 +140,11 @@ def _seed_person(
     build = builds / f"{person.username}-run" / _COMMIT / "talk"
     build.mkdir(parents=True)
     (build / "index.html").write_text("a talk")
+    _seed_deck(stores, person, source, build)
+    return source, mirror, build
+
+
+def _seed_deck(stores: _Stores, person: User, source: Source, build: Path) -> None:
     slug = f"{person.username}-talk"
     assert stores.decks.put(
         Deck(
@@ -171,7 +176,6 @@ def _seed_person(
             reason=None,
         ),
     )
-    return source, mirror, build
 
 
 def _decks_application(
