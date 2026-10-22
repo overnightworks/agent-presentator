@@ -21,8 +21,8 @@ from presentator.api.copresenter import (
 from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
 from tests.api.test_copresenter import (
     NOW,
-    PUBLIC_ORIGIN,
     QUESTION,
+    TALK_ORIGIN,
     RecordingPrivateCoPresenter,
     a_copresenter_lobby,
 )
@@ -174,7 +174,7 @@ def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> Non
         surface=CoPresenterSurface(
             use=CoPresenterUse(answers=private, speech=private),
             limiter=limiter,
-            public_origin=PUBLIC_ORIGIN,
+            browser_origin=TALK_ORIGIN,
         ),
         admission=lambda _connection: FixedSession(),
     )

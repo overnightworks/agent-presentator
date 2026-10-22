@@ -71,11 +71,11 @@ Delay = Callable[[float], Awaitable[None]]
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CoPresenterSurface:
-    """The use case and browser origin installed on the public surface."""
+    """The use case and browser origin installed on the talk host."""
 
     use: CoPresenterUse
     limiter: AskLimiter
-    public_origin: str
+    browser_origin: str
     delay: Delay = asyncio.sleep
 
 
@@ -112,7 +112,7 @@ def add_copresenter_routes(
     surface: CoPresenterSurface,
     admission: Admission,
 ) -> None:
-    """Add the exact signed-in co-presenter allowlist to the lobby."""
+    """Add the exact signed-in co-presenter allowlist to the talk host."""
     router = APIRouter(prefix="/copresenter")
     use = surface.use
     guard = _SessionGuard(admission=admission, delay=surface.delay)
@@ -166,7 +166,7 @@ def add_copresenter_routes(
 
     async def _hear(socket: WebSocket, language: str = "de") -> None:
         if (
-            socket.headers.get("origin") != surface.public_origin
+            socket.headers.get("origin") != surface.browser_origin
             or any(key != "language" for key in socket.query_params)
             or len(socket.query_params.getlist("language")) > 1
         ):

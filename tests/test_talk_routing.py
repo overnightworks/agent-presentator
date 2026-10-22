@@ -170,6 +170,6 @@ def test_the_composition_root_wires_the_talk_host_to_its_own_policy() -> None:
     assert root.headers["location"] == settings.public_origin
     assert root.headers["content-security-policy"] == talk_content_security_policy()
     assert root.headers["permissions-policy"] == TALK_PERMISSIONS_POLICY
-    assert "microphone=()" in TALK_PERMISSIONS_POLICY
+    assert "microphone=(self)" in TALK_PERMISSIONS_POLICY
     assert from_the_lobby.status_code == HTTPStatus.FORBIDDEN
     assert from_the_talk_host.status_code != HTTPStatus.FORBIDDEN

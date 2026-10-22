@@ -37,14 +37,14 @@ from presentator.contracts.copresenter import (
 )
 from presentator.contracts.models import Role, User
 from tests.api.lobby import (
-    A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
-    A_BROWSERS_SOCKET_ADDRESS,
+    A_TALK_ADDRESS,
+    A_TALK_SOCKET_ADDRESS,
     NOW,
     Lobby,
     a_browser_at,
     a_crowd,
-    a_lobby_app,
+    a_talk_app,
 )
 from tests.application.fakes import FakeUserStore, FrozenClock
 
@@ -61,9 +61,9 @@ if TYPE_CHECKING:
 
     from presentator.ports.copresenter import PrivateHearing
 
-PUBLIC_ORIGIN = "https://presentator.test"
+TALK_ORIGIN = A_TALK_ADDRESS
 QUESTION = {"said": "Was ist wichtig?", "slide": 2, "language": "de"}
-HEARING = f"{A_BROWSERS_SOCKET_ADDRESS}/copresenter/hear?language=de"
+HEARING = f"{A_TALK_SOCKET_ADDRESS}/copresenter/hear?language=de"
 POLICY_VIOLATION = 1008
 UNSUPPORTED_DATA = 1003
 INTERNAL_ERROR = 1011
@@ -198,22 +198,22 @@ def a_copresenter_lobby(
 ) -> tuple[Lobby, RecordingPrivateCoPresenter, FrozenClock]:
     private = RecordingPrivateCoPresenter()
     people = a_crowd(users)
-    app, clock = a_lobby_app(
+    app = a_talk_app(
         people=people,
         copresenter=CoPresenterSurface(
             use=CoPresenterUse(answers=private, speech=private),
             limiter=limiter or AskLimiter(clock=FrozenClock(instant=NOW)),
-            public_origin=PUBLIC_ORIGIN,
+            browser_origin=TALK_ORIGIN,
             delay=delay,
         ),
     )
     browser = a_browser_at(
         app,
         people=people,
-        base_url=A_BROWSERS_ADDRESS,
+        base_url=A_TALK_ADDRESS,
         headers=A_BROWSERS_HEADERS,
     )
-    return browser, private, clock
+    return browser, private, people.clock
 
 
 def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> None:
@@ -237,7 +237,7 @@ def test_signed_out_and_forged_sessions_never_reach_the_private_service() -> Non
             pytest.raises(WebSocketDisconnect) as refused,
             client.websocket_connect(
                 HEARING,
-                headers={"origin": PUBLIC_ORIGIN},
+                headers={"origin": TALK_ORIGIN},
             ),
         ):
             pass
@@ -257,7 +257,7 @@ def test_copresenter_routes_refuse_unauthenticated_http_before_private_use() -> 
         surface=CoPresenterSurface(
             use=CoPresenterUse(answers=private, speech=private),
             limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
-            public_origin=PUBLIC_ORIGIN,
+            browser_origin=TALK_ORIGIN,
         ),
         admission=no_session,
     )
@@ -299,7 +299,7 @@ def test_a_signed_in_non_admin_is_refused_every_copresenter_route() -> None:
     )
     with (
         pytest.raises(WebSocketDisconnect) as refused,
-        client.websocket_connect(HEARING, headers={"origin": PUBLIC_ORIGIN}),
+        client.websocket_connect(HEARING, headers={"origin": TALK_ORIGIN}),
     ):
         pass
 
@@ -319,7 +319,7 @@ def test_a_running_hearing_ends_when_its_session_loses_the_admin_role() -> None:
 
     with lobby.client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         (admin,) = users.users.values()
@@ -348,7 +348,7 @@ def test_a_running_hearing_with_audio_ends_when_its_session_loses_the_admin_role
 
     with lobby.client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         socket.send_bytes(b"before demotion")
@@ -494,7 +494,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
         pytest.raises(WebSocketDisconnect) as extra_query,
         client.websocket_connect(
             f"{HEARING}&credential=must-not-travel",
-            headers={"origin": PUBLIC_ORIGIN},
+            headers={"origin": TALK_ORIGIN},
         ),
     ):
         pass
@@ -503,7 +503,7 @@ def test_foreign_origin_and_text_frames_open_no_private_hearing() -> None:
     with (
         client.websocket_connect(
             HEARING,
-            headers={"origin": PUBLIC_ORIGIN},
+            headers={"origin": TALK_ORIGIN},
         ) as socket,
     ):
         socket.send_text("not pcm")
@@ -521,7 +521,7 @@ def test_browser_disconnect_before_pcm_opens_no_private_hearing() -> None:
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ):
         pass
 
@@ -536,7 +536,7 @@ def test_an_active_session_keeps_hearing_after_an_authoritative_recheck() -> Non
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         deadline.release_first()
@@ -559,7 +559,7 @@ def test_binary_hearing_forwards_pcm_and_returns_only_typed_transcripts() -> Non
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"erstes pcm")
         assert socket.receive_json() == {"text": "erste Antwort", "final": False}
@@ -624,7 +624,7 @@ async def _send_hearing_event_to_a_disconnected_browser(client: TestClient) -> N
         "query_string": b"language=de",
         "headers": [
             (b"host", b"testserver"),
-            (b"origin", PUBLIC_ORIGIN.encode()),
+            (b"origin", TALK_ORIGIN.encode()),
             (
                 b"cookie",
                 f"{DEFAULT_SESSION_COOKIE_NAME}={client.cookies[DEFAULT_SESSION_COOKIE_NAME]}".encode(),
@@ -648,7 +648,7 @@ def test_an_accepted_hearing_refuses_text_after_private_use_started() -> None:
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
         assert socket.receive_json() == {"text": "gehört", "final": True}
@@ -669,7 +669,7 @@ def test_private_hearing_failure_keeps_the_authenticated_browser_lease() -> None
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"first")
         assert socket.receive_json() == {
@@ -693,7 +693,7 @@ def test_browser_fallback_refuses_text_frames_without_reopening_private_hearing(
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"local hearing fails")
         assert socket.receive_json()["error"] == "hearing unavailable"
@@ -714,7 +714,7 @@ def test_unexpected_private_hearing_failure_closes_the_public_connection() -> No
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
         with pytest.raises(WebSocketDisconnect) as refused:
@@ -742,7 +742,7 @@ def test_private_failures_expose_only_public_failure_shapes() -> None:
     private.hearing_unavailable = True
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         socket.send_bytes(b"pcm")
         hearing = socket.receive_json()
@@ -793,13 +793,13 @@ def test_a_session_in_use_is_refused_the_hearing_past_the_cap() -> None:
     lobby.sign_in()
     for _ in range(2):
         clock.advance(SESSION_LIFETIME / 2)
-        assert lobby.client.get("/").status_code == HTTPStatus.OK
+        assert lobby.client.get("/copresenter/who").status_code == HTTPStatus.OK
     clock.advance(timedelta(seconds=1))
     touches_before = lobby.people.sessions.touches
 
     with (
         pytest.raises(WebSocketDisconnect) as refused,
-        lobby.client.websocket_connect(HEARING, headers={"origin": PUBLIC_ORIGIN}),
+        lobby.client.websocket_connect(HEARING, headers={"origin": TALK_ORIGIN}),
     ):
         pass
 
@@ -827,7 +827,7 @@ def test_a_running_hearing_ends_at_the_cap_on_its_recheck(
 
     with lobby.client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         touches_before = lobby.people.sessions.touches
@@ -941,7 +941,7 @@ def test_session_store_failure_refuses_websocket_admission_before_private_use() 
         pytest.raises(RuntimeError, match="session store unavailable"),
         client.websocket_connect(
             HEARING,
-            headers={"origin": PUBLIC_ORIGIN},
+            headers={"origin": TALK_ORIGIN},
         ),
     ):
         pass
@@ -1024,7 +1024,7 @@ def test_busy_local_hearing_stops_before_more_pcm_after_authoritative_loss(
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         socket.send_bytes(b"before loss")
@@ -1056,7 +1056,7 @@ def test_busy_browser_fallback_keeps_the_original_authorization_deadline(
 
     with client.websocket_connect(
         HEARING,
-        headers={"origin": PUBLIC_ORIGIN},
+        headers={"origin": TALK_ORIGIN},
     ) as socket:
         assert deadline.started.wait(timeout=1)
         socket.send_bytes(b"local hearing fails")

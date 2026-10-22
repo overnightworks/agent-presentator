@@ -58,6 +58,7 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.decks import Decks
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
@@ -136,6 +137,7 @@ A_BROWSERS_ADDRESS: Final = "https://testserver"
 A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
 # The talk host is a second hostname of the same instance.
 A_TALK_ADDRESS: Final = "https://talk.testserver"
+A_TALK_SOCKET_ADDRESS: Final = "wss://talk.testserver"
 AN_ISSUER: Final = "https://auth.example.test/realms/test"
 A_CLIENT_ID: Final = "presentator-test"
 A_CLIENT_CREDENTIAL: Final = "the-secret-only-this-test-has"
@@ -474,7 +476,6 @@ def a_lobby_app(
     people: FakePeople | None = None,
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
-    copresenter: CoPresenterSurface | None = None,
     signing_in: SigningIn | None = None,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
@@ -499,7 +500,6 @@ def a_lobby_app(
         ),
         auth=an_installed_auth(clock) if signing_in is None else signing_in.auth,
         private=LobbyPrivate(
-            copresenter=copresenter,
             voice=(
                 given.voice
                 if given.voice is not None
@@ -508,6 +508,26 @@ def a_lobby_app(
         ),
     )
     return lobby, clock
+
+
+def a_talk_app(
+    *,
+    people: FakePeople,
+    copresenter: CoPresenterSurface | None = None,
+) -> FastAPI:
+    """The whole talk host over the lobby's people, with the co-presenter it serves."""
+    clock = people.clock
+    return create_talk(
+        sessions=people.sessions,
+        decks=a_decks(NO_DECKS, clock),
+        auth=replace(
+            an_installed_auth(clock),
+            config=a_talk_web_auth(clock),
+            content_security_policy=talk_content_security_policy(),
+        ),
+        lobby_origin=A_BROWSERS_ADDRESS,
+        copresenter=copresenter,
+    )
 
 
 def a_browser_at(
