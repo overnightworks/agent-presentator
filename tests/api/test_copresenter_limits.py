@@ -11,37 +11,29 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI
-from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME
 
 from presentator.api.copresenter import (
     MAX_SAID_LENGTH,
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
+from presentator.application.copresenter import AskLimiter, AskTicket
+from tests.api.lobby import ADMIN
 from tests.api.test_copresenter import (
     NOW,
     QUESTION,
     TALK_ORIGIN,
     RecordingPrivateCoPresenter,
     a_copresenter_lobby,
+    a_use,
+    ask,
+    the_admins_decks,
 )
 from tests.application.fakes import FrozenClock
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from fastapi.testclient import TestClient
     from httpx2 import Response
     from starlette.types import ASGIApp, Message, Scope
-
-
-def ask(client: TestClient, body: Mapping[str, object] = QUESTION) -> Response:
-    return client.post(
-        "/copresenter/ask",
-        json=body,
-        headers={"x-csrf-token": client.cookies[DEFAULT_CSRF_COOKIE_NAME]},
-    )
 
 
 @pytest.mark.parametrize(
@@ -162,6 +154,7 @@ class FixedSession:
     """The admitted session of a browser."""
 
     session_id: str = "session"
+    user_id: str = ADMIN
     is_admin: bool = True
 
 
@@ -172,7 +165,7 @@ def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> Non
     add_copresenter_routes(
         app,
         surface=CoPresenterSurface(
-            use=CoPresenterUse(answers=private, speech=private),
+            use=a_use(private, the_admins_decks()),
             limiter=limiter,
             browser_origin=TALK_ORIGIN,
         ),

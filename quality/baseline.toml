@@ -64,9 +64,6 @@
 "test_voxcpm_catalogue_and_factory_import_no_provider_packages" = 66
 "test_voxcpm_load_restore_samples_and_public_disconnect_cancel_the_child" = 67
 
-[function_lines."src/presentator/api/copresenter.py"]
-"add_copresenter_routes" = 83
-
 [function_lines."src/presentator/application/decks.py"]
 "Decks.add_source" = 81
 
