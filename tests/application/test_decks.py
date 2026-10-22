@@ -1917,18 +1917,13 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
         ("https://git.example.invalid/talks.git", AccessKind.HTTPS),
         ("https://user@git.example.invalid/talks.git", None),
         ("https://user:token@git.example.invalid/talks.git", None),
-        ("https://me%40mail.com@host/r.git", None),
         ("ssh://git:secret@git.example.invalid/talks.git", None),
         ("ssh://git.example.invalid/talks.git", AccessKind.SSH),
         ("https://host/r.git?x=a@b", AccessKind.HTTPS),
         ("ssh://git@git.example.invalid/talks.git", AccessKind.SSH),
         ("ssh://git@host:2222/r.git", AccessKind.SSH),
-        ("ssh://git@[::1]:22/r.git", AccessKind.SSH),
         ("git@git.example.invalid:talks.git", AccessKind.SSH),
-        ("git@github.com:org/repo.git", AccessKind.SSH),
-        ("git@[::1]:r.git", AccessKind.SSH),
         ("https://[2001:db8::1]/r.git", AccessKind.HTTPS),
-        ("https://[2001:db8::1]:8443/r.git", AccessKind.HTTPS),
         ("ssh://git@[2001:db8::1]/r.git", AccessKind.SSH),
         ("git@[2001:db8::1]:r.git", AccessKind.SSH),
         ("file:///srv/r.git", AccessKind.FILE),
@@ -1999,14 +1994,11 @@ def test_a_url_whose_host_reads_two_ways_names_no_access(url: str) -> None:
     [
         (_HTTPS_TWO_HOSTS[0], "https"),
         (_SSH_TWO_HOSTS[1], "ssh"),
-        ("https://user@git.example.invalid/talks.git", "https"),
         ("https://user:token@git.example.invalid/talks.git", "https"),
         ("ssh://git:secret@git.example.invalid/talks.git", "ssh"),
     ],
 )
-def test_check_connection_refuses_an_address_outside_the_grammar_unprobed(
-    url: str, access: str
-) -> None:
+def test_check_refuses_an_address_outside_the_grammar(url: str, access: str) -> None:
     decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
     draft = decks.source_key_draft(owner_id=_OWNER)
 

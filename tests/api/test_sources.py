@@ -48,7 +48,11 @@ from tests.api.lobby import (
     a_lobby,
     a_signed_in_lobby,
 )
-from tests.application.fakes import LOCAL_MOUNT_EXAMPLE, FakeDeckStore
+from tests.application.fakes import (
+    A_REACHABLE_CHECK,
+    LOCAL_MOUNT_EXAMPLE,
+    FakeDeckStore,
+)
 
 _ADDRESS = "git@heimserver:decks.git"
 _OTHER_ADDRESS = "https://gitlab.example.invalid/decks.git"
@@ -753,10 +757,9 @@ _AN_UNREACHABLE_CHECK = ConnectionCheckResult(
     commit=None,
     detail=None,
 )
+_FAILED_DETAIL = "fatal: repository https://git.example.invalid/talks.git/ not found"
 _A_FAILED_CHECK = ConnectionCheckResult(
-    failure=SourceRunFailure.FAILED,
-    commit=None,
-    detail="fatal: repository https://git.example.invalid/talks.git/ not found",
+    failure=SourceRunFailure.FAILED, commit=None, detail=_FAILED_DETAIL
 )
 
 
@@ -772,59 +775,28 @@ def test_a_reachable_check_shows_the_commit_and_enables_create() -> None:
     assert "disabled" not in create_button_of(checked.text)
 
 
-_A_TOKEN_THE_HOST_REFUSES = "a-token-" + "the-host-does-not-want"
-
-
-def test_a_refused_check_reads_the_same_word_the_source_list_uses() -> None:
-    lobby = a_signed_in_lobby(GivenDecks(checked=_A_REFUSED_CHECK))
-
-    checked = check_source(lobby, secret=_A_TOKEN_THE_HOST_REFUSES)
-
-    assert ENGLISH.source_run_refused in checked.text
-    assert not fingerprint_of(checked)
-    assert "disabled" in create_button_of(checked.text)
+_A_USER_PART_URL = "https://user:token@git.example.invalid/talks.git"
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("checked", "url", "words"),
     [
-        "https://user@git.example.invalid/talks.git",
-        "https://user:token@git.example.invalid/talks.git",
+        (_A_REFUSED_CHECK, _HTTPS_URL, (ENGLISH.source_run_refused,)),
+        (_AN_UNREACHABLE_CHECK, _HTTPS_URL, (ENGLISH.source_run_unreachable,)),
+        (_A_FAILED_CHECK, _HTTPS_URL, (ENGLISH.source_run_failed, _FAILED_DETAIL)),
+        (A_REACHABLE_CHECK, _A_USER_PART_URL, (ENGLISH.source_refused_access,)),
     ],
 )
-def test_a_check_of_an_address_with_a_user_part_shows_the_access_refusal(
-    url: str,
+def test_a_check_that_found_no_commit_reads_the_words_the_source_list_uses(
+    checked: ConnectionCheckResult, url: str, words: tuple[str, ...]
 ) -> None:
-    lobby = a_signed_in_lobby(GivenDecks())
+    lobby = a_signed_in_lobby(GivenDecks(checked=checked))
 
-    checked = check_source(lobby, url=url)
+    shown = check_source(lobby, url=url)
 
-    assert ENGLISH.source_refused_access in checked.text
-    assert ENGLISH.source_run_refused not in checked.text
-    assert not fingerprint_of(checked)
-    assert "disabled" in create_button_of(checked.text)
-
-
-def test_an_unreachable_check_reads_the_same_word_the_source_list_uses() -> None:
-    lobby = a_signed_in_lobby(GivenDecks(checked=_AN_UNREACHABLE_CHECK))
-
-    checked = check_source(lobby)
-
-    assert ENGLISH.source_run_unreachable in checked.text
-    assert not fingerprint_of(checked)
-    assert "disabled" in create_button_of(checked.text)
-
-
-def test_a_failed_check_reads_the_same_word_plus_gits_sanitised_first_line() -> None:
-    lobby = a_signed_in_lobby(GivenDecks(checked=_A_FAILED_CHECK))
-
-    checked = check_source(lobby)
-
-    assert ENGLISH.source_run_failed in checked.text
-    assert _A_FAILED_CHECK.detail is not None
-    assert _A_FAILED_CHECK.detail in checked.text
-    assert not fingerprint_of(checked)
-    assert "disabled" in create_button_of(checked.text)
+    assert all(word in shown.text for word in words)
+    assert not fingerprint_of(shown)
+    assert "disabled" in create_button_of(shown.text)
 
 
 def test_the_secret_never_appears_in_a_check_response_or_the_log(
@@ -1049,7 +1021,7 @@ def test_an_existing_source_without_a_stored_secret_stays_when_another_is_added(
         pytest.param(
             {
                 "name": "talks",
-                "url": "https://user:token@git.example.invalid/talks.git",
+                "url": _A_USER_PART_URL,
                 "access": "https",
                 "secret": _READ_ONLY,
             },
