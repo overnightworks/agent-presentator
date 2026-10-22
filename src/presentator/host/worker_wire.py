@@ -20,7 +20,11 @@ from presentator.adapters.build_wire import (
     send_status,
     write_record,
 )
-from presentator.contracts.decks import DECK_DIRECTORY
+from presentator.contracts.decks import (
+    DECK_DIRECTORY,
+    FAILURE_TAIL_BYTES,
+    failure_text,
+)
 
 
 class WireRole(StrEnum):
@@ -29,6 +33,14 @@ class WireRole(StrEnum):
     IDLE = "idle"
     UPLOAD = "upload"
     SEND = "send"
+
+
+class ReplyPlan(StrEnum):
+    """What the sender answers, decided by the controller."""
+
+    WALK = "walk"
+    FAILED_TEXT = "failed-text"
+    FAILED_NULL = "failed-null"
 
 
 class WireExit(IntEnum):
@@ -48,6 +60,7 @@ class WireArguments:
     record_fd: int
     work: Path
     megabytes: int
+    plan: ReplyPlan | None = None
 
 
 STEP_ERROR_FILE = "step.err"
@@ -77,8 +90,29 @@ def _upload(connection: socket.socket, arguments: WireArguments) -> WireExit:
     return WireExit.UPLOADED
 
 
-def _send(connection: socket.socket, _arguments: WireArguments) -> WireExit:
-    send_failed(connection)
+def _step_text(work: Path) -> str | None:
+    """The tail of the step's stderr file; None when it holds only blanks."""
+    descriptor = os.open(
+        work / STEP_ERROR_FILE,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+    )
+    try:
+        size = os.fstat(descriptor).st_size
+        tail = os.pread(
+            descriptor, FAILURE_TAIL_BYTES, max(0, size - FAILURE_TAIL_BYTES)
+        )
+    finally:
+        os.close(descriptor)
+    return failure_text(tail) or None
+
+
+def _send(connection: socket.socket, arguments: WireArguments) -> WireExit:
+    if arguments.plan is None:
+        raise WireRefusedError
+    send_failed(
+        connection,
+        _step_text(arguments.work) if arguments.plan is ReplyPlan.FAILED_TEXT else None,
+    )
     send_end(connection)
     return WireExit.SENT
 
@@ -94,12 +128,18 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--record-fd", type=int, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--megabytes", type=int, required=True)
+    parser.add_argument("--plan", type=ReplyPlan, choices=list(ReplyPlan))
     arguments = parser.parse_args(argv)
     with socket.socket(fileno=arguments.connection_fd) as connection:
         try:
             return _ROLES[arguments.role](
                 connection,
-                WireArguments(arguments.record_fd, arguments.work, arguments.megabytes),
+                WireArguments(
+                    arguments.record_fd,
+                    arguments.work,
+                    arguments.megabytes,
+                    arguments.plan,
+                ),
             )
         except (WireRefusedError, OSError):
             return WireExit.CLOSED

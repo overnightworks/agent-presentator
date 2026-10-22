@@ -107,6 +107,7 @@ class ScriptedStep:
     spawn_takes: float = 0.0
     inspection_takes: float = 0.0
     wake_takes: float = 0.0
+    reap_takes: float = 0.0
     listener_wakes: int = 0
     connection_wakes: bool = False
     killed: bool = False
@@ -159,6 +160,8 @@ class ScriptedStep:
         self.scripted.events.append("step wait")
         if self.killed and self.scripted.reap_error is not None:
             raise self.scripted.reap_error
+        if self.killed:
+            self.scripted.clock_now += self.reap_takes
         return self.exit_status
 
     def wait_within(self, seconds: float) -> int | None:

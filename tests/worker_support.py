@@ -251,6 +251,9 @@ class ScriptedLife:
     sweep_error: OSError | None = None
     answer: bytes = b""
     sweep_quiet: bool = True
+    quiesce_quiet: bool = True
+    quiesce_overrun: float = 0.0
+    deck_close_takes: float = 0.0
     connections_served_before_sweep_fails: int | None = None
     spawned: list[Spawned] = field(default_factory=list[Spawned])
     sealed_descriptors: list[int] = field(default_factory=list[int])
@@ -396,11 +399,20 @@ class ScriptedLife:
         self.events.append(f"sweep {deadline}")
         if self.sweep_error is not None:
             raise self.sweep_error
+        if "open-deck" in self.events:
+            return self.quiesced(deadline)
         served_enough = (
             self.connections_served_before_sweep_fails is not None
             and len(self.spawned) >= self.connections_served_before_sweep_fails
         )
         return self.sweep_quiet and not served_enough
+
+    def quiesced(self, deadline: float) -> bool:
+        """The answer of the sweep after the step; an overrun is never quiet."""
+        if self.quiesce_overrun > 0:
+            self.clock_now = max(self.clock_now, deadline + self.quiesce_overrun)
+            return False
+        return self.quiesce_quiet
 
     def arm(self, remaining: float) -> None:
         self.events.append(f"arm {remaining}")
@@ -422,6 +434,7 @@ class ScriptedLife:
     def close_deck(self, deck: Path) -> None:
         self.events.append("close-deck")
         self.decks_handled.append(deck)
+        self.clock_now += self.deck_close_takes
         if self.deck_close_error is not None:
             raise self.deck_close_error
 
@@ -564,8 +577,11 @@ def sender_leg(life: ScriptedLife) -> list[str]:
 
 
 def step_leg(life: ScriptedLife) -> list[str]:
-    """The events from the step's paths to the sender's spawn."""
-    return life.events[life.events.index("prepare") : -len(sender_leg(life))]
+    """The events from the step's paths to the quiesce sweep, which it excludes."""
+    sweep = next(
+        position for position, event in enumerate(life.events) if "sweep" in event
+    )
+    return life.events[life.events.index("prepare") : sweep]
 
 
 def present_among(process_ids: Sequence[int]) -> frozenset[int]:

@@ -1,6 +1,7 @@
 """The wire child's gate judgement and its idle entry."""
 
 import errno
+import json
 import os
 import runpy
 import socket
@@ -13,13 +14,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from presentator.adapters.build_wire import MEGABYTE, StepHeader, write_record
+from presentator.adapters.build_wire import (
+    LENGTH,
+    MAGIC,
+    MEGABYTE,
+    StepHeader,
+    write_record,
+)
 from presentator.adapters.worker_children import ChildIdentity, ChildSurroundings
 from presentator.contracts.decks import StepKind
 from presentator.host import worker, worker_wire
 from presentator.host.config import WorkerSettings
 from presentator.host.worker import create_request_record
-from presentator.host.worker_wire import WireExit, WireRole
+from presentator.host.worker_wire import ReplyPlan, WireExit, WireRole
 from tests import worker_support as support
 from tests.worker_support import (
     UNUSED_WORK,
@@ -298,6 +305,25 @@ def run_entry(
     )
 
 
+def run_sender(
+    client: socket.socket,
+    descriptor: int,
+    record: int,
+    work: Path = UNUSED_WORK,
+    plan: ReplyPlan | None = None,
+) -> object:
+    plan_arguments = ["--plan", plan] if plan is not None else []
+    return run_bounded(
+        client,
+        lambda: worker_wire.main(
+            [
+                *entry_arguments(descriptor, record, WireRole.SEND, work),
+                *plan_arguments,
+            ]
+        ),
+    )
+
+
 def read_to_end_or_reset(client: socket.socket) -> bytes:
     received = b""
     try:
@@ -438,13 +464,61 @@ def test_the_upload_entry_exits_closed_when_the_peer_hangs_up_before_end(
     assert client.recv(64) == support.STATUS
 
 
-def test_the_send_entry_writes_outcome_failed_and_end_exiting_sent(
+def sent_text(received: bytes) -> str | None:
+    """The text of the OUTCOME in a reply that ends with END and nothing else."""
+    assert received.endswith(support.END)
+    header = received[len(MAGIC) + 2 + LENGTH.size :]
+    return json.loads(header[: -len(support.END)])["text"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        (ReplyPlan.FAILED_NULL, b"ignored", None),
+        (ReplyPlan.WALK, b"ignored", None),
+        (ReplyPlan.FAILED_TEXT, b"x" * 3000, "x" * 2000),
+        (
+            ReplyPlan.FAILED_TEXT,
+            b"a" * 1_048_576 + b"b" * 1999 + b"c",
+            "b" * 1999 + "c",
+        ),
+        (ReplyPlan.FAILED_TEXT, b" \n ", None),
+        (ReplyPlan.FAILED_TEXT, b"bad \xff\xfe bytes", "bad \ufffd\ufffd bytes"),
+    ],
+    ids=["null", "walk", "ascii flood", "megabyte flood", "blank", "invalid utf-8"],
+)
+def test_the_send_entry_answers_failed_with_the_planned_text_exiting_sent(
+    client_and_descriptor: tuple[socket.socket, int],
+    record: int,
+    work: Path,
+    case: tuple[ReplyPlan, bytes, str | None],
+) -> None:
+    plan, step_error, expected_text = case
+    client, descriptor = client_and_descriptor
+    (work / worker_wire.STEP_ERROR_FILE).write_bytes(step_error)
+
+    assert run_sender(client, descriptor, record, work, plan) == WireExit.SENT
+    assert sent_text(read_to_end_or_reset(client)) == expected_text
+
+
+def test_the_send_entry_sends_nothing_without_a_plan(
     client_and_descriptor: tuple[socket.socket, int], record: int
 ) -> None:
     client, descriptor = client_and_descriptor
 
-    assert run_entry(client, descriptor, record, WireRole.SEND) == WireExit.SENT
-    assert client.recv(64) == support.OUTCOME_FAILED + support.END
+    assert run_sender(client, descriptor, record) == WireExit.CLOSED
+    assert read_to_end_or_reset(client) == b""
+
+
+def test_the_send_entry_exits_closed_when_the_text_file_cannot_be_read(
+    client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
+) -> None:
+    client, descriptor = client_and_descriptor
+
+    exit_status = run_sender(client, descriptor, record, work, ReplyPlan.FAILED_TEXT)
+
+    assert exit_status == WireExit.CLOSED
+    assert read_to_end_or_reset(client) == b""
 
 
 def test_the_send_entry_exits_closed_when_the_peer_has_hung_up(
@@ -453,7 +527,9 @@ def test_the_send_entry_exits_closed_when_the_peer_has_hung_up(
     client, descriptor = client_and_descriptor
     client.close()
 
-    assert run_entry(client, descriptor, record, WireRole.SEND) == WireExit.CLOSED
+    exit_status = run_sender(client, descriptor, record, plan=ReplyPlan.FAILED_NULL)
+
+    assert exit_status == WireExit.CLOSED
 
 
 def test_a_refused_memfd_surfaces_as_the_kernels_error(

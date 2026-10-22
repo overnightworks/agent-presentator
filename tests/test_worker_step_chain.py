@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from presentator.adapters.worker_children import GatedChild
+from presentator.contracts.decks import FAILURE_TEXT_LIMIT
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
 from tests import step_support
@@ -57,6 +58,11 @@ open({report!r}, "w").write(
 )
 sys.stderr.write("x" * {characters})
 print("STEP-STDOUT")
+"""
+FAILING_PNPM = """
+import sys
+sys.stderr.write("a" * {older} + "b" * {tail})
+sys.exit(1)
 """
 PLANTING_UPLOAD = f"""
 import os, sys
@@ -324,6 +330,32 @@ def test_a_step_runs_the_launcher_with_its_paths_environment_and_streams(
     assert "xxxxxxxxxx" not in captured.err
     assert "STEP-STDOUT" not in captured.out + captured.err
     assert (work / "out" / "talk" / "index.html").read_text() == "built"
+
+
+def test_a_failing_step_is_answered_with_the_last_characters_of_its_stderr_only(
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    work = sandbox / "work"
+    work.mkdir()
+    project = sandbox / "project"
+    project.mkdir()
+    pnpm = step_support.fake_pnpm(
+        sandbox / "bin", FAILING_PNPM.format(older=1000, tail=FAILURE_TEXT_LIMIT)
+    )
+    monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
+    spawn = ChainSpawn(real_launcher=True)
+
+    life = run_life(SENT, spawn, LifeScenario(work=work, project=project))
+
+    captured = capfd.readouterr()
+    tail = b"b" * FAILURE_TEXT_LIMIT
+    outcome = support.framed(
+        b'{"outcome":"failed","text":"' + tail + b'"}', b"PBW\x01\x05"
+    )
+    assert life.life_end == LifeEnd.CONSUMED
+    assert spawn.roles == ["idle", "upload", "step", "send"]
+    assert life.reply == support.STATUS + outcome + support.END
+    assert "bbbbbbbbbb" not in captured.err
 
 
 @pytest.mark.parametrize("plant", PLANTS.values(), ids=PLANTS.keys())

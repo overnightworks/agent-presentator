@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ValidationError
+from pydantic import AfterValidator, BaseModel, StringConstraints, ValidationError
 
 from presentator.contracts.decks import (
+    FAILURE_TEXT_LIMIT,
     TOOLCHAIN_SCRATCH_DIRECTORY,
     StepKind,
     is_a_plain_folder_name,
@@ -70,10 +71,10 @@ class StepHeader(BaseModel, extra="forbid", strict=True):
 
 
 class FailedOutcome(BaseModel, extra="forbid", strict=True):
-    """The header of an OUTCOME that carries no text: the build failed."""
+    """The header of an OUTCOME: the build failed, with the step's text if any."""
 
     outcome: Literal["failed"] = "failed"
-    text: None = None
+    text: Annotated[str, StringConstraints(max_length=FAILURE_TEXT_LIMIT)] | None = None
 
 
 _HEADER_MODELS: dict[int, type[EmptyHeader | StepHeader]] = {
@@ -125,11 +126,26 @@ def send_status(connection: socket.socket) -> None:
     _send_message(connection, MessageKind.STATUS, b"{}")
 
 
-def send_failed(connection: socket.socket) -> None:
-    """Write the OUTCOME message: the build failed, with no text."""
-    _send_message(
-        connection, MessageKind.OUTCOME, FailedOutcome().model_dump_json().encode()
-    )
+def _failed_header(text: str | None) -> bytes:
+    return FailedOutcome(text=text).model_dump_json().encode()
+
+
+def _longest_fitting_suffix(text: str) -> str:
+    """The longest suffix of the text whose OUTCOME header fits the bound."""
+    shortest, longest = 0, len(text)
+    while shortest < longest:
+        middle = (shortest + longest + 1) // 2
+        if len(_failed_header(text[len(text) - middle :])) <= MAXIMUM_HEADER_BYTES:
+            shortest = middle
+        else:
+            longest = middle - 1
+    return text[len(text) - shortest :]
+
+
+def send_failed(connection: socket.socket, text: str | None = None) -> None:
+    """Write the OUTCOME message: the build failed, with the longest fitting tail."""
+    fitted = None if text is None else _longest_fitting_suffix(text)
+    _send_message(connection, MessageKind.OUTCOME, _failed_header(fitted))
 
 
 def send_end(connection: socket.socket) -> None:
