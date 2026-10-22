@@ -416,7 +416,7 @@ def prove_inspect_sealing(report: Report) -> None:
     held = {
         "SecurityOpt": host["SecurityOpt"] == ["no-new-privileges"],
         "AppArmorProfile": container["AppArmorProfile"] == "docker-default",
-        "CapAdd": sorted(host["CapAdd"]) == ["KILL", "SETGID", "SETUID"],
+        "CapAdd": sorted(host["CapAdd"]) == ["CAP_KILL", "CAP_SETGID", "CAP_SETUID"],
         "CapDrop": host["CapDrop"] == ["ALL"],
         "ReadonlyRootfs": host["ReadonlyRootfs"] is True,
         "NetworkMode": host["NetworkMode"] == "none",
@@ -434,7 +434,7 @@ def prove_inspect_sealing(report: Report) -> None:
     }
     failed = [name for name, ok in held.items() if not ok]
     if failed:
-        refuse(f"inspect: {', '.join(failed)}")
+        refuse(f"inspect: {', '.join(failed)} in {json.dumps(host)}")
     report.cell("51", f"{len(held)} sealing facts held")
 
 
