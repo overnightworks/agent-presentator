@@ -431,6 +431,32 @@ def test_a_verified_logout_token_at_the_lobby_ends_the_talk_session(
     assert talk.get(presenter).status_code == HTTPStatus.FOUND
 
 
+# T10.
+def test_a_logout_token_sent_with_the_lobby_hostname_and_a_port_ends_both_hosts_sessions(
+    hosts: Hosts,
+) -> None:
+    lobby_hostname = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
+    lobby = hosts.browser(A_BROWSERS_ADDRESS)
+    talk = hosts.browser(A_TALK_ADDRESS)
+    hosts.sign_in(lobby, A_BROWSERS_ADDRESS)
+    hosts.sign_in(talk, A_TALK_ADDRESS)
+    hosts.give_a_deck_to(A.username)
+    presenter = f"/deck/{A_DECK}/presenter/"
+    assert talk.get(presenter).status_code == HTTPStatus.OK
+    assert lobby.get("/").status_code == HTTPStatus.OK
+
+    token = hosts.issuer.mint_logout_token(subject="subject-1")
+    ended = hosts.browser(f"http://{lobby_hostname}:8000").post(
+        "/auth/backchannel-logout",
+        content=urlencode({"logout_token": token}),
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+
+    assert ended.status_code == HTTPStatus.OK
+    assert talk.get(presenter).status_code == HTTPStatus.FOUND
+    assert lobby.get("/").status_code == HTTPStatus.FOUND
+
+
 # T11.
 def test_a_lobby_logout_leaves_the_talk_session_standing(hosts: Hosts) -> None:
     browser = hosts.browser(A_BROWSERS_ADDRESS)
