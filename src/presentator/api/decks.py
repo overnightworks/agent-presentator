@@ -309,4 +309,9 @@ def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:
     # mount catches the rest.
     lobby.add_api_route(_DECK_PAGE, page.deck, methods=["GET"])
     lobby.add_api_route(_DECK_PDF, page.pdf, methods=["GET"])
-    lobby.mount(_DECK_PAGE, _BuiltTalk(decks=decks), name="talk")
+    add_talk_mount(lobby, decks=decks)
+
+
+def add_talk_mount(app: FastAPI, *, decks: Decks) -> None:
+    """Serve the owner's built talk under the deck's address, on any app of the host."""
+    app.mount(_DECK_PAGE, _BuiltTalk(decks=decks), name="talk")

@@ -12,6 +12,7 @@ import pytest
 
 from presentator.adapters.worker_children import GatedChild
 from presentator.contracts.decks import FAILURE_TEXT_LIMIT
+from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
 from tests import step_support
@@ -44,8 +45,9 @@ descriptors = {{
     for name in os.listdir("/proc/self/fd")
     if os.path.exists("/proc/self/fd/" + name)
 }}
-os.makedirs({talk!r})
+os.makedirs({talk!r} + "/assets")
 open({talk!r} + "/index.html", "w").write("built")
+open({talk!r} + "/assets/app.js", "w").write("script")
 open({report!r}, "w").write(
     json.dumps(
         {{
@@ -205,7 +207,115 @@ def test_a_half_close_after_the_last_check_does_not_cancel_the_reply(
     life = run_life(SENT, spawn, LifeScenario(work=sandbox), client.hold)
 
     assert life.life_end == LifeEnd.CONSUMED
-    assert life.reply == REPLY
+    assert life.reply == support.STATUS + support.OUTCOME_REFUSED_SHAPE + support.END
+
+
+def test_an_export_writing_its_pdf_gets_built_and_the_pdf_as_the_only_entry(
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cell I2 (35)."""
+    work = sandbox / "work"
+    work.mkdir()
+    pnpm = step_support.fake_pnpm(
+        sandbox / "bin",
+        f"open({str(work / 'out' / 'deck.pdf')!r}, 'wb').write(b'%PDF')\n",
+    )
+    monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
+    export = support.framed(b'{"step":"export","slug":"my-deck"}', support.STEP)
+
+    life = run_life(
+        export + support.END,
+        ChainSpawn(real_launcher=True),
+        LifeScenario(work=work, project=sandbox),
+    )
+
+    assert life.reply == (
+        support.STATUS
+        + support.OUTCOME_BUILT
+        + support.file_entry(b"deck.pdf", b"%PDF")
+        + support.end_entry(1, 4)
+    )
+
+
+BLOB_BYTES = 16 * 1024 * 1024
+REPLY_BOUND_SECONDS = 1.0
+
+
+def a_blob_building_chain(
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, ChainSpawn, list[float]]:
+    """A real-launcher chain whose build writes a blob no socket buffer holds."""
+    work = sandbox / "work"
+    work.mkdir()
+    talk = work / "out" / "talk"
+    pnpm = step_support.fake_pnpm(
+        sandbox / "bin",
+        f"import os\nos.makedirs({str(talk)!r})\n"
+        f"open({str(talk / 'blob')!r}, 'wb').truncate({BLOB_BYTES})\n",
+    )
+    monkeypatch.setenv("PATH", f"{pnpm}:{PATH}")
+    sender_spawned: list[float] = []
+    spawn = ChainSpawn(
+        real_launcher=True,
+        sender_gate=lambda child: sender_spawned.append(time.monotonic()) or child,
+    )
+    return work, spawn, sender_spawned
+
+
+def read_the_first(count: int) -> Callable[[socket.socket], None]:
+    def read(client: socket.socket) -> None:
+        received = 0
+        while received < count:
+            received += len(client.recv(count - received))
+
+    return read
+
+
+def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bound(
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cell I4 (32)."""
+    work, spawn, sender_spawned = a_blob_building_chain(sandbox, monkeypatch)
+    monkeypatch.setattr(worker_serving, "REPLY_SECONDS", REPLY_BOUND_SECONDS)
+    before_the_sender_spawns = time.monotonic()
+
+    life = run_life(
+        SENT,
+        spawn,
+        LifeScenario(work=work, project=sandbox, reader=read_to_end_or_reset),
+        read_the_first(len(support.STATUS)),
+    )
+
+    assert life.life_end == LifeEnd.REPLY_EXPIRED
+    assert life.returned_at - before_the_sender_spawns >= REPLY_BOUND_SECONDS
+    assert life.returned_at - sender_spawned[0] < REPLY_BOUND_SECONDS + WAIT_SECONDS
+    assert sender_pid(life) not in life.present_at_return
+    assert life.reply.startswith(support.OUTCOME_BUILT)
+    assert not life.reply.endswith(support.END)
+
+
+def test_a_client_that_closes_during_a_large_reply_ends_the_sender_promptly(
+    sandbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cell I5a (33)."""
+    work, spawn, _ = a_blob_building_chain(sandbox, monkeypatch)
+    closed_at: list[float] = []
+
+    def close_after_the_outcome(client: socket.socket) -> None:
+        read_the_first(len(support.STATUS + support.OUTCOME_BUILT))(client)
+        closed_at.append(time.monotonic())
+        client.close()
+
+    life = run_life(
+        SENT,
+        spawn,
+        LifeScenario(work=work, project=sandbox, reader=nothing_to_read),
+        close_after_the_outcome,
+    )
+
+    assert life.life_end == LifeEnd.WIRE_EXIT
+    assert life.returned_at - closed_at[0] < WAIT_SECONDS
+    assert sender_pid(life) not in life.present_at_return
 
 
 def test_a_step_ignoring_sigterm_is_killed_at_the_build_bound_and_the_reply_comes(
@@ -302,7 +412,15 @@ def test_a_step_runs_the_launcher_with_its_paths_environment_and_streams(
 
     seen = json.loads(report.read_text())
     captured = capfd.readouterr()
-    assert life.reply == REPLY
+    assert life.reply == (
+        support.STATUS
+        + support.OUTCOME_BUILT
+        + support.directory_entry(b"talk")
+        + support.directory_entry(b"talk/assets")
+        + support.file_entry(b"talk/assets/app.js", b"script")
+        + support.file_entry(b"talk/index.html", b"built")
+        + support.end_entry(4, len(b"script") + len(b"built"))
+    )
     assert spawn.roles == ["idle", "upload", "step", "send"]
     assert seen["argv"] == [
         "exec",

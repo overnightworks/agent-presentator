@@ -8,14 +8,16 @@ from pydantic import SecretStr
 from presentator.host import main
 from presentator.host.config import ConfigurationError, load_settings
 from presentator.host.oidc import (
-    client_config_of,
+    client_configs_of,
     oidc_client_config,
     read_client_secret,
     relying_party,
 )
 from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
     A_CLIENT_CREDENTIAL,
     A_CLIENT_ID,
+    A_TALK_ADDRESS,
     AN_ISSUER,
     a_settings,
     configure_oidc,
@@ -37,7 +39,9 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.Monke
 
 
 def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
-    config = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
+    config = oidc_client_config(
+        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+    )
 
     realm = f"{AN_ISSUER}/protocol/openid-connect"
     assert config.issuer == AN_ISSUER
@@ -50,6 +54,26 @@ def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
     assert config.post_logout_redirect_uri == "https://testserver/login"
     assert config.logout_path == "/logout"
     assert config.scopes == ("openid", "profile", "groups")
+
+
+# T3.
+def test_the_lobby_and_the_talk_host_sign_in_through_one_client_at_their_own_callbacks(
+    tmp_path: Path,
+) -> None:
+    secret_file = tmp_path / "secret"
+    secret_file.write_text(f"{A_CLIENT_CREDENTIAL}\n", encoding="utf-8")
+    settings = a_settings().model_copy(update={"oidc_client_secret_file": secret_file})
+
+    lobby, talk = client_configs_of(settings)
+
+    assert (talk.client_id, talk.client_secret) == (
+        lobby.client_id,
+        lobby.client_secret,
+    )
+    assert lobby.redirect_uri == f"{A_BROWSERS_ADDRESS}/auth/callback"
+    assert talk.redirect_uri == f"{A_TALK_ADDRESS}/auth/callback"
+    assert talk.post_logout_redirect_uri == lobby.post_logout_redirect_uri
+    assert lobby.post_logout_redirect_uri == f"{A_BROWSERS_ADDRESS}/login"
 
 
 @pytest.mark.parametrize(
@@ -77,7 +101,7 @@ def test_the_relying_party_begins_a_login_at_the_issuer_the_settings_name(
 ) -> None:
     del environment
 
-    started = relying_party(client_config_of(load_settings())).begin_login()
+    started = relying_party(client_configs_of(load_settings())[0]).begin_login()
 
     assert started.url.startswith(f"{AN_ISSUER}/protocol/openid-connect/auth?")
 
@@ -216,9 +240,51 @@ def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None
     secret = SecretStr(A_CLIENT_CREDENTIAL)
 
     with pytest.raises(ConfigurationError, match="client_id") as refused:
-        oidc_client_config(settings, secret)
+        oidc_client_config(settings, secret, origin=A_BROWSERS_ADDRESS)
 
     assert A_CLIENT_CREDENTIAL not in str(refused.value)
+
+
+# T1.
+@pytest.mark.parametrize(
+    "origin",
+    [
+        None,
+        "http://presentator-talk.test",
+        "https://presentator-talk.test/path",
+        "https://presentator.test",
+        "https://presentator.test:8443",
+    ],
+    ids=["missing", "http", "a path", "the lobby's hostname", "the lobby's other port"],
+)
+def test_the_talk_origin_must_be_another_canonical_https_hostname(
+    environment: pytest.MonkeyPatch,
+    origin: str | None,
+) -> None:
+    if origin is None:
+        environment.delenv("PRESENTATOR_TALK_ORIGIN")
+    else:
+        environment.setenv("PRESENTATOR_TALK_ORIGIN", origin)
+
+    with pytest.raises(ConfigurationError, match="talk_origin") as refused:
+        load_settings()
+
+    assert origin is None or origin not in str(refused.value)
+
+
+# T15.
+def test_both_hosts_share_one_lock_one_account_store_and_one_audit_sink(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    del environment
+
+    lobby, talk = main.installed_auths(load_settings())
+
+    assert talk.lock is lobby.lock
+    assert talk.accounts is lobby.accounts
+    assert talk.audit is lobby.audit
+    assert talk.config.session_secret != lobby.config.session_secret
+    assert talk.relying_party is not lobby.relying_party
 
 
 @pytest.mark.parametrize(

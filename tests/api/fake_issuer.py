@@ -53,6 +53,7 @@ class FakeIssuer:
         self._now = now
         self._tokens_by_code: dict[str, str] = {}
         self._refresh_token: str | None = None
+        self.redirect_uris: list[str] = []
         self.token_endpoint_is_down = False
         self.key_set_is_down = False
 
@@ -138,6 +139,7 @@ class FakeIssuer:
 
     def post_token_request(self, request: TokenRequest) -> TokenEndpointAnswer:
         """The token endpoint: the token minted for the code, or no answer at all."""
+        self.redirect_uris.append(request.form["redirect_uri"])
         if self.token_endpoint_is_down:
             message = "the token endpoint of a test issuer is down"
             raise TokenEndpointError(message)

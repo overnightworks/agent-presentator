@@ -68,15 +68,15 @@ function mimeType(pathname: string) {
   }[extname(pathname)] ?? 'application/octet-stream'
 }
 
-// What `SecurityHeadersPolicy` really sends in production: the policy
-// `presentator.api.auth.content_security_policy` builds, for the test
-// instance, read through this one bridge call and never hand-copied here, so
+// What `SecurityHeadersPolicy` really sends in production on the talk host,
+// where a talk runs: the policy `presentator.api.talk.talk_content_security_policy`
+// builds, read through this one bridge call and never hand-copied here, so
 // a changed policy fails this test's own build rather than silently drifting
 // from what a browser reaching the real deployment gets.
 const PYTHON_SECURITY_HEADERS_SCRIPT = `
 import json
-from tests.api.lobby import a_content_security_policy
-print(json.dumps({"content-security-policy": a_content_security_policy()}))
+from presentator.api.talk import talk_content_security_policy
+print(json.dumps({"content-security-policy": talk_content_security_policy()}))
 `
 
 async function loadProductionSecurityHeaders(): Promise<Record<string, string>> {

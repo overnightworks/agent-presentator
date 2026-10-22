@@ -9,16 +9,20 @@ from presentator.adapters.build_wire import (
     LENGTH,
     MAGIC,
     MAXIMUM_HEADER_BYTES,
+    BuiltOutcome,
     EmptyHeader,
     FailedOutcome,
     MessageKind,
     RecordTag,
+    RefusalLimit,
+    RefusedOutcome,
     StepHeader,
     WireRefusedError,
     read_request,
     receive_entries,
     send_end,
     send_failed,
+    send_outcome,
     send_status,
 )
 from presentator.contracts.decks import StepKind
@@ -86,12 +90,48 @@ def test_a_failed_text_is_the_longest_suffix_that_fits_the_header_bound(
         assert len(oversized) > MAXIMUM_HEADER_BYTES
 
 
+def test_built_is_an_outcome_message_with_no_other_field(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    """Cell W4 (35)."""
+    reading_end, writing_end = wire
+
+    send_outcome(writing_end, BuiltOutcome())
+
+    assert reading_end.recv(64) == support.OUTCOME_BUILT
+
+
+def test_a_megabytes_refusal_carries_the_written_total_and_a_shape_refusal_null(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    """Cell W3 (31)."""
+    reading_end, writing_end = wire
+
+    send_outcome(writing_end, RefusedOutcome(limit=RefusalLimit.SHAPE))
+    send_outcome(writing_end, RefusedOutcome(limit=RefusalLimit.MEGABYTES, written=301))
+
+    assert reading_end.recv(256) == support.OUTCOME_REFUSED_SHAPE + support.framed(
+        b'{"outcome":"refused","limit":"megabytes","written":301}', b"PBW\x01\x05"
+    )
+
+
+def test_an_end_carries_the_count_and_the_sum_it_is_given(
+    wire: tuple[socket.socket, socket.socket],
+) -> None:
+    """Cell W4 (35)."""
+    reading_end, writing_end = wire
+
+    send_end(writing_end, 3, 500)
+
+    assert reading_end.recv(64) == support.end_entry(3, 500)
+
+
 def test_an_end_without_entries_is_thirteen_bytes(
     wire: tuple[socket.socket, socket.socket],
 ) -> None:
     reading_end, writing_end = wire
 
-    send_end(writing_end)
+    send_end(writing_end, 0, 0)
 
     assert reading_end.recv(64) == support.END
 

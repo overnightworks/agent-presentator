@@ -1,16 +1,22 @@
 """The build wire's framing: requests and entries read, STATUS, OUTCOME, END sent."""
 
+import errno
 import os
 import socket
+import stat
 import struct
+from collections.abc import Generator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, StringConstraints, ValidationError
 
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
+    PDF_FILE,
+    TALK_DIRECTORY,
     TOOLCHAIN_SCRATCH_DIRECTORY,
     StepKind,
     is_a_plain_folder_name,
@@ -76,6 +82,30 @@ class FailedOutcome(BaseModel, extra="forbid", strict=True):
     outcome: Literal["failed"] = "failed"
     text: Annotated[str, StringConstraints(max_length=FAILURE_TEXT_LIMIT)] | None = None
 
+
+class RefusalLimit(StrEnum):
+    """Why a finished step's output was refused."""
+
+    SHAPE = "shape"
+    ENTRIES = "entries"
+    MEGABYTES = "megabytes"
+
+
+class BuiltOutcome(BaseModel, extra="forbid", strict=True):
+    """The header of an OUTCOME: the build produced its declared output."""
+
+    outcome: Literal["built"] = "built"
+
+
+class RefusedOutcome(BaseModel, extra="forbid", strict=True):
+    """The header of an OUTCOME: the output broke a contract or a limit."""
+
+    outcome: Literal["refused"] = "refused"
+    limit: RefusalLimit
+    written: int | None = None
+
+
+Outcome = BuiltOutcome | RefusedOutcome | FailedOutcome
 
 _HEADER_MODELS: dict[int, type[EmptyHeader | StepHeader]] = {
     MessageKind.HELLO: EmptyHeader,
@@ -145,12 +175,17 @@ def _longest_fitting_suffix(text: str) -> str:
 def send_failed(connection: socket.socket, text: str | None = None) -> None:
     """Write the OUTCOME message: the build failed, with the longest fitting tail."""
     fitted = None if text is None else _longest_fitting_suffix(text)
-    _send_message(connection, MessageKind.OUTCOME, _failed_header(fitted))
+    send_outcome(connection, FailedOutcome(text=fitted))
 
 
-def send_end(connection: socket.socket) -> None:
-    """Write the END record of a reply that carries no entries."""
-    connection.sendall(bytes([RecordTag.END]) + END_COUNTS.pack(0, 0))
+def send_outcome(connection: socket.socket, outcome: Outcome) -> None:
+    """Write the OUTCOME message carrying the outcome as its header."""
+    _send_message(connection, MessageKind.OUTCOME, outcome.model_dump_json().encode())
+
+
+def send_end(connection: socket.socket, count: int, total: int) -> None:
+    """Write the END record with the count of entries sent and their file bytes."""
+    connection.sendall(bytes([RecordTag.END]) + END_COUNTS.pack(count, total))
 
 
 def encode_record(header: StepHeader) -> bytes:
@@ -309,3 +344,155 @@ def receive_entries(
     finally:
         for directory in open_directories[1:]:
             os.close(directory.descriptor)
+
+
+class TreeRefusedError(Exception):
+    """The output tree breaks the step contract, the path rules or a limit."""
+
+    def __init__(self, outcome: RefusedOutcome) -> None:
+        """Carry the refusal the reply will send."""
+        super().__init__(outcome.limit)
+        self.outcome = outcome
+
+
+_SHAPE_REFUSAL = RefusedOutcome(limit=RefusalLimit.SHAPE)
+_REFUSING_OPEN_ERRORS = frozenset({errno.ELOOP, errno.EACCES, errno.ENXIO})
+
+
+@dataclass(frozen=True)
+class TreeEntry:
+    """One entry of the output tree; a file's descriptor is open while it is yielded."""
+
+    components: tuple[bytes, ...]
+    size: int
+    descriptor: int | None
+
+    @property
+    def is_directory(self) -> bool:
+        """Whether the entry is a directory."""
+        return self.descriptor is None
+
+
+@contextmanager
+def _refusing_shape_on_lookup_errors() -> Generator[None]:
+    try:
+        yield
+    except OSError as error:
+        if error.errno in _REFUSING_OPEN_ERRORS:
+            raise TreeRefusedError(_SHAPE_REFUSAL) from error
+        raise
+
+
+def _open_without_following(directory: int, name: bytes) -> int:
+    with _refusing_shape_on_lookup_errors():
+        return os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=directory,
+        )
+
+
+def _refuse_unless_directory_or_file(directory: int, name: bytes) -> None:
+    """Judge the entry's own type before any open, so a FIFO is never opened."""
+    with _refusing_shape_on_lookup_errors():
+        mode = os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode
+    if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        raise TreeRefusedError(_SHAPE_REFUSAL)
+
+
+def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Generator[TreeEntry]:
+    """Walk depth-first in pre-order, names sorted as bytes, never following a link."""
+    for name in sorted(os.fsencode(listed) for listed in os.listdir(directory)):
+        components = (*parent, name)
+        try:
+            path_components(b"/".join(components))
+        except WireRefusedError as error:
+            raise TreeRefusedError(_SHAPE_REFUSAL) from error
+        _refuse_unless_directory_or_file(directory, name)
+        descriptor = _open_without_following(directory, name)
+        try:
+            status = os.fstat(descriptor)
+            if stat.S_ISDIR(status.st_mode):
+                yield TreeEntry(components, 0, None)
+                yield from _tree(descriptor, components)
+            elif stat.S_ISREG(status.st_mode) and status.st_nlink == 1:
+                yield TreeEntry(components, status.st_size, descriptor)
+            else:
+                raise TreeRefusedError(_SHAPE_REFUSAL)
+        finally:
+            os.close(descriptor)
+
+
+def _meets_step_contract(step: StepKind, position: int, entry: TreeEntry) -> bool:
+    """Build: DIR talk first, all else below it. Export: the one FILE deck.pdf."""
+    if step is StepKind.EXPORT:
+        return (
+            position == 0
+            and entry.components == (PDF_FILE.encode(),)
+            and not entry.is_directory
+        )
+    talk = TALK_DIRECTORY.encode()
+    if position == 0:
+        return entry.components == (talk,) and entry.is_directory
+    return entry.components[0] == talk
+
+
+def _survey(root: int, step: StepKind, megabytes: int) -> None:
+    """Walk the whole tree; raise TreeRefusedError unless it is within contract."""
+    count = total = 0
+    with closing(_tree(root)) as entries:
+        for entry in entries:
+            if count == MAXIMUM_ENTRIES:
+                raise TreeRefusedError(RefusedOutcome(limit=RefusalLimit.ENTRIES))
+            if not _meets_step_contract(step, count, entry):
+                raise TreeRefusedError(_SHAPE_REFUSAL)
+            count += 1
+            total += entry.size
+    if count == 0:
+        raise TreeRefusedError(_SHAPE_REFUSAL)
+    if total > megabytes * MEGABYTE:
+        raise TreeRefusedError(
+            RefusedOutcome(
+                limit=RefusalLimit.MEGABYTES,
+                written=(total + MEGABYTE - 1) // MEGABYTE,
+            )
+        )
+
+
+def _send_entry(connection: socket.socket, entry: TreeEntry) -> None:
+    path = b"/".join(entry.components)
+    tag = RecordTag.DIR if entry.is_directory else RecordTag.FILE
+    connection.sendall(bytes([tag]) + LENGTH.pack(len(path)) + path)
+    if entry.descriptor is None:
+        return
+    connection.sendall(SIZE.pack(entry.size))
+    remaining = entry.size
+    while remaining:
+        chunk = os.read(entry.descriptor, min(remaining, CHUNK_BYTES))
+        if not chunk:
+            raise WireRefusedError
+        connection.sendall(chunk)
+        remaining -= len(chunk)
+
+
+def send_tree_reply(
+    connection: socket.socket, root: int, step: StepKind, megabytes: int
+) -> None:
+    """Answer built with the tree's entries and END, or refused and END.
+
+    The whole tree is walked and judged before the first byte is sent; sends block.
+    """
+    try:
+        _survey(root, step, megabytes)
+    except TreeRefusedError as refusal:
+        send_outcome(connection, refusal.outcome)
+        send_end(connection, 0, 0)
+        return
+    send_outcome(connection, BuiltOutcome())
+    count = total = 0
+    with closing(_tree(root)) as entries:
+        for entry in entries:
+            _send_entry(connection, entry)
+            count += 1
+            total += entry.size
+    send_end(connection, count, total)

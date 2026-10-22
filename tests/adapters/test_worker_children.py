@@ -576,7 +576,7 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
     assert serving.watchdog.events == ["arm", "cancel", "arm"]
 
 
-def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_life(
+def test_a_valid_step_and_end_get_status_refused_shape_end_and_eof_and_end_the_life(
     volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
@@ -584,7 +584,9 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
         reply = run.serving.exchange(run.thread, support.VALID_STEP + support.END)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
+    assert reply.received == (
+        support.STATUS + support.OUTCOME_REFUSED_SHAPE + support.END
+    )
     assert not reply.ended_by_reset
     assert run.spawns.roles == ["idle", "upload", "step", "send"]
     assert not run.thread.is_alive()

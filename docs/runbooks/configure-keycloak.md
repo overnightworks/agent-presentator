@@ -8,8 +8,10 @@ sign-in. What a sign-in does is
 
 ## Before you start
 
-The instance's `PRESENTATOR_PUBLIC_ORIGIN` (https) and its internal lobby
-address are known.
+The instance's `PRESENTATOR_PUBLIC_ORIGIN` and `PRESENTATOR_TALK_ORIGIN`
+(both https) are known. Inside the internal network the lobby's public
+hostname must resolve to the instance (an alias), because the instance answers
+only its two configured hostnames.
 
 ## Steps
 
@@ -25,12 +27,20 @@ address are known.
    nobody matches `/apps/presentator` and every sign-in shows "No access".
    Members of `/apps/presentator` are admitted; members of
    `/apps/presentator/admin` are admins.
-4. Register `<internal lobby address>/auth/backchannel-logout` as the client's
-   back-channel logout URL. The route is not live until the client registers
-   it; a valid Logout Token then ends every session of its subject, on every
-   device.
+4. Register `http://presentator.hallucinai.de:8000/auth/backchannel-logout` as
+   the client's back-channel logout URL. Keycloak reaches it inside the
+   network `hal_backchannel_presentator` through the alias
+   `presentator.hallucinai.de`, in plain HTTP: TLS ends at the edge. Its
+   hostname is the lobby's public hostname, and the port does not matter to the
+   match; a request under any other Host, an internal hostname or an IP
+   included, gets 404 and ends no session. The route is not live until the
+   client registers it; a valid Logout Token then ends every session of its
+   subject, on every device.
 5. Register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as the post-logout redirect
    URI, or Keycloak shows an error page at every logout.
+6. Register both `<PRESENTATOR_PUBLIC_ORIGIN>/auth/callback` and
+   `<PRESENTATOR_TALK_ORIGIN>/auth/callback` as valid redirect URIs: the talk
+   host signs in at its own.
 
 ## Check
 

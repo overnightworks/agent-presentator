@@ -8,8 +8,10 @@ replayed from the browser cache (issue #8, lines 11 to 15).
 """
 
 import logging
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
+from enum import StrEnum
 from http import HTTPMethod, HTTPStatus
 from pathlib import Path
 from typing import Final, assert_never, cast
@@ -83,12 +85,36 @@ _STATIC_PATH: Final = "/static"
 _INSIDE_STATIC: Final = f"{_STATIC_PATH}/"
 _LOBBY: Final = "/"
 LOGIN_PATH: Final = "/login"
-_START_SIGN_IN: Final = "/login/oidc"
+START_SIGN_IN_PATH: Final = "/login/oidc"
 SIGN_IN_CALLBACK_PATH: Final = "/auth/callback"
 BACKCHANNEL_LOGOUT_PATH: Final = "/auth/backchannel-logout"
 LOGOUT_PATH: Final = "/logout"
 _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
+
+
+class TalkRefusal(StrEnum):
+    """Why a sign-in was refused, and the last segment of the lobby's route for it.
+
+    The talk host has no page of its own, so its refused sign-in is answered
+    with a redirect to the lobby, whose footer links Impressum and Datenschutz.
+    """
+
+    NO_ACCESS = "no-access"
+    LOGIN_FAILED = "login-failed"
+
+
+_REFUSAL_PAGES: Final = {
+    TalkRefusal.NO_ACCESS: "no_access.html",
+    TalkRefusal.LOGIN_FAILED: "login_failed.html",
+}
+
+
+def talk_refusal_path(refusal: TalkRefusal) -> str:
+    """The lobby's address that shows a talk sign-in refusal."""
+    return f"/login/talk/{refusal.value}"
+
+
 # Signing in (its start and the issuer's return) and signing out are the
 # addresses the gate leaves alone; logging out ends a session rather than
 # using one. The theme stylesheet has to render the open pages themselves, so
@@ -109,10 +135,11 @@ _PUBLIC_RULES: Final = (
             exact=frozenset(
                 {
                     LOGIN_PATH,
-                    _START_SIGN_IN,
+                    START_SIGN_IN_PATH,
                     SIGN_IN_CALLBACK_PATH,
                     LOGOUT_PATH,
                     _SETUP,
+                    *(talk_refusal_path(refusal) for refusal in TalkRefusal),
                 }
             )
         )
@@ -126,10 +153,11 @@ _CSRF_POLICY: Final = CsrfPolicy(exempt=_SERVER_CALLS)
 _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
 )
+DEFAULT_BODY_BYTES: Final = 32 * 1024
 # Every route has this budget, forms and the ask included; the hook keeps a git
 # host's push budget, since GitHub documents payloads of up to 25 MB.
 _BODY_SIZE: Final = BodySizePolicy(
-    default_max_bytes=32 * 1024,
+    default_max_bytes=DEFAULT_BODY_BYTES,
     rules=(
         BodySizeRule(
             PathRules(prefixes=(HOOK_CALLS,)),
@@ -138,8 +166,8 @@ _BODY_SIZE: Final = BodySizePolicy(
         ),
     ),
 )
-_LOGIN_REDIRECT: Final = LoginRedirect(
-    path=_START_SIGN_IN,
+LOGIN_REDIRECT: Final = LoginRedirect(
+    path=START_SIGN_IN_PATH,
     redirect_query_param="next",
 )
 # Jinja's stubs type the globals as its own defaults only, so the dict is
@@ -215,6 +243,9 @@ class InstalledAuth:
     lock: WriteLock
     audit: AuditSink
     content_security_policy: str
+    # The talk host signs in through its own installation of the same wiring;
+    # the lobby sends a refused talk sign-in's retry there.
+    talk_origin: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -237,6 +268,94 @@ class DeckRow:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SignIn:
+    """The steps of signing in, run under the configuration of the host asked.
+
+    The lobby and the talk host each own a relying party and a library
+    configuration, read from the request, so one step cannot run under the
+    other host's keys; only the answer to a refusal differs between them.
+    """
+
+    sessions: SessionRecordStore
+    auth: InstalledAuth
+
+    def start(self, request: Request) -> Response:
+        """Send the browser to the issuer, remembering where it was headed.
+
+        `next` is only a request to return somewhere: the library keeps it
+        when it is a path of this app and drops anything else.
+        """
+        answer = Response(status_code=HTTPStatus.SEE_OTHER)
+        answer.headers["location"] = start_login(
+            self.auth.relying_party,
+            request,
+            answer,
+            web_auth_config(request),
+            return_to=request.query_params.get(LOGIN_REDIRECT.redirect_query_param),
+        )
+        return answer
+
+    def finish(
+        self,
+        request: Request,
+        *,
+        refused: Callable[[TalkRefusal, Response], Response],
+    ) -> Response:
+        """Complete the sign-in the issuer returns to, or hand the refusal on.
+
+        The `Response` the library writes its cookies to is the one answered
+        with, so the pending login's clear and the logout hint travel with the
+        session cookies; `refused` receives it to carry them on.
+        """
+        config = web_auth_config(request)
+        answer = Response()
+        outcome = finish_login(
+            self.auth.relying_party,
+            request,
+            answer,
+            config,
+            admission=self.auth.admission,
+            accounts=self.auth.accounts,
+            lock=self.auth.lock,
+            audit=self.auth.audit,
+        )
+        match outcome:
+            case AdmittedLogin():
+                return self._signed_in(request, answer, outcome)
+            case AdmissionRefusal.NOT_A_MEMBER:
+                return refused(TalkRefusal.NO_ACCESS, answer)
+            case (
+                OidcRefusal()
+                | AdmissionRefusal.FOREIGN_ISSUER
+                | AdmissionRefusal.USERNAME_TAKEN
+            ):
+                return refused(TalkRefusal.LOGIN_FAILED, answer)
+            case _:
+                assert_never(outcome)
+
+    def _signed_in(
+        self,
+        request: Request,
+        answer: Response,
+        login: AdmittedLogin,
+    ) -> Response:
+        """Open the session and send the browser on, with every cookie on `answer`."""
+        config = web_auth_config(request)
+        session = open_session(
+            request,
+            config,
+            login,
+            sessions=self.sessions,
+            lock=self.auth.lock,
+            max_sessions=None,
+        )
+        issue_session_cookies(answer, session.id, config)
+        answer.status_code = HTTPStatus.SEE_OTHER
+        answer.headers["location"] = login.return_to or _LOBBY
+        return answer
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Surfaces:
     """The lobby's HTML answers, each one asking the use cases what is true."""
 
@@ -244,6 +363,7 @@ class _Surfaces:
     decks: Decks
     pages: Pages
     auth: InstalledAuth
+    sign_in: SignIn
 
     def home(self, request: Request) -> Response:
         """List the signed-in person's decks, newest first."""
@@ -269,85 +389,52 @@ class _Surfaces:
 
     def login_page(self, request: Request) -> Response:
         """Show the signed-out page, whose one button starts the sign-in."""
-        return self.pages.page(request, "login.html", start_sign_in=_START_SIGN_IN)
-
-    def start_sign_in(self, request: Request) -> Response:
-        """Send the browser to the issuer, remembering where it was headed.
-
-        `next` is only a request to return somewhere: the library keeps it
-        when it is a path of this app and drops anything else.
-        """
-        answer = Response(status_code=HTTPStatus.SEE_OTHER)
-        answer.headers["location"] = start_login(
-            self.auth.relying_party,
-            request,
-            answer,
-            web_auth_config(request),
-            return_to=request.query_params.get(_LOGIN_REDIRECT.redirect_query_param),
-        )
-        return answer
+        return self.pages.page(request, "login.html", start_sign_in=START_SIGN_IN_PATH)
 
     def sign_in_callback(self, request: Request) -> Response:
-        """Complete the sign-in the issuer returns to, or show why it failed.
-
-        The `Response` the library writes its cookies to is the one answered
-        with, so the pending login's clear and the logout hint travel with the
-        session cookies.
-        """
-        config = web_auth_config(request)
-        answer = Response()
-        outcome = finish_login(
-            self.auth.relying_party,
+        """Complete the sign-in the issuer returns to, or show why it failed."""
+        return self.sign_in.finish(
             request,
-            answer,
-            config,
-            admission=self.auth.admission,
-            accounts=self.auth.accounts,
-            lock=self.auth.lock,
-            audit=self.auth.audit,
+            refused=lambda refusal, kept: self._refused_page(
+                request, refusal, kept=kept, retry=START_SIGN_IN_PATH
+            ),
         )
-        match outcome:
-            case AdmittedLogin():
-                return self._signed_in(request, answer, outcome)
-            case AdmissionRefusal.NOT_A_MEMBER:
-                return self._refusal(request, "no_access.html", kept=answer)
-            case (
-                OidcRefusal()
-                | AdmissionRefusal.FOREIGN_ISSUER
-                | AdmissionRefusal.USERNAME_TAKEN
-            ):
-                return self._refusal(request, "login_failed.html", kept=answer)
-            case _:
-                assert_never(outcome)
 
-    def _signed_in(
+    def start_sign_in(self, request: Request) -> Response:
+        """Send the browser to the issuer."""
+        return self.sign_in.start(request)
+
+    def talk_refusal_page(self, refusal: TalkRefusal) -> Callable[[Request], Response]:
+        """The route that shows why the talk host refused a sign-in.
+
+        Its retry restarts the sign-in at the talk host, and the page is one
+        address per refusal so no request chooses what it says.
+        """
+
+        def show(request: Request) -> Response:
+            return self._refused_page(
+                request,
+                refusal,
+                kept=Response(),
+                retry=f"{self.auth.talk_origin}{START_SIGN_IN_PATH}",
+            )
+
+        return show
+
+    def _refused_page(
         self,
         request: Request,
-        answer: Response,
-        login: AdmittedLogin,
+        refusal: TalkRefusal,
+        *,
+        kept: Response,
+        retry: str,
     ) -> Response:
-        """Open the session and send the browser on, with every cookie on `answer`."""
-        config = web_auth_config(request)
-        session = open_session(
-            request,
-            config,
-            login,
-            sessions=self.sessions,
-            lock=self.auth.lock,
-            max_sessions=None,
-        )
-        issue_session_cookies(answer, session.id, config)
-        answer.status_code = HTTPStatus.SEE_OTHER
-        answer.headers["location"] = login.return_to or _LOBBY
-        return answer
-
-    def _refusal(self, request: Request, template: str, *, kept: Response) -> Response:
-        """The page a refused sign-in shows, with the cookies the library kept."""
+        """A refusal's page, with the cookies the library kept and where to retry."""
         page = self.pages.page(
             request,
-            template,
+            _REFUSAL_PAGES[refusal],
             status=HTTPStatus.FORBIDDEN,
-            start_sign_in=_START_SIGN_IN,
+            start_sign_in=retry,
         )
         carry_set_cookies(kept, page)
         return page
@@ -440,7 +527,7 @@ def _install_middleware(
         csrf_token=_COPRESENTER_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
-            login_redirect=_LOGIN_REDIRECT,
+            login_redirect=LOGIN_REDIRECT,
             public=_PUBLIC_RULES,
             optional=_OPTIONAL_PATHS,
         ),
@@ -466,16 +553,23 @@ def create_lobby(
         decks=decks,
         pages=pages,
         auth=auth,
+        sign_in=SignIn(sessions=sessions, auth=auth),
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
     _install_middleware(lobby, auth.content_security_policy, sessions)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
-    lobby.add_api_route(_START_SIGN_IN, surfaces.start_sign_in, methods=["GET"])
+    lobby.add_api_route(START_SIGN_IN_PATH, surfaces.start_sign_in, methods=["GET"])
     lobby.add_api_route(
         SIGN_IN_CALLBACK_PATH, surfaces.sign_in_callback, methods=["GET"]
     )
+    for refusal in TalkRefusal:
+        lobby.add_api_route(
+            talk_refusal_path(refusal),
+            surfaces.talk_refusal_page(refusal),
+            methods=["GET"],
+        )
     lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
     lobby.add_api_route(
         BACKCHANNEL_LOGOUT_PATH, surfaces.backchannel_logout, methods=["POST"]
