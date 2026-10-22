@@ -29,6 +29,7 @@ from presentator.adapters.identity import (
 from presentator.adapters.secrets import secret_box
 from presentator.adapters.sqlite import rows
 from presentator.api.hooks import hook_address
+from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
 from presentator.application.decks import hash_webhook_secret
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.decks import SourceWrite
@@ -193,6 +194,31 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
 
     assert len(served) == 1
     assert TestClient(served[0], base_url=A_BROWSERS_ADDRESS).get("/login").is_success
+
+
+# T13, T14a and T5c, through the composition root's own wiring.
+def test_the_composition_root_wires_the_talk_host_to_its_own_policy_and_origin(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    del environment
+    settings = load_settings()
+    router = main.served_by_host(main.build_instance(settings), settings)
+    talk = TestClient(router, base_url=settings.talk_origin, follow_redirects=False)
+
+    root = talk.get("/")
+    from_the_lobby = talk.post(
+        "/logout",
+        headers={"origin": settings.public_origin, "sec-fetch-site": "same-site"},
+    )
+    from_the_talk_host = talk.post("/logout", headers={"origin": settings.talk_origin})
+
+    assert root.status_code == HTTPStatus.SEE_OTHER
+    assert root.headers["location"] == settings.public_origin
+    assert root.headers["content-security-policy"] == talk_content_security_policy()
+    assert root.headers["permissions-policy"] == TALK_PERMISSIONS_POLICY
+    assert "microphone=()" in TALK_PERMISSIONS_POLICY
+    assert from_the_lobby.status_code == HTTPStatus.FORBIDDEN
+    assert from_the_talk_host.status_code != HTTPStatus.FORBIDDEN
 
 
 def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
