@@ -6,11 +6,14 @@ from datetime import timedelta
 from http import HTTPStatus
 
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from presentator.api.people import AdminPeople
 from presentator.application.people import People
+from presentator.host import main
+from presentator.host.config import ConfigurationError, load_settings
 from tests.api.fake_issuer import FakeIssuer
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
@@ -376,3 +379,87 @@ def test_one_call_writes_one_audit_line_naming_nobody(
     )
     assert THE_CALLER not in everything
     assert subject not in everything
+
+
+def test_the_server_logs_no_request_path(environment: pytest.MonkeyPatch) -> None:
+    """Q4 (#293): a path under the admin prefix carries a subject; no log line may."""
+    configs: list[uvicorn.Config] = []
+
+    class ServerThatOnlyRecordsItsConfig:
+        def __init__(self, config: uvicorn.Config) -> None:
+            configs.append(config)
+
+        async def serve(self) -> None:
+            return None
+
+    environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsItsConfig)
+    main.main()
+    [config] = configs
+    server_log = logging.getLogger("uvicorn.error")
+    for attribute in ("level", "handlers", "propagate"):
+        environment.setattr(server_log, attribute, getattr(server_log, attribute))
+    emitted: list[str] = []
+
+    class Emitted(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            emitted.append(record.getMessage())
+
+    config.configure_logging()
+    server_log.handlers = [Emitted()]
+    server_log.info('127.0.0.1 - "WebSocket /api/admin/people/subject-id" 403')
+    server_log.error("the server failed")
+
+    assert emitted == ["the server failed"]
+
+
+@pytest.mark.parametrize(
+    ("given", "admitted"),
+    [
+        ("", frozenset[str]()),
+        ("hal", frozenset({"hal"})),
+        ("hal, second-hal", frozenset({"hal", "second-hal"})),
+    ],
+)
+def test_the_admitted_token_clients_are_the_comma_separated_ids(
+    environment: pytest.MonkeyPatch, given: str, admitted: frozenset[str]
+) -> None:
+    """D6: the setting keeps the environment's comma format."""
+    environment.setenv("PRESENTATOR_ADMIN_TOKEN_CLIENTS", given)
+
+    assert load_settings().admitted_token_clients() == admitted
+
+
+@pytest.mark.parametrize("given", [" ", "hal,", ",hal", "hal,,second-hal"])
+def test_an_empty_entry_among_the_admitted_token_clients_refuses_to_start(
+    environment: pytest.MonkeyPatch, given: str
+) -> None:
+    """D6: a list with an empty entry is a typo, not a decision."""
+    environment.setenv("PRESENTATOR_ADMIN_TOKEN_CLIENTS", given)
+
+    with pytest.raises(ConfigurationError, match="admin_token_clients"):
+        load_settings()
+
+
+def test_without_a_named_client_the_admin_prefix_falls_to_the_session_gate(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    """D6: the prefix answers like any unknown path until a client is named."""
+    path = "/api/admin/people/someone"
+    browser = TestClient(
+        main.build_instance(load_settings()).lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+    )
+    without = browser.delete(path)
+    elsewhere = browser.delete("/api/other/people/someone")
+    environment.setenv("PRESENTATOR_ADMIN_TOKEN_CLIENTS", "hal")
+    gated = TestClient(
+        main.build_instance(load_settings()).lobby,
+        base_url=A_BROWSERS_ADDRESS,
+        follow_redirects=False,
+    ).delete(path)
+
+    assert without.status_code == elsewhere.status_code
+    assert "www-authenticate" not in without.headers
+    assert gated.status_code == HTTPStatus.UNAUTHORIZED
+    assert gated.headers["www-authenticate"].startswith("Bearer")
