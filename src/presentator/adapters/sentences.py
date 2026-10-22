@@ -7,7 +7,7 @@ import re
 # syntok ships no type stubs, so pyright cannot know its types.
 from syntok import segmenter  # pyright: ignore[reportMissingTypeStubs]
 
-_ENDS_IN_ORDINAL = re.compile(r"\d+\.$")
+_ENDS_IN_ORDINAL = re.compile(r"\d\.$")
 
 
 def split_sentences(text: str) -> tuple[str, ...]:
