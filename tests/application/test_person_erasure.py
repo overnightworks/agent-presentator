@@ -182,6 +182,7 @@ _NOTHING = dict.fromkeys(_EVERY_KIND_OF_THE_PERSON, 0)
 
 
 def test_a_real_run_removes_every_kind_of_row_and_reports_what_went() -> None:
+    """S9 (#293): a real run removes every kind of row and reports each kind's count."""
     instance = an_instance()
 
     outcome = instance.people.erase_person(_THE_PERSON.id, dry_run=False)
@@ -208,6 +209,7 @@ def test_a_real_run_removes_every_kind_of_row_and_reports_what_went() -> None:
 
 
 def test_a_real_run_leaves_a_second_persons_rows_alone() -> None:
+    """E5 (#418): the erasure takes only the named person's rows."""
     instance = an_instance()
     anothers_before = (
         instance.users.users[_ANOTHER.id],
@@ -228,6 +230,7 @@ def test_a_real_run_leaves_a_second_persons_rows_alone() -> None:
 
 
 def test_a_dry_run_reports_the_real_runs_counts_and_changes_nothing() -> None:
+    """S9 (#293): the dry run lists the real run's counts and changes nothing."""
     instance = an_instance()
     before = instance.state()
 
@@ -240,6 +243,7 @@ def test_a_dry_run_reports_the_real_runs_counts_and_changes_nothing() -> None:
 
 
 def test_a_second_run_finds_nothing_left_to_remove() -> None:
+    """people.md: a repeated erasure is idempotent and answers zero."""
     instance = an_instance()
     instance.people.erase_person(_THE_PERSON.id, dry_run=False)
 
@@ -249,6 +253,7 @@ def test_a_second_run_finds_nothing_left_to_remove() -> None:
 
 
 def test_an_unknown_subject_answers_zero_and_creates_nothing() -> None:
+    """S9 (#293): an unknown subject answers zero counts and creates no row."""
     instance = an_instance()
     before = instance.state()
 
@@ -261,6 +266,7 @@ def test_an_unknown_subject_answers_zero_and_creates_nothing() -> None:
 
 
 def test_a_person_owning_no_source_is_erased_without_waiting_for_a_refresh() -> None:
+    """S9 (#418 order): a person without a source has no lock to take."""
     instance = an_instance()
     sourceless = User(id="sourceless", username="sam", role=Role.USER)
     instance.users.users[sourceless.id] = sourceless
@@ -275,6 +281,7 @@ def test_a_person_owning_no_source_is_erased_without_waiting_for_a_refresh() -> 
 
 
 def test_a_refresh_under_way_makes_a_real_run_answer_busy_and_delete_nothing() -> None:
+    """S9 (#293): a refresh under way means busy and nothing deleted."""
     instance = an_instance()
     before = instance.state()
 
@@ -288,6 +295,7 @@ def test_a_refresh_under_way_makes_a_real_run_answer_busy_and_delete_nothing() -
 
 
 def test_a_dry_run_lists_a_refresh_under_way_as_running_work() -> None:
+    """S9 (#293): a dry run never waits and lists a running refresh as running work."""
     instance = an_instance()
 
     with another_thread_holding(instance.decks.one_at_a_time):
@@ -300,6 +308,7 @@ def test_a_dry_run_lists_a_refresh_under_way_as_running_work() -> None:
 
 
 def test_an_unknown_subjects_dry_run_does_not_list_running_work() -> None:
+    """S9 (#293): an unknown subject owns nothing, so no running work is listed."""
     instance = an_instance()
 
     with another_thread_holding(instance.decks.one_at_a_time):
@@ -309,6 +318,7 @@ def test_an_unknown_subjects_dry_run_does_not_list_running_work() -> None:
 
 
 def test_a_mirror_that_cannot_go_stops_the_run_with_the_person_still_there() -> None:
+    """E5 (#418): a mirror that cannot go stops the run with the account kept."""
     stuck = FakeDeckFolders(stuck=frozenset({"talks-id"}))
     instance = an_instance(folders=stuck)
 
@@ -323,6 +333,7 @@ def test_a_mirror_that_cannot_go_stops_the_run_with_the_person_still_there() -> 
 
 
 def test_a_repeat_after_a_leftover_finishes_the_erasure() -> None:
+    """E5 (#418): a repeat after a disk leftover finishes the erasure."""
     stuck = FakeDeckFolders(stuck=frozenset({"talks-id"}))
     instance = an_instance(folders=stuck)
     instance.people.erase_person(_THE_PERSON.id, dry_run=False)
@@ -350,6 +361,7 @@ class _FoldersThatWatchTheRows(FakeDeckFolders):
 
 
 def test_files_go_before_the_rows_that_name_them() -> None:
+    """S9 (#293): files before rows."""
     folders = _FoldersThatWatchTheRows()
     instance = an_instance(folders=folders)
     folders.watch = lambda: (
@@ -374,6 +386,7 @@ class _RunsThatGrowWhenRead(FakeSourceRunStore):
 
 
 def test_a_count_that_moves_under_the_hold_fails_loud_instead_of_skipping() -> None:
+    """#418 order: a count that moves under the hold fails loud, never skips."""
     runs = _RunsThatGrowWhenRead()
     instance = an_instance(fakes=DecksFakes(source_runs=runs))
 
@@ -397,6 +410,7 @@ class _SourcesThatVanishAfterTheFirstListing(FakeSourceStore):
 
 
 def test_a_source_that_vanishes_before_it_is_counted_fails_loud() -> None:
+    """#418 order: a source that vanishes between listing and counting fails loud."""
     sources = _SourcesThatVanishAfterTheFirstListing()
     instance = an_instance(source_store=sources)
     sources.listings_left = 1
