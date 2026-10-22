@@ -18,17 +18,24 @@ from typing import ClassVar
 import pytest
 
 from presentator.adapters import worker_children
-from presentator.adapters.worker_children import ChildIdentity, GatedChild, spawn_gated
+from presentator.adapters.worker_children import (
+    ChildIdentity,
+    ChildSurroundings,
+    GatedChild,
+    spawn_gated,
+)
 from presentator.host import worker, worker_serving
 from presentator.host.config import WorkerSettings
 from presentator.host.worker_serving import (
     HEADER_SECONDS,
     LifeEnd,
     Serving,
+    StepEffects,
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
 from tests import worker_support as support
+from tests.step_support import quick_step
 from tests.worker_support import (
     accept_time,
     open_descriptor_count,
@@ -59,6 +66,9 @@ from presentator.host.worker_termination import FaultHandlerWatchdog
 def stall(*_arguments, **_keywords):
     ctypes.PyDLL(None).pause()
 
+def refuse_step(*_arguments, **_keywords):
+    raise AssertionError("the step is not part of this test")
+
 def clock_announcing_each_reading():
     reading = time.monotonic()
     print(reading, flush=True)
@@ -72,7 +82,14 @@ serving = worker_serving.Serving(
     seal=lambda _record: None,
     open_deck=lambda _deck: None,
     close_deck=lambda _deck: None,
-    deck=Path("/unused/deck"),
+    work=Path("/unused/work"),
+    step=worker_serving.StepEffects(
+        spawn=refuse_step,
+        gate_admits=lambda _status: False,
+        prepare=refuse_step,
+        environment={},
+        project=Path("/unused/project"),
+    ),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,
@@ -414,7 +431,8 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
     )
     assert keywords["env"] == {"PATH": PATH}
     assert keywords["pass_fds"] == (7,)
-    assert keywords["cwd"] == "/"
+    assert keywords["cwd"] == Path("/")
+    assert (keywords["stdout"], keywords["stderr"]) == (None, None)
     assert keywords["start_new_session"] is True
 
 
@@ -446,6 +464,7 @@ class RealServing:
     directory: Path
     connections: int
     spawn: Callable[..., WireChild] = REAL_SPAWN
+    step_spawn: Callable[..., WireChild] = quick_step
     sweep_deadlines: list[float] = field(default_factory=list[float])
     watchdog: RecordingWatchdog = field(default_factory=RecordingWatchdog)
     outcome: list[int] = field(default_factory=list[int])
@@ -464,7 +483,16 @@ class RealServing:
             serving_with(self.spawn),
             sweep=self.sweep,
             watchdog=self.watchdog,
-            deck=self.directory,
+            work=self.directory,
+            open_deck=worker.make_open_directory,
+            close_deck=worker.close_deck,
+            step=StepEffects(
+                spawn=self.step_spawn,
+                gate_admits=lambda _status: True,
+                prepare=worker.prepare_step_paths,
+                environment={"PATH": PATH},
+                project=self.directory,
+            ),
         )
         thread = threading.Thread(
             target=lambda: self.outcome.append(
@@ -559,7 +587,7 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
 
     assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
     assert not reply.ended_by_reset
-    assert run.spawns.roles == ["idle", "upload", "send"]
+    assert run.spawns.roles == ["idle", "upload", "step", "send"]
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
     assert run.serving.sweep_deadlines == []
@@ -595,6 +623,28 @@ class RecordingSpawn:
         )
         self.children.append(child)
         self.roles.append(role_of(command))
+        self.process_ids.append(support.process_id_of(child))
+        return child
+
+    def step(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+        surroundings: ChildSurroundings,
+    ) -> GatedChild:
+        if self.stopped:
+            reason = "the test stopped the serving loop"
+            raise OSError(reason)
+        child = quick_step(
+            command,
+            environment=environment,
+            pass_fds=pass_fds,
+            surroundings=surroundings,
+        )
+        self.children.append(child)
+        self.roles.append("step")
         self.process_ids.append(support.process_id_of(child))
         return child
 
@@ -636,7 +686,12 @@ class DrippedHeader:
 @contextmanager
 def dripped_header(directory: Path) -> Generator[DrippedHeader]:
     spawns = RecordingSpawn()
-    serving = RealServing(directory, connections=SECOND_CONNECTION, spawn=spawns)
+    serving = RealServing(
+        directory,
+        connections=SECOND_CONNECTION,
+        spawn=spawns,
+        step_spawn=spawns.step,
+    )
     run = DrippedHeader(serving, spawns, serving.start())
     try:
         yield run

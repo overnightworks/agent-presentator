@@ -15,9 +15,9 @@ from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd
 from presentator.host.worker_termination import SWEEP_SECONDS, SweepEffects, sweep
 from presentator.host.worker_wire import WireExit
+from tests.step_support import ADMITTING_PATH, STEP_LEG
 from tests.worker_support import (
     ACCEPT_TIME,
-    ADMITTING_PATH,
     CHILD_LEG,
     CONNECTIONS,
     FOREIGN_UID,
@@ -25,8 +25,9 @@ from tests.worker_support import (
     IDLE_LEG,
     OWN_GID,
     OWN_UID,
+    SENDER_LEG,
     STATUS,
-    UNUSED_DECK,
+    UNUSED_WORK,
     WAIT_SECONDS,
     BoundedListener,
     ScriptedLife,
@@ -197,8 +198,8 @@ def test_the_child_is_told_the_descriptor_of_its_connection_and_inherits_only_it
         str(spawned.pass_fds[0]),
         "--record-fd",
         str(spawned.pass_fds[1]),
-        "--deck",
-        str(UNUSED_DECK),
+        "--work",
+        str(UNUSED_WORK),
         "--megabytes",
         "300",
     ]
@@ -267,7 +268,8 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
         "open-deck",
         *CHILD_LEG,
         "close-deck",
-        *CHILD_LEG,
+        *STEP_LEG,
+        *SENDER_LEG,
     ]
 
 
@@ -277,17 +279,17 @@ def consume_an_accepted_step(volume: Path, life: ScriptedLife) -> None:
         accept_from(life, listener, OWN_UID)
 
 
-def test_every_role_is_spawned_with_the_deck_and_the_megabytes_of_the_serving(
+def test_every_role_is_spawned_with_the_work_and_the_megabytes_of_the_serving(
     volume: Path,
 ) -> None:
     life = ScriptedLife(
-        exit_status=WireExit.ACCEPTED, build_output_megabytes=7, deck=Path("/a/deck")
+        exit_status=WireExit.ACCEPTED, build_output_megabytes=7, work=Path("/a")
     )
 
     consume_an_accepted_step(volume, life)
 
     assert [spawned.command[-4:] for spawned in life.spawned] == [
-        ["--deck", "/a/deck", "--megabytes", "7"]
+        ["--work", "/a", "--megabytes", "7"]
     ] * 3
     assert [
         spawned.command[spawned.command.index("--role") + 1] for spawned in life.spawned
@@ -298,8 +300,10 @@ def test_every_role_is_spawned_with_the_deck_and_the_megabytes_of_the_serving(
     ]
 
 
-def test_the_deck_effects_receive_the_deck_of_the_serving(volume: Path) -> None:
-    life = ScriptedLife(exit_status=WireExit.ACCEPTED, deck=Path("/a/deck"))
+def test_the_deck_effects_receive_the_deck_below_the_work_root_of_the_serving(
+    volume: Path,
+) -> None:
+    life = ScriptedLife(exit_status=WireExit.ACCEPTED, work=Path("/a"))
 
     consume_an_accepted_step(volume, life)
 
@@ -348,7 +352,8 @@ LIFE_ENDS = {
             "open-deck",
             *CHILD_LEG,
             "close-deck",
-            *CHILD_LEG,
+            *STEP_LEG,
+            *SENDER_LEG,
         ],
     ),
     "a sweep that is not quiet": (

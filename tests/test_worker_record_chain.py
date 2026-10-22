@@ -18,12 +18,19 @@ import pytest
 
 from presentator.adapters.worker_children import (
     ChildIdentity,
+    ChildSurroundings,
     GatedChild,
     readable_within,
     spawn_gated,
 )
 from presentator.host import worker, worker_serving
-from presentator.host.worker_serving import LifeEnd, Serving, hand_over
+from presentator.host.worker_serving import (
+    LifeEnd,
+    Serving,
+    StepEffects,
+    WireChild,
+    hand_over,
+)
 from presentator.host.worker_wire import WireExit
 from tests.worker_support import (
     END,
@@ -35,6 +42,7 @@ from tests.worker_support import (
     assert_gone,
     connect_when_serving,
     listening_socket,
+    present_among,
     process_id_of,
     role_of,
 )
@@ -49,6 +57,7 @@ sys.exit(5)
 """
 EXITING_SENT = f"import sys; sys.exit({int(WireExit.SENT)})"
 EXITING_SEVEN = "import sys; sys.exit(7)"
+EXITING_ZERO = "import sys; sys.exit(0)"
 SLEEPER = "import time; time.sleep(120)"
 INODES_REPORTER = """
 import json, os, sys
@@ -66,9 +75,15 @@ sys.exit(4)
 
 @dataclass
 class ChainSpawn:
-    """The real gated spawn, with a program in place of a role where a test asks."""
+    """The real gated spawn, with a program in place of a role where a test asks.
+
+    The step exits 0 at once unless a test gives it a program or asks for the
+    real launcher.
+    """
 
     programs: Mapping[str, list[str]] = field(default_factory=dict[str, list[str]])
+    real_launcher: bool = False
+    sender_gate: Callable[[GatedChild], WireChild] = lambda child: child
     roles: list[str] = field(default_factory=list[str])
     children: list[GatedChild] = field(default_factory=list[GatedChild])
     process_ids: list[int] = field(default_factory=list[int])
@@ -79,15 +94,59 @@ class ChainSpawn:
         *,
         environment: Mapping[str, str],
         pass_fds: Sequence[int],
-    ) -> GatedChild:
+    ) -> WireChild:
         role = role_of(command)
-        self.roles.append(role)
+        child = self._started(
+            role,
+            self._substituted(role, command, pass_fds),
+            environment,
+            pass_fds,
+            ChildSurroundings(),
+        )
+        return self.sender_gate(child) if role == "send" else child
+
+    def step(
+        self,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+        surroundings: ChildSurroundings,
+    ) -> GatedChild:
+        return self._started(
+            "step",
+            self._substituted("step", command, pass_fds),
+            environment,
+            pass_fds,
+            surroundings,
+        )
+
+    def _substituted(
+        self, role: str, command: Sequence[str], pass_fds: Sequence[int]
+    ) -> Sequence[str]:
         program = self.programs.get(role)
-        if program is not None:
-            source, *extras = program
-            command = [sys.executable, "-I", "-c", source, *map(str, pass_fds), *extras]
+        if program is None and role == "step" and not self.real_launcher:
+            program = [EXITING_ZERO]
+        if program is None:
+            return command
+        source, *extras = program
+        return [sys.executable, "-I", "-c", source, *map(str, pass_fds), *extras]
+
+    def _started(
+        self,
+        role: str,
+        command: Sequence[str],
+        environment: Mapping[str, str],
+        pass_fds: Sequence[int],
+        surroundings: ChildSurroundings,
+    ) -> GatedChild:
+        self.roles.append(role)
         child = spawn_gated(
-            command, identity=OWN_IDENTITY, environment=environment, pass_fds=pass_fds
+            command,
+            identity=OWN_IDENTITY,
+            environment=environment,
+            pass_fds=pass_fds,
+            surroundings=surroundings,
         )
         self.children.append(child)
         self.process_ids.append(process_id_of(child))
@@ -110,6 +169,9 @@ class Life:
     life_end: LifeEnd | None
     reply: bytes
     spawn: ChainSpawn
+    started_at: float
+    returned_at: float
+    present_at_return: frozenset[int]
 
 
 def read_to_end(client: socket.socket) -> bytes:
@@ -131,13 +193,27 @@ def read_to_end_or_reset(client: socket.socket) -> bytes:
 
 @dataclass(frozen=True)
 class LifeScenario:
-    """What a life runs on besides the spawn: record effects, deck and reply reader."""
+    """What a life runs on besides the spawn: record effects, places and reader."""
 
     seal: Callable[[int], None] = worker.seal_record
     create_record: Callable[[], int] = worker.create_request_record
-    deck: Path | None = None
+    work: Path | None = None
+    project: Path | None = None
+    build_timeout_seconds: float = 300.0
     reader: Callable[[socket.socket], bytes] = read_to_end
     listener: socket.socket | None = None
+
+
+def chain_environment(work: Path) -> dict[str, str]:
+    """The six-key step environment, with test values below the work root."""
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": str(work / worker.HOME_DIRECTORY),
+        "TMPDIR": str(work),
+        "PLAYWRIGHT_BROWSERS_PATH": str(work / "playwright"),
+        "COREPACK_HOME": str(work / "corepack"),
+        "COREPACK_ENABLE_NETWORK": "0",
+    }
 
 
 def run_life(
@@ -148,12 +224,14 @@ def run_life(
 ) -> Life:
     scenario = scenario or LifeScenario()
     with ExitStack() as cleanup:
-        deck = (
-            scenario.deck or Path(cleanup.enter_context(TemporaryDirectory())) / "deck"
-        )
+        work = scenario.work or Path(cleanup.enter_context(TemporaryDirectory()))
+        project = scenario.project or Path(cleanup.enter_context(TemporaryDirectory()))
         listener = scenario.listener or cleanup.enter_context(listening_socket())
         return _run_life_at(
-            sent, spawn, replace(scenario, deck=deck, listener=listener), converse
+            sent,
+            spawn,
+            replace(scenario, work=work, project=project, listener=listener),
+            converse,
         )
 
 
@@ -176,8 +254,9 @@ def _run_life_at(
     scenario: LifeScenario,
     converse: Callable[[socket.socket], None],
 ) -> Life:
-    deck, listener = scenario.deck, scenario.listener
-    assert deck is not None
+    work, project, listener = scenario.work, scenario.project, scenario.listener
+    assert work is not None
+    assert project is not None
     assert listener is not None
     controller_end, client = socket.socketpair()
     client.settimeout(WAIT_SECONDS)
@@ -187,33 +266,45 @@ def _run_life_at(
         sweep=lambda _deadline: True,
         create_record=scenario.create_record,
         seal=scenario.seal,
-        open_deck=worker.open_deck,
+        open_deck=worker.make_open_directory,
         close_deck=worker.close_deck,
-        deck=deck,
+        work=work,
+        step=StepEffects(
+            spawn=spawn.step,
+            gate_admits=lambda _status: True,
+            prepare=worker.prepare_step_paths,
+            environment=chain_environment(work),
+            project=project,
+        ),
         watchdog=NeverArmed(),
         clock=time.monotonic,
         readable=readable_within,
-        build_timeout_seconds=300.0,
+        build_timeout_seconds=scenario.build_timeout_seconds,
         build_output_megabytes=300,
     )
     outcome: list[LifeEnd | None] = []
-    thread = threading.Thread(
-        target=lambda: outcome.append(
+    returned_at: list[float] = []
+
+    def control() -> None:
+        outcome.append(
             hand_over(controller_end, serving, time.monotonic(), listener=listener)
-        ),
-        daemon=True,
-    )
+        )
+        returned_at.append(time.monotonic())
+
+    thread = threading.Thread(target=control, daemon=True)
     with closing(controller_end), closing(client):
         try:
+            started_at = time.monotonic()
             thread.start()
             client.sendall(sent)
             converse(client)
             thread.join(WAIT_SECONDS)
+            present = present_among(spawn.process_ids)
             controller_end.close()
             reply = scenario.reader(client)
         finally:
             _end_life(spawn, thread, client)
-        return Life(outcome[0], reply, spawn)
+        return Life(outcome[0], reply, spawn, started_at, returned_at[0], present)
 
 
 @pytest.fixture
@@ -237,7 +328,7 @@ def test_the_upload_child_answers_status_from_the_record_the_idle_child_wrote() 
 
     assert life.reply == STATUS
     assert life.life_end == LifeEnd.CONSUMED
-    assert life.spawn.roles == ["idle", "upload", "send"]
+    assert life.spawn.roles == ["idle", "upload", "step", "send"]
     assert written == [STEP_HEADER]
 
 
@@ -323,7 +414,7 @@ from presentator.adapters.worker_children import (
     spawn_gated,
 )
 from presentator.host import worker
-from presentator.host.worker_serving import Serving
+from presentator.host.worker_serving import Serving, StepEffects
 from presentator.host.worker_termination import FaultHandlerWatchdog
 
 log = open(sys.argv[2], "a")
@@ -339,6 +430,9 @@ def spawn(command, *, environment, pass_fds):
         ctypes.PyDLL(None).pause()
     return child
 
+def refuse_step(*_arguments, **_keywords):
+    raise AssertionError("the step is not part of this test")
+
 def clock_announcing_each_reading():
     reading = time.monotonic()
     print(reading, file=log, flush=True)
@@ -352,7 +446,14 @@ serving = Serving(
     seal=worker.seal_record,
     open_deck=lambda _deck: None,
     close_deck=lambda _deck: None,
-    deck=Path("/unused/deck"),
+    work=Path("/unused/work"),
+    step=StepEffects(
+        spawn=refuse_step,
+        gate_admits=lambda _status: False,
+        prepare=refuse_step,
+        environment={},
+        project=Path("/unused/project"),
+    ),
     watchdog=FaultHandlerWatchdog(),
     clock=clock_announcing_each_reading,
     readable=readable_within,

@@ -44,13 +44,13 @@ def accepted_life(**changes: object) -> ScriptedLife:
 def test_the_deck_is_world_writable_and_sticky_despite_the_controllers_umask(
     deck_path: Path,
 ) -> None:
-    worker.open_deck(deck_path)
+    worker.make_open_directory(deck_path)
 
     assert mode_of(deck_path) == DECK_OPEN_MODE
 
 
 def test_closing_the_deck_takes_it_back_to_0755(deck_path: Path) -> None:
-    worker.open_deck(deck_path)
+    worker.make_open_directory(deck_path)
 
     worker.close_deck(deck_path)
 
@@ -62,7 +62,7 @@ def test_an_existing_deck_is_never_reused_nor_changed(deck_path: Path) -> None:
     (deck_path / "leftover").write_text("kept")
 
     with pytest.raises(FileExistsError):
-        worker.open_deck(deck_path)
+        worker.make_open_directory(deck_path)
 
     assert mode_of(deck_path) == PRIVATE_MODE
     assert (deck_path / "leftover").read_text() == "kept"
@@ -80,8 +80,8 @@ def test_the_deck_is_1777_until_the_upload_run_ends_and_0755_afterwards(
 
     serving = replace(
         life.serving(),
-        deck=deck_path,
-        open_deck=worker.open_deck,
+        work=deck_path.parent,
+        open_deck=worker.make_open_directory,
         close_deck=close_noting_mode,
     )
 

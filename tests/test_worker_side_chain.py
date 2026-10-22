@@ -90,14 +90,14 @@ def test_a_side_client_during_the_upload_is_closed_while_the_main_reply_complete
     life = run_life(
         VALID_STEP,
         spawn,
-        LifeScenario(deck=sandbox / "deck", listener=listener),
+        LifeScenario(work=sandbox, listener=listener),
         side_client_between_status_and_end,
     )
 
     assert heard == [STATUS]
     assert life.reply == OUTCOME_FAILED + END
     assert life.life_end == LifeEnd.CONSUMED
-    assert spawn.roles == ["idle", "upload", "send"]
+    assert spawn.roles == ["idle", "upload", "step", "send"]
 
 
 def test_a_side_client_during_the_reply_is_closed_while_the_main_reply_completes(
@@ -115,14 +115,14 @@ def test_a_side_client_during_the_reply_is_closed_while_the_main_reply_completes
     life = run_life(
         VALID_STEP + END,
         spawn,
-        LifeScenario(deck=sandbox / "deck", listener=listener),
+        LifeScenario(work=sandbox, listener=listener),
         side_client_between_outcome_and_end,
     )
 
     assert heard == [STATUS + OUTCOME_FAILED]
     assert life.reply == END
     assert life.life_end == LifeEnd.CONSUMED
-    assert spawn.roles == ["idle", "upload", "send"]
+    assert spawn.roles == ["idle", "upload", "step", "send"]
 
 
 @pytest.mark.parametrize("role", ["upload", "send"])
@@ -138,11 +138,9 @@ def test_the_upload_child_and_the_sender_hold_no_pidfd_and_only_their_descriptor
     spawn = ChainSpawn(programs=reporting)
 
     life = run_life(
-        VALID_STEP + END,
+        VALID_STEP + END if role == "upload" else VALID_STEP,
         spawn,
-        LifeScenario(
-            deck=sandbox / "deck", listener=listener, reader=read_to_end_or_reset
-        ),
+        LifeScenario(work=sandbox, listener=listener, reader=read_to_end_or_reset),
     )
 
     report, _rest = json.JSONDecoder().raw_decode(life.reply.decode())

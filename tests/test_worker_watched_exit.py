@@ -234,7 +234,7 @@ def test_every_wake_waits_only_for_the_rest_of_the_phase(
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=recording)
 
     assert outcome == LifeEnd.CONSUMED
-    first_wake = 1 if role == WireRole.UPLOAD else 2
+    first_wake = 1 if role == WireRole.UPLOAD else 3
     waited = life.budgets_waited[first_wake : first_wake + 4]
     assert waited == [budget - taken for taken in range(4)]
 

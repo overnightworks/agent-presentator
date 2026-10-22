@@ -45,10 +45,13 @@ class WireArguments:
     """What the controller hands every wire child besides its connection."""
 
     record_fd: int
-    deck: Path
+    work: Path
     megabytes: int
 
 
+DECK_DIRECTORY = "deck"
+OUTPUT_DIRECTORY = "out"
+STEP_ERROR_FILE = "step.err"
 KEPT_LIFE_EXITS = frozenset({WireExit.CLOSED, WireExit.ANSWERED})
 
 
@@ -64,7 +67,8 @@ def _idle(connection: socket.socket, arguments: WireArguments) -> WireExit:
 def _upload(connection: socket.socket, arguments: WireArguments) -> WireExit:
     read_record(arguments.record_fd)
     deck = os.open(
-        arguments.deck, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        arguments.work / DECK_DIRECTORY,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     try:
         send_status(connection)
@@ -89,14 +93,14 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--role", type=WireRole, choices=list(WireRole), required=True)
     parser.add_argument("--connection-fd", type=int, required=True)
     parser.add_argument("--record-fd", type=int, required=True)
-    parser.add_argument("--deck", type=Path, required=True)
+    parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--megabytes", type=int, required=True)
     arguments = parser.parse_args(argv)
     with socket.socket(fileno=arguments.connection_fd) as connection:
         try:
             return _ROLES[arguments.role](
                 connection,
-                WireArguments(arguments.record_fd, arguments.deck, arguments.megabytes),
+                WireArguments(arguments.record_fd, arguments.work, arguments.megabytes),
             )
         except (WireRefusedError, OSError):
             return WireExit.CLOSED

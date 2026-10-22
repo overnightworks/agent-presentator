@@ -7,16 +7,22 @@ import pytest
 
 from presentator.host.worker_serving import REPLY_SECONDS, LifeEnd, hand_over
 from presentator.host.worker_wire import WireExit
-from tests.worker_support import ACCEPT_TIME, CHILD_LEG, ScriptedLife, role_of
+from tests.worker_support import (
+    ACCEPT_TIME,
+    SENDER_LEG,
+    ScriptedLife,
+    role_of,
+    sender_leg,
+)
 
-SENDER_WAIT = 2
+SENDER_WAIT = 3
 
 
 def accepted_life(**changes: object) -> ScriptedLife:
     return replace(ScriptedLife(exit_status=WireExit.ACCEPTED), **changes)
 
 
-def test_the_sender_runs_after_the_deck_closed_and_its_exit_sent_consumes_the_life(
+def test_the_sender_runs_after_the_step_and_its_exit_sent_consumes_the_life(
     connection: socket.socket,
     listener: socket.socket,
 ) -> None:
@@ -25,7 +31,7 @@ def test_the_sender_runs_after_the_deck_closed_and_its_exit_sent_consumes_the_li
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.CONSUMED
-    assert life.events[life.events.index("close-deck") :] == ["close-deck", *CHILD_LEG]
+    assert sender_leg(life) == SENDER_LEG
     assert [role_of(spawned.command) for spawned in life.spawned] == [
         "idle",
         "upload",
@@ -74,9 +80,10 @@ def test_a_stalled_sender_is_killed_and_reaped_and_the_life_ends_reply_expired(
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.REPLY_EXPIRED
-    assert life.events[life.events.index("close-deck") + 1 :] == [
+    assert sender_leg(life) == [
         "spawn",
         "status",
+        "connection-check",
         "release",
         "readable",
         "kill",
@@ -94,7 +101,7 @@ def test_a_reply_budget_spent_before_the_release_prevents_the_release(
     outcome = hand_over(connection, life.serving(), ACCEPT_TIME, listener=listener)
 
     assert outcome == LifeEnd.REPLY_EXPIRED
-    assert life.events[life.events.index("close-deck") + 1 :] == [
+    assert sender_leg(life) == [
         "spawn",
         "status",
         "kill",
@@ -118,7 +125,15 @@ SENDER_FAILURES: dict[str, tuple[dict[str, object], LifeEnd, list[str]]] = {
     "a broken pipe at the release": (
         {"send_release_error": BrokenPipeError()},
         LifeEnd.GATE,
-        ["spawn", "status", "release", "kill", "wait", "close"],
+        [
+            "spawn",
+            "status",
+            "connection-check",
+            "release",
+            "kill",
+            "wait",
+            "close",
+        ],
     ),
 }
 
@@ -140,7 +155,7 @@ def test_a_sender_that_cannot_run_ends_the_life_and_is_killed_before_it_runs(
         == life_end
     )
 
-    assert life.events[life.events.index("close-deck") + 1 :] == leg
+    assert sender_leg(life) == leg
 
 
 @pytest.mark.parametrize("exit_status", [WireExit.CLOSED, 1, -9])

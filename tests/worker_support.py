@@ -24,13 +24,21 @@ from presentator.adapters.build_wire import (
 )
 from presentator.host import worker
 from presentator.host.worker import create_request_record
-from presentator.host.worker_serving import Serving, WireChild
+from presentator.host.worker_serving import Serving, StepEffects, WireChild
 from presentator.host.worker_wire import WireExit, WireRole
+from tests.step_support import (
+    GATED_STATUS,
+    STEP_ENVIRONMENT,
+    STEP_EXIT_DESCRIPTOR,
+    STEP_PROJECT,
+    UNUSED_STEP,
+    ScriptedStep,
+)
 
 OWN_UID = os.getuid()
 
 
-UNUSED_DECK = Path("/unused/deck")
+UNUSED_WORK = Path("/unused/work")
 
 
 OWN_GID = os.getgid()
@@ -122,16 +130,21 @@ class StopServingError(Exception):
     """Ends an accept loop the test bounds."""
 
 
-GATED_STATUS = "Uid:\t10002\t10002\t10002\t10002"
-
-
 ACCEPT_TIME = 100.0
 
 
-ADMITTING_PATH = "/opt/test/bin"
-
-
 CHILD_LEG = ["spawn", "status", "release", "readable", "wait", "close"]
+
+
+SENDER_LEG = [
+    "spawn",
+    "status",
+    "connection-check",
+    "release",
+    "readable",
+    "wait",
+    "close",
+]
 
 
 IDLE_LEG = ["spawn", "status", "release", "wait-within", "close"]
@@ -227,7 +240,13 @@ class ScriptedLife:
     inspection_takes: float = 0.0
     build_timeout_seconds: float = 300.0
     build_output_megabytes: int = 300
-    deck: Path = UNUSED_DECK
+    work: Path = UNUSED_WORK
+    connection_ready_at_check: bool = False
+    prepared_descriptors: list[int] = field(default_factory=list[int])
+    connection_checks: list[tuple[tuple[int, ...], float]] = field(
+        default_factory=list[tuple[tuple[int, ...], float]]
+    )
+    step: ScriptedStep = field(default_factory=ScriptedStep)
     decks_handled: list[Path] = field(default_factory=list[Path])
     release_takes: float = 0.0
     budgets_waited: list[float] = field(default_factory=list[float])
@@ -238,6 +257,10 @@ class ScriptedLife:
     spawned: list[Spawned] = field(default_factory=list[Spawned])
     sealed_descriptors: list[int] = field(default_factory=list[int])
     creation: RecordingCreation = field(default_factory=RecordingCreation)
+
+    def __post_init__(self) -> None:
+        """Hand the scripted step the life whose events it joins."""
+        self.step.life = self
 
     def spawn(
         self,
@@ -311,6 +334,13 @@ class ScriptedLife:
         return EXIT_DESCRIPTOR
 
     def readable(self, descriptors: Sequence[int], seconds: float) -> frozenset[int]:
+        if STEP_EXIT_DESCRIPTOR in descriptors:
+            return self.step.woken(descriptors, seconds)
+        if seconds == 0.0 and len(descriptors) == 1:
+            self.events.append("connection-check")
+            self.connection_checks.append((tuple(descriptors), seconds))
+            ready = self.connection_ready_at_check
+            return frozenset(descriptors) if ready else frozenset()
         self.events.append("readable")
         self.budgets_waited.append(seconds)
         self.raise_wait_error_at_this_wait()
@@ -400,6 +430,15 @@ class ScriptedLife:
     def cancel(self) -> None:
         self.events.append("cancel")
 
+    def prepare(self, _work: Path) -> int:
+        self.events.append("prepare")
+        self.clock_now += self.step.prepare_takes
+        if self.step.prepare_error is not None:
+            raise self.step.prepare_error
+        descriptor = os.open(os.devnull, os.O_WRONLY)
+        self.prepared_descriptors.append(descriptor)
+        return descriptor
+
     def serving(self) -> Serving:
         return Serving(
             spawn=self.spawn,
@@ -409,7 +448,14 @@ class ScriptedLife:
             seal=self.seal,
             open_deck=self.open_deck,
             close_deck=self.close_deck,
-            deck=self.deck,
+            work=self.work,
+            step=StepEffects(
+                spawn=self.step.spawn,
+                gate_admits=self.step.admits,
+                prepare=self.prepare,
+                environment=STEP_ENVIRONMENT,
+                project=STEP_PROJECT,
+            ),
             watchdog=self,
             clock=self.clock,
             readable=self.readable,
@@ -513,10 +559,29 @@ def process_id_of(child: worker_children.GatedChild) -> int:
     return int(child.status_text().split("Pid:")[1].split()[0])
 
 
-def assert_gone(process_ids: Sequence[int]) -> None:
+def sender_leg(life: ScriptedLife) -> list[str]:
+    """The events from the sender's own spawn, the last of the life."""
+    start = len(life.events) - 1 - life.events[::-1].index("spawn")
+    return life.events[start:]
+
+
+def step_leg(life: ScriptedLife) -> list[str]:
+    """The events from the step's paths to the sender's spawn."""
+    return life.events[life.events.index("prepare") : -len(sender_leg(life))]
+
+
+def present_among(process_ids: Sequence[int]) -> frozenset[int]:
+    """The process ids that still exist, a killed child nobody reaped included."""
+    present: set[int] = set()
     for process_id in process_ids:
-        with pytest.raises(ProcessLookupError):
+        with suppress(ProcessLookupError):
             os.kill(process_id, 0)
+            present.add(process_id)
+    return frozenset(present)
+
+
+def assert_gone(process_ids: Sequence[int]) -> None:
+    assert not present_among(process_ids)
 
 
 class BoundedListener(socket.socket):
@@ -553,7 +618,8 @@ def serving_with(
         seal=worker.seal_record,
         open_deck=nothing,
         close_deck=nothing,
-        deck=UNUSED_DECK,
+        work=UNUSED_WORK,
+        step=UNUSED_STEP,
         watchdog=NeverArmed(),
         clock=time.monotonic,
         readable=worker_children.readable_within,

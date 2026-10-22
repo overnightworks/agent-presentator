@@ -26,7 +26,7 @@ from tests.test_worker_record_chain import (
     read_to_end_or_reset,
     run_life,
 )
-from tests.test_worker_reply_chain import CONSUMING_CONTROLLER
+from tests.test_worker_reply_chain import CONSUMING_CONTROLLER, controller_life
 from tests.worker_support import (
     OWN_UID,
     directory_entry,
@@ -39,6 +39,7 @@ from tests.worker_support import (
 CONTROLLER_UMASK = 0o077
 DIRECTORY_MODE = 0o755
 FILE_MODE = 0o644
+STEP_SCRATCH_MODE = 0o1777
 LARGE_FILE = b"x" * (200 * 1024)
 NESTED_UPLOAD = (
     directory_entry(b"a")
@@ -88,11 +89,12 @@ def test_a_nested_upload_through_the_real_roles_is_stored_0755_and_0644(
     life = run_life(
         support.VALID_STEP + NESTED_UPLOAD,
         ChainSpawn(programs={"send": [EXITING_SENT]}),
-        LifeScenario(deck=deck),
+        LifeScenario(work=sandbox),
     )
 
     assert life.life_end == LifeEnd.CONSUMED
     assert modes_below(deck) == {
+        "node_modules": (STEP_SCRATCH_MODE, OWN_UID),
         "a": (DIRECTORY_MODE, OWN_UID),
         "a/b": (DIRECTORY_MODE, OWN_UID),
         "a/b/c": (FILE_MODE, OWN_UID),
@@ -103,7 +105,7 @@ def test_a_nested_upload_through_the_real_roles_is_stored_0755_and_0644(
     assert stat.S_IMODE(deck.stat().st_mode) == support.DECK_CLOSED_MODE
 
 
-def spawn_controller(volume: Path, log: Path, deck: Path) -> GatedChild:
+def spawn_controller(volume: Path, log: Path, work: Path) -> GatedChild:
     return spawn_gated(
         [
             sys.executable,
@@ -112,7 +114,7 @@ def spawn_controller(volume: Path, log: Path, deck: Path) -> GatedChild:
             CONSUMING_CONTROLLER,
             str(volume),
             str(log),
-            str(deck),
+            str(work),
         ],
         identity=OWN_IDENTITY,
         environment={"PATH": PATH},
@@ -144,7 +146,7 @@ def assert_refused_upload_closes(
 ) -> None:
     log = tmp_path / "controller.log"
     log.touch()
-    controller = spawn_controller(volume, log, tmp_path / "deck")
+    controller = spawn_controller(volume, log, tmp_path)
     try:
         controller.release()
         with closing(
@@ -166,20 +168,10 @@ def assert_refused_upload_closes(
 def test_a_nested_upload_over_a_controller_gets_status_failed_end_and_eof(
     volume: Path, tmp_path: Path
 ) -> None:
-    log = tmp_path / "controller.log"
-    log.touch()
-    controller = spawn_controller(volume, log, tmp_path / "deck")
-    try:
-        controller.release()
-        with closing(
-            support.connect_when_serving(volume, controller, WAIT_SECONDS)
-        ) as client:
-            client.sendall(support.VALID_STEP + NESTED_UPLOAD)
-            reply = read_to_end(client)
-        exit_status = controller.wait_within(WAIT_SECONDS)
-    finally:
-        lines = end_controller(controller, log)
+    life = controller_life(volume, tmp_path, support.VALID_STEP + NESTED_UPLOAD)
 
-    assert reply == support.STATUS + support.OUTCOME_FAILED + end_entry(0, 0)
-    assert exit_status == 0
-    assert [line.split()[1] for line in lines] == ["idle", "upload", "send"]
+    assert life.reply == support.STATUS + support.OUTCOME_FAILED + end_entry(0, 0)
+    assert life.exit_status == 0
+    assert life.roles == ["idle", "upload", "step", "send"]
+    assert life.announced_pid == life.step_pid
+    assert not life.present_after_exit

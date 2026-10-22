@@ -51,7 +51,7 @@ def sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
 
 
 def on_deck(sandbox: Path) -> LifeScenario:
-    return LifeScenario(deck=sandbox / "deck")
+    return LifeScenario(work=sandbox)
 
 
 def deck_mode(sandbox: Path) -> int:
@@ -81,7 +81,7 @@ def test_an_end_only_upload_is_answered_with_status_and_a_fake_sender_consumes_t
 
     assert life.reply == b""
     assert life.life_end == LifeEnd.CONSUMED
-    assert life.spawn.roles == ["idle", "upload", "send"]
+    assert life.spawn.roles == ["idle", "upload", "step", "send"]
     assert modes_during_upload == [DECK_OPEN_MODE]
     assert deck_mode(sandbox) == DECK_CLOSED_MODE
 
@@ -94,7 +94,7 @@ def test_the_deck_a_fake_upload_child_sees_is_1777_and_0755_after_it_exits(
         programs={"upload": [DECK_MODE_REPORTER, str(deck)], "send": [EXITING_SENT]}
     )
 
-    life = run_life(support.VALID_STEP, spawn, LifeScenario(deck=deck))
+    life = run_life(support.VALID_STEP, spawn, LifeScenario(work=sandbox))
 
     assert life.reply == str(oct(DECK_OPEN_MODE)).encode()
     assert life.life_end == LifeEnd.CONSUMED
@@ -144,7 +144,7 @@ def test_a_failing_seal_never_makes_the_deck(sandbox: Path) -> None:
     life = run_life(
         support.VALID_STEP,
         ChainSpawn(),
-        LifeScenario(deck=sandbox / "deck", seal=refuse),
+        LifeScenario(work=sandbox, seal=refuse),
     )
 
     assert life.life_end == LifeEnd.SEAL_FAILED
