@@ -49,11 +49,11 @@ class People:
         if dry_run:
             return self._counted(subject, owned)
         if not owned:
-            return self._erased(subject)
+            return self._account_gone(subject, self._erased_owned(subject, owned))
         if not self.decks.one_at_a_time.acquire(timeout=self.lock_wait.total_seconds()):
             return PersonBusy(running=_RUNNING)
         try:
-            outcome = self._erased_owned(subject)
+            outcome = self._erased_owned(subject, self._sources_of(subject))
         finally:
             self.decks.one_at_a_time.release()
         return self._account_gone(subject, outcome)
@@ -71,11 +71,9 @@ class People:
         lock.release()
         return True
 
-    def _erased(self, subject: str) -> PersonErasure:
-        return self._account_gone(subject, self._erased_owned(subject))
-
-    def _erased_owned(self, subject: str) -> PersonErased | PersonDiskLeftover:
-        owned = self._sources_of(subject)
+    def _erased_owned(
+        self, subject: str, owned: tuple[Source, ...]
+    ) -> PersonErased | PersonDiskLeftover:
         census = self._census(subject, owned)
         self.sessions.delete_for_user(subject)
         self.preferences.delete(subject)
@@ -108,7 +106,7 @@ class People:
     def _removal_of(self, source: Source) -> SourceRemoval:
         removal = self.decks.removal(source.name)
         if removal is None:
-            message = f"source {source.name} vanished under the refresh lock"
+            message = f"source {source.name} vanished while the person was counted"
             raise RuntimeError(message)
         return removal
 

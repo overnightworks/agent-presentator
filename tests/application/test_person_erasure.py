@@ -415,5 +415,5 @@ def test_a_source_that_vanishes_before_it_is_counted_fails_loud() -> None:
     instance = an_instance(source_store=sources)
     sources.listings_left = 1
 
-    with pytest.raises(RuntimeError, match="vanished under the refresh lock"):
+    with pytest.raises(RuntimeError, match="vanished while the person was counted"):
         instance.people.erase_person(_THE_PERSON.id, dry_run=True)
