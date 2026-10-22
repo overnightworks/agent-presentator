@@ -93,14 +93,20 @@ def _markers_seen(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [marker for marker in MARKERS if marker in shown]
 
 
-def test_a_marker_logged_during_the_test_is_seen_after_it(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Defect (#452 cell walk): the leak walk reads the call phase's records."""
+@pytest.fixture
+def seen_at_teardown(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
+    """Defect (#452 cell walk): the teardown leak walk reads the call phase's records."""
     caplog.set_level(logging.DEBUG)
-    logging.getLogger(LOGGER).warning("token %s", PERSON_ACCESS)
-
+    yield
     assert _markers_seen(caplog) == [PERSON_ACCESS]
+
+
+def test_a_marker_logged_during_the_test_is_seen_at_teardown(
+    seen_at_teardown: None,
+) -> None:
+    """The teardown walk sees a marker logged in the call phase."""
+    assert seen_at_teardown is None
+    logging.getLogger(LOGGER).warning("token %s", PERSON_ACCESS)
 
 
 def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
