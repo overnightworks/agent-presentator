@@ -16,11 +16,11 @@ from presentator.adapters.build_wire import (
 from presentator.contracts.decks import StepKind
 from tests import worker_support as support
 
-BUILT = support.framed(b'{"outcome":"built"}', b"PBW\x01\x05")
+BUILT = support.OUTCOME_BUILT
 MEGABYTES = 1
 
-pytestmark = pytest.mark.skipif(
-    os.geteuid() == 0, reason="root ignores file modes, the 0000-mode cells need a user"
+AS_ROOT = pytest.mark.skipif(
+    os.geteuid() == 0, reason="root ignores file modes, so a 0000 mode refuses nothing"
 )
 
 
@@ -56,10 +56,13 @@ def reply_to(output: Path, step: StepKind, megabytes: int = MEGABYTES) -> bytes:
 
 
 @pytest.fixture
-def output(tmp_path: Path) -> Path:
-    """The empty /work/out of a finished step."""
+def output(tmp_path: Path) -> Iterator[Path]:
+    """The empty /work/out of a finished step; unreadable cases are opened to clean."""
     (tmp_path / "out").mkdir()
-    return tmp_path / "out"
+    yield tmp_path / "out"
+    for path in (tmp_path / "out").rglob("*"):
+        if path.is_dir() and not path.is_symlink():
+            path.chmod(0o755)
 
 
 def build_talk(output: Path) -> Path:
@@ -117,29 +120,20 @@ def a_path_over_1024_bytes(talk: Path) -> None:
     (deepest / "f").write_text("x")
 
 
-UNSAFE_TREES: dict[str, Callable[[Path], None]] = {
-    "a symlink to a file": a_symlink_to_a_file,
-    "a symlink to a directory": a_symlink_to_a_directory,
-    "a FIFO": a_fifo,
-    "a socket": a_socket,
-    "a hardlinked file": a_hardlinked_file,
-    "a 0000-mode file": an_unreadable_file,
-    "a 0000-mode directory": an_unreadable_directory,
-    "a path at depth 33": a_path_at_depth_33,
-    "a path over 1024 bytes": a_path_over_1024_bytes,
-}
+UNSAFE_TREES = [
+    pytest.param(a_symlink_to_a_file, id="a symlink to a file"),
+    pytest.param(a_symlink_to_a_directory, id="a symlink to a directory"),
+    pytest.param(a_fifo, id="a FIFO"),
+    pytest.param(a_socket, id="a socket"),
+    pytest.param(a_hardlinked_file, id="a hardlinked file"),
+    pytest.param(an_unreadable_file, id="a 0000-mode file", marks=AS_ROOT),
+    pytest.param(an_unreadable_directory, id="a 0000-mode directory", marks=AS_ROOT),
+    pytest.param(a_path_at_depth_33, id="a path at depth 33"),
+    pytest.param(a_path_over_1024_bytes, id="a path over 1024 bytes"),
+]
 
 
-@pytest.fixture(autouse=True)
-def readable_again(output: Path) -> Iterator[None]:
-    """Let pytest remove the unreadable cases."""
-    yield
-    for path in output.rglob("*"):
-        if path.is_dir() and not path.is_symlink():
-            path.chmod(0o755)
-
-
-@pytest.mark.parametrize("make", UNSAFE_TREES.values(), ids=UNSAFE_TREES.keys())
+@pytest.mark.parametrize("make", UNSAFE_TREES)
 def test_an_unsafe_entry_refuses_the_whole_build_as_shape_without_any_entry(
     output: Path, make: Callable[[Path], None]
 ) -> None:
@@ -307,7 +301,7 @@ def test_a_nested_build_is_sent_in_byte_order_and_received_as_the_same_tree(
     assert entries.startswith(support.directory_entry(b"talk"))
 
 
-def test_an_export_sends_its_pdf_and_nothing_else(output: Path, tmp_path: Path) -> None:
+def test_an_export_sends_its_pdf_and_nothing_else(output: Path) -> None:
     (output / "deck.pdf").write_bytes(b"%PDF")
 
     entries = entry_stream(reply_to(output, StepKind.EXPORT))

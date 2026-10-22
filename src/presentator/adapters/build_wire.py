@@ -5,7 +5,7 @@ import os
 import socket
 import stat
 import struct
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import closing
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
@@ -386,7 +386,7 @@ def _open_without_following(directory: int, name: bytes) -> int:
         raise
 
 
-def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Iterator[TreeEntry]:
+def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Generator[TreeEntry]:
     """Walk depth-first in pre-order, names sorted as bytes, never following a link."""
     for name in sorted(os.fsencode(listed) for listed in os.listdir(directory)):
         components = (*parent, name)

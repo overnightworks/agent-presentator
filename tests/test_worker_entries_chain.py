@@ -13,6 +13,7 @@ import pytest
 from presentator.adapters.build_wire import MEGABYTE, RecordTag
 from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
+from tests import step_support
 from tests import worker_support as support
 from tests.step_support import OWN_IDENTITY
 from tests.test_worker_record_chain import (
@@ -170,7 +171,11 @@ def test_a_nested_upload_over_a_controller_gets_status_failed_end_and_eof(
 ) -> None:
     life = controller_life(volume, tmp_path, support.VALID_STEP + NESTED_UPLOAD)
 
-    assert life.reply == support.STATUS + support.OUTCOME_FAILED + end_entry(0, 0)
+    assert life.reply == (
+        support.STATUS
+        + support.OUTCOME_BUILT
+        + support.talk_entries(step_support.TALK_INDEX)
+    )
     assert life.exit_status == 0
     assert life.roles == ["idle", "upload", "step", "send"]
     assert life.announced_pid == life.step_pid

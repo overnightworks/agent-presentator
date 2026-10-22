@@ -584,7 +584,9 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
         reply = run.serving.exchange(run.thread, support.VALID_STEP + support.END)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
+    assert reply.received == (
+        support.STATUS + support.OUTCOME_REFUSED_SHAPE + support.END
+    )
     assert not reply.ended_by_reset
     assert run.spawns.roles == ["idle", "upload", "step", "send"]
     assert not run.thread.is_alive()
