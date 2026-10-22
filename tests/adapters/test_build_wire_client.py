@@ -45,7 +45,7 @@ def open_directory(path: Path) -> int:
 def test_a_hello_is_read_by_the_worker_as_the_empty_header(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client's HELLO reaches the worker as the empty header."""
     client, worker = pair
 
     send_hello(client)
@@ -56,7 +56,7 @@ def test_a_hello_is_read_by_the_worker_as_the_empty_header(
 def test_a_step_is_read_by_the_worker_with_its_step_and_slug(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client's STEP reaches the worker with its step and slug."""
     client, worker = pair
     header = StepHeader(step=StepKind.EXPORT, slug="deck-one")
 
@@ -68,7 +68,7 @@ def test_a_step_is_read_by_the_worker_with_its_step_and_slug(
 def test_a_status_from_the_worker_is_read_and_anything_else_is_refused(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client reads STATUS and refuses any other reply in its place."""
     client, worker = pair
     send_status(worker)
     read_status(client)
@@ -83,7 +83,7 @@ def test_a_status_from_the_worker_is_read_and_anything_else_is_refused(
 def test_an_outcome_from_the_worker_is_read_as_the_outcome_it_carries(
     pair: tuple[socket.socket, socket.socket], outcome: BuiltOutcome | FailedOutcome
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client reads the worker's OUTCOME, built or failed."""
     client, worker = pair
 
     send_outcome(worker, outcome)
@@ -94,7 +94,7 @@ def test_an_outcome_from_the_worker_is_read_as_the_outcome_it_carries(
 def test_a_status_where_the_outcome_is_due_is_refused(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client refuses a STATUS where the OUTCOME is due."""
     client, worker = pair
     send_status(worker)
 
@@ -105,7 +105,7 @@ def test_a_status_where_the_outcome_is_due_is_refused(
 def test_a_failure_the_worker_sends_is_read_with_its_text(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client reads the failure text the worker sends."""
     client, worker = pair
 
     send_failed(worker, "slidev stopped")
@@ -116,7 +116,7 @@ def test_a_failure_the_worker_sends_is_read_with_its_text(
 def test_an_uploaded_tree_is_received_by_the_worker_below_its_deck(
     pair: tuple[socket.socket, socket.socket], tmp_path: Path
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client's uploaded deck tree is received below the worker's deck."""
     client, worker = pair
     source, deck = tmp_path / "source", tmp_path / "deck"
     (source / "assets").mkdir(parents=True)
@@ -138,7 +138,7 @@ def test_an_uploaded_tree_is_received_by_the_worker_below_its_deck(
 def test_an_output_tree_answered_built_is_read_by_the_client_and_received(
     pair: tuple[socket.socket, socket.socket], tmp_path: Path
 ) -> None:
-    """#431: the build-wire codec's client half."""
+    """54 (#431): the client reads built and receives the output tree the worker answers."""
     client, worker = pair
     output, received = tmp_path / "output", tmp_path / "received"
     (output / "talk").mkdir(parents=True)

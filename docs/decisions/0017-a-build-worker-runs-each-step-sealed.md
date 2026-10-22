@@ -47,9 +47,9 @@ replaces the stale socket.
 - **The image's entrypoint is cleared (`entrypoint: []`).** The base image's
   entrypoint is a shell that exports variables of its own into the controller's
   environment, which the self-check refuses. The environment predicate admits
-  the keys the image sets and two that are not the image's: `HOSTNAME`, which
-  the runtime sets, and `LC_CTYPE`, which Python sets itself when it coerces
-  the C locale.
+  the keys the image sets, the two build variables compose passes by name, and
+  two that are not the image's: `HOSTNAME`, which the runtime sets, and
+  `LC_CTYPE`, which Python sets itself when it coerces the C locale.
 - **Proof from the sealed deployment.** The worker serves only when its
   self-check finds it sealed, so the CI job "Build worker: sealed step" starts
   the service from the built image and drives it over the real socket as the

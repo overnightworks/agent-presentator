@@ -463,7 +463,7 @@ def prove_wire_user(report: Report) -> None:
          "echo $(id -u):$(id -g):$(id -G); grep -E '^Cap(Eff|Prm)' /proc/self/status"),
         check=False, capture_output=True, text=True,
     )  # fmt: skip
-    identity, *capabilities = done.stdout.splitlines()
+    identity, *capabilities = done.stdout.splitlines() or [""]
     if (
         done.returncode
         or identity != "10002:10002:10002"
