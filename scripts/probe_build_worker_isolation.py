@@ -144,12 +144,14 @@ def parse_observations(text: str) -> Observations:
     )
 
 
-def identity_mismatches(fields: dict[str, tuple[str, ...]], uid: str) -> list[str]:
+def identity_mismatches(
+    fields: dict[str, tuple[str, ...]], uid: str, groups: tuple[str, ...]
+) -> list[str]:
     """The identity facts a count needs that this process's status does not show."""
     expected = {
         "Uid": (uid,) * 4,
         "Gid": (uid,) * 4,
-        "Groups": (),
+        "Groups": groups,
         "NoNewPrivs": ("1",),
         "Seccomp": ("2",),
         **dict.fromkeys(CAPABILITY_FIELDS, (NO_CAPABILITIES,)),
@@ -157,12 +159,14 @@ def identity_mismatches(fields: dict[str, tuple[str, ...]], uid: str) -> list[st
     return [name for name, value in expected.items() if fields.get(name) != value]
 
 
-def require_identity(observed: Observations, who: str, uid: str) -> None:
+def require_identity(
+    observed: Observations, who: str, uid: str, groups: tuple[str, ...] = ()
+) -> None:
     """Fail unless the attacker's own status matched before any of its counts."""
     fields = observed.statuses.get(who)
     if fields is None:
         refuse(f"{who} recorded no status line")
-    wrong = identity_mismatches(fields, uid)
+    wrong = identity_mismatches(fields, uid, groups)
     if wrong:
         refuse(f"{who} is not {uid}:{uid} bare: {wrong} in {fields}")
 
@@ -300,6 +304,7 @@ def prove_nothing_reaches_the_next_life(
 
 def prove_attacked_life(report: Report) -> None:
     """Cells 36-39, 41-44, 59 and 60: one attacked life and the next."""
+    probe_client("hello")
     restarts_before = int(state()[1])
     endings_before = life_endings()
     step = start_attack_step()
@@ -307,7 +312,8 @@ def prove_attacked_life(report: Report) -> None:
     probe = parse_observations(run_probe())
     finish_step(step)
     deck = read_attack_talk()
-    require_identity(probe, "probe", WIRE_IDENTITY)
+    # `docker exec --user 10002:10002` lists the primary group, no other.
+    require_identity(probe, "probe", WIRE_IDENTITY, (WIRE_IDENTITY,))
     if not probe.complete:
         refuse(f"the probe did not complete: {probe}")
     for who in ("node", "python"):
