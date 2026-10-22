@@ -5,14 +5,12 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from tests.adapters.person_rows_support import (
-    owned_row_ids,
-    tables,
-    tables_reaching_accounts,
-)
 from tests.adapters.test_person_erasure_sqlite import (
     THE_PERSON,
     an_instance_with_both_people,
+    owned_row_ids,
+    tables,
+    tables_reaching_accounts,
 )
 
 _INSERT = re.compile(r'INSERT INTO "?(\w+)"?')
