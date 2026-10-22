@@ -14,7 +14,7 @@ from presentator.host.worker_serving import (
     LifeEnd,
     hand_over,
 )
-from presentator.host.worker_wire import WireExit
+from presentator.host.worker_wire import ReplyPlan, WireExit
 from tests.step_support import (
     STEP_ENVIRONMENT,
     STEP_EXIT_DESCRIPTOR,
@@ -511,15 +511,19 @@ def test_a_deck_close_that_outlasts_the_life_prepares_and_spawns_no_step(
 
 
 PREPARED_PAST_THE_END = {
-    "exactly at the life's deadline": (381.0, 1.0),
-    "after the life's deadline": (381.0, 2.0),
-    "exactly at the gate's own end": (0.0, 5.0),
-    "after the gate's own end": (0.0, 6.0),
+    "exactly at the life's deadline": (381.0, 1.0, (LifeEnd.REPLY_EXPIRED, None)),
+    "after the life's deadline": (381.0, 2.0, (LifeEnd.REPLY_EXPIRED, None)),
+    "exactly at the gate's own end": (
+        0.0,
+        5.0,
+        (LifeEnd.CONSUMED, ReplyPlan.FAILED_NULL),
+    ),
+    "after the gate's own end": (0.0, 6.0, (LifeEnd.CONSUMED, ReplyPlan.FAILED_NULL)),
 }
 
 
 @pytest.mark.parametrize(
-    ("deck_close_takes", "prepare_takes"),
+    ("deck_close_takes", "prepare_takes", "ending"),
     PREPARED_PAST_THE_END.values(),
     ids=PREPARED_PAST_THE_END.keys(),
 )
@@ -528,16 +532,21 @@ def test_a_preparation_that_returns_at_or_past_the_phase_end_spawns_no_step(
     listener: socket.socket,
     deck_close_takes: float,
     prepare_takes: float,
+    ending: tuple[LifeEnd, ReplyPlan | None],
 ) -> None:
+    life_end, plan = ending
     life = accepted_life(
         deck_close_takes=deck_close_takes,
         upload_runs_for=60.0,
         step=ScriptedStep(prepare_takes=prepare_takes),
     )
 
-    run(life, connection, listener)
+    outcome = run(life, connection, listener)
 
     [stderr] = life.prepared_descriptors
+    assert outcome == life_end
+    assert (planned(life) if plan is not None else None) == plan
+    assert len(life.spawned) == WIRE_SPAWNS - (plan is None)
     assert life.step.spawned == []
     with pytest.raises(OSError, match="Bad file descriptor"):
         os.fstat(stderr)
