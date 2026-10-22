@@ -208,8 +208,7 @@ name = "Only adapters read the manifest format and word a language"
 type = "forbidden"
 # ADR 0001: a third-party or format library lives in the adapter that owns it.
 # `tomllib` reads the deck manifest and `babel` owns the catalog and the
-# wording of an age, and `syntok` finds sentence boundaries, so a layer above
-# must ask a port or be handed the words.
+# wording of an age, so a layer above must ask a port or be handed the words.
 source_modules = [
     "presentator.host",
     "presentator.api",
@@ -217,7 +216,24 @@ source_modules = [
     "presentator.ports",
     "presentator.contracts",
 ]
-forbidden_modules = ["tomllib", "babel", "syntok"]
+forbidden_modules = ["tomllib", "babel"]
+as_packages = true
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "sentence-library"
+name = "Only adapters find sentence boundaries"
+type = "forbidden"
+# ADR 0001: a third-party library lives in the adapter that owns it. `syntok`
+# finds the boundaries, so a layer above is handed the function instead.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["syntok"]
 as_packages = true
 allow_indirect_imports = true
 
