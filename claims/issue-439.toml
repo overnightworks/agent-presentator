@@ -1,0 +1,8 @@
+claim_id = "2098a1a05f3349e1920e374e75e83918"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "6c1934c788e1618992dbb3f330f44748e5b3e058"
+branch = "claude/issue-439-source-address-grammar"
+scope = ["docs/reference/sources.md", "docs/runbooks/add-a-source.md", "src/gitmirror/mirror.py", "src/gitmirror/model.py", "src/presentator/adapters/catalogs/en.po", "src/presentator/api/sources.py", "src/presentator/application/decks.py", "src/presentator/contracts/decks.py", "src/presentator/contracts/text.py", "tests/api/test_sources.py", "tests/application/test_decks.py", "tests/gitmirror/test_mirror.py"]
+opened_commit = "62065c66d22d05d0e7903daccc5c575104cb1c2b"
+whole_reason = "One grammar change and the refusal, text, catalog entry and gitmirror path it leaves without a caller; splitting it would land dead code or a refusal no address reaches."
