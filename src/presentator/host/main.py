@@ -6,13 +6,14 @@ adapter satisfies which port.
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI
 from pydantic import SecretStr
+from starlette.routing import Host, Router
 from webauth.config import SessionLifetime, WebAuthConfig
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
@@ -60,7 +61,11 @@ from presentator.adapters.preferences import (
     SqlitePersonPreferencesStore,
     create_preference_tables,
 )
-from presentator.adapters.secrets import connection_fingerprint_key, secret_box
+from presentator.adapters.secrets import (
+    connection_fingerprint_key,
+    secret_box,
+    talk_session_secret,
+)
 from presentator.adapters.speech import UdsSpeech, UdsSpeechHearing
 from presentator.api.auth import (
     InstalledAuth,
@@ -70,6 +75,7 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
 from presentator.application.identity import SESSION_LIFETIME, SESSION_SWEEP_INTERVAL
@@ -115,6 +121,7 @@ class Instance:
     """What a running instance is: the addresses, and the schedules beside them."""
 
     lobby: FastAPI
+    talk: FastAPI
     poller: Schedule
     session_sweep: Schedule
 
@@ -186,12 +193,13 @@ def build_instance(settings: Settings) -> Instance:
     sessions = SqliteSessionRecordStore(settings.database)
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
+    lobby_auth, talk_auth = installed_auths(settings)
     return Instance(
         lobby=create_lobby(
             sessions=sessions,
             decks=decks,
             pages=_pages(settings),
-            auth=_installed_auth(settings),
+            auth=lobby_auth,
             private=LobbyPrivate(
                 copresenter=CoPresenterSurface(
                     use=CoPresenterUse(
@@ -204,6 +212,12 @@ def build_instance(settings: Settings) -> Instance:
                 voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
             ),
         ),
+        talk=create_talk(
+            sessions=sessions,
+            decks=decks,
+            auth=talk_auth,
+            lobby_origin=settings.public_origin,
+        ),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
@@ -212,22 +226,42 @@ def build_instance(settings: Settings) -> Instance:
     )
 
 
-def _installed_auth(settings: Settings) -> InstalledAuth:
-    client, _talk_client = client_configs_of(settings)
-    return InstalledAuth(
+def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
+    """The lobby's sign-in wiring and the talk host's, over one lock and one store.
+
+    Each host has its own relying party and its own signing key, so neither
+    accepts the other's cookies or pending logins; both write the one
+    `sessions` table, so they take the one write lock and the one account
+    store, and report to the one audit sink.
+    """
+    lobby_client, talk_client = client_configs_of(settings)
+    lobby = InstalledAuth(
         config=web_auth_config_for(
             settings.secret_key,
             trusted_proxies=settings.trusted_proxies,
             origin=settings.public_origin,
         ),
-        relying_party=relying_party(client),
+        relying_party=relying_party(lobby_client),
         admission=admission_of(settings),
         accounts=SqliteSubjectUserStore(settings.database),
         lock=ProcessWriteLock(),
         audit=LoggingAuditSink(),
-        content_security_policy=content_security_policy(end_session_origin(client)),
+        content_security_policy=content_security_policy(
+            end_session_origin(lobby_client)
+        ),
         talk_origin=settings.talk_origin,
     )
+    talk = replace(
+        lobby,
+        config=web_auth_config_for(
+            SecretStr(talk_session_secret(settings.secret_key.get_secret_value())),
+            trusted_proxies=settings.trusted_proxies,
+            origin=settings.talk_origin,
+        ),
+        relying_party=relying_party(talk_client),
+        content_security_policy=talk_content_security_policy(),
+    )
+    return lobby, talk
 
 
 def _pages(settings: Settings) -> Pages:
@@ -321,11 +355,26 @@ def main() -> None:
     asyncio.run(_serve(build_instance(settings), settings))
 
 
+def served_by_host(instance: Instance, settings: Settings) -> Router:
+    """The app that answers each hostname, and nothing for any other.
+
+    The `Host` header alone chooses: a request for a hostname this instance does
+    not serve, with a port or without, gets the router's 404 and a socket is
+    refused, so neither app ever answers under the other's name.
+    """
+    return Router(
+        routes=[
+            Host(str(urlsplit(settings.public_origin).hostname), instance.lobby),
+            Host(str(urlsplit(settings.talk_origin).hostname), instance.talk),
+        ],
+    )
+
+
 async def _serve(instance: Instance, settings: Settings) -> None:
     """Poll and sweep for as long as the server answers, and stop with it."""
     server = uvicorn.Server(
         uvicorn.Config(
-            instance.lobby,
+            served_by_host(instance, settings),
             host=settings.host,
             port=settings.port,
             proxy_headers=False,

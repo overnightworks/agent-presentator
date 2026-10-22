@@ -1,0 +1,141 @@
+"""The Host header alone chooses which app of the instance answers."""
+
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import pytest
+from starlette.testclient import WebSocketDenialResponse
+from starlette.websockets import WebSocketDisconnect
+
+from presentator.api.talk import TALK_PERMISSIONS_POLICY
+from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS
+from tests.api.talk_support import (
+    A_DECK,
+    B_DECK,
+    Hosts,
+    ask_at_the_door,
+    cookie_header,
+    two_hosts,
+)
+
+_LOBBY_HOST = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
+_TALK_HOST = str(urlsplit(A_TALK_ADDRESS).hostname)
+_SOMEONE_ELSES = "elsewhere.example.test"
+_NOT_FOUND = 404
+
+
+@pytest.fixture
+def hosts(tmp_path: Path) -> Hosts:
+    return two_hosts(tmp_path)
+
+
+def _is_the_talk_host(permissions_policy: str | None) -> bool:
+    return permissions_policy == TALK_PERMISSIONS_POLICY
+
+
+def test_the_router_gives_each_hostname_its_app_and_any_other_a_not_found(
+    hosts: Hosts,
+) -> None:
+    lobby_login = hosts.browser(A_BROWSERS_ADDRESS).get("/login")
+    talk_root = hosts.browser(A_TALK_ADDRESS).get("/")
+    stranger = hosts.browser(f"https://{_SOMEONE_ELSES}").get("/login")
+
+    assert lobby_login.status_code == 200  # noqa: PLR2004
+    assert talk_root.status_code == 303  # noqa: PLR2004
+    assert talk_root.headers["location"] == A_BROWSERS_ADDRESS
+    assert stranger.status_code == _NOT_FOUND
+
+
+def test_a_socket_for_a_hostname_the_instance_does_not_serve_is_refused(
+    hosts: Hosts,
+) -> None:
+    stranger = hosts.browser(f"https://{_SOMEONE_ELSES}")
+
+    with (
+        pytest.raises((WebSocketDisconnect, WebSocketDenialResponse)),
+        stranger.websocket_connect(f"wss://{_SOMEONE_ELSES}/deck/{A_DECK}/"),
+    ):
+        pytest.fail("a socket was accepted")
+
+
+def test_a_scope_with_no_host_header_is_a_not_found(hosts: Hosts) -> None:
+    answer = ask_at_the_door(hosts.router, hosts=(), path="/login")
+
+    assert answer.status == _NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "answered_by_talk"),
+    [(_TALK_HOST, _LOBBY_HOST, True), (_LOBBY_HOST, _TALK_HOST, False)],
+    ids=["talk first", "lobby first"],
+)
+def test_with_two_host_headers_only_the_first_hosts_app_answers(
+    hosts: Hosts,
+    first: str,
+    second: str,
+    answered_by_talk: bool,  # noqa: FBT001
+) -> None:
+    answer = ask_at_the_door(hosts.router, hosts=(first, second), path="/")
+
+    assert (
+        _is_the_talk_host(answer.headers.get("permissions-policy")) is answered_by_talk
+    )
+
+
+def test_a_port_on_the_talk_host_never_reaches_the_lobbys_pages(hosts: Hosts) -> None:
+    ported = hosts.browser(f"{A_TALK_ADDRESS}:8443")
+
+    settings = ported.get("/settings")
+
+    assert settings.headers["location"].startswith("/login/oidc?")
+    assert _is_the_talk_host(settings.headers["permissions-policy"])
+
+
+def test_a_port_on_the_lobby_never_gets_a_talk_host_answer(hosts: Hosts) -> None:
+    ported = hosts.browser_with_the_cookies_of(
+        hosts.signed_in_at(A_BROWSERS_ADDRESS), f"{A_BROWSERS_ADDRESS}:8443"
+    )
+
+    talk = ported.get(f"/deck/{A_DECK}/presenter/")
+
+    assert talk.status_code == 200  # noqa: PLR2004
+    assert not _is_the_talk_host(talk.headers.get("permissions-policy"))
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["https://presentator.hallucinai.de/settings", "/settings"],
+    ids=["absolute-form as the path (h11)", "origin-form (httptools)"],
+)
+def test_an_absolute_form_target_naming_the_lobby_is_the_talk_hosts_not_found(
+    hosts: Hosts,
+    target: str,
+) -> None:
+    client = hosts.signed_in_at(A_TALK_ADDRESS)
+
+    answer = ask_at_the_door(
+        hosts.router, hosts=(_TALK_HOST,), path=target, cookie=cookie_header(client)
+    )
+
+    assert answer.status == _NOT_FOUND
+    assert _is_the_talk_host(answer.headers["permissions-policy"])
+
+
+@pytest.mark.parametrize("slug", [A_DECK, f"{B_DECK}/presenter"])
+@pytest.mark.parametrize("signed_in", [True, False], ids=["with a session", "none"])
+def test_a_socket_to_a_talk_is_closed_before_it_is_accepted(
+    hosts: Hosts,
+    slug: str,
+    signed_in: bool,  # noqa: FBT001
+) -> None:
+    browser = (
+        hosts.signed_in_at(A_TALK_ADDRESS)
+        if signed_in
+        else hosts.browser(A_TALK_ADDRESS)
+    )
+
+    with (
+        pytest.raises((WebSocketDisconnect, WebSocketDenialResponse)),
+        browser.websocket_connect(f"wss://{_TALK_HOST}/deck/{slug}/"),
+    ):
+        pytest.fail("a socket was accepted")

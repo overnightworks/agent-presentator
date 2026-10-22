@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 import uvicorn
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from starlette.routing import Router
 from webauth.config import installed_web_auth_config
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 
@@ -178,11 +178,11 @@ def signed_in(
 def test_the_composition_root_serves_a_lobby_that_answers_the_login(
     environment: pytest.MonkeyPatch,
 ) -> None:
-    served: list[FastAPI] = []
+    served: list[Router] = []
 
     class ServerThatOnlyRecordsWhatItGot:
         def __init__(self, config: uvicorn.Config) -> None:
-            assert isinstance(config.app, FastAPI)
+            assert isinstance(config.app, Router)
             self.app = config.app
 
         async def serve(self) -> None:
@@ -193,7 +193,26 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
     main.main()
 
     assert len(served) == 1
-    assert TestClient(served[0]).get("/login").is_success
+    lobby_host = TestClient(served[0], base_url="https://presentator.test")
+    talk_host = TestClient(served[0], base_url="https://presentator-talk.test")
+    assert lobby_host.get("/login").is_success
+    assert (
+        talk_host.get("/", follow_redirects=False).status_code == HTTPStatus.SEE_OTHER
+    )
+
+
+def test_both_hosts_share_one_lock_one_account_store_and_one_audit_sink(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    del environment
+
+    lobby, talk = main.installed_auths(load_settings())
+
+    assert talk.lock is lobby.lock
+    assert talk.accounts is lobby.accounts
+    assert talk.audit is lobby.audit
+    assert talk.config.session_secret != lobby.config.session_secret
+    assert talk.relying_party is not lobby.relying_party
 
 
 def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(

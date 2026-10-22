@@ -49,6 +49,7 @@ from presentator.adapters.catalog import (
 )
 from presentator.adapters.decks import SourceMirrors
 from presentator.adapters.identity import ProcessWriteLock
+from presentator.adapters.secrets import talk_session_secret
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -233,6 +234,16 @@ def a_web_auth(clock: FrozenClock) -> WebAuthConfig:
     return replace(host_config, wall_clock=lambda: clock.now().timestamp())
 
 
+def a_talk_web_auth(clock: FrozenClock) -> WebAuthConfig:
+    """The talk host's library configuration, signing under its own derived key."""
+    host_config = web_auth_config_for(
+        SecretStr(talk_session_secret(a_settings().secret_key.get_secret_value())),
+        trusted_proxies="",
+        origin=A_TALK_ADDRESS,
+    )
+    return replace(host_config, wall_clock=lambda: clock.now().timestamp())
+
+
 def configure_oidc(monkeypatch: pytest.MonkeyPatch, directory: Path) -> Path:
     """Name the issuer, the client and a secret file of a test's own."""
     secret_file = directory / "oidc-client-secret"
@@ -278,12 +289,11 @@ def a_relying_party(
     *,
     post_token_request: TokenRequestPost = _no_token_endpoint,
     fetch_key_set: KeySetFetch = _no_key_set,
+    origin: str = A_BROWSERS_ADDRESS,
 ) -> OidcRelyingParty:
     """The issuer's client, whose transports reach nobody unless a test gives some."""
     return OidcRelyingParty(
-        oidc_client_config(
-            a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
-        ),
+        oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=origin),
         post_token_request=post_token_request,
         fetch_key_set=fetch_key_set,
         wall_clock=lambda: clock.now().timestamp(),
@@ -383,19 +393,11 @@ class SigningIn:
 
     sessions: SessionRecordStore
     auth: InstalledAuth
+    decks: Decks | None = None
 
 
-def a_lobby_app(
-    *,
-    people: FakePeople | None = None,
-    catalogs: Catalogs = CATALOGS,
-    given: GivenDecks = NO_DECKS,
-    copresenter: CoPresenterSurface | None = None,
-    signing_in: SigningIn | None = None,
-) -> tuple[FastAPI, FrozenClock]:
-    """The whole lobby wiring, so a test that needs two clients shares one app."""
-    crowd = a_crowd() if people is None else people
-    clock = crowd.clock
+def a_decks(given: GivenDecks, clock: FrozenClock) -> Decks:
+    """The deck use cases over fakes at every port, as a test arranged them."""
     stored = (
         list(given.sources)
         if given.sources
@@ -453,6 +455,25 @@ def a_lobby_app(
     # and a refresh would reconcile and build rows it never asked about.
     if given.folders is not None:
         decks.refresh()
+    return decks
+
+
+def a_lobby_app(
+    *,
+    people: FakePeople | None = None,
+    catalogs: Catalogs = CATALOGS,
+    given: GivenDecks = NO_DECKS,
+    copresenter: CoPresenterSurface | None = None,
+    signing_in: SigningIn | None = None,
+) -> tuple[FastAPI, FrozenClock]:
+    """The whole lobby wiring, so a test that needs two clients shares one app."""
+    crowd = a_crowd() if people is None else people
+    clock = crowd.clock
+    decks = (
+        a_decks(given, clock)
+        if signing_in is None or signing_in.decks is None
+        else signing_in.decks
+    )
     lobby = create_lobby(
         sessions=crowd.sessions if signing_in is None else signing_in.sessions,
         decks=decks,
@@ -612,15 +633,14 @@ def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:
     return lobby.client
 
 
-def a_signed_in_lobby_with_a_built_deck() -> TestClient:
-    """A signed-in lobby whose one deck already has a built talk to serve."""
-    store = FakeDeckStore()
+def put_a_built_deck(store: FakeDeckStore, *, slug: str, owner_id: str) -> None:
+    """A deck of this owner whose built talk is the example talk's real build."""
     store.put(
         Deck(
-            slug=A_BUILT_DECK_SLUG,
+            slug=slug,
             title="Hello Co-Presenter",
             changed_at=NOW,
-            owner_id=ADMIN,
+            owner_id=owner_id,
             source_id=SOURCE_ID,
             commit=_BUILT_DECK_COMMIT,
             build=None,
@@ -628,7 +648,7 @@ def a_signed_in_lobby_with_a_built_deck() -> TestClient:
         ),
     )
     store.put_build(
-        A_BUILT_DECK_SLUG,
+        slug,
         Build(
             directory=_BUILT_TALK,
             pdf=_EXPORTED_PDF,
@@ -636,6 +656,12 @@ def a_signed_in_lobby_with_a_built_deck() -> TestClient:
             built_at=NOW,
         ),
     )
+
+
+def a_signed_in_lobby_with_a_built_deck() -> TestClient:
+    """A signed-in lobby whose one deck already has a built talk to serve."""
+    store = FakeDeckStore()
+    put_a_built_deck(store, slug=A_BUILT_DECK_SLUG, owner_id=ADMIN)
     return a_signed_in_lobby(
         GivenDecks(store=store, source=a_configured_source("git@heimserver:decks.git")),
     )

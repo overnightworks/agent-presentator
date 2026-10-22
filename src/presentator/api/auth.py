@@ -153,10 +153,11 @@ _CSRF_POLICY: Final = CsrfPolicy(exempt=_SERVER_CALLS)
 _COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
     protected=PathRules(exact=frozenset({"/copresenter/ask"})),
 )
+DEFAULT_BODY_BYTES: Final = 32 * 1024
 # Every route has this budget, forms and the ask included; the hook keeps a git
 # host's push budget, since GitHub documents payloads of up to 25 MB.
 _BODY_SIZE: Final = BodySizePolicy(
-    default_max_bytes=32 * 1024,
+    default_max_bytes=DEFAULT_BODY_BYTES,
     rules=(
         BodySizeRule(
             PathRules(prefixes=(HOOK_CALLS,)),
@@ -165,7 +166,7 @@ _BODY_SIZE: Final = BodySizePolicy(
         ),
     ),
 )
-_LOGIN_REDIRECT: Final = LoginRedirect(
+LOGIN_REDIRECT: Final = LoginRedirect(
     path=START_SIGN_IN_PATH,
     redirect_query_param="next",
 )
@@ -290,7 +291,7 @@ class SignIn:
             request,
             answer,
             web_auth_config(request),
-            return_to=request.query_params.get(_LOGIN_REDIRECT.redirect_query_param),
+            return_to=request.query_params.get(LOGIN_REDIRECT.redirect_query_param),
         )
         return answer
 
@@ -526,7 +527,7 @@ def _install_middleware(
         csrf_token=_COPRESENTER_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
-            login_redirect=_LOGIN_REDIRECT,
+            login_redirect=LOGIN_REDIRECT,
             public=_PUBLIC_RULES,
             optional=_OPTIONAL_PATHS,
         ),
