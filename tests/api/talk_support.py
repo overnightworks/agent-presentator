@@ -37,6 +37,7 @@ from tests.api.lobby import (
     ADMIN,
     AN_ISSUER,
     NO_DECKS,
+    GivenDecks,
     SigningIn,
     a_crowd,
     a_decks,
@@ -51,6 +52,7 @@ from tests.api.lobby import (
 from tests.application.fakes import FakeDeckStore, FrozenClock
 from tests.people import seed_user
 
+ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
 A_DECK: Final = "a-deck"
 B_DECK: Final = "b-deck"
 NO_DECK: Final = "no-deck"
@@ -181,21 +183,13 @@ def _relying_party_at(
     )
 
 
-def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Hosts:
-    """Both hosts over real identity tables, a fake issuer and A's and B's decks.
-
-    `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to nobody.
-    """
-    database = tmp_path / "identity.sqlite3"
-    create_identity_tables(database)
-    people = a_crowd()
-    clock = people.clock
-    decks_store = FakeDeckStore()
-    put_a_built_deck(decks_store, slug=A_DECK, owner_id=A.id)
-    put_a_built_deck(decks_store, slug=B_DECK, owner_id=B.id)
-    decks = a_decks(replace(NO_DECKS, store=decks_store), clock)
-    sessions = SqliteSessionRecordStore(database)
-    issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
+def _both_auths(
+    database: Path,
+    issuer: FakeIssuer,
+    clock: FrozenClock,
+    admission: AdmissionConfig | None,
+) -> tuple[InstalledAuth, InstalledAuth]:
+    """The lobby's and the talk host's sign-in wiring over one issuer."""
     lobby_auth = an_installed_auth(
         clock,
         relying_party=_relying_party_at(issuer, clock, A_BROWSERS_ADDRESS),
@@ -203,13 +197,43 @@ def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Ho
     )
     if admission is not None:
         lobby_auth = replace(lobby_auth, admission=admission)
-    talk_config = a_talk_web_auth(clock)
     talk_auth = replace(
         lobby_auth,
-        config=talk_config,
+        config=a_talk_web_auth(clock),
         relying_party=_relying_party_at(issuer, clock, A_TALK_ADDRESS),
         content_security_policy=talk_content_security_policy(),
     )
+    return lobby_auth, talk_auth
+
+
+def two_hosts(
+    tmp_path: Path,
+    *,
+    admission: AdmissionConfig | None = None,
+    given: GivenDecks | None = None,
+) -> Hosts:
+    """Both hosts over real identity tables, a fake issuer and one set of decks.
+
+    Without `given`, `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to
+    nobody. A given deck side is used instead, its store included.
+    """
+    database = tmp_path / "identity.sqlite3"
+    create_identity_tables(database)
+    people = a_crowd()
+    clock = people.clock
+    decks_store = (
+        FakeDeckStore() if given is None or given.store is None else given.store
+    )
+    if given is None:
+        put_a_built_deck(decks_store, slug=A_DECK, owner_id=A.id)
+        put_a_built_deck(decks_store, slug=B_DECK, owner_id=B.id)
+    decks = a_decks(
+        replace(NO_DECKS if given is None else given, store=decks_store), clock
+    )
+    sessions = SqliteSessionRecordStore(database)
+    issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
+    lobby_auth, talk_auth = _both_auths(database, issuer, clock, admission)
+    talk_config = talk_auth.config
     lobby, _ = a_lobby_app(
         people=people,
         signing_in=SigningIn(sessions=sessions, auth=lobby_auth, decks=decks),
@@ -298,3 +322,14 @@ def ask_at_the_door(
         "root_path": "",
     }
     return asyncio.run(_answer(app, scope))
+
+
+def cookies_without_values(response: Response) -> list[str]:
+    """Every `Set-Cookie` entry, its name and attributes kept, its random value not."""
+    return [
+        f"{name}=<value>{attributes}"
+        for name, attributes in (
+            (entry.split("=", 1)[0], ";" + entry.partition(";")[2])
+            for entry in response.headers.get_list("set-cookie")
+        )
+    ]

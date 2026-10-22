@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
+
+from presentator.contracts.copresenter import AnswerText, Audio, Done, Sentence
 
 if TYPE_CHECKING:
-    from presentator.ports.copresenter import SentenceBoundaries
+    from collections.abc import AsyncIterator
+
+    from presentator.contracts.copresenter import AnswerEvent
+    from presentator.ports.copresenter import SentenceBoundaries, Speaking
+
+DEFAULT_LANGUAGE: Final = "de"
 
 _TERMINATOR_WITH_CONTENT_AFTER = re.compile(r"[.!?…:;\n]\s*\S")
 # The boundary finder judges a word by the words before it; fewer than this
@@ -47,7 +54,7 @@ class SpokenAnswer:
 
     def flush(self) -> tuple[str, ...]:
         """Return what is left once the model has stopped writing."""
-        rest = self._buffer
+        rest = self._buffer.strip()
         self._buffer = ""
         self._undecided_from = 0
         return (rest,) if rest else ()
@@ -56,6 +63,40 @@ class SpokenAnswer:
         self._buffer = text
         self._undecided_from = _last_word_start(text, searched_from)
         return ()
+
+
+def spoken_language(asked: str | None, deck: str | None) -> str:
+    """The browser's language, else the deck's, else German."""
+    return asked or deck or DEFAULT_LANGUAGE
+
+
+async def spoken_events(
+    texts: AsyncIterator[str],
+    boundaries: SentenceBoundaries,
+    speaking: Speaking,
+    language: str,
+) -> AsyncIterator[AnswerEvent]:
+    """Yield the text, each sentence once and in order with its audio, then Done."""
+    answer = SpokenAnswer(boundaries)
+    spoken: list[str] = []
+    async for delta in texts:
+        yield AnswerText(text=delta)
+        for sentence in answer.feed(delta):
+            spoken.append(sentence)
+            async for event in _speak(sentence, speaking, language):
+                yield event
+    for sentence in answer.flush():
+        spoken.append(sentence)
+        async for event in _speak(sentence, speaking, language):
+            yield event
+    yield Done(text=" ".join(spoken))
+
+
+async def _speak(
+    sentence: str, speaking: Speaking, language: str
+) -> AsyncIterator[AnswerEvent]:
+    yield Sentence(text=sentence)
+    yield Audio(text=sentence, wav=await speaking.speak(sentence, language))
 
 
 def _last_word_start(text: str, not_before: int) -> int:

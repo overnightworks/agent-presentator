@@ -180,10 +180,9 @@ cast("dict[str, object]", TEMPLATES.env.globals).update(
 def content_security_policy(end_session_origin: str) -> str:
     """The one policy every answer of the lobby carries.
 
-    Nothing in the lobby or a built talk needs an inline script, an external
-    script host, or a frame: every asset ships under `/static` or a deck's own
-    build directory, both served from this origin. A built Slidev talk inlines
-    styles, which the library's default policy does not admit. Signing out is a
+    Nothing in the lobby needs an inline script, an inline style, an external
+    script host, or a frame: every asset ships under `/static`, served from this
+    origin. Signing out is a
     form the browser follows to the issuer, and Chromium checks `form-action`
     on that redirect, so the end-session endpoint's origin is the one host a
     form may reach.
@@ -191,7 +190,6 @@ def content_security_policy(end_session_origin: str) -> str:
     return default_content_security_policy(
         [],
         added_sources={
-            CspDirective.STYLE_SRC: ["'unsafe-inline'"],
             CspDirective.FORM_ACTION: [end_session_origin],
         },
     )
@@ -593,7 +591,7 @@ def create_lobby(
     lobby.add_api_route(_DATENSCHUTZ, surfaces.datenschutz_page, methods=["GET"])
     lobby.include_router(preference_routes(pages=pages, voice=private.voice))
     lobby.include_router(source_routes(pages=pages, decks=decks))
-    add_deck_pages(lobby, decks=decks, pages=pages)
+    add_deck_pages(lobby, decks=decks, pages=pages, talk_origin=auth.talk_origin)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
     if private.admin_people is not None:

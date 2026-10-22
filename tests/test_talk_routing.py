@@ -117,10 +117,10 @@ def test_a_port_on_the_lobby_never_gets_a_talk_host_answer(hosts: Hosts) -> None
         hosts.signed_in_at(A_BROWSERS_ADDRESS), f"{A_BROWSERS_ADDRESS}:8443"
     )
 
-    talk = ported.get(f"/deck/{A_DECK}/presenter/")
+    page = ported.get(f"/deck/{A_DECK}")
 
-    assert talk.status_code == HTTPStatus.OK
-    assert not _is_the_talk_host(talk.headers.get("permissions-policy"))
+    assert page.status_code == HTTPStatus.OK
+    assert not _is_the_talk_host(page.headers.get("permissions-policy"))
 
 
 # T4e.
