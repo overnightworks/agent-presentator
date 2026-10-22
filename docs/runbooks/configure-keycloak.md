@@ -27,8 +27,8 @@ only its two configured hostnames.
    nobody matches `/apps/presentator` and every sign-in shows "No access".
    Members of `/apps/presentator` are admitted; members of
    `/apps/presentator/admin` are admins.
-4. Register `<PRESENTATOR_PUBLIC_ORIGIN's scheme and hostname, reached through
-   the internal alias>/auth/backchannel-logout` as the client's back-channel
+4. Register `http://<the lobby's public hostname>:<PRESENTATOR_PORT>/auth/backchannel-logout`,
+   reached through the internal alias, as the client's back-channel
    logout URL. Its hostname is the lobby's public hostname: a request under any
    other Host, an internal hostname or an IP included, gets 404 and ends no
    session. The route is not live until the client registers
