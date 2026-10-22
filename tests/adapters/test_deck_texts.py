@@ -1,5 +1,6 @@
 """A deck's words, read from the mirror of a real repository at its built commit."""
 
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _TALK = "talk"
+_QUICK_SECONDS = 5
 _SLIDES = "# One\nfirst\n\n---\n\n# Two\nsecond\n\n<!-- notes for two -->\n"
 
 
@@ -116,9 +118,10 @@ def test_a_commit_the_mirror_does_not_hold_is_unavailable(
     source = a_source(remote.url)
     folders_under(tmp_path).folders(source)
     deck = built(a_deck(_TALK), a_build(tmp_path))
+    texts = MirroredDeckTexts(mirrors=mirrors_under(tmp_path))
 
     with pytest.raises(CoPresenterUnavailableError):
-        MirroredDeckTexts(mirrors=mirrors_under(tmp_path)).text_of(deck, source)
+        texts.text_of(deck, source)
 
 
 def test_a_deck_whose_manifest_is_unreadable_is_still_read_by_its_slides(
@@ -138,11 +141,11 @@ def test_a_deck_whose_manifest_is_unreadable_is_still_read_by_its_slides(
 
 def test_a_source_that_no_longer_resolves_is_unavailable(tmp_path: Path) -> None:
     deck = built(a_deck(_TALK), a_build(tmp_path))
+    texts = MirroredDeckTexts(mirrors=mirrors_under(tmp_path))
+    unresolvable = a_source("not an address")
 
     with pytest.raises(CoPresenterUnavailableError):
-        MirroredDeckTexts(mirrors=mirrors_under(tmp_path)).text_of(
-            deck, a_source("not an address")
-        )
+        texts.text_of(deck, unresolvable)
 
 
 @pytest.mark.parametrize(
@@ -212,3 +215,19 @@ def test_slides_follow_slidev_separators(
 
     assert text is not None
     assert [(s.number, s.title) for s in text.slides] == expected
+
+
+def test_a_heading_buried_in_blank_space_is_read_in_linear_time(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    padding = " \n" * 50_000
+    remote.commit({f"{_TALK}/slides.md": f"#{padding}# Found\n"}, at=_PUSHED_AT)
+
+    started = time.monotonic()
+    text = read_deck(tmp_path, remote, _TALK)
+    elapsed = time.monotonic() - started
+
+    assert text is not None
+    assert text.slides[0].title == "# Found"
+    assert elapsed < _QUICK_SECONDS

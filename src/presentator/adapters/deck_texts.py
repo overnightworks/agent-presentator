@@ -26,7 +26,7 @@ from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, Deck, Source
 _SEPARATOR: Final = "---"
 _FENCE_OPEN = re.compile(r"^\s*`+")
 _NOTE = re.compile(r"<!--(.*?)-->", re.DOTALL)
-_TITLE_LINE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+_TITLE_LINE = re.compile(r"^#\s+(\S.*)$", re.MULTILINE)
 _NO_MANIFEST = DeckManifest(title=None, language=None)
 
 
@@ -122,29 +122,40 @@ def _slide_chunks(markdown: str) -> list[str]:
             _collect_chunk(chunks, lines, start, index)
             next_line = lines[index + 1] if index + 1 < length else ""
             opens_frontmatter = _opens_frontmatter(line) and bool(next_line.strip())
-            if opens_frontmatter:
-                start = index
-                index += 1
-                while index < length and lines[index].rstrip() != _SEPARATOR:
-                    index += 1
-            else:
-                start = index + 1
-            index += 1
+            start = index if opens_frontmatter else index + 1
+            index = _after_separator(lines, index, opens_frontmatter=opens_frontmatter)
             continue
-        fence = _FENCE_OPEN.match(line)
-        if line.lstrip().startswith("```") and fence is not None:
-            marker = fence.group(0)
-            index += 1
-            while index < length and not lines[index].startswith(marker):
-                index += 1
-            if index < length:
-                index += 1
+        marker = _code_fence_marker(line)
+        if marker is not None:
+            index = _after_code_fence(lines, index + 1, marker)
             continue
         in_html_comment = _html_comment_continues(raw_line, inside=False)
         index += 1
     if start < length:
         _collect_chunk(chunks, lines, start, length)
     return chunks
+
+
+def _after_separator(lines: list[str], index: int, *, opens_frontmatter: bool) -> int:
+    if not opens_frontmatter:
+        return index + 1
+    index += 1
+    while index < len(lines) and lines[index].rstrip() != _SEPARATOR:
+        index += 1
+    return index + 1
+
+
+def _code_fence_marker(line: str) -> str | None:
+    fence = _FENCE_OPEN.match(line)
+    if fence is None or not line.lstrip().startswith("```"):
+        return None
+    return fence.group(0)
+
+
+def _after_code_fence(lines: list[str], index: int, marker: str) -> int:
+    while index < len(lines) and not lines[index].startswith(marker):
+        index += 1
+    return min(index + 1, len(lines))
 
 
 def _opens_frontmatter(line: str) -> bool:
