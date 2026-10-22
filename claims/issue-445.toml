@@ -1,0 +1,8 @@
+claim_id = "5616a8948c6a4d8d976ed14065b3425c"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "7ca3567d1c4a3c425278069260de72282cb47871"
+branch = "claude/issue-445-speaking-pipeline-c"
+scope = ["src/presentator/adapters/speech.py", "src/presentator/application/spoken_answer.py", "src/presentator/ports/copresenter.py", "tests/adapters/test_speech_speaking.py", "tests/application/test_spoken_answer.py"]
+opened_commit = "e7bb5345052d1de74ca4dbc92d420be60d496c7e"
+whole_reason = "The port, the adapter and the pipeline only prove one spoken sentence per event together, and the two test modules prove them."
