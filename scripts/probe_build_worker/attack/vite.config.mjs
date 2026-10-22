@@ -125,6 +125,11 @@ function filesystemAttacks() {
   check('fs.create.root', () => fs.writeFileSync('/attack-marker', 'x'))
   check('fs.create.frontend', () => fs.writeFileSync('/app/frontend/attack-marker', 'x'))
   check('fs.write.package-json', () => fs.openSync('/app/frontend/package.json', 'w'))
+  // The read-only mount answers EROFS whatever the mode says, so the mode is
+  // read as well: neither this user nor this group nor anyone else may write it.
+  const manifest = fs.statSync('/app/frontend/package.json')
+  const reachable = manifest.uid === 10001 || manifest.gid === 10001 || (manifest.mode & 0o002) !== 0
+  record(`check fs.package-json.denied-by-mode ${reachable ? 'no' : 'yes'}`)
 }
 
 async function networkAttacks() {
