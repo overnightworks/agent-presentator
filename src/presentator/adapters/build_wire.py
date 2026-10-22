@@ -386,6 +386,13 @@ def _open_without_following(directory: int, name: bytes) -> int:
         raise
 
 
+def _refuse_unless_directory_or_file(directory: int, name: bytes) -> None:
+    """Judge the entry's own type before any open, so a FIFO is never opened."""
+    mode = os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode
+    if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        raise TreeRefusedError(_SHAPE_REFUSAL)
+
+
 def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Generator[TreeEntry]:
     """Walk depth-first in pre-order, names sorted as bytes, never following a link."""
     for name in sorted(os.fsencode(listed) for listed in os.listdir(directory)):
@@ -394,6 +401,7 @@ def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Generator[TreeEntry
             path_components(b"/".join(components))
         except WireRefusedError as error:
             raise TreeRefusedError(_SHAPE_REFUSAL) from error
+        _refuse_unless_directory_or_file(directory, name)
         descriptor = _open_without_following(directory, name)
         try:
             status = os.fstat(descriptor)
@@ -446,7 +454,7 @@ def _survey(root: int, step: StepKind, megabytes: int) -> None:
 
 def _send_entry(connection: socket.socket, entry: TreeEntry) -> None:
     path = b"/".join(entry.components)
-    tag = RecordTag.DIR if entry.descriptor is None else RecordTag.FILE
+    tag = RecordTag.DIR if entry.is_directory else RecordTag.FILE
     connection.sendall(bytes([tag]) + LENGTH.pack(len(path)) + path)
     if entry.descriptor is None:
         return

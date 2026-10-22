@@ -178,7 +178,7 @@ def sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_a_valid_upload_over_a_controller_process_gets_status_failed_end_and_eof(
+def test_a_valid_upload_over_a_controller_gets_status_built_talk_entries_end_and_eof(
     volume: Path, tmp_path: Path
 ) -> None:
     life = controller_life(volume, tmp_path, support.VALID_STEP + support.END)

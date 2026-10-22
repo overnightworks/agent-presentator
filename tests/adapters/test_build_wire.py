@@ -93,6 +93,7 @@ def test_a_failed_text_is_the_longest_suffix_that_fits_the_header_bound(
 def test_built_is_an_outcome_message_with_no_other_field(
     wire: tuple[socket.socket, socket.socket],
 ) -> None:
+    """Cell W4 (35)."""
     reading_end, writing_end = wire
 
     send_outcome(writing_end, BuiltOutcome())
@@ -103,6 +104,7 @@ def test_built_is_an_outcome_message_with_no_other_field(
 def test_a_megabytes_refusal_carries_the_written_total_and_a_shape_refusal_null(
     wire: tuple[socket.socket, socket.socket],
 ) -> None:
+    """Cell W3 (31)."""
     reading_end, writing_end = wire
 
     send_outcome(writing_end, RefusedOutcome(limit=RefusalLimit.SHAPE))
@@ -116,6 +118,7 @@ def test_a_megabytes_refusal_carries_the_written_total_and_a_shape_refusal_null(
 def test_an_end_carries_the_count_and_the_sum_it_is_given(
     wire: tuple[socket.socket, socket.socket],
 ) -> None:
+    """Cell W4 (35)."""
     reading_end, writing_end = wire
 
     send_end(writing_end, 3, 500)

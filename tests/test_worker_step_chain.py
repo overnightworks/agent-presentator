@@ -45,8 +45,9 @@ descriptors = {{
     for name in os.listdir("/proc/self/fd")
     if os.path.exists("/proc/self/fd/" + name)
 }}
-os.makedirs({talk!r})
+os.makedirs({talk!r} + "/assets")
 open({talk!r} + "/index.html", "w").write("built")
+open({talk!r} + "/assets/app.js", "w").write("script")
 open({report!r}, "w").write(
     json.dumps(
         {{
@@ -212,6 +213,7 @@ def test_a_half_close_after_the_last_check_does_not_cancel_the_reply(
 def test_an_export_writing_its_pdf_gets_built_and_the_pdf_as_the_only_entry(
     sandbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Cell I2 (35)."""
     work = sandbox / "work"
     work.mkdir()
     pnpm = step_support.fake_pnpm(
@@ -274,6 +276,7 @@ def read_the_first(count: int) -> Callable[[socket.socket], None]:
 def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bound(
     sandbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Cell I4 (32)."""
     work, spawn, sender_spawned = a_blob_building_chain(sandbox, monkeypatch)
     monkeypatch.setattr(worker_serving, "REPLY_SECONDS", REPLY_BOUND_SECONDS)
 
@@ -296,6 +299,7 @@ def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bo
 def test_a_client_that_closes_during_a_large_reply_ends_the_sender_promptly(
     sandbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Cell I5a (33)."""
     work, spawn, _ = a_blob_building_chain(sandbox, monkeypatch)
     closed_at: list[float] = []
 
@@ -411,7 +415,13 @@ def test_a_step_runs_the_launcher_with_its_paths_environment_and_streams(
     seen = json.loads(report.read_text())
     captured = capfd.readouterr()
     assert life.reply == (
-        support.STATUS + support.OUTCOME_BUILT + support.talk_entries(b"built")
+        support.STATUS
+        + support.OUTCOME_BUILT
+        + support.directory_entry(b"talk")
+        + support.directory_entry(b"talk/assets")
+        + support.file_entry(b"talk/assets/app.js", b"script")
+        + support.file_entry(b"talk/index.html", b"built")
+        + support.end_entry(4, len(b"script") + len(b"built"))
     )
     assert spawn.roles == ["idle", "upload", "step", "send"]
     assert seen["argv"] == [

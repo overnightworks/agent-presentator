@@ -503,6 +503,7 @@ def test_the_send_entry_answers_failed_with_the_planned_text_exiting_sent(
 def test_the_send_entry_under_walk_refuses_an_empty_output_as_shape_exiting_sent(
     client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
+    """Cell W2 (30)."""
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.BUILD, slug="my-deck"))
     (work / "out").mkdir()
@@ -516,6 +517,7 @@ def test_the_send_entry_under_walk_refuses_an_empty_output_as_shape_exiting_sent
 def test_the_send_entry_under_walk_exits_closed_without_a_reply_when_out_is_absent(
     client_and_descriptor: tuple[socket.socket, int], record: int, work: Path
 ) -> None:
+    """Cell W2 (30)."""
     client, descriptor = client_and_descriptor
     write_record(record, StepHeader(step=StepKind.BUILD, slug="my-deck"))
 

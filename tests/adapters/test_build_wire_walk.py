@@ -137,9 +137,28 @@ UNSAFE_TREES = [
 def test_an_unsafe_entry_refuses_the_whole_build_as_shape_without_any_entry(
     output: Path, make: Callable[[Path], None]
 ) -> None:
+    """Cell W1 (29)."""
     make(build_talk(output))
 
     assert reply_to(output, StepKind.BUILD) == refused("shape")
+
+
+def test_a_fifo_is_refused_without_ever_being_opened(
+    output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cell W1 (29): the entry's type is judged before any open."""
+    a_fifo(build_talk(output))
+    opened: list[object] = []
+    open_entry = os.open
+
+    def recording_open(path: object, *arguments: int, **keywords: int) -> int:
+        opened.append(path)
+        return open_entry(path, *arguments, **keywords)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(os, "open", recording_open)
+
+    assert reply_to(output, StepKind.BUILD) == refused("shape")
+    assert b"pipe" not in opened
 
 
 def build_without_talk(output: Path) -> None:
@@ -201,15 +220,10 @@ CONTRACT_BREAKS: dict[str, tuple[StepKind, Callable[[Path], None]]] = {
 def test_an_output_outside_the_step_contract_is_refused_as_shape(
     output: Path, step: StepKind, make: Callable[[Path], None]
 ) -> None:
+    """Cell W2 (30)."""
     make(output)
 
     assert reply_to(output, step) == refused("shape")
-
-
-def test_a_build_tree_is_not_accepted_for_an_export(output: Path) -> None:
-    (build_talk(output) / "index.html").write_text("x")
-
-    assert reply_to(output, StepKind.EXPORT) == refused("shape")
 
 
 def sparse_talk_file(output: Path, size: int) -> None:
@@ -218,6 +232,7 @@ def sparse_talk_file(output: Path, size: int) -> None:
 
 
 def test_a_total_of_exactly_the_megabytes_is_built(output: Path) -> None:
+    """Cell W3 (31)."""
     sparse_talk_file(output, MEGABYTES * MEGABYTE)
 
     assert reply_to(output, StepKind.BUILD).startswith(BUILT)
@@ -226,6 +241,7 @@ def test_a_total_of_exactly_the_megabytes_is_built(output: Path) -> None:
 def test_one_byte_over_the_megabytes_is_refused_with_the_rounded_up_total(
     output: Path,
 ) -> None:
+    """Cell W3 (31)."""
     sparse_talk_file(output, MEGABYTES * MEGABYTE + 1)
 
     assert reply_to(output, StepKind.BUILD) == refused("megabytes", MEGABYTES + 1)
@@ -239,6 +255,7 @@ def many_empty_files(output: Path, count: int) -> None:
 
 
 def test_one_hundred_thousand_entries_are_built(output: Path) -> None:
+    """Cell W3 (31)."""
     many_empty_files(output, 100_000)
 
     assert reply_to(output, StepKind.BUILD).startswith(BUILT)
@@ -247,6 +264,7 @@ def test_one_hundred_thousand_entries_are_built(output: Path) -> None:
 def test_one_entry_over_one_hundred_thousand_is_refused_as_entries(
     output: Path,
 ) -> None:
+    """Cell W3 (31)."""
     many_empty_files(output, 100_001)
 
     assert reply_to(output, StepKind.BUILD) == refused("entries")
@@ -282,6 +300,7 @@ def tree_of(root: Path) -> dict[str, bytes | None]:
 def test_a_nested_build_is_sent_in_byte_order_and_received_as_the_same_tree(
     output: Path, tmp_path: Path
 ) -> None:
+    """Cell W4 (35)."""
     talk = build_talk(output)
     (talk / "index.html").write_bytes(b"<html>")
     (talk / "assets").mkdir()
@@ -302,6 +321,7 @@ def test_a_nested_build_is_sent_in_byte_order_and_received_as_the_same_tree(
 
 
 def test_an_export_sends_its_pdf_and_nothing_else(output: Path) -> None:
+    """Cell W4 (35)."""
     (output / "deck.pdf").write_bytes(b"%PDF")
 
     entries = entry_stream(reply_to(output, StepKind.EXPORT))
