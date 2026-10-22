@@ -28,6 +28,7 @@ from webauth.dependencies import (
     admit_session,
     session_id_from_request,
 )
+from webauth.middleware.bearer_gate import BearerGate
 from webauth.middleware.session_gate import SessionGate
 from webauth.middleware.stack import install_web_auth_middleware
 from webauth.oidc import OidcRefusal, OidcRelyingParty
@@ -43,6 +44,7 @@ from webauth.oidc_login import (
     start_login,
 )
 from webauth.policies import (
+    AuthorizedParties,
     BodySizePolicy,
     BodySizeRule,
     CacheControlRule,
@@ -70,6 +72,7 @@ from presentator.api.pages import (
     state_word,
     user_of_admitted,
 )
+from presentator.api.people import ADMIN_PREFIX, AdminPeople, people_routes
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
@@ -92,8 +95,8 @@ _DATENSCHUTZ: Final = "/datenschutz"
 _SETUP: Final = "/setup"
 
 
-class TalkRefusal(StrEnum):
-    """Why a sign-in was refused, and the last segment of the lobby's route for it.
+class TalkSignInRefusal(StrEnum):
+    """Why a sign-in at the talk host was refused, and the lobby route's last segment.
 
     The talk host has no page of its own, so its refused sign-in is answered
     with a redirect to the lobby, whose footer links Impressum and Datenschutz.
@@ -104,12 +107,12 @@ class TalkRefusal(StrEnum):
 
 
 _REFUSAL_PAGES: Final = {
-    TalkRefusal.NO_ACCESS: "no_access.html",
-    TalkRefusal.LOGIN_FAILED: "login_failed.html",
+    TalkSignInRefusal.NO_ACCESS: "no_access.html",
+    TalkSignInRefusal.LOGIN_FAILED: "login_failed.html",
 }
 
 
-def talk_refusal_path(refusal: TalkRefusal) -> str:
+def talk_sign_in_refusal_path(refusal: TalkSignInRefusal) -> str:
     """The lobby's address that shows a talk sign-in refusal."""
     return f"/login/talk/{refusal.value}"
 
@@ -138,7 +141,10 @@ _PUBLIC_RULES: Final = (
                     SIGN_IN_CALLBACK_PATH,
                     LOGOUT_PATH,
                     _SETUP,
-                    *(talk_refusal_path(refusal) for refusal in TalkRefusal),
+                    *(
+                        talk_sign_in_refusal_path(refusal)
+                        for refusal in TalkSignInRefusal
+                    ),
                 }
             )
         )
@@ -252,6 +258,8 @@ class LobbyPrivate:
     """Private capabilities the authenticated lobby may expose to an admin."""
 
     voice: VoiceStatusUse
+    # Absent: no token is admitted, so neither the gate nor the route exists.
+    admin_people: AdminPeople | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -297,7 +305,7 @@ class SignIn:
         self,
         request: Request,
         *,
-        refused: Callable[[TalkRefusal, Response], Response],
+        refused: Callable[[TalkSignInRefusal, Response], Response],
     ) -> Response:
         """Complete the sign-in the issuer returns to, or hand the refusal on.
 
@@ -321,13 +329,13 @@ class SignIn:
             case AdmittedLogin():
                 return self._signed_in(request, answer, outcome)
             case AdmissionRefusal.NOT_A_MEMBER:
-                return refused(TalkRefusal.NO_ACCESS, answer)
+                return refused(TalkSignInRefusal.NO_ACCESS, answer)
             case (
                 OidcRefusal()
                 | AdmissionRefusal.FOREIGN_ISSUER
                 | AdmissionRefusal.USERNAME_TAKEN
             ):
-                return refused(TalkRefusal.LOGIN_FAILED, answer)
+                return refused(TalkSignInRefusal.LOGIN_FAILED, answer)
             case _:
                 assert_never(outcome)
 
@@ -402,7 +410,9 @@ class _Surfaces:
         """Send the browser to the issuer."""
         return self.sign_in.start(request)
 
-    def talk_refusal_page(self, refusal: TalkRefusal) -> Callable[[Request], Response]:
+    def talk_sign_in_refusal_page(
+        self, refusal: TalkSignInRefusal
+    ) -> Callable[[Request], Response]:
         """The route that shows why the talk host refused a sign-in.
 
         Its retry restarts the sign-in at the talk host, and the page is one
@@ -422,7 +432,7 @@ class _Surfaces:
     def _refused_page(
         self,
         request: Request,
-        refusal: TalkRefusal,
+        refusal: TalkSignInRefusal,
         *,
         kept: Response,
         retry: str,
@@ -502,25 +512,28 @@ class _Surfaces:
 
 def _install_middleware(
     lobby: FastAPI,
-    content_security_policy: str,
+    auth: InstalledAuth,
     sessions: SessionRecordStore,
+    admin: AdminPeople | None,
 ) -> None:
     """Install the library's stack once, in its own order.
 
     Every answer, including the gate's redirect and a refusal, carries the
     security headers. Each store call commits on its own and `touch` is one
     update-only statement (ADR 0003), so the gate's admission takes no lock.
+    The admin prefix, when it is served, takes a bearer token and no cookie.
     """
     install_web_auth_middleware(
         lobby,
         security_headers=SecurityHeadersPolicy(
-            content_security_policy=content_security_policy,
+            content_security_policy=auth.content_security_policy,
             permissions_policy=PERMISSIONS_POLICY,
             cache_control_rules=(
                 CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
             ),
         ),
         body_size=_BODY_SIZE,
+        bearer_gate=None if admin is None else _bearer_gate(auth, admin),
         csrf_origin=_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
@@ -528,6 +541,15 @@ def _install_middleware(
             public=_PUBLIC_RULES,
             optional=_OPTIONAL_PATHS,
         ),
+    )
+
+
+def _bearer_gate(auth: InstalledAuth, admin: AdminPeople) -> BearerGate:
+    return BearerGate(
+        paths=PathRules(prefixes=(ADMIN_PREFIX,)),
+        relying_party=auth.relying_party,
+        admission=auth.admission,
+        authorized_parties=AuthorizedParties(admin.admitted_clients),
     )
 
 
@@ -554,17 +576,17 @@ def create_lobby(
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
-    _install_middleware(lobby, auth.content_security_policy, sessions)
+    _install_middleware(lobby, auth, sessions, private.admin_people)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(START_SIGN_IN_PATH, surfaces.start_sign_in, methods=["GET"])
     lobby.add_api_route(
         SIGN_IN_CALLBACK_PATH, surfaces.sign_in_callback, methods=["GET"]
     )
-    for refusal in TalkRefusal:
+    for refusal in TalkSignInRefusal:
         lobby.add_api_route(
-            talk_refusal_path(refusal),
-            surfaces.talk_refusal_page(refusal),
+            talk_sign_in_refusal_path(refusal),
+            surfaces.talk_sign_in_refusal_page(refusal),
             methods=["GET"],
         )
     lobby.add_api_route(LOGOUT_PATH, surfaces.log_out, methods=["POST"])
@@ -577,4 +599,12 @@ def create_lobby(
     add_deck_pages(lobby, decks=decks, pages=pages, talk_origin=auth.talk_origin)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
+    if private.admin_people is not None:
+        lobby.include_router(
+            people_routes(
+                admin=private.admin_people,
+                # The app is the last segment of the group its people sign in by.
+                app=str(auth.admission.login_group).rsplit("/", 1)[-1],
+            )
+        )
     return lobby

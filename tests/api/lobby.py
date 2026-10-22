@@ -58,6 +58,7 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.api.people import AdminPeople
 from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.decks import Decks
 from presentator.application.preferences import Preferences
@@ -107,7 +108,8 @@ from tests.application.fakes import (
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
 # What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
+BUILT_TALK: Final = Path(__file__).parent / "built_talk"
+AN_ASSET: Final = "assets/index-mRcVgIkQ.js"
 _EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
 _BUILT_DECK_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 # No route test waits for a build, so the bound only has to be longer than the
@@ -476,6 +478,7 @@ def a_lobby_app(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     signing_in: SigningIn | None = None,
+    admin_people: AdminPeople | None = None,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     crowd = a_crowd() if people is None else people
@@ -504,6 +507,7 @@ def a_lobby_app(
                 if given.voice is not None
                 else VoiceStatusUse(private=UnavailableSpeech())
             ),
+            admin_people=admin_people,
         ),
     )
     return lobby, clock
@@ -678,7 +682,7 @@ def put_a_built_deck(store: FakeDeckStore, *, slug: str, owner_id: str) -> None:
     store.put_build(
         slug,
         Build(
-            directory=_BUILT_TALK,
+            directory=BUILT_TALK,
             pdf=_EXPORTED_PDF,
             commit=_BUILT_DECK_COMMIT,
             built_at=NOW,

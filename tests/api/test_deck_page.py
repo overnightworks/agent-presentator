@@ -17,6 +17,7 @@ from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_TALK_ADDRESS,
     ADMIN,
+    BUILT_TALK,
     ENGLISH,
     NOW,
     SOURCE_ID,
@@ -35,7 +36,6 @@ _COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _SHORT_COMMIT: Final = "a3f19c2"
 _ADDRESS: Final = "git@heimserver:decks.git"
 # What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 _EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
 _PAGE: Final = f"/deck/{_SLUG}"
 _PROJECTOR: Final = f"/deck/{_SLUG}/"
@@ -56,7 +56,7 @@ _A_DECK_THAT_WRITES_MARKUP: Final = "<script>alert('slides')</script>"
 _THEMES: Final = ("apple-basic", "bricks", "default", "seriph", "shibainu")
 
 
-def a_build(*, talk: Path = _BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
+def a_build(*, talk: Path = BUILT_TALK, pdf: Path = _EXPORTED_PDF) -> Build:
     """A build that switched over a while ago, as the picture's board shows it."""
     return Build(directory=talk, pdf=pdf, commit=_COMMIT, built_at=NOW - _BUILT_AGO)
 
@@ -200,7 +200,7 @@ def test_a_deck_with_a_built_talk_links_its_views_at_the_talk_host(
 def test_a_built_talk_opens_its_presenter_and_its_projector_view_at_the_talk_host(
     talk_host: TestClient,
 ) -> None:
-    application = (_BUILT_TALK / "index.html").read_bytes()
+    application = (BUILT_TALK / "index.html").read_bytes()
 
     projector = talk_host.get(_PROJECTOR)
     presenter = talk_host.get(_PRESENTER)
@@ -214,7 +214,7 @@ def test_a_built_talk_opens_its_presenter_and_its_projector_view_at_the_talk_hos
 def test_a_talk_is_served_with_the_slide_in_the_address_it_was_left_at(
     talk_host: TestClient,
 ) -> None:
-    application = (_BUILT_TALK / "index.html").read_bytes()
+    application = (BUILT_TALK / "index.html").read_bytes()
     slide = talk_host.get(f"{_PROJECTOR}2")
     presenter_slide = talk_host.get(f"{_PRESENTER}2")
 
