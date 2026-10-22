@@ -40,6 +40,7 @@ from presentator.contracts.models import Role, User
 from presentator.contracts.people import PersonErased
 from presentator.contracts.preferences import PersonPreferences
 from tests.adapters.key_draft_support import INSTANCE_KEY, a_key_drafts_store
+from tests.adapters.person_rows_support import owned_row_ids, rows_still_there
 from tests.adapters.test_decks import OpenCredentials
 from tests.application.fakes import (
     FakeConnectionChecker,
@@ -49,7 +50,7 @@ from tests.application.fakes import (
 from tests.people import seed_user
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
-_THE_PERSON = User(id="the-person", username="pia", role=Role.ADMIN)
+THE_PERSON = User(id="the-person", username="pia", role=Role.ADMIN)
 _ANOTHER = User(id="another-person", username="ben", role=Role.USER)
 _A_BOUND = timedelta(seconds=30)
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
@@ -100,7 +101,7 @@ def an_instance_with_both_people(tmp_path: Path) -> Instance:
     sessions = SqliteSessionRecordStore(database)
     preferences = SqlitePersonPreferencesStore(database)
     kept_by: dict[str, tuple[Source, Path, Path]] = {}
-    for person in (_THE_PERSON, _ANOTHER):
+    for person in (THE_PERSON, _ANOTHER):
         seed_user(database, person)
         sessions.create(
             person.id,
@@ -196,68 +197,60 @@ def an_instance_with_both_people(tmp_path: Path) -> Instance:
     )
 
 
-def rows_keyed_by(database: Path, person: User) -> dict[str, int]:
-    """Per table, the rows that name the person directly or through their source."""
+def owned_by(database: Path, person: User) -> dict[str, set[int]]:
+    """Per table the guard finds, the rows the person owns, parents first."""
     with closing(sqlite3.connect(database)) as connection:
-        owned = {
-            "users": "SELECT COUNT(*) FROM users WHERE id = :id",
-            "sessions": "SELECT COUNT(*) FROM sessions WHERE user_id = :id",
-            "person_preferences": (
-                "SELECT COUNT(*) FROM person_preferences WHERE user_id = :id"
-            ),
-            "source_key_drafts": (
-                "SELECT COUNT(*) FROM source_key_drafts WHERE owner_id = :id"
-            ),
-            "sources": "SELECT COUNT(*) FROM sources WHERE owner_id = :id",
-            "decks": "SELECT COUNT(*) FROM decks WHERE owner_id = :id",
-            "source_runs": (
-                "SELECT COUNT(*) FROM source_runs WHERE source_id IN"
-                " (SELECT id FROM sources WHERE owner_id = :id)"
-            ),
-        }
-        return {
-            table: connection.execute(query, {"id": person.id}).fetchone()[0]
-            for table, query in owned.items()
-        }
+        return owned_row_ids(connection, person.id)
+
+
+def still_there(database: Path, owned: dict[str, set[int]]) -> dict[str, int]:
+    with closing(sqlite3.connect(database)) as connection:
+        return rows_still_there(connection, owned)
 
 
 def test_a_person_with_every_kind_of_row_leaves_none_and_no_mirror_or_build(
     tmp_path: Path,
 ) -> None:
+    """S9 (#293) Done when: no table holds a row of the person, nor mirror or build."""
     instance = an_instance_with_both_people(tmp_path)
-    assert all(rows_keyed_by(instance.database, _THE_PERSON).values())
+    owned = owned_by(instance.database, THE_PERSON)
+    assert all(owned.values())
 
-    outcome = instance.people.erase_person(_THE_PERSON.id, dry_run=False)
+    outcome = instance.people.erase_person(THE_PERSON.id, dry_run=False)
 
     assert isinstance(outcome, PersonErased)
-    assert not any(rows_keyed_by(instance.database, _THE_PERSON).values())
-    assert not instance.mirror_of(_THE_PERSON).exists()
-    assert not instance.build_of(_THE_PERSON).exists()
+    assert not any(still_there(instance.database, owned).values())
+    assert not any(owned_by(instance.database, THE_PERSON).values())
+    assert not instance.mirror_of(THE_PERSON).exists()
+    assert not instance.build_of(THE_PERSON).exists()
 
 
 def test_a_second_person_keeps_every_row_mirror_and_build(tmp_path: Path) -> None:
+    """E5 (#418): the erasure takes only the named person's rows."""
     instance = an_instance_with_both_people(tmp_path)
-    before = rows_keyed_by(instance.database, _ANOTHER)
+    before = owned_by(instance.database, _ANOTHER)
 
-    instance.people.erase_person(_THE_PERSON.id, dry_run=False)
+    instance.people.erase_person(THE_PERSON.id, dry_run=False)
 
-    assert rows_keyed_by(instance.database, _ANOTHER) == before
+    assert owned_by(instance.database, _ANOTHER) == before
     assert instance.mirror_of(_ANOTHER).exists()
     assert instance.build_of(_ANOTHER).exists()
 
 
 def test_a_dry_run_changes_no_row_and_no_directory(tmp_path: Path) -> None:
+    """S9 (#293): the dry run changes nothing."""
     instance = an_instance_with_both_people(tmp_path)
-    before = rows_keyed_by(instance.database, _THE_PERSON)
+    before = owned_by(instance.database, THE_PERSON)
 
-    instance.people.erase_person(_THE_PERSON.id, dry_run=True)
+    instance.people.erase_person(THE_PERSON.id, dry_run=True)
 
-    assert rows_keyed_by(instance.database, _THE_PERSON) == before
-    assert instance.mirror_of(_THE_PERSON).exists()
-    assert instance.build_of(_THE_PERSON).exists()
+    assert owned_by(instance.database, THE_PERSON) == before
+    assert instance.mirror_of(THE_PERSON).exists()
+    assert instance.build_of(THE_PERSON).exists()
 
 
 def test_an_unknown_subject_creates_no_account(tmp_path: Path) -> None:
+    """S9 (#293): an unknown subject creates no `users` row."""
     instance = an_instance_with_both_people(tmp_path)
 
     instance.people.erase_person("nobody-at-all", dry_run=False)
@@ -265,16 +258,17 @@ def test_an_unknown_subject_creates_no_account(tmp_path: Path) -> None:
 
     with closing(sqlite3.connect(instance.database)) as connection:
         accounts = connection.execute("SELECT id FROM users ORDER BY id").fetchall()
-    assert accounts == [(_ANOTHER.id,), (_THE_PERSON.id,)]
+    assert accounts == [(_ANOTHER.id,), (THE_PERSON.id,)]
 
 
 def test_the_sole_admin_is_erased_like_anyone_and_a_repeat_is_at_zero(
     tmp_path: Path,
 ) -> None:
+    """people.md: the sole admin goes like anyone; a repeat is idempotent."""
     instance = an_instance_with_both_people(tmp_path)
 
-    first = instance.people.erase_person(_THE_PERSON.id, dry_run=False)
-    again = instance.people.erase_person(_THE_PERSON.id, dry_run=False)
+    first = instance.people.erase_person(THE_PERSON.id, dry_run=False)
+    again = instance.people.erase_person(THE_PERSON.id, dry_run=False)
 
     assert isinstance(first, PersonErased)
     assert isinstance(again, PersonErased)
