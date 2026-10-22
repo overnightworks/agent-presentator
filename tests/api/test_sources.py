@@ -788,7 +788,7 @@ _A_USER_PART_URL = "https://user:token@git.example.invalid/talks.git"
 def test_a_check_that_found_no_commit_reads_the_words_the_source_list_uses(
     checked: ConnectionCheckResult, words: tuple[str, ...]
 ) -> None:
-    """#97: a check the probe answered without a commit reads the source list's own words."""
+    """#97: a check without a commit reads the source list's own words."""
     lobby = a_signed_in_lobby(GivenDecks(checked=checked))
 
     shown = check_source(lobby)
