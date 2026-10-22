@@ -201,11 +201,13 @@ def test_every_kind_of_row_is_exported_and_each_secret_kind_counted_withheld() -
 
 def _every_object_has_sorted_keys(value: object) -> bool:
     if isinstance(value, dict):
-        return list(value) == sorted(value) and all(
-            _every_object_has_sorted_keys(inner) for inner in value.values()
+        members = cast("dict[str, object]", value)
+        return list(members) == sorted(members) and all(
+            _every_object_has_sorted_keys(inner) for inner in members.values()
         )
     if isinstance(value, list):
-        return all(_every_object_has_sorted_keys(inner) for inner in value)
+        items = cast("list[object]", value)
+        return all(_every_object_has_sorted_keys(inner) for inner in items)
     return True
 
 
