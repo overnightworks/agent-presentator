@@ -73,7 +73,8 @@ def test_the_owner_asks_about_their_own_built_deck() -> None:
     answer = ask(lobby.client)
 
     assert answer.status_code == HTTPStatus.OK
-    assert [question.deck for question in private.questions] == [ASKED]
+    (question,) = private.questions
+    assert question.deck == ASKED
 
 
 @pytest.mark.parametrize(
