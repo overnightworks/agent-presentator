@@ -1,0 +1,8 @@
+claim_id = "7fb91f6077d24fe5996944c08b0be0ec"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "55c9cedb443c1542e160039b66684cd182b25f18"
+branch = "claude/issue-434-a3b-2-e-die-frage-nennt-ihr-deck-nur-der"
+scope = ["examples/copresenter-deck/README.md", "examples/copresenter-deck/components/CoPresenter.vue", "src/presentator/adapters/build_wire.py", "src/presentator/api/auth.py", "src/presentator/api/copresenter.py", "src/presentator/application/copresenter.py", "src/presentator/contracts/copresenter.py", "src/presentator/contracts/decks.py", "src/presentator/host/main.py", "tests/adapters/test_speech_hearing.py", "tests/api/test_copresenter.py", "tests/api/test_copresenter_deck.py", "tests/api/test_copresenter_limits.py", "tests/application/test_copresenter.py", "tests/vulture_allowlist.py"]
+opened_commit = "95fabc47e48c993e6fdecf721a8f6179b21d36d5"
+whole_reason = "The deck field, its check and its sender only prove E11 together (the slice's corridor sentence in #355)."
