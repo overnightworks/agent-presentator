@@ -14,14 +14,12 @@ import subprocess
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from errno import ELOOP
 from pathlib import Path
 
 import pytest
 
-from gitmirror.model import CredentialReference
 from presentator.adapters import builds as builds_module
 from presentator.adapters.builds import (
     ContainerToolchain,
@@ -42,6 +40,7 @@ from presentator.contracts.decks import (
     Source,
     talk_address,
 )
+from tests.adapters.credentials_support import OpenCredentials
 from tests.conftest import (
     EXAMPLE_SLUG,
     MAIN_BRANCH,
@@ -97,14 +96,6 @@ _A_BUILT_PAGE = "index.html"
 _TOOLCHAIN_PROGRAM = "pnpm"
 _CONTAINER_PROGRAM = "docker"
 _WHAT_A_TALK_SAYS = "a talk"
-
-
-@dataclass(frozen=True, slots=True)
-class OpenCredentials:
-    """A stand-in so a local bare remote can be pulled without a stored secret."""
-
-    def resolve(self, reference: CredentialReference) -> str | None:
-        return "unused-on-a-file-url"
 
 
 _A_TOOLCHAIN_THAT_BUILDS = """#!/bin/sh

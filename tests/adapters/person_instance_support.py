@@ -41,8 +41,8 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role, User
 from presentator.contracts.preferences import PersonPreferences
+from tests.adapters.credentials_support import OpenCredentials
 from tests.adapters.key_draft_support import INSTANCE_KEY, a_key_drafts_store
-from tests.adapters.test_decks import OpenCredentials
 from tests.application.fakes import (
     FakeConnectionChecker,
     FakeToolchainThemes,
@@ -355,6 +355,12 @@ def _rows_following(
     foreign_key: ForeignKey,
     parent_rowids: set[int],
 ) -> set[int]:
+    if foreign_key.target is None:
+        message = (
+            f"{table}.{foreign_key.source} references {foreign_key.parent} without"
+            " naming a column, which the guard cannot follow"
+        )
+        raise ValueError(message)
     query = _ROWS_FOLLOWING.format(
         table=table,
         child=foreign_key.source,
