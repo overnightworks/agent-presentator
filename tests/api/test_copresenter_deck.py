@@ -16,7 +16,7 @@ from tests.api.test_copresenter import (
     ASKED,
     NOW,
     QUESTION,
-    a_copresenter_lobby,
+    a_copresenter_talk_host,
     ask,
     the_admins_decks,
 )
@@ -51,7 +51,7 @@ def an_instance(
         if deck.build is not None:
             decks.put_build(deck.slug, deck.build)
     decks.removed.update(removed)
-    lobby, private, _clock = a_copresenter_lobby(
+    lobby, private, _clock = a_copresenter_talk_host(
         decks=decks,
         limiter=AskLimiter(clock=FrozenClock(instant=NOW), limits=ONE_QUESTION_ONLY),
     )
@@ -136,7 +136,7 @@ def test_a_name_over_the_length_bound_is_rejected_before_any_lookup() -> None:
 def test_an_owner_who_lost_the_admin_role_is_refused() -> None:
     """E11 (#355) matrix, asker: #400 [Admin-Rolle verloren], 403, no budget."""
     users = FakeUserStore()
-    lobby, private, _clock = a_copresenter_lobby(
+    lobby, private, _clock = a_copresenter_talk_host(
         users=users,
         limiter=AskLimiter(clock=FrozenClock(instant=NOW), limits=ONE_QUESTION_ONLY),
     )
@@ -154,7 +154,7 @@ def test_an_owner_who_lost_the_admin_role_is_refused() -> None:
 
 def test_a_signed_out_asker_is_refused_and_spends_no_question() -> None:
     """E11 (#355) matrix, asker: signed out is refused 403, no port, no budget."""
-    lobby, private, _clock = a_copresenter_lobby(
+    lobby, private, _clock = a_copresenter_talk_host(
         limiter=AskLimiter(clock=FrozenClock(instant=NOW), limits=ONE_QUESTION_ONLY),
     )
 
