@@ -9,7 +9,9 @@ sign-in. What a sign-in does is
 ## Before you start
 
 The instance's `PRESENTATOR_PUBLIC_ORIGIN` and `PRESENTATOR_TALK_ORIGIN`
-(both https) and its internal lobby address are known.
+(both https) are known. Inside the internal network the lobby's public
+hostname must resolve to the instance (an alias), because the instance answers
+only its two configured hostnames.
 
 ## Steps
 
@@ -25,8 +27,11 @@ The instance's `PRESENTATOR_PUBLIC_ORIGIN` and `PRESENTATOR_TALK_ORIGIN`
    nobody matches `/apps/presentator` and every sign-in shows "No access".
    Members of `/apps/presentator` are admitted; members of
    `/apps/presentator/admin` are admins.
-4. Register `<internal lobby address>/auth/backchannel-logout` as the client's
-   back-channel logout URL. The route is not live until the client registers
+4. Register `<PRESENTATOR_PUBLIC_ORIGIN's scheme and hostname, reached through
+   the internal alias>/auth/backchannel-logout` as the client's back-channel
+   logout URL. Its hostname is the lobby's public hostname: a request under any
+   other Host, an internal hostname or an IP included, gets 404 and ends no
+   session. The route is not live until the client registers
    it; a valid Logout Token then ends every session of its subject, on every
    device.
 5. Register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as the post-logout redirect

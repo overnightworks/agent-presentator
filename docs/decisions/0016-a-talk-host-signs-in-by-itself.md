@@ -51,10 +51,13 @@ reachable under the other's name.
 
 - The Keycloak client registers both callbacks, and the deployment names the
   talk origin and routes its hostname to the same listener.
-- Two hostnames are two sites: no cookie, route or Origin of one is honoured
-  by the other, up to the named residual that a hostname without a port
-  matches every port and scheme of that hostname
-  ([webauth#401](https://github.com/overnightworks/webauth/issues/401)).
+- Two hostnames are two origins on one site: no cookie, route or Origin of one
+  is honoured by the other, up to two named residuals. A hostname without a
+  port matches every port and scheme of that hostname
+  ([webauth#401](https://github.com/overnightworks/webauth/issues/401)). The
+  hosts are same-site with each other and with the sibling apps, so SameSite
+  does not separate them and deck code on the talk host can still set
+  `Domain=` cookies for the shared registrable domain.
 - The Datenschutzerklärung names the talk host's own session cookie.
 - The lobby keeps its talk mount until the co-presenter moves to the talk host.
 

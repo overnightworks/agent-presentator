@@ -39,7 +39,8 @@ uv run presentator
 
 ## Check
 
-Open the public origin: a signed-out visitor sees `/login`. A refusal at start
+Open the public origin, under its hostname: any other Host, 127.0.0.1
+included, gets 404. A signed-out visitor sees `/login`. A refusal at start
 names the setting and what is wrong with it, never the value.
 
 Related: [settings](../reference/configuration.md).
