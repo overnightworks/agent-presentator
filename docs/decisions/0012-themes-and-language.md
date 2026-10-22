@@ -7,12 +7,12 @@ Audience: humans and agents writing any user-facing string or any colour.
   language and theme, and the Settings/Account structure (see Decision).
   Amended again 2026-09-06: theme lives in the person menu; there is no
   standalone header-bar toggle
-  ([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22).
+  ([#8](https://github.com/overnightworks/presentator/issues/8) line 22).
   Amended 2026-09-07: the lobby's one token file is the vendored
   `overnightworks/ui-tokens` pin; leftover Pico chrome is not a second theme.
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06, including
-  [#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22
+  [#8](https://github.com/overnightworks/presentator/issues/8) line 22
   (theme is a per-user preference, not a header-bar control)
 - Neighbours: [ADR 0008](0008-lobby-server-rendered.md) owns how the lobby is
   built; [ADR 0005](0005-deck-folder-and-slidev.md) owns the addon this theme
@@ -49,13 +49,13 @@ is this product's Pico bridge and leftover chrome — page layout, Pico
 theming, `[data-state]` and the rest of the first theme's overlays — not a
 second theme. The settings grammar classes in the package have no markup
 caller here yet; Settings Users
-([#61](https://github.com/overnightworks/agent-presentator/issues/61))
+([#61](https://github.com/overnightworks/presentator/issues/61))
 adopts `.list-head` / `nav.tabs` / `.rows` on Settings and Account.
 
 The co-presenter overlay in the Slidev addon reads the same token file. Lobby
 and overlay share the same active theme — one token file on both surfaces —
 which is what
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22
+[#8](https://github.com/overnightworks/presentator/issues/8) line 22
 rules. Which theme is active follows the preference levels below.
 
 Decks themselves are untouched. Slidev's per-deck theme mechanism stays exactly
@@ -64,7 +64,7 @@ as it is; this record governs the lobby and the overlay, not slide design.
 **Named gap: the overlay does not adapt to a deck's theme.** A deck whose
 palette fights the instance theme will look wrong under the overlay. Nothing
 here promises otherwise, and the fix — whatever it turns out to be — is owned by
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) as a later M1
+[#8](https://github.com/overnightworks/presentator/issues/8) as a later M1
 item, once a real deck has shown what the clash actually looks like.
 
 This record owns appearance. [ADR 0008](0008-lobby-server-rendered.md) chooses
@@ -82,7 +82,7 @@ start. Adding a language is adding a catalog file — never a code change.
 
 ### Preference levels (amendment 2026-09-06)
 
-[#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22,
+[#8](https://github.com/overnightworks/presentator/issues/8) line 22,
 operator ruling 2026-09-06: a per-user preference is no longer deferred, and
 there is no standalone theme toggle in the header bar.
 
@@ -130,7 +130,7 @@ first string.
 - English-only at start means the operator's own German talks run under an
   English interface until a German catalog is added. Adding it is a file.
 - The Settings/Account structure owns these controls
-  ([#8](https://github.com/overnightworks/agent-presentator/issues/8) line 22,
+  ([#8](https://github.com/overnightworks/presentator/issues/8) line 22,
   operator ruling 2026-09-06): instance defaults live under Settings for admins
   (General, alongside Sources and Users); personal overrides live under
   Account; Theme in the person menu writes that Account preference. There is

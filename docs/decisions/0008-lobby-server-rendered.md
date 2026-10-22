@@ -7,7 +7,7 @@ starts.
   [VISION.md](../VISION.md)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Evidence: the build-vs-reuse survey of 2026-09-06, which measured the admin
   and Python-UI frameworks named below
 - Neighbours: [ADR 0007](0007-browser-client-behind-tunnel.md) owns the

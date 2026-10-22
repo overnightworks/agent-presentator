@@ -10,7 +10,7 @@ reached from outside.
   and Rejected alternatives)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0002](0002-server-owned-run.md) — the browser renders events
   and delivers what the audience said, in the form that phase uses, nothing
   else;
@@ -50,7 +50,7 @@ still passes through it as the account [ADR 0011](0011-instance-users.md) gives
 them.
 
 > **Amendment 2026-10-14** — operator ruling on
-> [#196](https://github.com/overnightworks/agent-presentator/issues/196),
+> [#196](https://github.com/overnightworks/presentator/issues/196),
 > recorded as [ADR 0015](0015-public-like-songmaker-own-login.md): no
 > Cloudflare Access stands in front of the tunnel. The instance is public like
 > Songmaker, its own login is the only door, and the Impressum and

@@ -8,7 +8,7 @@ of this package.
   rotation
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0005](0005-deck-folder-and-slidev.md) owns what a deck is and
   builds it; [ADR 0001](0001-enforced-layers.md) owns the boundary this package
   sits beside
@@ -112,7 +112,7 @@ For a company-internal git the home server cannot reach, the direction reverses:
 a bare repository exposed over HTTPS through the tunnel, behind `webauth` and
 Cloudflare Access ([ADR 0007](0007-browser-client-behind-tunnel.md)), that the
 operator pushes to from inside. It is owned by
-[#8](https://github.com/overnightworks/agent-presentator/issues/8), line 4a, and
+[#8](https://github.com/overnightworks/presentator/issues/8), line 4a, and
 is not built here.
 
 ## Consequences

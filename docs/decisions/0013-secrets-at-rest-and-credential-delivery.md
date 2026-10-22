@@ -9,7 +9,7 @@ Audience: humans and agents storing a secret in this product, or handing one to
   source is gone
 - Date: 2026-09-07
 - Decision authority: the reviewed breakdown of #8 slice 12, recorded on
-  [#8](https://github.com/overnightworks/agent-presentator/issues/8)
+  [#8](https://github.com/overnightworks/presentator/issues/8)
 - Neighbours: [ADR 0010](0010-git-sources-mirror.md) owns what a source is and
   borrows atelier-2's credential vocabulary; [ADR 0006](0006-sqlite-and-files.md)
   owns the file the ciphertext stands in;
@@ -121,7 +121,7 @@ field, no template context, no log record and no exception message.
 
 ### Amendment 2026-10-21 — the session's refresh token at rest
 
-Authority: [#365](https://github.com/overnightworks/agent-presentator/issues/365),
+Authority: [#365](https://github.com/overnightworks/presentator/issues/365),
 operator ruling of 21.10.2026.
 
 The refresh token Keycloak issues at sign-in is stored in plain text in the

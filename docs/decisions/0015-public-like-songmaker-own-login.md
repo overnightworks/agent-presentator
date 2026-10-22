@@ -8,7 +8,7 @@ outside, on the login guard, or on the pages a visitor sees before signing in.
 - Date: 2026-10-14
 - Decision authority: the operator's ruling of 2026-10-14 and the ruled
   expectation lines recorded on
-  [#196](https://github.com/overnightworks/agent-presentator/issues/196)
+  [#196](https://github.com/overnightworks/presentator/issues/196)
 - Neighbours: [ADR 0007](0007-browser-client-behind-tunnel.md) keeps the
   tunnel, the browser-only client, and the fallbacks;
   [ADR 0011](0011-instance-users.md) owns the accounts an admin creates;

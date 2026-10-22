@@ -5,7 +5,7 @@ Audience: humans and agents who need a model call or a logged-in user.
 - Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20 and 2026-10-21, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0001](0001-enforced-layers.md) confines both libraries to
   `adapters`; [ADR 0006](0006-sqlite-and-files.md) forbids the Redis this
   product does not start; [ADR 0011](0011-instance-users.md) owns who the users
@@ -37,8 +37,8 @@ pulled in by a new tag.
 
 ### Amendment 2026-09-07 — webauth v0.2.0 owns the login mechanism
 
-Authority: [#50](https://github.com/overnightworks/agent-presentator/issues/50)
-(slice 13a of [#8](https://github.com/overnightworks/agent-presentator/issues/8)).
+Authority: [#50](https://github.com/overnightworks/presentator/issues/50)
+(slice 13a of [#8](https://github.com/overnightworks/presentator/issues/8)).
 
 `webauth` v0.2.0 is pinned as `overnightworks-webauth` from its release wheel.
 Redis is optional, hashing is a port, and session liveness is a policy, so this
@@ -59,12 +59,12 @@ apart from a wrong password.
 
 User management (Settings · Users, password change, admin reset, deactivation)
 is not in this slice. It waits on `webauth` v0.3.0 and
-[#61](https://github.com/overnightworks/agent-presentator/issues/61).
+[#61](https://github.com/overnightworks/presentator/issues/61).
 
 ### Amendment 2026-09-08 — webauth v0.3.1 owns the public refusal and fail-closed guard
 
-Authority: [#105](https://github.com/overnightworks/agent-presentator/issues/105)
-(slice 13c of [#8](https://github.com/overnightworks/agent-presentator/issues/8)),
+Authority: [#105](https://github.com/overnightworks/presentator/issues/105)
+(slice 13c of [#8](https://github.com/overnightworks/presentator/issues/8)),
 independent-review findings on the same item.
 
 `webauth` v0.3.1 is pinned from its release wheel. It signs, sets, and clears
@@ -86,9 +86,9 @@ longer banned APIs; `webauth.passwords` remains one.
 
 ### Amendment 2026-10-04 — renewal, not `load`, admits a session
 
-Authority: [#173](https://github.com/overnightworks/agent-presentator/issues/173)
-(slice P1 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)),
-closing finding 7 of [#169](https://github.com/overnightworks/agent-presentator/issues/169).
+Authority: [#173](https://github.com/overnightworks/presentator/issues/173)
+(slice P1 of [#172](https://github.com/overnightworks/presentator/issues/172)),
+closing finding 7 of [#169](https://github.com/overnightworks/presentator/issues/169).
 
 The SQLite session store does not keep the `webauth` port's promise that `load`
 holds the row until commit: each call opens its own autocommit connection. A
@@ -100,9 +100,9 @@ renewal is the admission point.
 
 ### Amendment 2026-10-04 — webauth v0.11.0 names the cookies, the origin decides `Secure`
 
-Authority: [#179](https://github.com/overnightworks/agent-presentator/issues/179)
-(slice P3 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)),
-closing finding 4 of [#169](https://github.com/overnightworks/agent-presentator/issues/169).
+Authority: [#179](https://github.com/overnightworks/presentator/issues/179)
+(slice P3 of [#172](https://github.com/overnightworks/presentator/issues/172)),
+closing finding 4 of [#169](https://github.com/overnightworks/presentator/issues/169).
 
 `webauth` v0.11.0 is pinned from its release wheel. The host no longer names
 the session cookie: it takes the library's names, `__Host-session_id` and
@@ -118,8 +118,8 @@ person signs in once more after the upgrade.
 
 ### Amendment 2026-10-04 — webauth's Argon2id hashes passwords
 
-Authority: [#181](https://github.com/overnightworks/agent-presentator/issues/181)
-(slice P4 of [#172](https://github.com/overnightworks/agent-presentator/issues/172)).
+Authority: [#181](https://github.com/overnightworks/presentator/issues/181)
+(slice P4 of [#172](https://github.com/overnightworks/presentator/issues/172)).
 
 Hashing is no longer this repository's: the host constructs the library's
 `Argon2idPasswordHasher()` with its default OWASP profile (m=19 MiB, t=2,
@@ -132,9 +132,9 @@ wrong password, and the password has to be set again.
 
 ### Amendment 2026-10-20 — `admit_session` decides, the sessions table holds no client detail
 
-Authority: [#322](https://github.com/overnightworks/agent-presentator/issues/322)
-(K13-1a of [#242](https://github.com/overnightworks/agent-presentator/issues/242)),
-and ruling E3 (b) of [#293](https://github.com/overnightworks/agent-presentator/issues/293).
+Authority: [#322](https://github.com/overnightworks/presentator/issues/322)
+(K13-1a of [#242](https://github.com/overnightworks/presentator/issues/242)),
+and ruling E3 (b) of [#293](https://github.com/overnightworks/presentator/issues/293).
 
 `webauth` v0.18.0 is pinned, with `cryptography` 50.0.2 that it requires.
 `admit_session` is the one authority that decides whether a session id names a
@@ -157,8 +157,8 @@ hosts are the public origin's host, because the library refuses an empty list.
 
 ### Amendment 2026-10-21 — the session row holds the refresh token, on webauth v0.20.1
 
-Authority: [#365](https://github.com/overnightworks/agent-presentator/issues/365)
-(A3b(1) of [#355](https://github.com/overnightworks/agent-presentator/issues/355)).
+Authority: [#365](https://github.com/overnightworks/presentator/issues/365)
+(A3b(1) of [#355](https://github.com/overnightworks/presentator/issues/355)).
 
 `webauth` v0.20.1 is pinned. The `sessions` table gains a nullable
 `refresh_token` column, written by `create` from the code exchange and replaced
@@ -175,8 +175,8 @@ operated database has it, so there is no in-place migration.
 
 ### Amendment 2026-10-21 — webauth's `SessionGate` is the HTTP authority
 
-Authority: [#376](https://github.com/overnightworks/agent-presentator/issues/376)
-(W2 of [#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+Authority: [#376](https://github.com/overnightworks/presentator/issues/376)
+(W2 of [#242](https://github.com/overnightworks/presentator/issues/242)).
 
 `create_lobby` installs the library's middleware once, through
 `install_web_auth_middleware`, in the library's order: security headers, CSRF
@@ -198,7 +198,7 @@ co-presenter's WebSocket is not an HTTP request, so it still admits through
 Six interface needs were filed against #825 as
 [a comment](https://github.com/overnightworks/songmaker/issues/825#issuecomment-5558849693)
 and classified by its head in the issue body under "Anforderungen
-agent-presentator". They are wishes, not promises, and that classification —
+presentator". They are wishes, not promises, and that classification —
 not this record — is the source of truth:
 
 | Need | Classification on #825 |
@@ -303,8 +303,8 @@ either fails closed or is healed by the next sign-in.
 
 ### Amendment 2026-10-21 — model access comes from the operator's agent service
 
-Authority: [#356](https://github.com/overnightworks/agent-presentator/issues/356)
-(A3a of [#355](https://github.com/overnightworks/agent-presentator/issues/355)),
+Authority: [#356](https://github.com/overnightworks/presentator/issues/356)
+(A3a of [#355](https://github.com/overnightworks/presentator/issues/355)),
 and the operator's ruling of 2026-10-21 to use the service.
 
 Model access comes from the operator's agent service through `agent_client`
@@ -314,8 +314,8 @@ moves into the web process. The slice table of #355 is the plan.
 
 ### Amendment 2026-10-21: the back-channel logout and the body budget
 
-Authority: [#382](https://github.com/overnightworks/agent-presentator/issues/382)
-(S6 of [#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+Authority: [#382](https://github.com/overnightworks/presentator/issues/382)
+(S6 of [#242](https://github.com/overnightworks/presentator/issues/242)).
 
 `POST /auth/backchannel-logout` hands Keycloak's Logout Token to webauth's
 `receive_backchannel_logout` on a worker thread, under the one write lock. A
