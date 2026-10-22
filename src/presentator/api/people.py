@@ -8,7 +8,7 @@ import logging
 import math
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Annotated, Final
+from typing import Annotated, Final, assert_never
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -79,6 +79,8 @@ def _answer(
                 body | {"leftover": _counts((leftover,))},
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+        case _:
+            assert_never(outcome)
 
 
 def _tallied(kinds: tuple[KindCount, ...]) -> str:
@@ -95,6 +97,8 @@ def _audited(outcome: PersonErasure, *, dry_run: bool) -> None:
             _log.info("person %s: busy with %s", operation, _tallied(running))
         case PersonDiskLeftover():
             _log.info("person %s: disk leftover", operation)
+        case _:
+            assert_never(outcome)
 
 
 def people_routes(*, admin: AdminPeople, app: str) -> APIRouter:
