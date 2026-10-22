@@ -1,0 +1,8 @@
+claim_id = "effda9df3e9649cdb46af753813a84e6"
+agent = "claude"
+role = "builder"
+base = "c32b369e6a5e1f12aef4de7ca178370642fe4dad"
+branch = "claude/issue-411-build-container-geben-docker-kein-log-lo"
+scope = ["docs/explanation/trust-boundaries.md", "docs/reference/builds.md", "src/presentator/adapters/builds.py", "tests/adapters/test_builds.py"]
+opened_commit = "b6bcc6925e2653f7c51844117b76636ff6e61845"
+whole_reason = "the flag, its argv pins and the two docs that list the container's seals change together"
