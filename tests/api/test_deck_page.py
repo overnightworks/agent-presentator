@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from presentator.contracts.decks import Build, BuildAttempt, BuildOutcome, Deck
 from presentator.contracts.text import Catalogs
 from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
     ADMIN,
     ENGLISH,
     NOW,
@@ -25,6 +27,7 @@ from tests.api.lobby import (
     a_swapped_build,
     real_builds_under,
 )
+from tests.api.talk_support import two_hosts
 from tests.application.fakes import FakeDeckStore
 
 _SLUG: Final = "hello-deck"
@@ -122,6 +125,11 @@ def a_page_of_a_deck(
     return signed_in.get(_PAGE).text
 
 
+def a_talk_host(tmp_path: Path, given: GivenDecks) -> TestClient:
+    """A browser signed in at the talk host of an instance with these decks."""
+    return two_hosts(tmp_path, given=given).signed_in_at(A_TALK_ADDRESS)
+
+
 @pytest.fixture
 def lobby() -> TestClient:
     return a_signed_in_lobby(
@@ -137,6 +145,28 @@ def unbuilt_lobby() -> TestClient:
     return a_signed_in_lobby(
         GivenDecks(
             store=a_deck_store(),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+
+@pytest.fixture
+def unbuilt_talk_host(tmp_path: Path) -> TestClient:
+    return a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+
+@pytest.fixture
+def talk_host(tmp_path: Path) -> TestClient:
+    return a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(built=a_build()),
             source=a_configured_source(_ADDRESS),
         ),
     )
@@ -167,17 +197,26 @@ def test_the_deck_page_names_the_title_the_source_and_the_commit_it_was_taken_fr
     assert _COMMIT not in page.text
 
 
-def test_a_deck_with_a_built_talk_opens_its_presenter_and_its_projector_view(
-    lobby: TestClient,
+@pytest.mark.parametrize(
+    "view", [_PRESENTER, _PROJECTOR], ids=["presenter", "projector"]
+)
+def test_a_deck_with_a_built_talk_links_its_views_at_the_talk_host(
+    lobby: TestClient, view: str
 ) -> None:
     page = lobby.get(_PAGE).text
+
+    assert f'href="{A_TALK_ADDRESS}{view}"' in page
+    assert ENGLISH.deck_state_ready in page
+
+
+def test_a_built_talk_opens_its_presenter_and_its_projector_view_at_the_talk_host(
+    talk_host: TestClient,
+) -> None:
     application = (_BUILT_TALK / "index.html").read_bytes()
 
-    assert f'href="{_PRESENTER}"' in page
-    assert f'href="{_PROJECTOR}"' in page
-    assert ENGLISH.deck_state_ready in page
-    projector = lobby.get(_PROJECTOR)
-    presenter = lobby.get(_PRESENTER)
+    projector = talk_host.get(_PROJECTOR)
+    presenter = talk_host.get(_PRESENTER)
+
     assert projector.status_code == HTTPStatus.OK
     assert presenter.status_code == HTTPStatus.OK
     assert projector.content == application
@@ -185,11 +224,11 @@ def test_a_deck_with_a_built_talk_opens_its_presenter_and_its_projector_view(
 
 
 def test_a_talk_is_served_with_the_slide_in_the_address_it_was_left_at(
-    lobby: TestClient,
+    talk_host: TestClient,
 ) -> None:
     application = (_BUILT_TALK / "index.html").read_bytes()
-    slide = lobby.get(f"{_PROJECTOR}2")
-    presenter_slide = lobby.get(f"{_PRESENTER}2")
+    slide = talk_host.get(f"{_PROJECTOR}2")
+    presenter_slide = talk_host.get(f"{_PRESENTER}2")
 
     assert slide.status_code == HTTPStatus.OK
     assert presenter_slide.status_code == HTTPStatus.OK
@@ -386,14 +425,14 @@ def test_a_deck_nothing_has_been_built_from_says_so_and_offers_no_view(
     "address", [_PROJECTOR, _PRESENTER], ids=["projector", "presenter"]
 )
 def test_a_view_of_a_deck_nothing_has_been_built_from_answers_nothing(
-    unbuilt_lobby: TestClient,
+    unbuilt_talk_host: TestClient,
     address: str,
 ) -> None:
-    assert unbuilt_lobby.get(address).status_code == HTTPStatus.NOT_FOUND
+    assert unbuilt_talk_host.get(address).status_code == HTTPStatus.NOT_FOUND
 
 
 @pytest.fixture
-def lobby_with_a_removed_build(tmp_path: Path) -> TestClient:
+def talk_host_with_a_removed_build(tmp_path: Path) -> TestClient:
     """A deck whose row still names a build directory that is gone from disk.
 
     Switching a deck to a newer build does not yet delete the directory an
@@ -403,7 +442,8 @@ def lobby_with_a_removed_build(tmp_path: Path) -> TestClient:
     talk = tmp_path / "talk"
     talk.mkdir()
     (talk / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
-    client = a_signed_in_lobby(
+    client = a_talk_host(
+        tmp_path,
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk)),
             source=a_configured_source(_ADDRESS),
@@ -419,10 +459,12 @@ def lobby_with_a_removed_build(tmp_path: Path) -> TestClient:
     ids=["projector", "presenter", "an asset"],
 )
 def test_a_deck_whose_build_directory_was_removed_answers_nothing(
-    lobby_with_a_removed_build: TestClient,
+    talk_host_with_a_removed_build: TestClient,
     address: str,
 ) -> None:
-    assert lobby_with_a_removed_build.get(address).status_code == HTTPStatus.NOT_FOUND
+    assert (
+        talk_host_with_a_removed_build.get(address).status_code == HTTPStatus.NOT_FOUND
+    )
 
 
 @pytest.mark.parametrize(
@@ -445,7 +487,7 @@ def test_a_deck_whose_build_directory_was_removed_answers_nothing(
         pytest.param(_PDF, "/login/oidc?next=%2Fdeck%2Fhello-deck%2Fpdf", id="the pdf"),
     ],
 )
-def test_a_talk_answers_the_login_to_anyone_who_is_not_signed_in(
+def test_a_deck_address_answers_the_login_to_anyone_who_is_not_signed_in(
     address: str,
     login_redirect: str,
 ) -> None:
@@ -477,7 +519,8 @@ def test_a_path_that_would_leave_the_build_directory_is_refused(
     tmp_path: Path,
     crafted: str,
 ) -> None:
-    signed_in = a_signed_in_lobby(
+    signed_in = a_talk_host(
+        tmp_path,
         GivenDecks(
             store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
             source=a_configured_source(_ADDRESS),
@@ -493,7 +536,8 @@ def test_a_path_that_would_leave_the_build_directory_is_refused(
 def test_the_talk_itself_is_still_served_from_inside_that_directory(
     tmp_path: Path,
 ) -> None:
-    signed_in = a_signed_in_lobby(
+    signed_in = a_talk_host(
+        tmp_path,
         GivenDecks(
             store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
             source=a_configured_source(_ADDRESS),
@@ -504,18 +548,18 @@ def test_the_talk_itself_is_still_served_from_inside_that_directory(
 
 
 def test_a_nonsense_address_under_a_built_talk_is_the_application(
-    lobby: TestClient,
+    talk_host: TestClient,
 ) -> None:
     application = (_BUILT_TALK / "index.html").read_bytes()
-    nonsense = lobby.get(f"{_PROJECTOR}this-slide-was-never-written")
+    nonsense = talk_host.get(f"{_PROJECTOR}this-slide-was-never-written")
 
     assert nonsense.status_code == HTTPStatus.OK
     assert nonsense.content == application
     assert ENGLISH.deck_unknown_title not in nonsense.text
 
 
-def test_a_talk_refuses_a_method_that_is_not_a_read(lobby: TestClient) -> None:
-    assert lobby.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
+def test_a_talk_refuses_a_method_that_is_not_a_read(talk_host: TestClient) -> None:
+    assert talk_host.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
 def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
@@ -528,22 +572,24 @@ def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("replaced", "address"),
+    ("replaced", "host", "address"),
     [
-        ("deck.pdf", _PDF),
-        ("talk/assets/app.js", f"{_PROJECTOR}assets/app.js"),
-        ("talk/assets", f"{_PROJECTOR}assets/app.js"),
-        ("talk", f"{_PROJECTOR}assets/app.js"),
-        ("talk/index.html", _PRESENTER),
+        ("deck.pdf", A_BROWSERS_ADDRESS, _PDF),
+        ("talk/assets/app.js", A_TALK_ADDRESS, f"{_PROJECTOR}assets/app.js"),
+        ("talk/assets", A_TALK_ADDRESS, f"{_PROJECTOR}assets/app.js"),
+        ("talk", A_TALK_ADDRESS, f"{_PROJECTOR}assets/app.js"),
+        ("talk/index.html", A_TALK_ADDRESS, _PRESENTER),
     ],
     ids=["the pdf", "an asset", "a directory on the way", "the talk", "the page"],
 )
 def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
     tmp_path: Path,
     replaced: str,
+    host: str,
     address: str,
 ) -> None:
-    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
+    given, run = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in = two_hosts(tmp_path, given=given).signed_in_at(host)
     secret = a_secret_a_link_may_point_at(tmp_path)
     target = run / replaced
     if target.is_dir():
@@ -565,7 +611,8 @@ def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
 def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
     tmp_path: Path,
 ) -> None:
-    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
+    given, run = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in = two_hosts(tmp_path, given=given).signed_in_at(A_BROWSERS_ADDRESS)
     (run / "deck.pdf").unlink()
     (run / "deck.pdf").symlink_to(a_secret_a_link_may_point_at(tmp_path) / "deck.pdf")
 
@@ -590,7 +637,8 @@ def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
     talk = tmp_path / "talk"
     talk.mkdir()
     (talk / "index.html").symlink_to(outside)
-    signed_in = a_signed_in_lobby(
+    signed_in = a_talk_host(
+        tmp_path,
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk)),
             source=a_configured_source(_ADDRESS),
@@ -610,7 +658,8 @@ def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
     talk = tmp_path / "talk"
     talk.mkdir()
     (talk / "notes.txt").write_text("not an application", encoding="utf-8")
-    signed_in = a_signed_in_lobby(
+    signed_in = a_talk_host(
+        tmp_path,
         GivenDecks(
             store=a_deck_store(built=a_build(talk=talk)),
             source=a_configured_source(_ADDRESS),
@@ -649,14 +698,20 @@ def test_a_deck_page_marks_no_section_as_the_current_one(lobby: TestClient) -> N
     assert "aria-current" not in lobby.get(_PAGE).text
 
 
-def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None:
+def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found(
+    tmp_path: Path,
+) -> None:
     store = a_deck_store(built=a_build())
-    signed_in = a_signed_in_lobby(
-        GivenDecks(store=store, source=a_configured_source(_ADDRESS)),
+    hosts = two_hosts(
+        tmp_path,
+        given=GivenDecks(store=store, source=a_configured_source(_ADDRESS)),
     )
+    signed_in = hosts.signed_in_at(A_BROWSERS_ADDRESS)
+    talk_host = hosts.signed_in_at(A_TALK_ADDRESS)
 
     store.mark_removed_except(present=frozenset(), source_id=SOURCE_ID, at=NOW)
     removed = signed_in.get(_PAGE)
+    removed_talk = talk_host.get(_PRESENTER)
 
     store.mark_removed_except(present=frozenset({_SLUG}), source_id=SOURCE_ID, at=NOW)
     returned = signed_in.get(_PAGE)
@@ -665,7 +720,8 @@ def test_a_deck_removed_by_reconciliation_answers_the_lobbys_not_found() -> None
     assert ENGLISH.deck_unknown_title in removed.text
     assert returned.status_code == HTTPStatus.OK
     assert ENGLISH.deck_state_ready in returned.text
-    assert signed_in.get(_PRESENTER).status_code == HTTPStatus.OK
+    assert removed_talk.status_code == HTTPStatus.NOT_FOUND
+    assert talk_host.get(_PRESENTER).status_code == HTTPStatus.OK
 
 
 def test_a_deck_whose_build_failed_names_the_attempt_and_what_broke() -> None:
@@ -680,22 +736,27 @@ def test_a_deck_whose_build_failed_names_the_attempt_and_what_broke() -> None:
     assert _WHAT_THE_TOOLCHAIN_SAID in page
 
 
-def test_the_last_good_talk_still_opens_from_a_failed_decks_page() -> None:
-    lobby = a_signed_in_lobby(
-        GivenDecks(
+def test_the_last_good_talk_still_opens_from_a_failed_decks_page(
+    tmp_path: Path,
+) -> None:
+    hosts = two_hosts(
+        tmp_path,
+        given=GivenDecks(
             store=a_deck_store(built=a_build(), attempt=a_failed_attempt()),
             source=a_configured_source(_ADDRESS),
         ),
     )
+    lobby = hosts.signed_in_at(A_BROWSERS_ADDRESS)
+    talk_host = hosts.signed_in_at(A_TALK_ADDRESS)
 
     page = lobby.get(_PAGE).text
 
     assert ENGLISH.deck_failed_last_talk_stands in page
-    assert f'href="{_PRESENTER}"' in page
-    assert f'href="{_PROJECTOR}"' in page
+    assert f'href="{A_TALK_ADDRESS}{_PRESENTER}"' in page
+    assert f'href="{A_TALK_ADDRESS}{_PROJECTOR}"' in page
     assert f'href="{_PDF}"' in page
-    assert lobby.get(_PRESENTER).status_code == HTTPStatus.OK
-    assert lobby.get(_PROJECTOR).status_code == HTTPStatus.OK
+    assert talk_host.get(_PRESENTER).status_code == HTTPStatus.OK
+    assert talk_host.get(_PROJECTOR).status_code == HTTPStatus.OK
     assert lobby.get(_PDF).status_code == HTTPStatus.OK
 
 
@@ -741,8 +802,9 @@ def test_a_deck_being_built_locks_both_views_and_still_offers_the_pdf() -> None:
     assert ENGLISH.deck_building_label in page
     assert _SHORT_ATTEMPT_COMMIT in page
     assert ENGLISH.deck_building_for.format(age=_HOW_LONG_IT_HAS_RUN) in page
-    assert f'href="{_PRESENTER}"' not in page
-    assert f'href="{_PROJECTOR}"' not in page
+    assert f'href="{A_TALK_ADDRESS}{_PRESENTER}"' not in page
+    assert f'href="{A_TALK_ADDRESS}{_PROJECTOR}"' not in page
+    assert page.count("data-locked") == len((_PRESENTER, _PROJECTOR))
     assert f'href="{_PDF}"' in page
     assert lobby.get(_PDF).status_code == HTTPStatus.OK
 
