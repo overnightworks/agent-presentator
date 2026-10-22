@@ -3,6 +3,6 @@ agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
 role = "builder"
 base = "3598823936166933d866f801a46882bcc6c56c9e"
 branch = "claude/issue-421-a3b2-a-deck-words"
-scope = ["src/presentator/adapters/deck_manifest.py", "src/presentator/adapters/deck_texts.py", "src/presentator/adapters/decks.py", "src/presentator/application/copresenter_prompt.py", "src/presentator/contracts/copresenter.py", "src/presentator/ports/copresenter.py", "tests/adapters/test_deck_manifest.py", "tests/adapters/test_deck_texts.py", "tests/application/test_copresenter_prompt.py"]
+scope = ["quality/baseline.toml", "src/presentator/adapters/deck_manifest.py", "src/presentator/adapters/deck_texts.py", "src/presentator/adapters/decks.py", "src/presentator/application/copresenter_prompt.py", "src/presentator/contracts/copresenter.py", "src/presentator/ports/copresenter.py", "tests/adapters/test_deck_manifest.py", "tests/adapters/test_deck_texts.py", "tests/application/test_copresenter_prompt.py"]
 opened_commit = "8a1246250defed7f1703b90a0a59d4c3e6c6159b"
 whole_reason = "The shared manifest owner, the deck text reader and the prompt are one capability, the co-presenter's deck words; the reader needs the one manifest owner and the prompt is the reader's only consumer."
