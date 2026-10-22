@@ -1,6 +1,6 @@
 # Why this tool exists
 
-Audience: anyone — human or agent — who needs to know what agent-presentator is
+Audience: anyone — human or agent — who needs to know what presentator is
 for before touching it. This file owns the operator's intent. It owns no
 technical choice; those live in [decisions/README.md](decisions/README.md).
 

@@ -1,8 +1,8 @@
-# agent-presentator
+# presentator
 
 Audience: a human opening this repository for the first time.
 
-agent-presentator is a tool for giving a talk. The Slidev deck lives on the
+presentator is a tool for giving a talk. The Slidev deck lives on the
 operator's home server; he opens it from any browser and presents. Per talk he
 can switch on an AI co-presenter — Claude, Codex, or Grok, through his own
 subscription — which speaks the slides, navigates itself, listens to the room,

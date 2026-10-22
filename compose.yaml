@@ -4,7 +4,7 @@
 # The image below is handed to the server as well as to Docker, because a deck
 # is code: the server asks this machine's daemon to run every build in a
 # container of that image, over directories of the builds volume (line 14a).
-x-build-image: &build_image agent-presentator-build
+x-build-image: &build_image presentator-build
 
 services:
   presentator:
@@ -12,7 +12,7 @@ services:
       context: .
       args:
         PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
-    image: agent-presentator
+    image: presentator
     user: presentator
     # A build spawns a process tree of its own, and a step given up on leaves
     # its grandchildren to be reaped by whatever is process 1.

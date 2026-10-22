@@ -30,10 +30,10 @@ export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
 export PRESENTATOR_PUBLIC_ORIGIN=https://presentator.example.test
 export PRESENTATOR_OIDC_ISSUER=https://auth.example.test/realms/example
 export PRESENTATOR_OIDC_CLIENT_ID=presentator
-export PRESENTATOR_OIDC_CLIENT_SECRET_FILE=/run/user/"$(id -u)"/agent-presentator/oidc-client-secret
-export PRESENTATOR_COPRESENTER_SOCKET=/run/user/"$(id -u)"/agent-presentator/copresenter.sock
+export PRESENTATOR_OIDC_CLIENT_SECRET_FILE=/run/user/"$(id -u)"/presentator/oidc-client-secret
+export PRESENTATOR_COPRESENTER_SOCKET=/run/user/"$(id -u)"/presentator/copresenter.sock
 export PRESENTATOR_BUILD_RUNNER=host
-uv run agent-presentator
+uv run presentator
 ```
 
 ## Check

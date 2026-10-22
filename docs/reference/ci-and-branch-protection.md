@@ -7,7 +7,7 @@ the quality gate checks.
 
 `main` takes a change only through a pull request whose gates are green. A
 repository ruleset named `main-protection` owns that, not the legacy per-branch
-settings; `gh api repos/overnightworks/agent-presentator/rulesets` reads it,
+settings; `gh api repos/overnightworks/presentator/rulesets` reads it,
 and GitHub is its one owner. It requires a pull request (squash or rebase
 only), linear history, no deletion and no force-push, and required status
 checks that include `pr-check` and `quality / verdict`. No bypass actor exists:
