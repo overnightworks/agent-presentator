@@ -1,8 +1,0 @@
-claim_id = "4408a78f16e9426d9862a03327bf071a"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "b47fbce43979261d300aff4bb5f80ec42b179f13"
-branch = "claude/issue-449-talk-host-names-s7b3"
-scope = ["docs/reference/co-presenter-and-voice.md", "src/presentator/api/auth.py", "src/presentator/api/talk.py", "tests/api/lobby.py", "tests/api/talk_support.py", "tests/api/test_body_size.py", "tests/api/test_copresenter.py", "tests/api/test_copresenter_deck.py", "tests/api/test_copresenter_limits.py", "tests/api/test_copresenter_talk_host.py", "tests/api/test_deck_files.py", "tests/api/test_deck_owner.py", "tests/api/test_deck_page.py", "tests/api/test_lobby_talk_addresses.py", "tests/api/test_talk_host.py", "tests/test_oidc.py", "tests/test_worker_settings.py", "tests/vulture_allowlist.py"]
-opened_commit = "c577351aba789b31b2e76eef65bd8294bd655435"
-whole_reason = "Eight behaviour-neutral cards of one review; each rename and each shared owner touches the modules the others touch, so splitting would repeat the claim, worktree and CI round for no isolation."
