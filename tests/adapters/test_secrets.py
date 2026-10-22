@@ -124,10 +124,11 @@ def test_two_generated_deploy_keys_never_share_their_private_half() -> None:
 
 # T2.
 def test_the_talk_session_secret_is_the_same_for_one_key_and_differs_per_key() -> None:
-    assert talk_session_secret(_INSTANCE_KEY) == talk_session_secret(_INSTANCE_KEY)
-    assert talk_session_secret(_INSTANCE_KEY) != talk_session_secret(
-        _ANOTHER_INSTANCE_KEY
-    )
+    first = talk_session_secret(_INSTANCE_KEY)
+    again = talk_session_secret(_INSTANCE_KEY)
+
+    assert first == again
+    assert first != talk_session_secret(_ANOTHER_INSTANCE_KEY)
 
 
 # T2.
@@ -140,5 +141,6 @@ def test_the_talk_session_secret_is_long_and_shares_no_bytes_with_another_purpos
     assert len(secret) >= _LONGEST_GUESSABLE
     assert secret != _INSTANCE_KEY
     assert urlsafe_b64decode(secret) != connection_fingerprint_key(_INSTANCE_KEY)
+    fernet = Fernet(secret)
     with pytest.raises(InvalidToken):
-        Fernet(secret).decrypt(sealed_by_the_box)
+        fernet.decrypt(sealed_by_the_box)

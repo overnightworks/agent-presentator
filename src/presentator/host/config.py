@@ -262,7 +262,7 @@ def load_settings() -> Settings:
 def _what_is_wrong(refused: ValidationError) -> str:
     return ", ".join(
         # A fault of the whole model has no field; its reason already names one.
-        str(fault["ctx"]["error"])
+        str(fault.get("ctx", {}).get("error", fault["msg"]))
         if not fault["loc"]
         else f"{'.'.join(str(part) for part in fault['loc'])}: {fault['msg']}"
         for fault in refused.errors()
