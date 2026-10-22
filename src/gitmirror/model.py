@@ -141,11 +141,10 @@ class MirrorError(RuntimeError):
 
 
 class InvalidCredentialError(ValueError):
-    """A resolved secret or a URL's user name cannot be sent to git as one line.
+    """A resolved secret cannot be sent to git as one line.
 
     The credential helper answers git one line per field; a raw CR or LF
     inside the value would forge a second line before it ever reaches a
     shell escaping concern, so this is checked at the boundary where a
-    resolved secret or a source URL's user name enters the mirror, whatever
-    produced it. A user name that is not UTF-8 is refused the same way.
+    resolved secret enters the mirror, whatever produced it.
     """

@@ -19,7 +19,6 @@ from hmac import compare_digest
 from pathlib import Path
 from threading import RLock
 from typing import BinaryIO, Final
-from urllib.parse import urlparse
 
 from presentator.contracts.decks import (
     SLIDES_FILE,
@@ -103,7 +102,6 @@ class SourceRefusal(StrEnum):
     MALFORMED_NAME = "malformed-name"
     DUPLICATE_NAME = "duplicate-name"
     DUPLICATE_URL = "duplicate-url"
-    USERINFO = "password-in-url"
     ACCESS_MISMATCH = "access-mismatch"
     BLANK_ACCESS = "missing-secret"
     NOT_CHECKED = "not-checked"
@@ -211,10 +209,6 @@ def _refusal_for(
         (
             access in (_FILE_ACCESS, _SSH_ACCESS) and bool(secret.strip()),
             SourceRefusal.CREDENTIAL_NOT_ALLOWED,
-        ),
-        (
-            access_kind_of(url) is not None and urlparse(url).password is not None,
-            SourceRefusal.USERINFO,
         ),
         (any(source.name == name for source in existing), SourceRefusal.DUPLICATE_NAME),
         (any(source.url == url for source in existing), SourceRefusal.DUPLICATE_URL),
@@ -467,7 +461,7 @@ class Decks:
         secret: str,
         owner_id: str,
         key_draft_id: str,
-    ) -> ConnectionCheckResult:
+    ) -> ConnectionCheckResult | SourceRefusal:
         """Probe the Add form's own URL and secret, writing nothing down.
 
         Every added source takes the one ref this instance follows; a check
@@ -477,11 +471,7 @@ class Decks:
         """
         address = url.strip()
         if not _access_matches_url(access, address):
-            return ConnectionCheckResult(
-                failure=SourceRunFailure.REFUSED,
-                commit=None,
-                detail=None,
-            )
+            return SourceRefusal.ACCESS_MISMATCH
         deploy_key = None
         if access == _SSH_ACCESS:
             deploy_key = self.key_drafts.unconsumed_for(
