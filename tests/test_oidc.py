@@ -15,9 +15,9 @@ from presentator.host.oidc import (
 )
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
-    A_TALK_ADDRESS,
     A_CLIENT_CREDENTIAL,
     A_CLIENT_ID,
+    A_TALK_ADDRESS,
     AN_ISSUER,
     a_settings,
     configure_oidc,
@@ -62,13 +62,14 @@ def test_the_lobby_and_the_talk_host_sign_in_through_one_client_at_their_own_cal
 ) -> None:
     secret_file = tmp_path / "secret"
     secret_file.write_text(f"{A_CLIENT_CREDENTIAL}\n", encoding="utf-8")
-    settings = a_settings().model_copy(
-        update={"oidc_client_secret_file": secret_file}
-    )
+    settings = a_settings().model_copy(update={"oidc_client_secret_file": secret_file})
 
     lobby, talk = client_configs_of(settings)
 
-    assert (talk.client_id, talk.client_secret) == (lobby.client_id, lobby.client_secret)
+    assert (talk.client_id, talk.client_secret) == (
+        lobby.client_id,
+        lobby.client_secret,
+    )
     assert lobby.redirect_uri == f"{A_BROWSERS_ADDRESS}/auth/callback"
     assert talk.redirect_uri == f"{A_TALK_ADDRESS}/auth/callback"
     assert talk.post_logout_redirect_uri == lobby.post_logout_redirect_uri

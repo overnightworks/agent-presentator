@@ -226,6 +226,7 @@ def _installed_auth(settings: Settings) -> InstalledAuth:
         lock=ProcessWriteLock(),
         audit=LoggingAuditSink(),
         content_security_policy=content_security_policy(end_session_origin(client)),
+        talk_origin=settings.talk_origin,
     )
 
 

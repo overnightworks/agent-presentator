@@ -282,8 +282,8 @@ def a_relying_party(
     """The issuer's client, whose transports reach nobody unless a test gives some."""
     return OidcRelyingParty(
         oidc_client_config(
-        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
-    ),
+            a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+        ),
         post_token_request=post_token_request,
         fetch_key_set=fetch_key_set,
         wall_clock=lambda: clock.now().timestamp(),
@@ -323,6 +323,7 @@ def an_installed_auth(
         lock=ProcessWriteLock() if lock is None else lock,
         audit=LoggingAuditSink() if audit is None else audit,
         content_security_policy=a_content_security_policy(),
+        talk_origin=A_TALK_ADDRESS,
     )
 
 
