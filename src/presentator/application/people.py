@@ -1,7 +1,7 @@
 """Erasing a person: every row they own goes, the files of their sources first."""
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from presentator.application.decks import (
@@ -9,20 +9,29 @@ from presentator.application.decks import (
     SourceRemovalRefusal,
     SourceRemovalStale,
 )
-from presentator.contracts.decks import Source, SourceRemoval
+from presentator.contracts.decks import Deck, Source, SourceRemoval, SourceRun
 from presentator.contracts.people import (
+    DeckExport,
+    KeyDraftExport,
     KindCount,
     PersonBusy,
+    PersonData,
     PersonDiskLeftover,
     PersonErased,
     PersonErasure,
+    PersonExport,
     PersonKind,
+    RunExport,
+    SourceExport,
+    Withheld,
+    WithheldReason,
 )
 from presentator.ports.decks import DeployKeyDrafts
 from presentator.ports.identity import PersonAccounts, PersonSessions
 from presentator.ports.preferences import PersonPreferencesStore
 
 REFRESH_LOCK_WAIT: Final = timedelta(seconds=60)
+_NO_AGE_LIMIT: Final = datetime.min.replace(tzinfo=UTC)
 _RUNNING: Final = (KindCount(kind=PersonKind.RUNNING_WORK, count=1),)
 
 
@@ -57,6 +66,70 @@ class People:
         finally:
             self.decks.one_at_a_time.release()
         return self._account_gone(subject, outcome)
+
+    def export_person(self, subject: str) -> PersonExport:
+        """Show what the person owns and count each secret kind left out.
+
+        Only reads: an unknown subject answers empty and no account is made.
+        Secrets are counted, never read into the result.
+        """
+        owned = self._sources_of(subject)
+        draft = self._draft_of(subject)
+        sessions = self.sessions.sessions_of(subject)
+        data = PersonData(
+            account=self.accounts.get(subject),
+            sessions=sessions,
+            preferences=self.preferences.read(subject),
+            key_draft=draft,
+            sources=tuple(self._exported(source) for source in owned),
+        )
+        withheld = (
+            (PersonKind.SOURCE_CREDENTIAL, len(owned)),
+            (PersonKind.HOOK_SECRET_HASH, self._hook_hashes_among(owned)),
+            (
+                PersonKind.KEY_DRAFT_PRIVATE_KEY,
+                self.key_drafts.count_for_owner(subject),
+            ),
+            (PersonKind.REFRESH_TOKEN, len(sessions)),
+        )
+        return PersonExport(
+            data=data,
+            withheld=tuple(
+                Withheld(kind=kind, reason=WithheldReason.SECRET, count=count)
+                for kind, count in withheld
+                if count
+            ),
+        )
+
+    def _draft_of(self, subject: str) -> KeyDraftExport | None:
+        draft = self.key_drafts.unconsumed_for(subject, newer_than=_NO_AGE_LIMIT)
+        if draft is not None:
+            return KeyDraftExport(
+                public_key=draft.public_key, created_at=draft.created_at
+            )
+        if self.key_drafts.count_for_owner(subject):
+            return KeyDraftExport(public_key=None, created_at=None)
+        return None
+
+    def _hook_hashes_among(self, owned: tuple[Source, ...]) -> int:
+        sources = self.decks.sources
+        return sum(
+            sources.hook_secret_hash(source.name) is not None for source in owned
+        )
+
+    def _exported(self, source: Source) -> SourceExport:
+        return SourceExport(
+            name=source.name,
+            url=source.url,
+            ref=source.ref,
+            public_key=source.public_key,
+            decks=tuple(
+                _deck_export(deck) for deck in self.decks.store.for_source(source.id)
+            ),
+            runs=tuple(
+                _run_export(run) for run in self.decks.source_runs.recent(source.id)
+            ),
+        )
 
     def _counted(self, subject: str, owned: tuple[Source, ...]) -> PersonErased:
         counted = self._census(subject, owned)
@@ -134,3 +207,19 @@ class People:
         return tuple(
             KindCount(kind=kind, count=count) for kind, count in counts.items()
         )
+
+
+def _deck_export(deck: Deck) -> DeckExport:
+    return DeckExport(
+        slug=deck.slug,
+        title=deck.title,
+        changed_at=deck.changed_at,
+        commit=deck.commit,
+        built_commit=None if deck.build is None else deck.build.commit,
+    )
+
+
+def _run_export(run: SourceRun) -> RunExport:
+    return RunExport(
+        at=run.at, outcome=run.outcome, commit=run.commit, reason=run.reason
+    )

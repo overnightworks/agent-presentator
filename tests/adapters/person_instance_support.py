@@ -317,21 +317,20 @@ def rows_still_there(
 
 
 class ForeignKey(NamedTuple):
-    """One row of `PRAGMA foreign_key_list`; `target` is NULL for the primary key."""
+    """The columns of `PRAGMA foreign_key_list` the guard reads.
 
-    id: int
-    seq: int
+    The pragma answers eight columns; `target` is NULL when the reference names
+    the parent's primary key.
+    """
+
     parent: str
     source: str
     target: str | None
-    on_update: str
-    on_delete: str
-    match: str
 
 
 def _foreign_keys(connection: sqlite3.Connection, table: str) -> list[ForeignKey]:
     return [
-        ForeignKey(*row)
+        ForeignKey(parent=row[2], source=row[3], target=row[4])
         for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
     ]
 
