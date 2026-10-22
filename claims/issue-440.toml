@@ -1,8 +1,0 @@
-claim_id = "32654da2794740af8c4dac1d118a7819"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "6c1934c788e1618992dbb3f330f44748e5b3e058"
-branch = "claude/issue-440-erase-route-s9b"
-scope = ["docs/README.md", "docs/explanation/trust-boundaries.md", "docs/mockups/m0-lobby.html", "docs/reference/configuration.md", "docs/reference/people.md", "docs/reference/sign-in-and-session.md", "pyproject.toml", "src/presentator/adapters/identity.py", "src/presentator/api/auth.py", "src/presentator/api/legal.py", "src/presentator/api/people.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "tests/api/fake_issuer.py", "tests/api/lobby.py", "tests/api/test_people_erasure_route.py", "tests/test_host.py", "uv.lock"]
-opened_commit = "803efdcc8a228f90aa2bc3cd4e138b6d8236a0b3"
-whole_reason = "The bearer gate, its one setting and the first route under it are one vertical proof: a gate without a route guards nothing and a route without the gate is a deletion behind the cookie; the access log goes with it because this route's path carries the subject."
