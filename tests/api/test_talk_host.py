@@ -411,31 +411,20 @@ def test_trying_again_after_a_refusal_signs_in_and_the_talk_host_sends_on_to_the
 
 
 # T10.
-def test_a_verified_logout_token_at_the_lobby_ends_the_talk_session(
+@pytest.mark.parametrize(
+    "logout_address",
+    [
+        pytest.param(A_BROWSERS_ADDRESS, id="public origin"),
+        pytest.param(
+            f"http://{urlsplit(A_BROWSERS_ADDRESS).hostname}:8000",
+            id="lobby hostname with port 8000",
+        ),
+    ],
+)
+def test_a_verified_logout_token_at_the_lobby_ends_both_hosts_sessions(
     hosts: Hosts,
+    logout_address: str,
 ) -> None:
-    talk = hosts.browser(A_TALK_ADDRESS)
-    hosts.sign_in(talk, A_TALK_ADDRESS)
-    hosts.give_a_deck_to(A.username)
-    presenter = f"/deck/{A_DECK}/presenter/"
-    assert talk.get(presenter).status_code == HTTPStatus.OK
-
-    token = hosts.issuer.mint_logout_token(subject="subject-1")
-    ended = hosts.browser(A_BROWSERS_ADDRESS).post(
-        "/auth/backchannel-logout",
-        content=urlencode({"logout_token": token}),
-        headers={"content-type": "application/x-www-form-urlencoded"},
-    )
-
-    assert ended.status_code == HTTPStatus.OK
-    assert talk.get(presenter).status_code == HTTPStatus.FOUND
-
-
-# T10.
-def test_a_logout_token_sent_with_the_lobby_hostname_and_a_port_ends_both_hosts_sessions(
-    hosts: Hosts,
-) -> None:
-    lobby_hostname = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
     lobby = hosts.browser(A_BROWSERS_ADDRESS)
     talk = hosts.browser(A_TALK_ADDRESS)
     hosts.sign_in(lobby, A_BROWSERS_ADDRESS)
@@ -446,7 +435,7 @@ def test_a_logout_token_sent_with_the_lobby_hostname_and_a_port_ends_both_hosts_
     assert lobby.get("/").status_code == HTTPStatus.OK
 
     token = hosts.issuer.mint_logout_token(subject="subject-1")
-    ended = hosts.browser(f"http://{lobby_hostname}:8000").post(
+    ended = hosts.browser(logout_address).post(
         "/auth/backchannel-logout",
         content=urlencode({"logout_token": token}),
         headers={"content-type": "application/x-www-form-urlencoded"},
