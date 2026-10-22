@@ -35,7 +35,8 @@ its deck's build in one word (ready, building, failed, or never built), with a
 shape and a colour of its own, read off the talk that stands and the build last
 attempted beside it, never stored. While no deck exists, the list says so and
 names the Git address instead of showing an empty table, as long as one source
-is all there is to name; with no source it points an admin at Sources.
+of the viewer's own is all there is to name; with no source it points an admin
+at Sources. The list holds only the decks of the viewer's own sources.
 
 ## A deck's page
 
@@ -59,7 +60,13 @@ than shown empty while that project cannot be read
   sentence.
 - A deck no build has switched over yet says so and offers no view rather than
   a dead link.
-- Every signed-in person may hold every deck.
+- A deck exists only for the account that owns its source: the list, the
+  deck page, the projector and presenter views, and the PDF show it to that
+  account alone, and to anyone else it answers like a slug no deck carries,
+  the same status, body and headers, never a hint that it exists. Sources and
+  the co-presenter keep their admin gate on top of this. Two named exceptions:
+  a source page's removal confirm counts every deck of that source, and a
+  folder name two sources carry belongs to the source that took it in first.
 
 ## Delivery
 
@@ -76,14 +83,15 @@ away the PDF that already downloads.
   the address so a closed window comes back to the same slide.
 - A path under the deck that is not a real file is answered with the
   application's `index.html`. A projector or presenter address under a deck
-  that is unknown or not built, including one whose build directory has since
-  gone from disk, answers a bare empty 404 with no templated page and no
+  that is unknown, not built, another account's, or whose build directory has
+  since gone from disk, answers a bare empty 404 with no templated page and no
   content type; only the deck's own page route renders the lobby's not-found
   page.
 - Both stand behind the same session as every other address
   ([ADR 0007](../decisions/0007-browser-client-behind-tunnel.md)): a
   signed-out request answers the login redirect, never a file and never a hint
-  that a folder exists. The address only chooses a row; the directory comes
+  that a folder exists, and a WebSocket upgrade into a talk is closed before
+  anything is read. The address only chooses a row; the directory comes
   from that row, so no part of a request becomes part of a path, and a path
   that would leave the build directory (through `..`, percent-encoded
   separators, or a symlink out of it) is refused.

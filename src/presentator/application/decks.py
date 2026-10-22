@@ -320,8 +320,8 @@ class Decks:
         self._run_one_at_a_time(partial(self._take_in_and_build_one, source))
         return True
 
-    def shown_source(self, name: str) -> SourcePage | None:
-        """What that source's page says, or nothing while no source has this name."""
+    def shown_source(self, name: str, *, viewer: str) -> SourcePage | None:
+        """What that source's page says, its deck chips the viewer's own decks."""
         source = self._named(name)
         if source is None:
             return None
@@ -346,7 +346,11 @@ class Decks:
             decks=tuple(
                 SourceDeck(slug=deck.slug, title=deck.title)
                 for deck in sorted(
-                    (deck for deck in self.store.all() if deck.source_id == source.id),
+                    (
+                        deck
+                        for deck in self.store.all()
+                        if deck.source_id == source.id and deck.owner_id == viewer
+                    ),
                     key=lambda deck: deck.title,
                 )
             ),
@@ -389,9 +393,7 @@ class Decks:
         same name, once a person has seen this and confirmed it (R1).
         """
         source = self._named(name)
-        if source is None:
-            return None
-        return self._preview(source)
+        return None if source is None else self._preview(source)
 
     def remove_source(
         self,
@@ -662,15 +664,15 @@ class Decks:
         now = self.clock.now()
         return tuple(self._listed_source(source, now) for source in self.sources.all())
 
-    def listed(self) -> tuple[ListedDeck, ...]:
-        """The stored decks, newest changed first, reading no source.
+    def listed(self, *, viewer: str) -> tuple[ListedDeck, ...]:
+        """The viewer's own decks, newest changed first, reading no source.
 
         A page view costs a read, never a pull: what the source carries is the
         refresh's business.
         """
         now = self.clock.now()
         newest_first = sorted(
-            self.store.all(),
+            (deck for deck in self.store.all() if deck.owner_id == viewer),
             key=lambda deck: deck.changed_at,
             reverse=True,
         )
@@ -684,15 +686,20 @@ class Decks:
             for deck in newest_first
         )
 
-    def page(self, slug: str) -> DeckPage | None:
-        """What that deck's page says, or nothing while no deck carries the slug.
+    def _owned(self, slug: str, viewer: str) -> Deck | None:
+        """The deck, or nothing for an unknown slug and for another account's."""
+        deck = self.store.get(slug)
+        return deck if deck is not None and deck.owner_id == viewer else None
+
+    def page(self, slug: str, *, viewer: str) -> DeckPage | None:
+        """What that deck's page says, or nothing while the viewer has no such deck.
 
         The commit named is the one the delivered talk was built from, not the
         one the source carries now: a person reads it to see whether their push
         is in what is on the screen (line 7), and while nothing is built there
         is nothing on the screen but what the source last carried.
         """
-        deck = self.store.get(slug)
+        deck = self._owned(slug, viewer)
         if deck is None:
             return None
         built = deck.build
@@ -722,29 +729,20 @@ class Decks:
         )
 
     def _address_of(self, deck: Deck) -> str | None:
-        """The address the source that carried this deck is mirrored from.
-
-        A deck names the source it came from, never whichever source the
-        instance happens to have first, so two sources cannot show one
-        another's address on a page.
-        """
+        """The address of the source that carried this deck, never another's."""
         return next(
-            (
-                source.url
-                for source in self.sources.all()
-                if source.id == deck.source_id
-            ),
+            (item.url for item in self.sources.all() if item.id == deck.source_id),
             None,
         )
 
-    def built_talk(self, slug: str) -> Path | None:
-        """The directory the deck's talk is delivered from, while one is built."""
-        deck = self.store.get(slug)
+    def built_talk(self, slug: str, *, viewer: str) -> Path | None:
+        """The directory the viewer's deck's talk is delivered from, while built."""
+        deck = self._owned(slug, viewer)
         if deck is None or deck.build is None:
             return None
         return deck.build.directory
 
-    def exported_pdf(self, slug: str) -> Path | None:
+    def exported_pdf(self, slug: str, *, viewer: str) -> Path | None:
         """The file the deck's PDF is handed over as, while one is exported.
 
         A slug that is not a folder's plain name names no deck here: the export
@@ -753,7 +751,7 @@ class Decks:
         """
         if not is_a_plain_folder_name(slug):
             return None
-        deck = self.store.get(slug)
+        deck = self._owned(slug, viewer)
         if deck is None or deck.build is None:
             return None
         return deck.build.pdf
@@ -762,13 +760,13 @@ class Decks:
         """A file a build wrote, opened to be delivered, or nothing if it is not one."""
         return self.builder.read(written)
 
-    def source_address(self) -> str | None:
-        """The git address an empty list names, while one source is all there is.
+    def source_address(self, *, viewer: str) -> str | None:
+        """The git address an empty list names, while the viewer has one source.
 
-        With a second source there is no single address the list could name,
-        so it says only that it is empty.
+        With a second source of their own there is no single address the list
+        could name, so it says only that it is empty.
         """
-        sources = self.sources.all()
+        sources = [source for source in self.sources.all() if source.owner_id == viewer]
         return sources[0].url if len(sources) == 1 else None
 
     def _listed_source(self, source: Source, now: datetime) -> ListedSource:

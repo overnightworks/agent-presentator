@@ -119,7 +119,7 @@ CATALOGS: Final = load_catalogs(CATALOG_DIRECTORY)
 ENGLISH: Final = CATALOGS.text(DEFAULT_LANGUAGE_TAG)
 USERNAME: Final = "felix"
 NEIGHBOUR: Final = "anna"
-ADMIN: Final = "the-admin"
+ADMIN: Final = f"id-of-{USERNAME}"
 SOURCE_ID: Final = "the-source-the-instance-carries"
 _A_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 # A real browser always sends both: navigation prefers text/html, and a

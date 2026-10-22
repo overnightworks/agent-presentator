@@ -26,7 +26,7 @@ from starlette.responses import FileResponse
 from starlette.staticfiles import NotModifiedResponse
 from starlette.types import Receive, Scope, Send
 
-from presentator.api.pages import Pages, state_word
+from presentator.api.pages import Pages, gated_person, state_word
 from presentator.application.decks import Decks
 from presentator.contracts.decks import (
     DECK_PATH,
@@ -73,7 +73,7 @@ class _DeckPage:
 
     def deck(self, request: Request, slug: str) -> Response:
         """Show the deck's title, its state, where it came from, and the ways in."""
-        page = self.decks.page(slug)
+        page = self.decks.page(slug, viewer=gated_person(request).id)
         if page is None:
             return self._no_such_deck(request)
         text = self.pages.appearance(request).text
@@ -143,7 +143,7 @@ class _DeckPage:
         the slug is looked up in, and a slug that could not be a file's name has
         already stopped that lookup.
         """
-        export = self.decks.exported_pdf(slug)
+        export = self.decks.exported_pdf(slug, viewer=gated_person(request).id)
         file = None if export is None else self.decks.open_build_file(export)
         if file is None:
             return self._no_such_deck(request)
@@ -205,9 +205,14 @@ class _BuiltTalk:
         client-side route of the same `index.html` as the projector, not a
         second file. A path that is not a file under the talk is that
         application, so a wrong address under a deck is not an inventory of
-        what the build wrote.
+        what the build wrote. A deck of another account is no deck, and a
+        WebSocket has no session decision before it, so it is closed unread.
         """
-        directory = self.decks.built_talk(scope["path_params"]["slug"])
+        if scope["type"] != "http":
+            await send({"type": "websocket.close"})
+            return
+        viewer = gated_person(Request(scope)).id
+        directory = self.decks.built_talk(scope["path_params"]["slug"], viewer=viewer)
         # A row can still name a directory that was since removed from disk
         # (the build adapter does not yet clean those up); Starlette's own
         # `StaticFiles` answers a missing root with a raised `RuntimeError`,
