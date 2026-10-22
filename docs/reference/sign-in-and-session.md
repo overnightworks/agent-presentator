@@ -55,7 +55,7 @@ The SQLite stores stay this repository's
 
 ## What protects a request
 
-`webauth` v0.20.1 owns the mechanism. `issue_session_cookies`,
+`webauth` v0.21.0 owns the mechanism. `issue_session_cookies`,
 `clear_session_cookies` and `session_id_from_request` set, clear and read the
 signed `SameSite=Lax` session cookie.
 
@@ -64,6 +64,9 @@ signed `SameSite=Lax` session cookie.
   `admit_session` is the one authority, for HTTP and WebSocket alike (the
   co-presenter's WebSocket admits through it in its own route), that decides
   whether the cookie's session id names a person.
+- `BearerGate` takes the prefix `/api/admin/` by an access token alone and
+  never by the cookie (see [people](people.md)); it exists only while
+  `PRESENTATOR_ADMIN_TOKEN_CLIENTS` names a client.
 - A request that carries the session cookie twice is treated as signed out
   rather than letting either copy decide whose account it runs in.
 - The public origin is https, so both cookies are `Secure` and carry the

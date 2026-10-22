@@ -212,12 +212,11 @@ DATENSCHUTZ: Final = LegalDocument(
                 ),
                 _point(
                     "Server-Protokolle:",
-                    "Der Server schreibt Zugriffsprotokolle. Darin steht die "
-                    "Adresse des Docker-Gateways, nicht die Ihres Geräts. Wenn "
-                    "ein Konto angelegt wird oder sich seine Rolle ändert, "
-                    "schreibt der Server außerdem eine Prüfzeile mit "
-                    "Ereignisart, Keycloak-Subject-ID und Rolle, nie mit "
-                    "Benutzername oder Token. Eine "
+                    "Der Server schreibt kein Zugriffsprotokoll. Wenn ein "
+                    "Konto angelegt wird oder sich seine Rolle ändert, "
+                    "schreibt er eine Prüfzeile mit Ereignisart, "
+                    "Keycloak-Subject-ID und Rolle, nie mit Benutzername oder "
+                    "Token. Eine "
                     "Aufbewahrungsdauer ist nicht festgelegt. Zweck · "
                     "Rechtsgrundlage: Betrieb und Fehlersuche, "
                     f"{_BASIS_INTEREST}.",

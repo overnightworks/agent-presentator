@@ -654,7 +654,7 @@ requires-dist = [
     { name = "httpx2", extras = ["ws"], specifier = "==2.13.1" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "overnightworks-agent-client", url = "https://github.com/overnightworks/agent-providers/releases/download/v0.6.0/overnightworks_agent_client-0.6.0-py3-none-any.whl" },
-    { name = "overnightworks-webauth", url = "https://github.com/overnightworks/webauth/releases/download/v0.20.1/overnightworks_webauth-0.20.1-py3-none-any.whl" },
+    { name = "overnightworks-webauth", url = "https://github.com/overnightworks/webauth/releases/download/v0.21.0/overnightworks_webauth-0.21.0-py3-none-any.whl" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "python-multipart", specifier = "==0.0.32" },
     { name = "uvicorn", specifier = "==0.54.0" },
@@ -672,8 +672,8 @@ dev = [
 
 [[package]]
 name = "overnightworks-webauth"
-version = "0.20.1"
-source = { url = "https://github.com/overnightworks/webauth/releases/download/v0.20.1/overnightworks_webauth-0.20.1-py3-none-any.whl" }
+version = "0.21.0"
+source = { url = "https://github.com/overnightworks/webauth/releases/download/v0.21.0/overnightworks_webauth-0.21.0-py3-none-any.whl" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
@@ -684,7 +684,7 @@ dependencies = [
     { name = "urllib3" },
 ]
 wheels = [
-    { url = "https://github.com/overnightworks/webauth/releases/download/v0.20.1/overnightworks_webauth-0.20.1-py3-none-any.whl", hash = "sha256:8826d20b033a0443963719b1261a466072be1ddf0a18e823640c1571742c6fd3" },
+    { url = "https://github.com/overnightworks/webauth/releases/download/v0.21.0/overnightworks_webauth-0.21.0-py3-none-any.whl", hash = "sha256:87153ece90108270ba9ea9c364a163bd2dd5ed4c2a1cd1fbed4e5d92554fa37a" },
 ]
 
 [package.metadata]

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from pydantic import SecretStr
-from webauth.ports import UsernameTakenError
+from webauth.ports import UsernameTakenError, WriteLock
 
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import Role, User
@@ -146,7 +146,7 @@ class SqliteSubjectUserStore:
     """
 
     database: Path
-    lock: ProcessWriteLock
+    lock: WriteLock
 
     def get(self, user_id: str) -> User | None:
         """The account whose id is `user_id` character for character."""
