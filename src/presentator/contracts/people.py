@@ -26,9 +26,11 @@ class PersonKind(StrEnum):
     BUILDS = "builds"
     RUNNING_WORK = "running-work"
     SOURCE_CREDENTIAL = "source-credential"
-    HOOK_SECRET_HASH = "hook-secret-hash"  # noqa: S105 - a kind word, not a password
+    # These are kind words, not passwords.
+    HOOK_SECRET_HASH = "hook-secret-hash"  # noqa: S105
     KEY_DRAFT_PRIVATE_KEY = "key-draft-private-key"
-    REFRESH_TOKEN = "refresh-token"  # noqa: S105 - a kind word, not a password
+    # These are kind words, not passwords.
+    REFRESH_TOKEN = "refresh-token"  # noqa: S105
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -77,7 +79,8 @@ PersonErasure = PersonErased | PersonBusy | PersonDiskLeftover
 class WithheldReason(StrEnum):
     """Why an export leaves a kind out."""
 
-    SECRET = "secret"  # noqa: S105 - a kind word, not a password
+    # These are kind words, not passwords.
+    SECRET = "secret"  # noqa: S105
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
