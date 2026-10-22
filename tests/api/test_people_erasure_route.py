@@ -1,6 +1,7 @@
 """S9 (#293): `DELETE /api/admin/people/{subject}` takes hal's access token alone."""
 
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
@@ -354,18 +355,27 @@ def test_every_answer_carries_no_store(query: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "query_and_subject",
-    [("?dry_run=true", THE_PERSON.id), ("", THE_PERSON.id), ("", "nobody-at-all")],
+    ("query", "subject", "build_running"),
+    [
+        ("?dry_run=true", THE_PERSON.id, False),
+        ("", THE_PERSON.id, False),
+        ("", "nobody-at-all", False),
+        ("", THE_PERSON.id, True),
+    ],
 )
 def test_one_call_writes_one_audit_line_naming_nobody(
-    query_and_subject: tuple[str, str], caplog: pytest.LogCaptureFixture
+    query: str,
+    subject: str,
+    *,
+    build_running: bool,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """D10: one INFO line on the route's logger; neither subject in any record."""
-    query, subject = query_and_subject
-    scene = a_scene()
+    scene = a_scene(lock_wait=timedelta(milliseconds=50))
     caplog.set_level(logging.DEBUG)
 
-    scene.erase(subject, query=query)
+    with scene.instance.decks.one_at_a_time if build_running else nullcontext():
+        scene.erase(subject, query=query)
 
     ours = [
         record for record in caplog.records if record.name == "presentator.api.people"
@@ -392,12 +402,12 @@ def test_the_server_logs_no_request_path(environment: pytest.MonkeyPatch) -> Non
         async def serve(self) -> None:
             return None
 
+    server_log = logging.getLogger("uvicorn.error")
+    for attribute in ("level", "propagate"):
+        environment.setattr(server_log, attribute, getattr(server_log, attribute))
     environment.setattr(main.uvicorn, "Server", ServerThatOnlyRecordsItsConfig)
     main.main()
     [config] = configs
-    server_log = logging.getLogger("uvicorn.error")
-    for attribute in ("level", "handlers", "propagate"):
-        environment.setattr(server_log, attribute, getattr(server_log, attribute))
     emitted: list[str] = []
 
     class Emitted(logging.Handler):
@@ -405,7 +415,7 @@ def test_the_server_logs_no_request_path(environment: pytest.MonkeyPatch) -> Non
             emitted.append(record.getMessage())
 
     config.configure_logging()
-    server_log.handlers = [Emitted()]
+    environment.setattr(server_log, "handlers", [Emitted()])
     server_log.info('127.0.0.1 - "WebSocket /api/admin/people/subject-id" 403')
     server_log.error("the server failed")
 
