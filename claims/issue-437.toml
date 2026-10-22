@@ -1,0 +1,8 @@
+claim_id = "f5f28e4b4d20494a85471202f354da5c"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "55c9cedb443c1542e160039b66684cd182b25f18"
+branch = "claude/issue-437-lobby-serves-no-talk-s7b2"
+scope = ["docs/decisions/0016-a-talk-host-signs-in-by-itself.md", "docs/mockups/m0-lobby.html", "docs/reference/decks.md", "docs/reference/sign-in-and-session.md", "src/presentator/api/auth.py", "src/presentator/api/decks.py", "src/presentator/api/templates/base.html", "src/presentator/api/templates/deck.html", "src/presentator/contracts/decks.py", "tests/api/lobby.py", "tests/api/talk_support.py", "tests/api/test_auth.py", "tests/api/test_built_talk_hosts.py", "tests/api/test_deck_files.py", "tests/api/test_deck_owner.py", "tests/api/test_deck_page.py", "tests/api/test_lobby_talk_addresses.py", "tests/api/test_sources.py", "tests/api/test_talk_host.py", "tests/test_talk_routing.py"]
+opened_commit = "8aaffe8a4828a5b928bde3ba2230a00c515d252a"
+whole_reason = "One boundary closes: the lobby's mount, its links, its inline-style allowance and every test that drove a talk through the lobby change together, or the lobby either still serves deck code or the talk host's file defences lose their proof."
