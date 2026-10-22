@@ -660,7 +660,6 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
         SourceRefusal.MALFORMED_NAME: text.source_refused_name,
         SourceRefusal.DUPLICATE_NAME: text.source_refused_duplicate_name,
         SourceRefusal.DUPLICATE_URL: text.source_refused_duplicate_url,
-        SourceRefusal.USERINFO: text.source_refused_password,
         SourceRefusal.ACCESS_MISMATCH: text.source_refused_access,
         SourceRefusal.BLANK_ACCESS: text.source_refused_secret,
         SourceRefusal.NOT_CHECKED: text.source_refused_not_checked,
@@ -670,15 +669,25 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
     }[reason]
 
 
-def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanner:
+def _check_banner(
+    checked: ConnectionCheckResult | SourceRefusal, text: LobbyText
+) -> CheckBanner:
     """What Check connection shows for that probe, in the source list's own words.
 
     The four banners keep the four states the probe itself can answer with,
     never folded into the sources list's own coarser `SourceState` — a wrong
     token and a dead host must read apart here, not both as one error. Their
     words are exactly `_run_reason`'s own, so a check and a recorded run read
-    alike; only `failed` carries git's own sanitised line beneath it.
+    alike; only `failed` carries git's own sanitised line beneath it. An address
+    the form refuses reads that refusal's own sentence, before any probe.
     """
+    if isinstance(checked, SourceRefusal):
+        return CheckBanner(
+            state=SourceRunFailure.REFUSED.value,
+            message=_refusal_sentence(checked, text),
+            detail=None,
+            fingerprint=None,
+        )
     if checked.failure is None:
         return CheckBanner(
             state=SourceState.REACHABLE.value,

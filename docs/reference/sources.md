@@ -12,17 +12,18 @@ A source is a row: an id, a name and a URL that are each unique, the ref it
 follows, and the account that owns it. An instance starts with no source; an
 admin adds one under Settings · Sources.
 
-- The name is `[a-z0-9][a-z0-9-]{0,63}` and unique. The URL is unique and must
-  not carry a password in its userinfo (that belongs in the Secret field). A
-  user name in the URL is optional: when the URL names one the mirror keeps it,
-  and when it does not the mirror answers a user name of its own so a host that
-  insists on one still reaches the token.
-- Of remote addresses only `https://[user@]host[:port]/…`,
+- The name is `[a-z0-9][a-z0-9-]{0,63}` and unique. The URL is unique and
+  carries no credentials: an `https://` address has no user part at all (the
+  token belongs in the Secret field, and the mirror answers a user name of its
+  own), and an SSH user is a login name from `[A-Za-z0-9._~-]`.
+- Of remote addresses only `https://host[:port]/…`,
   `ssh://[user@]host[:port]/…` and `user@host:path` are an access: the host a
   plain name or an IPv6 literal in brackets, an `ssh://` path free of `%`, `?`,
   `#`, `[` and `]`, an scp path free of `[` and `]`. Every other remote
-  spelling, `http://` and any control character included, is refused before
-  any secret is used.
+  spelling, `http://`, a user part on `https://` and any control character
+  included, is refused before any secret is used; Check connection gives the
+  same refusal. A token in the path or query is not a user part and is not
+  inspected.
 - The access kind is derived from the URL scheme: `https://` is a token;
   `git@` and `ssh://` are a deploy key. An unknown radio value, a URL that
   names no access, or a mismatch with the chosen radio is refused. A fourth

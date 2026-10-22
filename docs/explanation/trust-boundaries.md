@@ -46,3 +46,12 @@ the private boundary; browser identity and credentials do not.
 A git host has no browser to sign in with, so the sessionless
 `POST /sources/<name>/fetch` is guarded by a per-source secret and reads no
 payload ([ADR 0015](../decisions/0015-public-like-songmaker-own-login.md)).
+
+## The admin routes take a token, not a login
+
+`/api/admin/` is for hal, the operator's tool, and takes an access token of
+Keycloak alone: a session cookie counts for nothing there, so a stolen or
+forged browser session cannot erase a person. Which clients may call it is
+configuration, and an instance that names none serves no admin route at all.
+The server keeps no access log, because the path of such a call carries the
+person's Keycloak subject. See [people](../reference/people.md).

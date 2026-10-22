@@ -443,13 +443,12 @@ msgstr "A source with this name is already here."
 msgid "source_refused_duplicate_url"
 msgstr "A source with this Git URL is already here."
 
-msgid "source_refused_password"
-msgstr "Put the secret in the Secret field, not in the URL."
-
 msgid "source_refused_access"
 msgstr ""
-"The access kind has to match the Git URL: HTTPS for https://, SSH for git@ "
-"and ssh://."
+"Use an address with one host and no credentials that fits the access kind: "
+"https://host/path for HTTPS, with the token in the Secret field; "
+"user@host:path or ssh://user@host/path for SSH, or a folder for a local "
+"folder."
 
 msgid "source_refused_secret"
 msgstr "A source needs a secret."
