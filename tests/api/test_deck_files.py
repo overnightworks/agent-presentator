@@ -6,11 +6,19 @@ from typing import Final
 from urllib.parse import quote
 
 import pytest
+from fastapi.testclient import TestClient
 
-from tests.api.lobby import a_swapped_build
+from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS, a_swapped_build
+from tests.api.talk_support import two_hosts
 
 _SLUG: Final = "hello-deck"
 _PROJECTOR: Final = f"/deck/{_SLUG}/"
+
+
+def _talk_host_on_a_built_deck(tmp_path: Path) -> tuple[TestClient, Path]:
+    """A browser signed in at the talk host of a built deck, and its run directory."""
+    given, run = a_swapped_build(tmp_path, slug=_SLUG)
+    return two_hosts(tmp_path, given=given).signed_in_at(A_TALK_ADDRESS), run
 
 
 @pytest.mark.parametrize(
@@ -22,9 +30,10 @@ def test_the_download_of_a_deck_with_a_unicode_name_is_saved_under_that_name(
     tmp_path: Path,
     slug: str,
 ) -> None:
-    signed_in, _ = a_swapped_build(tmp_path, slug=slug)
+    given, _ = a_swapped_build(tmp_path, slug=slug)
+    lobby = two_hosts(tmp_path, given=given).signed_in_at(A_BROWSERS_ADDRESS)
 
-    download = signed_in.get(f"/deck/{quote(slug)}/pdf")
+    download = lobby.get(f"/deck/{quote(slug)}/pdf")
 
     assert download.status_code == HTTPStatus.OK
     assert (
@@ -34,7 +43,7 @@ def test_the_download_of_a_deck_with_a_unicode_name_is_saved_under_that_name(
 
 
 def test_a_file_of_no_known_type_is_delivered_as_bytes(tmp_path: Path) -> None:
-    signed_in, run = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in, run = _talk_host_on_a_built_deck(tmp_path)
     (run / "talk" / "assets" / "blob").write_bytes(b"\x00\x01")
 
     blob = signed_in.get(f"{_PROJECTOR}assets/blob")
@@ -43,7 +52,7 @@ def test_a_file_of_no_known_type_is_delivered_as_bytes(tmp_path: Path) -> None:
 
 
 def test_a_range_of_a_file_is_answered_with_only_that_range(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in, _ = _talk_host_on_a_built_deck(tmp_path)
 
     part = signed_in.get(f"{_PROJECTOR}assets/app.js", headers={"range": "bytes=0-6"})
 
@@ -53,7 +62,7 @@ def test_a_range_of_a_file_is_answered_with_only_that_range(tmp_path: Path) -> N
 
 
 def test_a_range_beyond_a_file_is_refused(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in, _ = _talk_host_on_a_built_deck(tmp_path)
 
     refused = signed_in.get(
         f"{_PROJECTOR}assets/app.js",
@@ -64,7 +73,7 @@ def test_a_range_beyond_a_file_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_unchanged_file_is_answered_as_not_modified(tmp_path: Path) -> None:
-    signed_in, _ = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in, _ = _talk_host_on_a_built_deck(tmp_path)
     address = f"{_PROJECTOR}assets/app.js"
     etag = signed_in.get(address).headers["etag"]
 
@@ -78,7 +87,7 @@ def test_a_head_request_to_an_asset_answers_its_headers_without_its_body(
     tmp_path: Path,
 ) -> None:
     address = f"{_PROJECTOR}assets/app.js"
-    signed_in, _ = a_swapped_build(tmp_path, slug=_SLUG)
+    signed_in, _ = _talk_host_on_a_built_deck(tmp_path)
     full = signed_in.get(address)
 
     head = signed_in.head(address)
