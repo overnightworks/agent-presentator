@@ -12,9 +12,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
-from presentator.adapters.identity import SqliteSessionRecordStore
-from presentator.api.auth import signed_in_connection
-from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
+from presentator.api.copresenter import CoPresenterSurface
 from presentator.application.copresenter import AskLimiter
 from presentator.contracts.models import Role, User
 from tests.api.lobby import (
@@ -50,7 +48,10 @@ def _ask_headers(token: str, **claims: str) -> dict[str, str]:
 
 
 def _hear_with_origin(browser: TestClient, origin: str | None) -> int | None:
-    """The close code of a hearing opened with this Origin, None when accepted."""
+    """The code the test client reports for a handshake the server denied before accept.
+
+    On the wire that is an HTTP 403; None when the hearing was accepted.
+    """
     headers = {} if origin is None else {"origin": origin}
     try:
         with browser.websocket_connect(HEARING, headers=headers):
@@ -148,7 +149,7 @@ def test_the_lobbys_csrf_token_does_not_excuse_an_ask_at_the_talk_host() -> None
 
 # C6.
 @pytest.mark.parametrize(
-    ("origin", "closed_with"),
+    ("origin", "denied_with"),
     [
         pytest.param(TALK_ORIGIN, None, id="the-talk-origin"),
         pytest.param(A_BROWSERS_ADDRESS, POLICY_VIOLATION, id="the-lobby-origin"),
@@ -157,12 +158,12 @@ def test_the_lobbys_csrf_token_does_not_excuse_an_ask_at_the_talk_host() -> None
     ],
 )
 def test_hear_is_accepted_only_from_the_talk_origin(
-    origin: str | None, closed_with: int | None
+    origin: str | None, denied_with: int | None
 ) -> None:
     talk, _private, _clock = a_copresenter_talk_host()
     talk.sign_in()
 
-    assert _hear_with_origin(talk.client, origin) == closed_with
+    assert _hear_with_origin(talk.client, origin) == denied_with
 
 
 # C6.
@@ -212,13 +213,7 @@ def _talk_host_with_a_signed_in_admin(
         browser_origin=TALK_ORIGIN,
         delay=asyncio.sleep if deadline is None else deadline.wait,
     )
-    hosts = two_hosts(tmp_path)
-    sessions = SqliteSessionRecordStore(hosts.database)
-    add_copresenter_routes(
-        hosts.talk,
-        surface=surface,
-        admission=lambda connection: signed_in_connection(connection, sessions),
-    )
+    hosts = two_hosts(tmp_path, copresenter=surface)
     return hosts, hosts.signed_in_at(A_TALK_ADDRESS), private
 
 
