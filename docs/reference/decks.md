@@ -33,7 +33,7 @@ Only a refresh reconciles; a page view never does.
 The most recently changed deck stands first. Every row carries the state of
 its deck's build in one word (ready, building, failed, or never built), with a
 shape and a colour of its own, read off the talk that stands and the build last
-attempted beside it, never stored. While no deck exists, the list says so and
+attempted beside it, never stored. While the viewer has no deck, the list says so and
 names the Git address instead of showing an empty table, as long as one source
 of the viewer's own is all there is to name; with no source it points an admin
 at Sources. The list holds only the decks of the viewer's own sources.

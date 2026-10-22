@@ -25,7 +25,7 @@ from tests.api.lobby import (
     a_configured_source,
     a_lobby,
 )
-from tests.api.test_sources import confirm_removal
+from tests.api.test_sources import ask_removal, confirm_removal
 from tests.application.fakes import FakeDeckStore
 
 _TALK: Final = Path(__file__).parent / "built_talk"
@@ -95,6 +95,17 @@ def _two_admins(*, stuck_mirror: bool = False) -> _TwoAdmins:
     return _TwoAdmins(lobby=lobby, as_a=lobby.client, as_b=second.client)
 
 
+def _cookies_without_values(response: Response) -> list[str]:
+    """Every `Set-Cookie` entry, its name and attributes kept, its random value not."""
+    return [
+        f"{name}=<value>{attributes}"
+        for name, attributes in (
+            (entry.split("=", 1)[0], ";" + entry.partition(";")[2])
+            for entry in response.headers.get_list("set-cookie")
+        )
+    ]
+
+
 def _alike(answer: Response, unknown: Response) -> None:
     def comparable(response: Response) -> dict[str, str]:
         return {
@@ -106,6 +117,7 @@ def _alike(answer: Response, unknown: Response) -> None:
     assert answer.status_code == unknown.status_code
     assert answer.content == unknown.content
     assert comparable(answer) == comparable(unknown)
+    assert _cookies_without_values(answer) == _cookies_without_values(unknown)
 
 
 _NO_HEADERS: Final[dict[str, str]] = {}
@@ -298,3 +310,22 @@ def test_a_refused_removal_of_anothers_source_shows_no_deck_chips() -> None:
 
     assert ENGLISH.source_remove_refused in refused.text
     assert "b-deck" not in refused.text
+
+
+def test_the_removal_of_anothers_source_asks_with_its_deck_count_but_no_title() -> None:
+    admins = _two_admins()
+
+    asked = ask_removal(admins.as_a, "b-talks")
+
+    assert (
+        ENGLISH.source_remove_confirm_body.format(
+            decks=1,
+            deck_word=ENGLISH.source_remove_deck_singular,
+            talk_word=ENGLISH.source_remove_talk_singular,
+            runs=0,
+            run_word=ENGLISH.source_remove_run_plural,
+        )
+        in asked.text
+    )
+    assert "b-deck" not in asked.text
+    assert "Title of b-deck" not in asked.text

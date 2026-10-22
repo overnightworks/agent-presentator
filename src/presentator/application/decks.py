@@ -349,7 +349,7 @@ class Decks:
                     (
                         deck
                         for deck in self.store.all()
-                        if deck.source_id == source.id and deck.owner_id == viewer
+                        if deck.source_id == source.id and deck.is_owned_by(viewer)
                     ),
                     key=lambda deck: deck.title,
                 )
@@ -672,7 +672,7 @@ class Decks:
         """
         now = self.clock.now()
         newest_first = sorted(
-            (deck for deck in self.store.all() if deck.owner_id == viewer),
+            (deck for deck in self.store.all() if deck.is_owned_by(viewer)),
             key=lambda deck: deck.changed_at,
             reverse=True,
         )
@@ -689,7 +689,7 @@ class Decks:
     def _owned(self, slug: str, viewer: str) -> Deck | None:
         """The deck, or nothing for an unknown slug and for another account's."""
         deck = self.store.get(slug)
-        return deck if deck is not None and deck.owner_id == viewer else None
+        return deck if deck is not None and deck.is_owned_by(viewer) else None
 
     def page(self, slug: str, *, viewer: str) -> DeckPage | None:
         """What that deck's page says, or nothing while the viewer has no such deck.
