@@ -1,8 +1,0 @@
-claim_id = "22a5a83761054264816fafeb9ff14d95"
-agent = "claude"
-role = "builder"
-base = "1234085df806783e9b18a06cad4ed6667c9fa2f7"
-branch = "claude/issue-393-a3a-2-presentator-spricht-wire-v2-agent"
-scope = ["docs/decisions/0003-libraries-for-models-and-auth.md", "pyproject.toml", "src/presentator/adapters/agent_service.py", "src/presentator/agents/copresenter.md", "tests/adapters/test_agent_service.py", "uv.lock"]
-opened_commit = "5676cc7d7692e184e912fc5efb4cd0af84f5c1a3"
-whole_reason = "the pin, its lock, the agent file, the adapter, its one test module and the ADR amendment are one move to wire v2; the lock is generated and the rest is under 50 lines"
