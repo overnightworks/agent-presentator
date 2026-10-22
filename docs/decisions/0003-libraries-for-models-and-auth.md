@@ -2,7 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20, 2026-10-21 and 2026-10-22, see below
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20 and 2026-10-21, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/agent-presentator/issues/2)
@@ -338,19 +338,6 @@ without a length is cut where the route reads past the budget: 413 on the
 back-channel, 400 on a route FastAPI parses. A sign-in that interleaves with a
 back-channel logout of the same person can leave the new session open until its
 cap; the remedy is a unit of work, kept in #242's "Trigger to revisit".
-
-### Amendment 2026-10-22 — the co-presenter's agent is a file, and `agent_client` builds the request
-
-Authority: [#393](https://github.com/overnightworks/agent-presentator/issues/393)
-(A3a-2 of [#355](https://github.com/overnightworks/agent-presentator/issues/355)).
-
-The co-presenter's system prompt, its roles and its tools are the agent file
-`src/presentator/agents/copresenter.md`, which ships with the package. The
-adapter reads it with `agent_client.agents.load_agent` and builds the run
-request with `AgentDefinition.request`. The agent file sets the purpose, the
-roles and the tools; agent-client validates them and builds the versioned
-request from them. The file is the one owner of the prompt; a file the loader refuses stops the
-process at construction.
 
 ## Consequences
 
