@@ -14,7 +14,7 @@ from presentator.contracts.people import (
     WithheldReason,
 )
 from tests.application.fakes import FakeSourceStore
-from tests.application.person_instance_support import an_instance
+from tests.application.test_person_erasure import an_instance
 
 _THE_PERSON = "the-person"
 _ANOTHER = "another-person"

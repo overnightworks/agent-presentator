@@ -3,6 +3,7 @@
 import logging
 import sqlite3
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -43,7 +44,6 @@ from presentator.contracts.decks import (
     SourceWrite,
 )
 from presentator.contracts.models import Role, User
-from tests.adapters.credentials_support import OpenCredentials
 from tests.adapters.key_draft_support import (
     INSTANCE_KEY as _INSTANCE_KEY,
 )
@@ -84,6 +84,14 @@ def a_source(url: str) -> Source:
 
 def a_box(*, instance_key: str = _INSTANCE_KEY) -> SecretBox:
     return secret_box(instance_key)
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCredentials:
+    """A stand-in so a local bare remote can be pulled without a stored secret."""
+
+    def resolve(self, reference: CredentialReference) -> str | None:
+        return "unused-on-a-file-url"
 
 
 def a_resolver(
