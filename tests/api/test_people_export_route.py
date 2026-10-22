@@ -5,7 +5,7 @@ import json
 import logging
 import zipfile
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import timedelta, timezone
 from http import HTTPStatus
 from typing import Final, cast
 
@@ -92,7 +92,10 @@ def a_scene() -> Scene:
         expires_at=NOW + timedelta(hours=1),
         refresh_token=SecretStr(_A_REFRESH_WORD),
     )
-    clock = FrozenClock(instant=NOW + timedelta(microseconds=123456))
+    an_offset_instant = (NOW + timedelta(microseconds=123456)).astimezone(
+        timezone(timedelta(hours=5, minutes=30))
+    )
+    clock = FrozenClock(instant=an_offset_instant)
     people = FakePeople(users=instance.users, sessions=instance.sessions, clock=clock)
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=NOW)
     auth = an_installed_auth(
