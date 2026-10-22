@@ -649,8 +649,8 @@ gate by name, never `inherit`. The `quality_gate` property of this repository in
 the fleet registry records that `quality / verdict` is expected on `main`; it
 does not edit the ruleset.
 
-The one-off bootstrap workflow creates the SonarCloud project and switches
-Automatic Analysis off:
+The one-off bootstrap workflow creates the SonarCloud project and attempts to
+switch Automatic Analysis off:
 
 ```sh
 gh workflow run sonar-bootstrap.yml --ref main
