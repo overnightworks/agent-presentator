@@ -69,14 +69,13 @@ DECK_REFUSALS = {
         "fs.write.deck": "EACCES",
         "fs.create.root": "EROFS",
         "fs.create.frontend": "EROFS",
-        "fs.write.package-json": "EROFS",
+        "fs.write.package-json": "EACCES",
     },
     "43": {"net.connect.ip": "ENETUNREACH", "net.dns": "EAI_AGAIN"},
     "44": {"keyctl": "EPERM", "unshare.user": "EPERM"},
 }
-# The read-only root answers EROFS before the mode is looked at, so the second
-# layer (owned by the image's runtime user, not by 10001, not writable by others)
-# is observed, not counted as a refusal.
+# Measured: writing the manifest answers EACCES, because the image's runtime
+# user owns it and its mode refuses others. Owner and mode stay an observation.
 MANIFEST_OBSERVATION = "observe.package-json"
 MANIFEST_MODE = "mode=0644"
 DECK_CREATIONS = {
@@ -229,7 +228,7 @@ def require_checks(observed: Observations, expected: dict[str, str], who: str) -
 
 
 def require_manifest_not_the_decks(deck: Observations) -> None:
-    """Fail unless the manifest the EROFS cell wrote at is not the deck's own."""
+    """Fail unless the manifest the cell wrote at is not the deck's own."""
     owner, _, mode = deck.checks.get(MANIFEST_OBSERVATION, "").partition(" ")
     if owner in ("", f"owner={BUILD_IDENTITY}") or mode != MANIFEST_MODE:
         refuse(f"the manifest is {owner} {mode}, not another's with {MANIFEST_MODE}")
