@@ -5,10 +5,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
-from starlette.testclient import WebSocketDenialResponse
+from starlette.testclient import TestClient, WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
-from presentator.api.talk import TALK_PERMISSIONS_POLICY
+from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
+from presentator.host import main
+from presentator.host.config import load_settings
 from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS
 from tests.api.talk_support import (
     A_DECK,
@@ -18,6 +20,7 @@ from tests.api.talk_support import (
     cookie_header,
     two_hosts,
 )
+from tests.test_host import bare_environment, environment  # noqa: F401  (fixtures)
 
 _LOBBY_HOST = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
 _TALK_HOST = str(urlsplit(A_TALK_ADDRESS).hostname)
@@ -148,3 +151,26 @@ def test_a_socket_to_a_talk_is_closed_before_it_is_accepted(
         browser.websocket_connect(f"wss://{_TALK_HOST}/deck/{slug}/"),
     ):
         pytest.fail("a socket was accepted")
+
+
+# T13, T14a and T5c, through the composition root's own wiring.
+@pytest.mark.usefixtures("environment")
+def test_the_composition_root_wires_the_talk_host_to_its_own_policy() -> None:
+    settings = load_settings()
+    router = main.served_by_host(main.build_instance(settings), settings)
+    talk = TestClient(router, base_url=settings.talk_origin, follow_redirects=False)
+
+    root = talk.get("/")
+    from_the_lobby = talk.post(
+        "/logout",
+        headers={"origin": settings.public_origin, "sec-fetch-site": "same-site"},
+    )
+    from_the_talk_host = talk.post("/logout", headers={"origin": settings.talk_origin})
+
+    assert root.status_code == HTTPStatus.SEE_OTHER
+    assert root.headers["location"] == settings.public_origin
+    assert root.headers["content-security-policy"] == talk_content_security_policy()
+    assert root.headers["permissions-policy"] == TALK_PERMISSIONS_POLICY
+    assert "microphone=()" in TALK_PERMISSIONS_POLICY
+    assert from_the_lobby.status_code == HTTPStatus.FORBIDDEN
+    assert from_the_talk_host.status_code != HTTPStatus.FORBIDDEN
