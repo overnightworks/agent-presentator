@@ -2,11 +2,15 @@
 
 import sqlite3
 from contextlib import closing
+from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
-from presentator.contracts.people import PersonExport, PersonKind
+from presentator.contracts.people import KeyDraftExport, PersonExport, PersonKind
+from tests.adapters.key_draft_support import a_key_drafts_store
 from tests.adapters.person_instance_support import (
     THE_PERSON,
+    WHAT_THE_GIT_HOST_EXPECTS,
     an_instance_with_both_people,
     tables_reaching_accounts,
 )
@@ -68,7 +72,33 @@ def test_the_secret_columns_are_counted_withheld_over_real_rows(
         PersonKind.KEY_DRAFT_PRIVATE_KEY: 1,
         PersonKind.REFRESH_TOKEN: 1,
     }
-    assert "a-refresh-token" not in str(export)
+    shown = str(asdict(export))
+    seeded_secrets = (
+        WHAT_THE_GIT_HOST_EXPECTS,
+        repr(b"\x11" * 32),
+        "PRIVATE KEY",
+        "a-refresh-token",
+    )
+    assert not [secret for secret in seeded_secrets if secret in shown]
+
+
+def test_a_draft_that_no_longer_opens_is_shown_without_its_key_and_counted(
+    tmp_path: Path,
+) -> None:
+    """D5 (#419): an unreadable draft stays in the data, no key, one private key."""
+    instance = an_instance_with_both_people(tmp_path)
+    store = a_key_drafts_store(instance.database)
+    store.remove_for_owner(THE_PERSON.id)
+    a_key_drafts_store(
+        instance.database, instance_key="a different instance key of 32ch"
+    ).mint(THE_PERSON.id, at=datetime(2026, 1, 15, 9, tzinfo=UTC))
+
+    export = instance.people.export_person(THE_PERSON.id)
+
+    assert export.data.key_draft == KeyDraftExport(public_key=None, created_at=None)
+    assert {entry.kind: entry.count for entry in export.withheld}[
+        PersonKind.KEY_DRAFT_PRIVATE_KEY
+    ] == 1
 
 
 def test_an_unknown_subject_exports_nothing_and_creates_no_account(

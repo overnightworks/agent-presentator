@@ -55,7 +55,7 @@ _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 THE_PERSON = User(id="the-person", username="pia", role=Role.ADMIN)
 ANOTHER = User(id="another-person", username="ben", role=Role.USER)
 _A_BOUND = timedelta(seconds=30)
-_WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
+WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
 _COMMIT = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 
 
@@ -126,7 +126,7 @@ def _seed_person(
             url=f"git@example.invalid:{person.username}.git",
             ref="main",
             owner_id=person.id,
-            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            access_secret=WHAT_THE_GIT_HOST_EXPECTS,
             hook_secret_hash=b"\x11" * 32,
             public_key=None,
         ),
@@ -254,14 +254,19 @@ def tables(connection: sqlite3.Connection) -> list[str]:
 
 
 def tables_reaching_accounts(connection: sqlite3.Connection) -> set[str]:
-    """Every table that references `users`, directly or through another table."""
+    """Every table that references `users`, or names a `user_id` or `owner_id`."""
     references = {
         table: {
             row[2] for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
         }
         for table in tables(connection)
     }
-    reached = {_ACCOUNTS}
+    reached = {_ACCOUNTS} | {
+        table
+        for table in references
+        if {"user_id", "owner_id"}
+        & {row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}
+    }
     grew = True
     while grew:
         grew = False
