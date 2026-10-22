@@ -15,18 +15,19 @@ def everything_shown(
     A record shows its message, `args`, `exc_info`, `exc_text` and `stack_info`;
     an error shows its text, `args`, formatted traceback, `__cause__`,
     `__context__` and group members. Containers are walked iteratively and each
-    object once, so a cyclic chain ends. A container is never formatted whole,
-    because that recurses through its children; only its leaves are. Where an
-    object's own text cannot be formed at a depth, its parts still are walked.
+    object once, kept alive so no id is reused, so a cyclic chain ends. A
+    container is never formatted whole, because that recurses through its
+    children; only its leaves are. Where an object's own text cannot be formed
+    at a depth, its parts still are walked.
     """
     pending: list[object] = [*records, *errors]
-    visited: set[int] = set()
+    visited: dict[int, object] = {}
     leaves: list[str] = []
     while pending:
         current = pending.pop()
         if id(current) in visited:
             continue
-        visited.add(id(current))
+        visited[id(current)] = current
         pending.extend(_parts_of(current))
         if not _is_container(current):
             leaves.extend([*_shown(str, current), *_shown(repr, current)])
