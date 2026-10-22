@@ -266,6 +266,7 @@ def _lobby_private(
                 key_drafts=key_drafts,
             ),
             admitted_clients=clients,
+            clock=SystemClock().now,
         )
         if clients
         else None,
