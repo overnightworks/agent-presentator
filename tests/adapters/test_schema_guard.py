@@ -5,7 +5,10 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from tests.adapters.test_person_erasure_sqlite import (
+import pytest
+
+from presentator.adapters.schema import create_tables
+from tests.adapters.person_instance_support import (
     THE_PERSON,
     an_instance_with_both_people,
     owned_row_ids,
@@ -34,3 +37,18 @@ def test_the_tables_reaching_accounts_are_the_tables_the_erased_person_has_rows_
 
     assert reaching == seeded
     assert {table for table, ids in owned.items() if ids} == reaching
+
+
+@pytest.mark.parametrize("column", ["user_id", "owner_id"])
+def test_a_table_with_an_account_column_but_no_reference_reaches_accounts(
+    tmp_path: Path, column: str
+) -> None:
+    """#419 matrix: a later table with only a user_id or owner_id reaches accounts."""
+    database = tmp_path / "later.db"
+    create_tables(database)
+
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute(f"CREATE TABLE added_later (id INTEGER, {column} TEXT)")
+        reaching = tables_reaching_accounts(connection)
+
+    assert "added_later" in reaching

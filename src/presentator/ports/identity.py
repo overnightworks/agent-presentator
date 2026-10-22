@@ -35,5 +35,9 @@ class PersonSessions(Protocol):
         """When each sign-in of that account began and ends."""
 
     @abstractmethod
+    def refresh_tokens_held(self, user_id: str) -> int:
+        """How many of that account's sessions hold a refresh token, not the tokens."""
+
+    @abstractmethod
     def delete_for_user(self, user_id: str) -> int:
         """End every session of that account; how many went."""
