@@ -17,7 +17,7 @@ from functools import partial
 from hashlib import sha256
 from hmac import compare_digest
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import BinaryIO, Final
 from urllib.parse import urlparse
 
@@ -295,7 +295,7 @@ class Decks:
     # Signs a Check-connection fingerprint, so a form cannot forge one for a
     # URL and secret it never actually proved reachable.
     fingerprint_key: bytes
-    _one_at_a_time: Lock = field(default_factory=Lock)
+    one_at_a_time: RLock = field(default_factory=RLock)
 
     def refresh(self) -> None:
         """Take the sources in and build what changed, one refresh at a time.
@@ -421,7 +421,7 @@ class Decks:
         source = self._named(name)
         if source is None:
             return None
-        with self._one_at_a_time:
+        with self.one_at_a_time:
             carried = self.store.for_source(source.id)
             preview = self._preview_of(source, carried)
             if (
@@ -790,12 +790,12 @@ class Decks:
 
     def _run_one_at_a_time(self, work: Callable[[], None]) -> None:
         """Run that work, or drop it while another refresh already holds the lock."""
-        if not self._one_at_a_time.acquire(blocking=False):
+        if not self.one_at_a_time.acquire(blocking=False):
             return
         try:
             work()
         finally:
-            self._one_at_a_time.release()
+            self.one_at_a_time.release()
 
     def _named(self, name: str) -> Source | None:
         """The stored source that answers to this name, if this instance has one."""

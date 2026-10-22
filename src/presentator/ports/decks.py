@@ -116,6 +116,14 @@ class DeployKeyDrafts(Protocol):
     def sweep(self, *, older_than: datetime) -> None:
         """Delete every draft minted before that moment, private key and all."""
 
+    @abstractmethod
+    def count_for_owner(self, owner_id: str) -> int:
+        """How many drafts that person holds, readable or not."""
+
+    @abstractmethod
+    def remove_for_owner(self, owner_id: str) -> int:
+        """Delete that person's drafts without opening them; how many went."""
+
 
 class LocalMount(Protocol):
     """Resolves a file-kind source's address against the real mounted directory.

@@ -112,3 +112,11 @@ class SqlitePersonPreferencesStore:
                     None if theme is None else theme.value,
                 ),
             )
+
+    def delete(self, user_id: str) -> int:
+        """Delete that person's overrides; how many rows went."""
+        with rows(self.database) as cursor:
+            cursor.execute(
+                "DELETE FROM person_preferences WHERE user_id = ?", (user_id,)
+            )
+            return int(cursor.rowcount)
