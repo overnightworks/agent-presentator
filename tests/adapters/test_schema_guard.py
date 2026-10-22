@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from tests.adapters.test_person_erasure_sqlite import (
+from tests.adapters.person_instance_support import (
     THE_PERSON,
     an_instance_with_both_people,
     owned_row_ids,
