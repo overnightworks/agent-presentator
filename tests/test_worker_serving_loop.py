@@ -413,6 +413,7 @@ def test_serve_returns_zero_and_logs_the_name_of_what_ended_the_life_at_its_leve
     life_end: LifeEnd,
     _events: list[str],
 ) -> None:
+    """D3 (#431): each life end logs at its level."""
     caplog.set_level(logging.INFO)
     life = make_life()
     outcome: list[int] = []
@@ -768,6 +769,7 @@ def test_a_gate_mismatch_is_a_gate_end_whatever_the_clock_says(volume: Path) -> 
 
 
 def test_the_locale_key_python_sets_itself_passes_the_environment_predicate() -> None:
+    """A5 (#431): the locale key Python sets itself is admitted."""
     snapshot = with_fields(environment_keys=frozenset({"PATH", "LC_CTYPE"}))(
         sealed_snapshot()
     )

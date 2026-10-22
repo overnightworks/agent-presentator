@@ -136,6 +136,7 @@ variable the project leaves unset keeps its default. `presentator-worker
 naming the first failing predicate anywhere else.
 
 A connection is served by a wire child, and one life serves one step: the
-client sends HELLO or STEP, reads STATUS, uploads the deck, and reads the
-OUTCOME and the output. The codec's client half is in
+client sends HELLO or STEP and reads STATUS. A HELLO ends there: it only
+asks whether the worker is ready. A STEP goes on to upload the deck and read
+the OUTCOME and the output. The codec's client half is in
 `presentator.adapters.build_wire`.

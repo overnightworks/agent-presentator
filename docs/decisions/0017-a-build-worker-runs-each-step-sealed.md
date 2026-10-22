@@ -44,6 +44,12 @@ replaces the stale socket.
   and the controller installs none, so `docker stop`'s SIGTERM would do nothing
   until the kill timeout. The controller keeps no state worth flushing, and the
   caller maps a reply without END to a failure.
+- **The image's entrypoint is cleared (`entrypoint: []`).** The base image's
+  entrypoint is a shell that exports variables of its own into the controller's
+  environment, which the self-check refuses. The environment predicate admits
+  the keys the image sets and two that are not the image's: `HOSTNAME`, which
+  the runtime sets, and `LC_CTYPE`, which Python sets itself when it coerces
+  the C locale.
 - **Proof from the sealed deployment.** The worker serves only when its
   self-check finds it sealed, so the CI job "Build worker: sealed step" starts
   the service from the built image and drives it over the real socket as the

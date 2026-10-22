@@ -89,10 +89,12 @@ def _service_lines(name: str) -> list[str]:
     ],
 )
 def test_the_worker_service_carries_each_key_that_seals_it(sealing_line: str) -> None:
+    """53 (#431): the sealed worker service in compose."""
     assert sealing_line in "\n".join(_service_lines("build-worker"))
 
 
 def test_the_worker_swap_equals_its_memory_so_swap_cannot_double_the_bound() -> None:
+    """53 (#431): the sealed worker service in compose."""
     keys = {
         key: value
         for key, _, value in (
@@ -107,12 +109,14 @@ def test_the_worker_swap_equals_its_memory_so_swap_cannot_double_the_bound() -> 
 def test_the_worker_service_has_no_key_that_would_unseal_or_rebuild_it(
     absent_key: str,
 ) -> None:
+    """53 (#431): the sealed worker service in compose."""
     keys = {line.strip().partition(":")[0] for line in _service_lines("build-worker")}
 
     assert absent_key not in keys
 
 
 def test_the_socket_volume_starts_as_a_private_root_directory() -> None:
+    """53 (#431): the sealed worker service in compose."""
     written = _COMPOSE.read_text(encoding="utf-8")
 
     assert "      o: size=16k,nr_inodes=8,mode=0750,uid=0" in written
