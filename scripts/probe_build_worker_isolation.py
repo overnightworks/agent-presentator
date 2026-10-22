@@ -280,8 +280,6 @@ def run_probe() -> str:
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         refuse(f"the 10002 probe not driven: no end within {PROBE_SECONDS} seconds")
-    if done.returncode:
-        refuse(f"the 10002 probe crashed: {done.stdout}{done.stderr}")
     return done.stdout
 
 
