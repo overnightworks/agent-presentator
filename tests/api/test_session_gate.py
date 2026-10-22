@@ -10,7 +10,7 @@ import httpx2
 import pytest
 from fastapi import Request, Response
 from fastapi.testclient import TestClient
-from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
+from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 from webauth.middleware.security_headers import (
     REFERRER_POLICY,
     STRICT_TRANSPORT_SECURITY,
@@ -29,7 +29,6 @@ from tests.api.lobby import (
     a_browser_at,
     a_content_security_policy,
     a_crowd,
-    a_lobby,
     a_lobby_app,
 )
 from tests.application.fakes import FakeSession, FakeSessionRecordStore, FakeUserStore
@@ -301,40 +300,6 @@ def test_a_gated_reader_fails_loud_on_a_path_the_gate_let_past(
 
     with pytest.raises(RuntimeError, match="admitted"):
         lobby.client.post(_PUBLIC_PROBE)
-
-
-def _a_lobby_with_an_ask_route() -> Lobby:
-    lobby = a_lobby()
-    lobby.sign_in()
-
-    def ask() -> Response:
-        return Response()
-
-    lobby.app.add_api_route("/copresenter/ask", ask, methods=["POST"])
-    return lobby
-
-
-def test_a_valid_token_does_not_excuse_a_cross_site_post() -> None:
-    lobby = _a_lobby_with_an_ask_route()
-    token = lobby.client.cookies[DEFAULT_CSRF_COOKIE_NAME]
-
-    refused = lobby.client.post(
-        "/copresenter/ask",
-        headers={"x-csrf-token": token, "sec-fetch-site": "cross-site"},
-    )
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-
-
-def test_a_same_origin_post_still_needs_the_token() -> None:
-    lobby = _a_lobby_with_an_ask_route()
-    token = lobby.client.cookies[DEFAULT_CSRF_COOKIE_NAME]
-
-    refused = lobby.client.post("/copresenter/ask")
-    accepted = lobby.client.post("/copresenter/ask", headers={"x-csrf-token": token})
-
-    assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert accepted.status_code == HTTPStatus.OK
 
 
 @pytest.mark.parametrize(

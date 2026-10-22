@@ -18,7 +18,7 @@ they share is [trust boundaries](../explanation/trust-boundaries.md).
   Presentator is upgraded.
 - Both host processes and the Presentator container use the same positive
   non-root `PRESENTATOR_RUNTIME_UID`, and `COPRESENTER_SOCKET_DIRECTORY` and
-  `PRESENTATOR_PUBLIC_ORIGIN` are set for Compose
+  `PRESENTATOR_TALK_ORIGIN` are set for Compose
   ([start an instance](start-an-instance-in-a-container.md)). Compose mounts
   the socket directory read-write at `/run/presentator-copresenter` and hands
   Presentator the fixed `copresenter.sock` path.
