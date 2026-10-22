@@ -1,6 +1,7 @@
 """The per-person deletes and reads of the stores, over real SQLite."""
 
 import sqlite3
+import threading
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -118,3 +119,45 @@ def test_a_draft_is_counted_and_removed_whether_or_not_its_key_still_opens(
 
     assert drafts.count_for_owner(_THE_PERSON.id) == 0
     assert drafts.count_for_owner(_ANOTHER.id) == 1
+
+
+class _LockThatSaysWhenAnotherThreadHasToWait:
+    """A re-entrant lock that sets `contended` when a second thread finds it held."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self.contended = threading.Event()
+
+    def __enter__(self) -> None:
+        if not self._lock.acquire(blocking=False):
+            self.contended.set()
+            self._lock.acquire()
+
+    def __exit__(self, *_: object) -> None:
+        self._lock.release()
+
+
+def test_deleting_an_account_cannot_split_a_sign_in_that_has_read_the_account(
+    database: Path,
+) -> None:
+    """#418 matrix: an in-flight code exchange leaves no session of a gone account."""
+    watched = _LockThatSaysWhenAnotherThreadHasToWait()
+    lock = ProcessWriteLock(primitive=watched)
+    accounts = SqliteSubjectUserStore(database, lock)
+    sessions = SqliteSessionRecordStore(database)
+    deletion = threading.Thread(target=accounts.delete_account, args=(_THE_PERSON.id,))
+
+    with lock.hold():
+        assert accounts.get(_THE_PERSON.id) is not None
+        deletion.start()
+        assert watched.contended.wait(timeout=10)
+        sessions.create(
+            _THE_PERSON.id,
+            now=_NOW,
+            expires_at=_NOW + timedelta(hours=1),
+            refresh_token=None,
+        )
+    deletion.join(timeout=10)
+
+    assert accounts.get(_THE_PERSON.id) is None
+    assert sessions.sessions_of(_THE_PERSON.id) == ()
