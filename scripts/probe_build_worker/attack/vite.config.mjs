@@ -126,8 +126,9 @@ function filesystemAttacks() {
   check('fs.create.root', () => fs.writeFileSync('/attack-marker', 'x'))
   check('fs.create.frontend', () => fs.writeFileSync('/app/frontend/attack-marker', 'x'))
   check('fs.write.package-json', () => fs.closeSync(fs.openSync('/app/frontend/package.json', 'r+')))
-  // The read-only root answers EROFS whatever the mode says, so the owner and
-  // mode are printed as an observation of the second layer, not as a refusal.
+  // Writing the manifest answers EACCES: the image's runtime user owns it and
+  // its mode 0644 refuses others; owner and mode are printed beside it as an
+  // observation, not a refusal.
   const manifest = fs.statSync('/app/frontend/package.json')
   const mode = (manifest.mode & 0o7777).toString(8).padStart(4, '0')
   record(`observe package-json owner=${manifest.uid} mode=${mode}`)
