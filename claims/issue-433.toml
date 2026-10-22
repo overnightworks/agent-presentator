@@ -1,8 +1,0 @@
-claim_id = "dfa18d93c20545c9999980edbcfe1215"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "55c9cedb443c1542e160039b66684cd182b25f18"
-branch = "claude/issue-433-a3b-2-b-satzgrenzen-der-co-pr-sentator-s"
-scope = ["pyproject.toml", "src/presentator/adapters/sentences.py", "src/presentator/application/spoken_answer.py", "src/presentator/ports/copresenter.py", "tests/adapters/test_sentences.py", "tests/application/test_spoken_answer.py", "uv.lock"]
-opened_commit = "270807e34b289a8a5a6441126b48ddd888f67faf"
-whole_reason = "The boundary adapter, its port type and the aggregator only prove ADR 0009 together, and syntok enters with its import-linter contract in pyproject.toml and uv.lock."
