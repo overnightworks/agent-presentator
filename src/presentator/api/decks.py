@@ -1,12 +1,13 @@
-"""The page one deck stands on, the talk it delivers, and its PDF download.
+"""The page one deck stands on, its PDF download, and the talk the talk host delivers.
 
-The address names a deck; what that deck's row points at is what the talk is
-served from and what the download hands over. Nothing a request carries ever
-becomes part of a path: Starlette's static files resolve every asset below the
-build directory and refuse whatever would leave it, a path that is not a file
-is the application's `index.html`, the export is the file the row names, and
-the session guard in front of the whole lobby covers every address here, the
-two views and the download included.
+The lobby serves the page and the download; the talk host serves the talk, and
+the page links there. The address names a deck; what that deck's row points at
+is what the talk is served from and what the download hands over. Nothing a
+request carries ever becomes part of a path: Starlette's static files resolve
+every asset below the build directory and refuse whatever would leave it, a
+path that is not a file is the application's `index.html`, and the export is
+the file the row names. The session guard in front of the whole lobby covers
+the page and the download.
 """
 
 import os
@@ -34,6 +35,7 @@ from presentator.contracts.decks import (
     DeckPage,
     DeckState,
     ShownAttempt,
+    talk_address,
 )
 from presentator.contracts.text import LobbyText
 
@@ -70,6 +72,7 @@ class _DeckPage:
 
     decks: Decks
     pages: Pages
+    talk_origin: str
 
     def deck(self, request: Request, slug: str) -> Response:
         """Show the deck's title, its state, where it came from, and the ways in."""
@@ -82,6 +85,7 @@ class _DeckPage:
             _DECK_TEMPLATE,
             title=page.title,
             slug=page.slug,
+            talk=f"{self.talk_origin}{talk_address(page.slug)}",
             built=self._when_it_was_built(page.built_ago, text),
             source=page.source,
             commit=page.commit,
@@ -301,17 +305,15 @@ def _leaves_the_talk(directory: Path, path: str) -> bool:
     return not (directory / path).resolve().is_relative_to(directory.resolve())
 
 
-def add_deck_pages(lobby: FastAPI, *, decks: Decks, pages: Pages) -> None:
-    """Give the lobby the deck page, its download, and the talk under them."""
-    page = _DeckPage(decks=decks, pages=pages)
-    # The page and the download answer their own addresses; everything else
-    # below the deck is the talk, so the routes are registered first and the
-    # mount catches the rest.
+def add_deck_pages(
+    lobby: FastAPI, *, decks: Decks, pages: Pages, talk_origin: str
+) -> None:
+    """Give the lobby the deck page and its download; its views are at `talk_origin`."""
+    page = _DeckPage(decks=decks, pages=pages, talk_origin=talk_origin)
     lobby.add_api_route(_DECK_PAGE, page.deck, methods=["GET"])
     lobby.add_api_route(_DECK_PDF, page.pdf, methods=["GET"])
-    add_talk_mount(lobby, decks=decks)
 
 
 def add_talk_mount(app: FastAPI, *, decks: Decks) -> None:
-    """Serve the owner's built talk under the deck's address, on any app of the host."""
+    """Serve the owner's built talk under the deck's address, on the talk host."""
     app.mount(_DECK_PAGE, _BuiltTalk(decks=decks), name="talk")

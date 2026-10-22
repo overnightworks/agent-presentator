@@ -26,18 +26,15 @@ from presentator.application.decks import DRAFT_MAX_AGE
 from presentator.application.identity import (
     SESSION_LIFETIME,
 )
-from presentator.contracts.decks import talk_address
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
-    A_BUILT_DECK_SLUG,
     ENGLISH,
     USERNAME,
     Lobby,
     a_content_security_policy,
     a_lobby_app,
     a_lobby_that_claims_no_origin_of_its_own,
-    a_signed_in_lobby_with_a_built_deck,
 )
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
@@ -282,17 +279,6 @@ def test_the_lobbys_permissions_policy_admits_no_device(
     answer = signed_in_lobby.client.get("/")
 
     assert answer.headers["permissions-policy"] == _NO_DEVICE_PERMISSIONS_POLICY
-
-
-def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
-    lobby = a_signed_in_lobby_with_a_built_deck()
-
-    talk = lobby.get(talk_address(A_BUILT_DECK_SLUG))
-
-    assert talk.status_code == HTTPStatus.OK
-    assert talk.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
-    for name, value in _EVERY_SECURITY_HEADER.items():
-        assert talk.headers[name] == value
 
 
 @pytest.mark.parametrize(

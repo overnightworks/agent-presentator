@@ -106,7 +106,6 @@ from tests.application.fakes import (
 )
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
-A_BUILT_DECK_SLUG: Final = "hello-deck"
 # What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
 _BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 _EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
@@ -617,8 +616,8 @@ def real_builds_under(root: Path) -> SlidevBuilds:
     )
 
 
-def a_swapped_build(tmp_path: Path, *, slug: str) -> tuple[TestClient, Path]:
-    """A signed-in lobby on a built deck, and the run directory a link may land in.
+def a_swapped_build(tmp_path: Path, *, slug: str) -> tuple[GivenDecks, Path]:
+    """The deck side with one built deck, and the run directory a link may land in.
 
     The deck was adopted with plain files; each test then lays its link, which
     is what a deck's own code can do after the build was held.
@@ -647,14 +646,12 @@ def a_swapped_build(tmp_path: Path, *, slug: str) -> tuple[TestClient, Path]:
         slug,
         Build(directory=talk, pdf=pdf, commit=_A_COMMIT, built_at=NOW),
     )
-    signed_in = a_signed_in_lobby(
-        GivenDecks(
-            store=store,
-            source=a_configured_source("git@heimserver:decks.git"),
-            builder=real_builds_under(tmp_path),
-        ),
+    given = GivenDecks(
+        store=store,
+        source=a_configured_source("git@heimserver:decks.git"),
+        builder=real_builds_under(tmp_path),
     )
-    return signed_in, run
+    return given, run
 
 
 def a_signed_in_lobby(given: GivenDecks = NO_DECKS) -> TestClient:
@@ -686,13 +683,4 @@ def put_a_built_deck(store: FakeDeckStore, *, slug: str, owner_id: str) -> None:
             commit=_BUILT_DECK_COMMIT,
             built_at=NOW,
         ),
-    )
-
-
-def a_signed_in_lobby_with_a_built_deck() -> TestClient:
-    """A signed-in lobby whose one deck already has a built talk to serve."""
-    store = FakeDeckStore()
-    put_a_built_deck(store, slug=A_BUILT_DECK_SLUG, owner_id=ADMIN)
-    return a_signed_in_lobby(
-        GivenDecks(store=store, source=a_configured_source("git@heimserver:decks.git")),
     )
