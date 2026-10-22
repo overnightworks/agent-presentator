@@ -1,0 +1,8 @@
+claim_id = "aaf7aeafd2d44dadafdbaeff206fb9ce"
+agent = "claude"
+role = "builder"
+base = "3437dbc5dc1395e0235d0caf92c997de01362368"
+branch = "claude/issue-399-build-worker-a6b2-q-antwortpl-ne-und-ein"
+scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker_serving.py", "src/presentator/host/worker_termination.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_worker_children.py", "tests/step_support.py", "tests/test_worker_record_life.py", "tests/test_worker_serving_loop.py", "tests/test_worker_step_chain.py", "tests/test_worker_step_phase.py", "tests/test_worker_termination.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
+opened_commit = "098b854263bfc95cc08afb95889809839d2cb594"
+whole_reason = "Q, the D cap with its start checks, the plan and the sender's text are one transition from the step to R: the controller ends every phase by D and starts nothing after it, decides the plan from Q, the sender acts on it, and the codec bounds the text it sends; the sweep's boundary is the start check for Q."
