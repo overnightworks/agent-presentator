@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
-from presentator.api.copresenter import CoPresenterSurface
+from presentator.adapters.identity import SqliteSessionRecordStore
+from presentator.api.auth import signed_in_connection
+from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.contracts.models import Role, User
 from tests.api.lobby import (
@@ -209,7 +211,13 @@ def _talk_host_with_a_signed_in_admin(
         browser_origin=TALK_ORIGIN,
         delay=asyncio.sleep if deadline is None else deadline.wait,
     )
-    hosts = two_hosts(tmp_path, copresenter=surface)
+    hosts = two_hosts(tmp_path)
+    sessions = SqliteSessionRecordStore(hosts.database)
+    add_copresenter_routes(
+        hosts.talk,
+        surface=surface,
+        admission=lambda connection: signed_in_connection(connection, sessions),
+    )
     return hosts, hosts.signed_in_at(A_TALK_ADDRESS), private
 
 
