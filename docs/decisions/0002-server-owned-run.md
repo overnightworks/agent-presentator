@@ -7,7 +7,7 @@ surface.
   [VISION.md](../VISION.md)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0001](0001-enforced-layers.md) places the state machine in
   `application`; [ADR 0007](0007-browser-client-behind-tunnel.md) decides what
   the browser is

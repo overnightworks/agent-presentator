@@ -8,12 +8,12 @@ one.
 - Date: 2026-09-08
 - Decision authority: the operator's ruling of 2026-09-08 after an
   independent plan review, recorded on
-  [#85](https://github.com/overnightworks/agent-presentator/issues/85)
+  [#85](https://github.com/overnightworks/presentator/issues/85)
 - Neighbours: [ADR 0005](0005-deck-folder-and-slidev.md) owns that a deck is
   code and its build is sealed; [ADR 0012](0012-themes-and-language.md) owns
   the lobby's own appearance, a different theme from a deck's own;
-  [#88](https://github.com/overnightworks/agent-presentator/issues/88) owns
-  which themes ship; [#69](https://github.com/overnightworks/agent-presentator/issues/69)
+  [#88](https://github.com/overnightworks/presentator/issues/88) owns
+  which themes ship; [#69](https://github.com/overnightworks/presentator/issues/69)
   owns the sealed build this record assumes
 
 ## Context
@@ -23,7 +23,7 @@ A deck is code, and its build runs with no network
 nothing a build asks for can be fetched while it runs. A talk written for
 another Slidev setup can still name a theme or an addon its author installed
 there, and until now nothing told a deck's author what this instance's build
-actually carries before they pushed. [#71](https://github.com/overnightworks/agent-presentator/issues/71)
+actually carries before they pushed. [#71](https://github.com/overnightworks/presentator/issues/71)
 proved the failure: the operator's March talk named `@slidev/theme-seriph`,
 and the first anyone learned the theme was missing was the toolchain's own
 words on a failed build.
@@ -61,7 +61,7 @@ shows no row at all rather than an empty one that would read as "no themes".
 - Two instances can carry different sets, so the page names which set this
   one has rather than assuming the operator's own.
 - No build-time registry access ever exists; a deck that named something
-  outside the set still fails the way [#71](https://github.com/overnightworks/agent-presentator/issues/71)
+  outside the set still fails the way [#71](https://github.com/overnightworks/presentator/issues/71)
   found it, with the toolchain's own words on the deck page.
 - A deck author reads the set before pushing instead of after a failed
   build, which is what this record was written to fix.

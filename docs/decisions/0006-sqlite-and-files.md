@@ -6,7 +6,7 @@ Audience: humans and agents storing anything that must survive a restart.
   [VISION.md](../VISION.md)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0005](0005-deck-folder-and-slidev.md) owns what a deck is;
   [ADR 0003](0003-libraries-for-models-and-auth.md) requires a session store
   without Redis

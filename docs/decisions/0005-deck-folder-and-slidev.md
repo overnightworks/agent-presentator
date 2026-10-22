@@ -6,7 +6,7 @@ Audience: humans and agents adding a talk, or writing anything that reads one.
   [VISION.md](../VISION.md)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0010](0010-git-sources-mirror.md) owns where a deck comes
   from; [ADR 0006](0006-sqlite-and-files.md) puts decks and builds on the
   filesystem; [ADR 0007](0007-browser-client-behind-tunnel.md) owns the static

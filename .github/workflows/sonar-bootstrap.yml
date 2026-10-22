@@ -23,13 +23,13 @@ jobs:
             curl --config <(printf 'header = "Authorization: Bearer %s"\n' "$SONAR_TOKEN") "$@"
           }
 
-          if sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator" > /tmp/show.json 2>/tmp/show.err; then
+          if sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_presentator" > /tmp/show.json 2>/tmp/show.err; then
             echo "Project already exists."
           else
-            status=$(sonar_curl -s -o /dev/null -w "%{http_code}" "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator")
+            status=$(sonar_curl -s -o /dev/null -w "%{http_code}" "https://sonarcloud.io/api/components/show?component=overnightworks_presentator")
             if [ "$status" = "404" ]; then
               echo "Project does not exist yet, creating it."
-              sonar_curl -fsS -X POST "https://sonarcloud.io/api/projects/create" --data-urlencode organization=overnightworks --data-urlencode project=overnightworks_agent-presentator --data-urlencode name=agent-presentator --data-urlencode visibility=public
+              sonar_curl -fsS -X POST "https://sonarcloud.io/api/projects/create" --data-urlencode organization=overnightworks --data-urlencode project=overnightworks_presentator --data-urlencode name=presentator --data-urlencode visibility=public
             else
               echo "Unexpected status $status from components/show"
               exit 1
@@ -37,11 +37,11 @@ jobs:
           fi
 
           echo "--- components/show ---"
-          sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_agent-presentator"
+          sonar_curl -fsS "https://sonarcloud.io/api/components/show?component=overnightworks_presentator"
 
           echo "--- project_branches/list ---"
-          sonar_curl -fsS "https://sonarcloud.io/api/project_branches/list?project=overnightworks_agent-presentator"
+          sonar_curl -fsS "https://sonarcloud.io/api/project_branches/list?project=overnightworks_presentator"
 
           echo "--- disable Automatic Analysis (autoscan) ---"
-          sonar_curl -fsS -X POST "https://sonarcloud.io/api/autoscan/activation" --data-urlencode projectKey=overnightworks_agent-presentator --data-urlencode enable=false || echo "autoscan endpoint not available"
+          sonar_curl -fsS -X POST "https://sonarcloud.io/api/autoscan/activation" --data-urlencode projectKey=overnightworks_presentator --data-urlencode enable=false || echo "autoscan endpoint not available"
 

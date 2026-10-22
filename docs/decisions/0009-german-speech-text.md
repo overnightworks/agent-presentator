@@ -6,7 +6,7 @@ speak.
 - Status: ACCEPTED 2026-09-06 — needed from phase M1 of [VISION.md](../VISION.md)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Evidence: the build-vs-reuse survey of 2026-09-06, which surveyed ten sentence
   splitters and the German normalization ecosystem
 - Neighbours: [ADR 0004](0004-provider-neutral-speech.md) owns the voice this
