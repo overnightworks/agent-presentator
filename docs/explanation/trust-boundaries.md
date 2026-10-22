@@ -7,8 +7,8 @@ guards, and what each guard costs.
 
 A deck's Vue components and global layers run in its build, so the author of a
 deck can run code. An instance therefore builds every deck in a container of
-its own: no network, every capability dropped, none of the server's
-environment, only the deck's tree and its own output directory
+its own: no network, every capability dropped, no log kept by Docker, none of
+the server's environment, only the deck's tree and its own output directory
 ([ADR 0005](../decisions/0005-deck-folder-and-slidev.md); the exact bounds are
 [builds](../reference/builds.md)). No seccomp or AppArmor profile of this
 repository's own stands behind that: with no network, no capability and

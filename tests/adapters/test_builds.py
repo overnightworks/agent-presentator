@@ -1175,6 +1175,7 @@ def a_container_run(run: Path, *, step: str, disk: str | None) -> list[str]:
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges",
         "--pull=never",
+        "--log-driver=none",
         *held,
         _a_mount_of(deck, subpath=f"{run.name}/{_DECK_IN}", access=",readonly"),
         f"--tmpfs={deck / _TOOLCHAIN_SCRATCH}:mode=1777",
