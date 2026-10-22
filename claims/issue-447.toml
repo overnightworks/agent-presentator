@@ -1,0 +1,8 @@
+claim_id = "b2c7d8891ab84b52be4d14d389ecb662"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "5cb2c6e6f36cf4518d30c88be042fa7e6adf40d1"
+branch = "claude/issue-447-a7b1-attacked-life"
+scope = ["pyproject.toml", "scripts/probe_build_worker", "scripts/probe_build_worker.py", "scripts/probe_build_worker_harness.py", "scripts/probe_build_worker_isolation.py"]
+opened_commit = "af7eab037ab0b46d89a9bd27849b84655afdfb92"
+whole_reason = "The attack deck, its hook, its ctypes child and the 10002 program live under scripts/probe_build_worker/; the entry, the shared harness and the isolation provers are the three scripts/probe_build_worker*.py siblings; pyproject.toml carries their four per-file-ignore lines. No production file changes, so the slice is one probe that drives the already-landed worker."
