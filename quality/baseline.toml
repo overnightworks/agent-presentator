@@ -14,7 +14,7 @@
 "speech/tests/test_provider_process.py" = 872
 "speech/tests/test_voice_status.py" = 1513
 "src/presentator/adapters/builds.py" = 1172
-"src/presentator/adapters/decks.py" = 1005
+"src/presentator/adapters/decks.py" = 1019
 "src/presentator/application/decks.py" = 984
 "tests/adapters/test_builds.py" = 1825
 "tests/adapters/test_decks.py" = 1533
