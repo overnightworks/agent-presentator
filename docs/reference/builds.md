@@ -72,7 +72,8 @@ build fails and the failure is in the server log.
 
 An instance builds every deck in a container of its own. The server asks the
 daemon for a container per step: no network at all, every capability dropped,
-no new privilege from a setuid program, and none of this server's environment.
+no new privilege from a setuid program, no log kept by Docker (the failure tail
+is read from the client's stderr), and none of this server's environment.
 It sees two directories of the builds volume, the deck's own tree read-only and
 the directory that run writes its talk and PDF into, neither named after
 anything a deck's author chose; everything else it writes is the container's

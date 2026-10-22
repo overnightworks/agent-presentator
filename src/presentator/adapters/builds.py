@@ -92,6 +92,7 @@ _SEALED: Final = (
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges",
     "--pull=never",
+    "--log-driver=none",
 )
 # Slidev writes its virtual modules into the deck it is reading, so that one
 # directory is a filesystem of its own that nothing keeps: the deck's tree
