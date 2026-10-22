@@ -411,6 +411,10 @@ class Deck:
     build: Build | None
     attempt: BuildAttempt | None
 
+    def is_owned_by(self, viewer: str) -> bool:
+        """Whether the account owns this talk; only its owner may see it."""
+        return self.owner_id == viewer
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ListedDeck:

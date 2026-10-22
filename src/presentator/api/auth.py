@@ -62,7 +62,13 @@ from presentator.api.copresenter import CoPresenterSurface, add_copresenter_rout
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.legal import DATENSCHUTZ, Emphasis
-from presentator.api.pages import TEMPLATES, Pages, state_word, user_of_admitted
+from presentator.api.pages import (
+    TEMPLATES,
+    Pages,
+    gated_person,
+    state_word,
+    user_of_admitted,
+)
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
@@ -240,15 +246,16 @@ class _Surfaces:
     auth: InstalledAuth
 
     def home(self, request: Request) -> Response:
-        """List the decks the sources delivered, newest first."""
+        """List the signed-in person's decks, newest first."""
+        viewer = gated_person(request).id
         return self.pages.page(
             request,
             "home.html",
-            source_address=self.decks.source_address(),
-            decks=self._rows(self.pages.appearance(request).text),
+            source_address=self.decks.source_address(viewer=viewer),
+            decks=self._rows(self.pages.appearance(request).text, viewer),
         )
 
-    def _rows(self, text: LobbyText) -> tuple[DeckRow, ...]:
+    def _rows(self, text: LobbyText, viewer: str) -> tuple[DeckRow, ...]:
         return tuple(
             DeckRow(
                 title=deck.title,
@@ -257,7 +264,7 @@ class _Surfaces:
                 state_word=state_word(deck.state, text),
                 changed=self.pages.age_in_words(deck.age, text.language_tag),
             )
-            for deck in self.decks.listed()
+            for deck in self.decks.listed(viewer=viewer)
         )
 
     def login_page(self, request: Request) -> Response:

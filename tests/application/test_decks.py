@@ -200,12 +200,12 @@ def a_store_that_was_left_building(*, started_ago: timedelta) -> FakeDeckStore:
 def refreshed(decks: Decks) -> tuple[ListedDeck, ...]:
     """What the list shows once the source has been taken in."""
     decks.refresh()
-    return decks.listed()
+    return decks.listed(viewer=_OWNER)
 
 
 def page_of(decks: Decks, slug: str) -> DeckPage:
     """That deck's page, for a test that already knows the deck is there."""
-    page = decks.page(slug)
+    page = decks.page(slug, viewer=_OWNER)
     assert page is not None
     return page
 
@@ -247,7 +247,7 @@ def test_a_folder_that_is_no_folders_own_name_is_neither_listed_nor_built(
 
     decks.refresh()
 
-    assert decks.listed() == ()
+    assert decks.listed(viewer=_OWNER) == ()
     assert builder.built == []
 
 
@@ -277,11 +277,11 @@ def test_without_a_configured_source_there_is_no_list_and_no_address() -> None:
     decks = decks_over(a_folder("kundenfeedback"), sources=having())
 
     assert refreshed(decks) == ()
-    assert decks.source_address() is None
+    assert decks.source_address(viewer=_OWNER) is None
 
 
 def test_the_empty_list_can_name_the_configured_address() -> None:
-    assert decks_over().source_address() == _SOURCE.url
+    assert decks_over().source_address(viewer=_OWNER) == _SOURCE.url
 
 
 def test_a_deck_page_names_the_title_the_source_and_the_short_commit() -> None:
@@ -324,9 +324,9 @@ def test_a_slug_no_folder_carries_has_no_page_no_talk_and_no_pdf() -> None:
     decks = decks_over(a_folder("kundenfeedback"))
     decks.refresh()
 
-    assert decks.page("never-pushed") is None
-    assert decks.built_talk("never-pushed") is None
-    assert decks.exported_pdf("never-pushed") is None
+    assert decks.page("never-pushed", viewer=_OWNER) is None
+    assert decks.built_talk("never-pushed", viewer=_OWNER) is None
+    assert decks.exported_pdf("never-pushed", viewer=_OWNER) is None
 
 
 def test_a_deck_whose_commit_was_never_built_is_built_and_then_delivered() -> None:
@@ -337,8 +337,8 @@ def test_a_deck_whose_commit_was_never_built_is_built_and_then_delivered() -> No
     clock.advance(by=timedelta(minutes=12))
 
     assert page_of(decks, "kundenfeedback").built_ago == timedelta(minutes=12)
-    talk = decks.built_talk("kundenfeedback")
-    export = decks.exported_pdf("kundenfeedback")
+    talk = decks.built_talk("kundenfeedback", viewer=_OWNER)
+    export = decks.exported_pdf("kundenfeedback", viewer=_OWNER)
     assert talk is not None
     assert export is not None
     assert talk.is_relative_to(BUILDS_ROOT)
@@ -375,16 +375,16 @@ def test_a_build_that_failed_leaves_the_talk_that_stands_standing() -> None:
     mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
     decks.refresh()
-    standing = decks.built_talk("kundenfeedback")
-    exported = decks.exported_pdf("kundenfeedback")
+    standing = decks.built_talk("kundenfeedback", viewer=_OWNER)
+    exported = decks.exported_pdf("kundenfeedback", viewer=_OWNER)
     built_when = page_of(decks, "kundenfeedback").built_ago
 
     builder.fails = True
     mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
     decks.refresh()
 
-    assert decks.built_talk("kundenfeedback") == standing
-    assert decks.exported_pdf("kundenfeedback") == exported
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) == standing
+    assert decks.exported_pdf("kundenfeedback", viewer=_OWNER) == exported
     standing_page = page_of(decks, "kundenfeedback")
     assert standing_page.built_ago == built_when
     assert standing_page.commit == _SHORT_COMMIT
@@ -399,8 +399,8 @@ def test_a_deck_nothing_could_build_delivers_nothing_and_says_so() -> None:
     decks.refresh()
 
     assert page_of(decks, "kundenfeedback").built_ago is None
-    assert decks.built_talk("kundenfeedback") is None
-    assert decks.exported_pdf("kundenfeedback") is None
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) is None
+    assert decks.exported_pdf("kundenfeedback", viewer=_OWNER) is None
 
 
 def test_a_build_that_wrote_outside_the_builds_root_becomes_no_address() -> None:
@@ -413,8 +413,8 @@ def test_a_build_that_wrote_outside_the_builds_root_becomes_no_address() -> None
     page = page_of(decks, "kundenfeedback")
     assert page.built_ago is None
     assert page.state is DeckState.FAILED
-    assert decks.built_talk("kundenfeedback") is None
-    assert decks.exported_pdf("kundenfeedback") is None
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) is None
+    assert decks.exported_pdf("kundenfeedback", viewer=_OWNER) is None
 
 
 def test_a_deck_being_built_says_so_with_the_commit_and_how_long_it_has_run() -> None:
@@ -451,7 +451,7 @@ def _after_it_has_run(
 
 
 def _listed_states(decks: Decks) -> list[DeckState]:
-    return [deck.state for deck in decks.listed()]
+    return [deck.state for deck in decks.listed(viewer=_OWNER)]
 
 
 def test_a_deck_being_built_is_building_in_the_list() -> None:
@@ -494,7 +494,7 @@ def test_a_failed_build_leaves_the_standing_talk_where_it_is_and_says_failed() -
     mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror, fakes=DecksFakes(builder=builder))
     decks.refresh()
-    standing = decks.built_talk("kundenfeedback")
+    standing = decks.built_talk("kundenfeedback", viewer=_OWNER)
 
     builder.fails = True
     builder.says = _WHAT_THE_TOOLCHAIN_SAID
@@ -506,7 +506,7 @@ def test_a_failed_build_leaves_the_standing_talk_where_it_is_and_says_failed() -
     assert page.commit == _SHORT_COMMIT
     assert page.attempt is not None
     assert page.attempt.commit == _SHORT_LATER_COMMIT
-    assert decks.built_talk("kundenfeedback") == standing
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) == standing
 
 
 def test_a_commit_that_failed_is_not_built_again_until_the_folder_moves() -> None:
@@ -549,7 +549,7 @@ def test_a_revert_to_the_talk_that_stands_is_ready_again_without_building() -> N
         fakes=DecksFakes(builder=builder, clock=clock),
     )
     decks.refresh()
-    standing = decks.built_talk("kundenfeedback")
+    standing = decks.built_talk("kundenfeedback", viewer=_OWNER)
 
     clock.advance(by=timedelta(minutes=10))
     mirror.carried[_SOURCE.id] = (a_folder("kundenfeedback", commit=_A_LATER_COMMIT),)
@@ -571,7 +571,7 @@ def test_a_revert_to_the_talk_that_stands_is_ready_again_without_building() -> N
     # The talk that stands is the one that was built before the broken push:
     # its own build time, and no second run of the toolchain.
     assert reverted.built_ago == timedelta(minutes=15)
-    assert decks.built_talk("kundenfeedback") == standing
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) == standing
     assert builder.built == tried_before_the_revert
     assert _listed_states(decks) == [DeckState.READY]
 
@@ -627,19 +627,19 @@ def test_a_slug_that_is_no_folders_own_name_hands_over_no_pdf(slug: str) -> None
     decks = decks_over(a_folder(slug))
     decks.refresh()
 
-    assert decks.exported_pdf(slug) is None
+    assert decks.exported_pdf(slug, viewer=_OWNER) is None
 
 
 def test_taking_a_pushed_deck_in_again_leaves_what_it_delivers_standing() -> None:
     decks = decks_over(a_folder("kundenfeedback"))
     decks.refresh()
-    standing = decks.built_talk("kundenfeedback")
-    exported = decks.exported_pdf("kundenfeedback")
+    standing = decks.built_talk("kundenfeedback", viewer=_OWNER)
+    exported = decks.exported_pdf("kundenfeedback", viewer=_OWNER)
 
     decks.refresh()
 
-    assert decks.built_talk("kundenfeedback") == standing
-    assert decks.exported_pdf("kundenfeedback") == exported
+    assert decks.built_talk("kundenfeedback", viewer=_OWNER) == standing
+    assert decks.exported_pdf("kundenfeedback", viewer=_OWNER) == exported
 
 
 def test_a_deck_page_names_no_source_while_none_is_configured() -> None:
@@ -659,12 +659,12 @@ def test_the_list_shows_the_last_refresh_and_reads_no_source() -> None:
     mirror = carrying(a_folder("kundenfeedback"))
     decks = decks_over(mirror=mirror)
 
-    before_any_refresh = decks.listed()
+    before_any_refresh = decks.listed(viewer=_OWNER)
     decks.refresh()
     mirror.carried[_SOURCE.id] = (a_folder("pushed-after-the-refresh"),)
 
     assert before_any_refresh == ()
-    assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+    assert [deck.slug for deck in decks.listed(viewer=_OWNER)] == ["kundenfeedback"]
 
 
 def test_a_flood_of_refreshes_takes_the_source_in_once_at_a_time() -> None:
@@ -688,7 +688,7 @@ def test_a_flood_of_refreshes_takes_the_source_in_once_at_a_time() -> None:
     assert reads_while_one_ran == 1
     assert held.at_once == 1
     assert held.reads == reads_while_one_ran + 1
-    assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+    assert [deck.slug for deck in decks.listed(viewer=_OWNER)] == ["kundenfeedback"]
 
 
 def test_a_folder_the_source_no_longer_carries_leaves_the_list() -> None:
@@ -837,7 +837,7 @@ def test_an_empty_list_names_no_address_while_two_sources_could_carry_a_deck() -
     decks = decks_over(sources=having(_SOURCE, _ANOTHER_SOURCE))
 
     assert refreshed(decks) == ()
-    assert decks.source_address() is None
+    assert decks.source_address(viewer=_OWNER) is None
 
 
 def test_a_source_that_cannot_be_read_stops_no_other_sources_refresh() -> None:
@@ -1607,7 +1607,7 @@ def test_the_source_page_names_state_newest_runs_and_the_decks_from_here() -> No
     )
     decks.refresh()
 
-    page = decks.shown_source(_SOURCE.name)
+    page = decks.shown_source(_SOURCE.name, viewer=_OWNER)
 
     assert page is not None
     assert page.name == _SOURCE.name
@@ -1623,7 +1623,7 @@ def test_the_source_page_names_state_newest_runs_and_the_decks_from_here() -> No
 
 
 def test_a_name_this_instance_does_not_have_has_no_source_page() -> None:
-    assert decks_over().shown_source("no-such-source") is None
+    assert decks_over().shown_source("no-such-source", viewer=_OWNER) is None
 
 
 def test_renewing_the_access_secret_stores_the_new_value() -> None:
@@ -1733,7 +1733,7 @@ def test_removal_counts_a_deck_marked_removed_the_same_as_a_listed_one() -> None
     removal = decks.removal(_SOURCE.name)
 
     assert removal == SourceRemoval(name=_SOURCE.name, deck_count=2, run_count=2)
-    assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+    assert [deck.slug for deck in decks.listed(viewer=_OWNER)] == ["kundenfeedback"]
 
 
 def test_removal_of_a_name_this_instance_does_not_have_is_nothing() -> None:
@@ -1749,7 +1749,7 @@ def test_removal_does_not_change_anything_until_remove_source_is_called() -> Non
     decks.removal(_SOURCE.name)
 
     assert store.all() == (_SOURCE,)
-    assert [deck.slug for deck in decks.listed()] == ["kundenfeedback"]
+    assert [deck.slug for deck in decks.listed(viewer=_OWNER)] == ["kundenfeedback"]
 
 
 def test_removing_a_source_deletes_its_rows_forgets_its_mirror_and_its_builds() -> None:
@@ -1831,7 +1831,7 @@ def test_a_stale_confirm_is_refused_and_deletes_nothing() -> None:
         current=SourceRemoval(name=_SOURCE.name, deck_count=2, run_count=2),
     )
     assert store.all() == (_SOURCE,)
-    assert {deck.slug for deck in decks.listed()} == {
+    assert {deck.slug for deck in decks.listed(viewer=_OWNER)} == {
         "knowledge-fabric",
         "kundenfeedback",
     }

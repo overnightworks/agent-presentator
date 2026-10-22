@@ -304,7 +304,7 @@ class _Surfaces:
         """Show the created screen once after add, then the source's own page."""
         if not gated_person(request).is_admin:
             return _refused()
-        shown = self.decks.shown_source(name)
+        shown = self.decks.shown_source(name, viewer=gated_person(request).id)
         if shown is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
         session_id = gated_session_id(request)
@@ -365,7 +365,7 @@ class _Surfaces:
         """Take a new access secret and show nothing of it back."""
         if not gated_person(request).is_admin:
             return _refused()
-        shown = self.decks.shown_source(name)
+        shown = self.decks.shown_source(name, viewer=gated_person(request).id)
         if shown is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
         if not self.decks.renew_access(name, secret):
@@ -440,7 +440,7 @@ class _Surfaces:
                 removal=_removal_view(outcome.current, text),
             )
         if outcome is SourceRemovalRefusal.DISK_LEFTOVER:
-            shown = self.decks.shown_source(name)
+            shown = self.decks.shown_source(name, viewer=gated_person(request).id)
             if shown is None:
                 return Response(status_code=HTTPStatus.NOT_FOUND)
             return self.pages.page(

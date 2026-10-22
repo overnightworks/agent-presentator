@@ -99,11 +99,12 @@ reason why.
 `/settings/sources/<name>` shows state and fetched age, *Fetch now* (which
 refreshes that one source), the HTTPS secret as fixed dots with one Renew, or
 the SSH deploy-key public half with Copy and direct Renew, the webhook address
-with Copy and its own Renew, the newest three runs, and its decks. SSH Renew
-replaces the local pair immediately, leaves the replacement public half ready
-to register, and neither updates the Git host nor keeps an old-key overlap;
-HTTPS renewal takes a new value and shows nothing back; webhook renewal shows
-its new value exactly once to the session that created or renewed it.
+with Copy and its own Renew, the newest three runs, and its decks (only those
+the viewer owns). SSH Renew replaces the local pair immediately, leaves the
+replacement public half ready to register, and neither updates the Git host nor
+keeps an old-key overlap; HTTPS renewal takes a new value and shows nothing
+back; webhook renewal shows its new value exactly once to the session that
+created or renewed it.
 
 On the Sources list, each row's *Fetch now* refreshes only that source and
 returns to the list; on the source's page it returns to that page.

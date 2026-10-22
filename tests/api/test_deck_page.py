@@ -623,18 +623,6 @@ def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
     assert "not an application" not in missing.text
 
 
-def test_a_deck_another_person_owns_is_held_by_anyone_signed_in() -> None:
-    lobby = a_signed_in_lobby(
-        GivenDecks(
-            store=a_deck_store(built=a_build(), owner="someone-else"),
-            source=a_configured_source(_ADDRESS),
-        ),
-    )
-
-    assert lobby.get(_PAGE).status_code == HTTPStatus.OK
-    assert lobby.get(_PRESENTER).status_code == HTTPStatus.OK
-
-
 def test_an_address_no_deck_carries_answers_the_lobbys_own_page(
     lobby: TestClient,
 ) -> None:

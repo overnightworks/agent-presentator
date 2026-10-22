@@ -1569,8 +1569,8 @@ def test_a_source_gone_between_the_refusal_and_the_page_is_not_found(
     same way it answers any other name it does not have.
     """
 
-    def gone(self: Decks, name: str) -> None:
-        del self, name
+    def gone(self: Decks, name: str, *, viewer: str) -> None:
+        del self, name, viewer
 
     source = a_configured_source(_ADDRESS)
     lobby = a_signed_in_lobby(GivenDecks(source=source, stuck_mirror=True))
