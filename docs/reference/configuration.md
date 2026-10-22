@@ -38,10 +38,10 @@ some of them.
 | `PRESENTATOR_SOURCE_TIMEOUT_SECONDS` | `20` | Bound of one pull. |
 | `PRESENTATOR_TOOLCHAIN` | `frontend` | The project carrying Slidev. |
 | `PRESENTATOR_BUILDS` | `builds` | Where built talks and PDFs are kept. |
-| `PRESENTATOR_BUILD_TIMEOUT_SECONDS` | `300` | Bound of each build step. |
+| `PRESENTATOR_BUILD_TIMEOUT_SECONDS` | `300` | Bound of each build step; compose also hands it to the build worker by name. |
 | `PRESENTATOR_BUILD_MEMORY` | `4g` | Memory bound of a build container. |
 | `PRESENTATOR_BUILD_DISK` | `8g` | Filesystem bound of a build container; `none` removes it ([runbook](../runbooks/run-builds-without-a-disk-bound.md)). |
-| `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` | `300` | Size bound of the talk a build leaves. |
+| `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` | `300` | Size bound of the talk a build leaves; compose also hands it to the build worker by name. |
 | `PRESENTATOR_BUILD_RUNNER` | container | `host` builds on this machine instead ([trust boundaries](../explanation/trust-boundaries.md)); `compose.yaml` never sets it. |
 | `PRESENTATOR_BUILD_IMAGE`, `PRESENTATOR_BUILD_VOLUME` | none | The image the toolchain stands in and the volume `PRESENTATOR_BUILDS` is a directory of. Compose sets both; an instance missing either does not start and says which. |
 

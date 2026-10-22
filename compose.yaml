@@ -1,5 +1,6 @@
-# One service is the instance. What has to survive it stands in a named volume;
-# what may never be written down here comes from the environment.
+# One service is the instance, and a second, the build worker, only waits for a
+# caller that does not exist yet. What has to survive the instance stands in a
+# named volume; what may never be written down here comes from the environment.
 #
 # The image below is handed to the server as well as to Docker, because a deck
 # is code: the server asks this machine's daemon to run every build in a
@@ -53,6 +54,57 @@ services:
       - ${COPRESENTER_SOCKET_DIRECTORY:?set it to the host co-presenter's private socket directory}:/run/presentator-copresenter:rw
       - ${SPEECH_SOCKET_DIRECTORY:?set it to the host speech private socket directory}:/run/presentator-speech:rw
 
+  # The sealed build worker (ADR 0017). It runs the instance image and starts
+  # no step of its own accord; nothing calls it until the instance is wired to
+  # its socket. It never pulls: `docker compose build presentator` has to make
+  # the image first, and a missing one is an error rather than a pull of some
+  # registry's `presentator`. Every key below is a boundary the worker's
+  # self-check or ADR 0017 relies on, and `tests/test_compose.py` pins them.
+  build-worker:
+    image: presentator
+    pull_policy: never
+    # The base image's entrypoint is a shell that exports its own variables
+    # into the controller's environment, which the self-check refuses.
+    entrypoint: []
+    command: ["presentator-worker"]
+    # Root with the runtime user's group: the controller is PID 1, drops to the
+    # unprivileged users per child, and owns the socket for that group.
+    user: "0:presentator"
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - KILL
+    security_opt:
+      - no-new-privileges
+    read_only: true
+    network_mode: none
+    ipc: private
+    shm_size: 256m
+    pids_limit: 512
+    # Swap would double the bound, so the two are one number.
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: always
+    # PID 1 receives only the signals it has a handler for, and the controller
+    # has none; SIGKILL ends it at once and the kernel then ends the namespace.
+    stop_signal: SIGKILL
+    tmpfs:
+      - /work:size=2g,nr_inodes=200k,mode=755,nosuid,nodev
+      - /tmp:size=512m,nr_inodes=10k,mode=1777,nosuid,nodev
+    volumes:
+      - type: volume
+        source: build-socket
+        target: /run/presentator-build
+        volume:
+          nocopy: true
+    # Named without a value: a variable the project's environment does not set
+    # stays unset, and the worker's own defaults apply.
+    environment:
+      - PRESENTATOR_BUILD_TIMEOUT_SECONDS
+      - PRESENTATOR_BUILD_OUTPUT_MEGABYTES
+
   # Never started: it is the image a deck's own build runs in, and it is built
   # from the toolchain layer of the instance image, so the toolchain and its
   # browser are installed once. `docker compose --profile images build` builds
@@ -82,3 +134,10 @@ volumes:
   database:
   mirrors:
   builds:
+  # A tmpfs that starts as root's private 0750, so the instance cannot plant an
+  # entry before the worker tightens the directory itself.
+  build-socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=16k,nr_inodes=8,mode=0750,uid=0
