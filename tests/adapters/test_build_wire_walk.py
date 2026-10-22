@@ -104,6 +104,12 @@ def an_unreadable_directory(talk: Path) -> None:
     (talk / "closed").chmod(0)
 
 
+def a_directory_without_search_permission(talk: Path) -> None:
+    (talk / "closed").mkdir()
+    (talk / "closed" / "f").write_text("x")
+    (talk / "closed").chmod(0o644)
+
+
 def a_path_at_depth_33(talk: Path) -> None:
     deepest = talk
     for _ in range(31):
@@ -128,6 +134,11 @@ UNSAFE_TREES = [
     pytest.param(a_hardlinked_file, id="a hardlinked file"),
     pytest.param(an_unreadable_file, id="a 0000-mode file", marks=AS_ROOT),
     pytest.param(an_unreadable_directory, id="a 0000-mode directory", marks=AS_ROOT),
+    pytest.param(
+        a_directory_without_search_permission,
+        id="a directory without search permission",
+        marks=AS_ROOT,
+    ),
     pytest.param(a_path_at_depth_33, id="a path at depth 33"),
     pytest.param(a_path_over_1024_bytes, id="a path over 1024 bytes"),
 ]

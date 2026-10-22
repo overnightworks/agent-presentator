@@ -388,7 +388,12 @@ def _open_without_following(directory: int, name: bytes) -> int:
 
 def _refuse_unless_directory_or_file(directory: int, name: bytes) -> None:
     """Judge the entry's own type before any open, so a FIFO is never opened."""
-    mode = os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode
+    try:
+        mode = os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode
+    except OSError as error:
+        if error.errno in _REFUSING_OPEN_ERRORS:
+            raise TreeRefusedError(_SHAPE_REFUSAL) from error
+        raise
     if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
         raise TreeRefusedError(_SHAPE_REFUSAL)
 
