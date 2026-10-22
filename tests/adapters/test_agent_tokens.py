@@ -7,7 +7,7 @@ import logging
 import sqlite3
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -33,7 +33,7 @@ from tests.leak_support import everything_shown
 from tests.sign_in_support import Scene, a_scene
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterator
+    from collections.abc import Awaitable, Callable, Generator, Iterator
     from pathlib import Path
 
     from pydantic import SecretStr
@@ -78,7 +78,31 @@ def arranged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> Iterator[Arran
     """A signed-in session; its test ends with no marker in any record at DEBUG."""
     caplog.set_level(logging.DEBUG)
     yield Arranged(a_scene(tmp_path), refresh_token=REFRESH)
-    assert not [m for m in MARKERS if m in everything_shown(caplog.records)]
+    assert not _markers_seen(caplog)
+
+
+def _markers_seen(caplog: pytest.LogCaptureFixture) -> list[str]:
+    # caplog.records is only the phase running now; each phase is read by name.
+    records = [
+        record
+        for phase in ("setup", "call", "teardown")
+        for record in caplog.get_records(phase)  # pyright: ignore[reportArgumentType]
+    ]
+    shown = everything_shown(records)
+    return [marker for marker in MARKERS if marker in shown]
+
+
+@pytest.fixture
+def the_call_phase_leak_is_seen(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
+    caplog.set_level(logging.DEBUG)
+    yield
+    assert _markers_seen(caplog) == [PERSON_ACCESS]
+
+
+@pytest.mark.usefixtures("the_call_phase_leak_is_seen")
+def test_a_marker_logged_during_the_test_is_seen_after_it() -> None:
+    """Defect (#452 cell walk): the leak walk reads the call phase's records."""
+    logging.getLogger(LOGGER).warning("token %s", PERSON_ACCESS)
 
 
 def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -104,7 +128,7 @@ def _failure_of(work: Awaitable[object]) -> CoPresenterUnavailableError:
 def test_a_signed_in_session_gets_a_person_token_and_the_workload_its_own(
     arranged: Arranged,
 ) -> None:
-    """cell 1 (#452): the happy path."""
+    """Cell 1 (#452): the happy path."""
     person = asyncio.run(arranged.person.fresh(arranged.session_id))
     workload = asyncio.run(arranged.workload())
 
@@ -114,7 +138,7 @@ def test_a_signed_in_session_gets_a_person_token_and_the_workload_its_own(
 
 
 def test_the_workload_token_is_fetched_on_every_call(arranged: Arranged) -> None:
-    """cell 1 (#452): the workload source keeps no token between calls."""
+    """Cell 1 (#452): the workload source keeps no token between calls."""
     asyncio.run(arranged.workload())
     first = arranged.scene.issuer.grant_types.count("client_credentials")
     asyncio.run(arranged.workload())
@@ -155,7 +179,7 @@ def test_a_session_without_a_standing_token_gets_its_refusal(
     expected: AccessRefusal,
     asks_the_issuer: bool,  # noqa: FBT001
 ) -> None:
-    """cells 2-5 (#452): each refusal and whether the issuer was asked."""
+    """Cells 2-5 (#452): each refusal and whether the issuer was asked."""
     break_it(arranged)
     before = arranged.grants_so_far()
 
@@ -168,7 +192,7 @@ def test_a_session_without_a_standing_token_gets_its_refusal(
 def test_an_issuer_that_is_down_is_one_warning_naming_the_reason(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """cell 6 (#452): an unavailable issuer is one warning."""
+    """Cell 6 (#452): an unavailable issuer is one warning."""
     arranged.scene.issuer.token_endpoint_is_down = True
 
     refusal = asyncio.run(arranged.person.fresh(arranged.session_id))
@@ -181,7 +205,7 @@ def test_an_issuer_that_is_down_is_one_warning_naming_the_reason(
 def test_a_rotated_refresh_token_is_stored_and_the_new_access_token_returned(
     arranged: Arranged,
 ) -> None:
-    """cell 7 (#452): the rotation is stored."""
+    """Cell 7 (#452): the rotation is stored."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     person = asyncio.run(arranged.person.fresh(arranged.session_id))
@@ -193,7 +217,7 @@ def test_a_rotated_refresh_token_is_stored_and_the_new_access_token_returned(
 def test_a_row_deleted_between_the_two_transactions_ends_the_session(
     arranged: Arranged,
 ) -> None:
-    """cell 8 (#452): a row deleted mid-rotation ends the session."""
+    """Cell 8 (#452): a row deleted mid-rotation ends the session."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
     arranged.scene.issuer.during_token_request = lambda: _gone(arranged)
 
@@ -206,7 +230,7 @@ def test_a_row_deleted_between_the_two_transactions_ends_the_session(
 def test_a_workload_the_issuer_refuses_is_one_warning_naming_reason_and_code(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """cell 9 (#452): a refused workload."""
+    """Cell 9 (#452): a refused workload."""
     arranged.scene.issuer.workload_is_refused = True
 
     _failure_of(arranged.workload())
@@ -226,7 +250,7 @@ def _raise_in_the_thread(error: Exception) -> Callable[[], None]:
 def test_a_workload_thread_that_raises_is_one_warning_naming_only_its_type(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """cells 10, 15, 16 (#452): a raising workload thread leaks nothing."""
+    """Cells 10, 15, 16 (#452): a raising workload thread leaks nothing."""
     error = RuntimeError(THREAD_ERROR)
     error.__context__ = RuntimeError(THREAD_ERROR)
     arranged.scene.issuer.during_token_request = _raise_in_the_thread(error)
@@ -261,7 +285,7 @@ def test_a_person_thread_that_raises_is_one_warning_naming_only_its_type(
     named: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """cells 11, 15, 16 (#452): a raising person thread leaks nothing."""
+    """Cells 11, 15, 16 (#452): a raising person thread leaks nothing."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
     scene = arranged.scene
     person = PersonAccessTokens(
@@ -311,7 +335,7 @@ def _cancelled_before_the_thread(arranged: Arranged) -> asyncio.CancelledError:
 def test_a_cancellation_before_the_thread_asks_no_issuer_and_leaves_no_chain(
     arranged: Arranged,
 ) -> None:
-    """cell 12 (#452): cancellation before the thread."""
+    """Cell 12 (#452): cancellation before the thread."""
     before = arranged.grants_so_far()
 
     error = _cancelled_before_the_thread(arranged)
@@ -324,17 +348,17 @@ def test_a_cancellation_before_the_thread_asks_no_issuer_and_leaves_no_chain(
 async def _cancel_while_the_thread_runs(
     arranged: Arranged, executor: RecordingExecutor
 ) -> asyncio.CancelledError:
-    entered = threading.Event()
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
     release = threading.Event()
 
     def hold_the_thread() -> None:
-        entered.set()
+        loop.call_soon_threadsafe(entered.set)
         release.wait(_THREAD_WAIT_SECONDS)
 
     arranged.scene.issuer.during_token_request = hold_the_thread
     task = asyncio.create_task(arranged.person.fresh(arranged.session_id))
-    await asyncio.sleep(0)
-    await asyncio.to_thread(entered.wait, _THREAD_WAIT_SECONDS)
+    await entered.wait()
     task.cancel()
     release.set()
     await asyncio.wrap_future(executor.recorded[0])
@@ -364,7 +388,7 @@ def test_a_cancelled_ask_still_stores_the_rotation_and_leaves_no_chain(
     arranged: Arranged,
     cancel: Callable[[Arranged, RecordingExecutor], Awaitable[asyncio.CancelledError]],
 ) -> None:
-    """cells 13-14 (#452): cancellation inside and after the thread."""
+    """Cells 13-14 (#452): cancellation inside and after the thread."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     async def drive() -> asyncio.CancelledError:
@@ -381,10 +405,30 @@ def test_a_cancelled_ask_still_stores_the_rotation_and_leaves_no_chain(
     assert (error.__cause__, error.__context__) == (None, None)
 
 
+@contextmanager
+def _every_logger_at_debug(caplog: pytest.LogCaptureFixture) -> Generator[None]:
+    """Lower each named logger, and reach the ones the server's config cut off."""
+    loggers = [
+        logger
+        for logger in logging.root.manager.loggerDict.values()
+        if isinstance(logger, logging.Logger)
+    ]
+    cut_off = [logger for logger in loggers if not logger.propagate]
+    for logger in loggers:
+        caplog.set_level(logging.DEBUG, logger=logger.name)
+    for logger in cut_off:
+        logger.addHandler(caplog.handler)
+    try:
+        yield
+    finally:
+        for logger in cut_off:
+            logger.removeHandler(caplog.handler)
+
+
 def test_the_real_suppliers_feed_the_answerer_over_a_socket_and_leak_nothing(
     arranged: Arranged, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """cell 19 (#452): real socket, every logger at DEBUG."""
+    """Cell 19 (#452): real socket, every logger at DEBUG."""
     arranged.scene.issuer.rotate_refresh_token_to(ROTATED)
 
     async def person() -> str:
@@ -396,8 +440,11 @@ def test_the_real_suppliers_feed_the_answerer_over_a_socket_and_leak_nothing(
         async with fake_service(
             lambda _question: reply_with(*whole(event_frames(*GOOD_ANSWER)))
         ) as origin:
-            answerer = ServiceAnswerer(origin=origin, workload_token=arranged.workload)
-            outcome = await ask_once(answerer, person, message="Frage?")
+            with _every_logger_at_debug(caplog):
+                answerer = ServiceAnswerer(
+                    origin=origin, workload_token=arranged.workload
+                )
+                outcome = await ask_once(answerer, person, message="Frage?")
             assert outcome.error is None
             return outcome.texts
 
