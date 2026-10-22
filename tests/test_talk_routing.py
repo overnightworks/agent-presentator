@@ -1,5 +1,6 @@
 """The Host header alone chooses which app of the instance answers."""
 
+from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,7 +22,7 @@ from tests.api.talk_support import (
 _LOBBY_HOST = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
 _TALK_HOST = str(urlsplit(A_TALK_ADDRESS).hostname)
 _SOMEONE_ELSES = "elsewhere.example.test"
-_NOT_FOUND = 404
+_NOT_FOUND = HTTPStatus.NOT_FOUND
 
 
 @pytest.fixture
@@ -40,8 +41,8 @@ def test_the_router_gives_each_hostname_its_app_and_any_other_a_not_found(
     talk_root = hosts.browser(A_TALK_ADDRESS).get("/")
     stranger = hosts.browser(f"https://{_SOMEONE_ELSES}").get("/login")
 
-    assert lobby_login.status_code == 200  # noqa: PLR2004
-    assert talk_root.status_code == 303  # noqa: PLR2004
+    assert lobby_login.status_code == HTTPStatus.OK
+    assert talk_root.status_code == HTTPStatus.SEE_OTHER
     assert talk_root.headers["location"] == A_BROWSERS_ADDRESS
     assert stranger.status_code == _NOT_FOUND
 
@@ -98,7 +99,7 @@ def test_a_port_on_the_lobby_never_gets_a_talk_host_answer(hosts: Hosts) -> None
 
     talk = ported.get(f"/deck/{A_DECK}/presenter/")
 
-    assert talk.status_code == 200  # noqa: PLR2004
+    assert talk.status_code == HTTPStatus.OK
     assert not _is_the_talk_host(talk.headers.get("permissions-policy"))
 
 

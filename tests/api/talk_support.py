@@ -1,6 +1,8 @@
 """Both hosts of one instance over one database, as a browser reaches them."""
 
 import asyncio
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
@@ -8,9 +10,11 @@ from typing import Final
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from starlette.routing import Router
 from starlette.types import ASGIApp, Message, Scope
 from webauth.config import WebAuthConfig
+from webauth.oidc_login import AdmissionConfig
 
 from presentator.adapters.identity import (
     SqliteSessionRecordStore,
@@ -52,6 +56,7 @@ A: Final = User(id=ADMIN, username="felix", role=Role.ADMIN)
 B: Final = User(id="id-of-anna", username="anna", role=Role.USER)
 # A browser asking for a page, with no claim about where it came from.
 A_BROWSER_ASKING_FOR_A_PAGE: Final = {"accept": "text/html"}
+MEMBER: Final = ["/apps/presentator"]
 
 
 def cookie_header(client: TestClient) -> str:
@@ -73,6 +78,7 @@ class Hosts:
     issuer: FakeIssuer
     database: Path
     clock: FrozenClock
+    store: FakeDeckStore
 
     def browser(
         self, address: str, *, headers: dict[str, str] | None = None
@@ -110,6 +116,42 @@ class Hosts:
             headers={**A_BROWSER_ASKING_FOR_A_PAGE, "cookie": cookie_header(signed_in)},
         )
 
+    def sign_in(
+        self,
+        client: TestClient,
+        address: str,
+        *,
+        subject: str = "subject-1",
+        groups: list[str] | None = None,
+        next_path: str | None = None,
+    ) -> Response:
+        """A person signs in at the issuer through this host and the browser returns."""
+        started = client.get(
+            f"{address}/login/oidc",
+            params={} if next_path is None else {"next": next_path},
+        )
+        query = self.issuer.authorize(
+            started.headers["location"],
+            subject=subject,
+            groups=MEMBER if groups is None else groups,
+            username=A.username,
+        )
+        return client.get(f"{address}/auth/callback?{query}")
+
+    def give_a_deck_to(self, username: str) -> None:
+        """Hand `a-deck` to the person the account store knows by this name."""
+        with closing(sqlite3.connect(self.database)) as connection:
+            (person,) = connection.execute(
+                "SELECT id FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        put_a_built_deck(self.store, slug=A_DECK, owner_id=person)
+
+    def session_count(self) -> int:
+        """How many session rows the one table holds."""
+        with closing(sqlite3.connect(self.database)) as connection:
+            (count,) = connection.execute("SELECT count(*) FROM sessions").fetchone()
+        return int(count)
+
     def session_of(self, person: User) -> str:
         """The id of a new live session row of this person."""
         seed_user(self.database, person)
@@ -126,7 +168,7 @@ class Hosts:
         )
 
 
-def two_hosts(tmp_path: Path, *, store: FakeDeckStore | None = None) -> Hosts:
+def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Hosts:
     """Both hosts over real identity tables, a fake issuer and A's and B's decks.
 
     `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to nobody.
@@ -135,7 +177,7 @@ def two_hosts(tmp_path: Path, *, store: FakeDeckStore | None = None) -> Hosts:
     create_identity_tables(database)
     people = a_crowd()
     clock = people.clock
-    decks_store = FakeDeckStore() if store is None else store
+    decks_store = FakeDeckStore()
     put_a_built_deck(decks_store, slug=A_DECK, owner_id=A.id)
     put_a_built_deck(decks_store, slug=B_DECK, owner_id=B.id)
     decks = a_decks(replace(NO_DECKS, store=decks_store), clock)
@@ -150,6 +192,8 @@ def two_hosts(tmp_path: Path, *, store: FakeDeckStore | None = None) -> Hosts:
         ),
         accounts=SqliteSubjectUserStore(database),
     )
+    if admission is not None:
+        lobby_auth = replace(lobby_auth, admission=admission)
     talk_config = a_talk_web_auth(clock)
     talk_auth = replace(
         lobby_auth,
@@ -188,6 +232,7 @@ def two_hosts(tmp_path: Path, *, store: FakeDeckStore | None = None) -> Hosts:
         issuer=issuer,
         database=database,
         clock=clock,
+        store=decks_store,
     )
 
 
