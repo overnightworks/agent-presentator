@@ -347,9 +347,9 @@ Authority: [#393](https://github.com/overnightworks/agent-presentator/issues/393
 The co-presenter's system prompt, its roles and its tools are the agent file
 `src/presentator/agents/copresenter.md`, which ships with the package. The
 adapter reads it with `agent_client.agents.load_agent` and builds the run
-request with `AgentDefinition.request`, so the wire version, the purpose, the
-roles and the tools come from agent-client and not from this repository. The
-file is the one owner of the prompt; a file the loader refuses stops the
+request with `AgentDefinition.request`. The agent file sets the purpose, the
+roles and the tools; agent-client validates them and builds the versioned
+request from them. The file is the one owner of the prompt; a file the loader refuses stops the
 process at construction.
 
 ## Consequences
