@@ -6,6 +6,7 @@ from typing import Final
 
 import pytest
 
+from presentator.api.talk import talk_content_security_policy
 from presentator.contracts.decks import talk_address
 from tests.api.lobby import (
     A_BUILT_DECK_SLUG,
@@ -59,6 +60,13 @@ def test_a_policy_source_that_may_admit_a_host_is_found(
 
 def test_the_content_security_policy_admits_no_host_but_this_origin() -> None:
     assert _sources_that_may_admit_a_host(a_content_security_policy()) == []
+
+
+def test_the_talk_hosts_policy_admits_no_host_at_all() -> None:
+    policy = talk_content_security_policy()
+
+    assert _sources_that_may_admit_a_host(policy) == []
+    assert "form-action 'self'" in policy
 
 
 @pytest.mark.parametrize("page_name", ["", "404.html"])

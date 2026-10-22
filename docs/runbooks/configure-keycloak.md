@@ -8,8 +8,8 @@ sign-in. What a sign-in does is
 
 ## Before you start
 
-The instance's `PRESENTATOR_PUBLIC_ORIGIN` (https) and its internal lobby
-address are known.
+The instance's `PRESENTATOR_PUBLIC_ORIGIN` and `PRESENTATOR_TALK_ORIGIN`
+(both https) and its internal lobby address are known.
 
 ## Steps
 
@@ -31,6 +31,9 @@ address are known.
    device.
 5. Register `<PRESENTATOR_PUBLIC_ORIGIN>/login` as the post-logout redirect
    URI, or Keycloak shows an error page at every logout.
+6. Register both `<PRESENTATOR_PUBLIC_ORIGIN>/auth/callback` and
+   `<PRESENTATOR_TALK_ORIGIN>/auth/callback` as valid redirect URIs: the talk
+   host signs in at its own.
 
 ## Check
 

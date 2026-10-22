@@ -28,6 +28,7 @@ somebody else can push to.
 ```sh
 export PRESENTATOR_SECRET_KEY="$(openssl rand -base64 48)"
 export PRESENTATOR_PUBLIC_ORIGIN=https://presentator.example.test
+export PRESENTATOR_TALK_ORIGIN=https://presentator-talk.example.test
 export PRESENTATOR_OIDC_ISSUER=https://auth.example.test/realms/example
 export PRESENTATOR_OIDC_CLIENT_ID=presentator
 export PRESENTATOR_OIDC_CLIENT_SECRET_FILE=/run/user/"$(id -u)"/presentator/oidc-client-secret
