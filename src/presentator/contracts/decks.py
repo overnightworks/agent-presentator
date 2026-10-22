@@ -54,6 +54,9 @@ def failure_text(said: bytes) -> str:
     return bounded_failure(said.decode(errors="replace").strip())
 
 
+MAXIMUM_NAME_BYTES: Final = 255
+
+
 def is_a_plain_folder_name(candidate: str) -> bool:
     """Whether the candidate is a folder's own name and nothing besides."""
     return (
@@ -67,7 +70,7 @@ def talk_address(slug: str) -> str:
     """Where a deck's built talk stands, and what it is built against.
 
     A build writes its own asset links against this address, so the string the
-    build is given and the address the lobby delivers it at are the one value.
+    build is given and the address the talk host delivers it at are the one value.
     """
     return f"{DECK_PATH}/{slug}/"
 
@@ -322,7 +325,7 @@ class SourceRun:
 
 
 # The page a built talk opens on, in the talk's own root: the build checks the
-# file the lobby serves, so both name it through this one value.
+# file the talk host serves, so both name it through this one value.
 TALK_PAGE: Final = "index.html"
 
 

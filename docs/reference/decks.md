@@ -78,16 +78,22 @@ them, so a new push never unpresents the talk that already works nor takes
 away the PDF that already downloads.
 
 - The projector view is `/deck/<folder>/` and the presenter view
-  `/deck/<folder>/presenter/`, both the same Slidev single-page application:
-  the presenter is a client-side route of that application. The slide is in
-  the address so a closed window comes back to the same slide.
+  `/deck/<folder>/presenter/` at the talk host, both the same Slidev
+  single-page application: the presenter is a client-side route of that
+  application. The slide is in the address so a closed window comes back to
+  the same slide. The deck page links both there, absolute to the talk origin,
+  and the lobby serves no talk byte: its old talk addresses answer 404,
+  `/deck/<folder>/` answers a 307 to the deck page, and a WebSocket into one
+  is closed before it is accepted, alike for every slug.
 - A path under the deck that is not a real file is answered with the
   application's `index.html`. A projector or presenter address under a deck
   that is unknown, not built, another account's, or whose build directory has
   since gone from disk, answers a bare empty 404 with no templated page and no
-  content type; only the deck's own page route renders the lobby's not-found
-  page.
-- Both stand behind the same session as every other address
+  content type; only the deck's own page route on the lobby renders the
+  lobby's not-found page.
+- The views stand behind the talk host's own session
+  ([ADR 0016](../decisions/0016-a-talk-host-signs-in-by-itself.md)), the deck
+  page and the PDF behind the lobby's
   ([ADR 0007](../decisions/0007-browser-client-behind-tunnel.md)): a
   signed-out request answers the login redirect, never a file and never a hint
   that a folder exists, and a WebSocket upgrade into a talk is closed before

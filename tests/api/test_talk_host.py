@@ -8,6 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
+from webauth.middleware.security_headers import (
+    CONTENT_TYPE_OPTIONS,
+    FRAME_OPTIONS,
+    REFERRER_POLICY,
+    STRICT_TRANSPORT_SECURITY,
+)
 from webauth.oidc_login import AdmissionConfig
 
 from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
@@ -536,7 +542,10 @@ def test_every_answer_of_the_talk_host_carries_the_talk_policy_headers(
     assert "frame-ancestors 'none'" in answer.headers["content-security-policy"]
     assert answer.headers["permissions-policy"] == TALK_PERMISSIONS_POLICY
     assert answer.headers["cache-control"] == "no-store"
-    assert "max-age" in answer.headers["strict-transport-security"]
+    assert answer.headers["x-content-type-options"] == CONTENT_TYPE_OPTIONS
+    assert answer.headers["x-frame-options"] == FRAME_OPTIONS
+    assert answer.headers["referrer-policy"] == REFERRER_POLICY
+    assert answer.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
 
 
 # ---- each host refuses the other's origin ------------------------------------

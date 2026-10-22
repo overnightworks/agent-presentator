@@ -30,8 +30,8 @@
   {% if built %}
   <p data-actions>
     {% if views_open %}
-    <a href="/deck/{{ slug }}/presenter/" data-action>{{ text.deck_presenter_view }}</a>
-    <a href="/deck/{{ slug }}/" data-action data-quiet>{{ text.deck_projector_view }}</a>
+    <a href="{{ talk }}presenter/" data-action>{{ text.deck_presenter_view }}</a>
+    <a href="{{ talk }}" data-action data-quiet>{{ text.deck_projector_view }}</a>
     {% else %}
     <span data-action data-locked>{{ text.deck_presenter_view }}</span>
     <span data-action data-quiet data-locked>{{ text.deck_projector_view }}</span>

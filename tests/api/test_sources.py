@@ -1711,9 +1711,9 @@ def test_a_removed_decks_talk_answers_not_found(tmp_path: Path) -> None:
     )
     lobby = a_signed_in_lobby(GivenDecks(source=source, store=store))
 
-    before = lobby.get("/deck/kundenfeedback/")
+    before = lobby.get("/deck/kundenfeedback")
     confirm_removal(lobby, source.name)
-    after = lobby.get("/deck/kundenfeedback/")
+    after = lobby.get("/deck/kundenfeedback")
 
     assert before.status_code == HTTPStatus.OK
     assert after.status_code == HTTPStatus.NOT_FOUND

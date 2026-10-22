@@ -15,7 +15,7 @@ from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAM
 from presentator.adapters.identity import SqliteSessionRecordStore
 from presentator.api.auth import signed_in_connection
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
-from presentator.application.copresenter import AskLimiter, CoPresenterUse
+from presentator.application.copresenter import AskLimiter
 from presentator.contracts.models import Role, User
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
@@ -34,8 +34,9 @@ from tests.api.test_copresenter import (
     ManualDeadline,
     RecordingPrivateCoPresenter,
     a_copresenter_lobby,
+    a_use,
 )
-from tests.application.fakes import FrozenClock
+from tests.application.fakes import FakeDeckStore, FrozenClock
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -206,7 +207,7 @@ def _talk_host_with_a_signed_in_admin(
 ) -> tuple[Hosts, TestClient, RecordingPrivateCoPresenter]:
     private = RecordingPrivateCoPresenter()
     surface = CoPresenterSurface(
-        use=CoPresenterUse(answers=private, speech=private),
+        use=a_use(private, FakeDeckStore()),
         limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
         browser_origin=TALK_ORIGIN,
         delay=asyncio.sleep if deadline is None else deadline.wait,

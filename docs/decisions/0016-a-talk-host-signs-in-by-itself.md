@@ -44,8 +44,8 @@ reachable under the other's name.
   refused talk sign-in is a redirect to `/login/talk/no-access` or
   `/login/talk/login-failed` on the lobby, whose Try again restarts the
   sign-in at the talk host.
-- **One owner check.** The talk host serves a talk through the same
-  owner-checked `built_talk` as the lobby and compares no owner itself.
+- **One owner check.** The talk host serves a talk through the owner-checked
+  `built_talk` and compares no owner itself; the lobby serves no talk.
 
 ## Consequences
 
@@ -60,7 +60,7 @@ reachable under the other's name.
   `Domain=` cookies for the shared registrable domain.
 - The Datenschutzerklärung names the talk host's own session cookie.
 - The co-presenter routes and the microphone permission are the talk host's;
-  the lobby keeps its talk mount until it stops serving talks.
+  the lobby serves no talk and its deck page links to the talk host.
 
 ## Rejected alternatives
 
