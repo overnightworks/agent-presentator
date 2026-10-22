@@ -252,8 +252,9 @@ random value of at least 32 bytes), `PRESENTATOR_TRUSTED_PROXIES=172.31.255.1`,
 `PRESENTATOR_PUBLIC_ORIGIN` (the canonical https origin),
 `PRESENTATOR_RUNTIME_UID` (the operator's uid), and the two socket directories
 `COPRESENTER_SOCKET_DIRECTORY` and `SPEECH_SOCKET_DIRECTORY` (private
-directories the operator owns, for example under `/run/user/<uid>`); then
-`docker compose up -d` starts the instance.
+directories the operator owns, for example under `/run/user/<uid>`). Together
+with `PRESENTATOR_DOCKER_GROUP` and the sign-in settings described above, these
+are what `docker compose up -d` needs to start the instance.
 
 Without the trusted proxy the instance answers every request against the connection it
 has — http, and one client address for the whole tunnel; the form guard itself
@@ -503,7 +504,7 @@ global layers run in this build, so a component wired to a service the deck does
 not bring with it has to be stripped before pushing, because the build has
 nowhere to call. A remote asset named in the frontmatter, such as a background
 image fetched by URL, has to become a local file committed into the deck folder
-and named by a relative path, because the build never gets network.
+and named by a relative path, because a container build never gets network.
 
 ## The co-presenter on stage
 
@@ -648,8 +649,8 @@ gate by name, never `inherit`. The `quality_gate` property of this repository in
 the fleet registry records that `quality / verdict` is expected on `main`; it
 does not edit the ruleset.
 
-The SonarCloud project was created by dispatching the one-off bootstrap
-workflow, which also switches Automatic Analysis off:
+The one-off bootstrap workflow creates the SonarCloud project and switches
+Automatic Analysis off:
 
 ```sh
 gh workflow run sonar-bootstrap.yml --ref main

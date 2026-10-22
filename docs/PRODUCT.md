@@ -307,7 +307,7 @@ a run given up on, one whose tree this host could not read, and one that
 printed nothing hand back no words, and the page says that in its own
 sentence. What a build that did not finish left behind is taken away again, and
 the directory a deck delivers from is never removed, so a request that read the previous
-pointer still finds a directory. A build that was pointed at is never cleaned up.
+pointer still finds a directory. No build is cleaned up automatically once it was pointed at; only removing the source takes it off disk.
 
 **A deck is code, and its build runs in a container of its own.** The server
 asks its machine's daemon for a container per step
