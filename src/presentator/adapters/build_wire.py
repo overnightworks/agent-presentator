@@ -6,7 +6,7 @@ import socket
 import stat
 import struct
 from collections.abc import Generator
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import Annotated, Literal
@@ -373,27 +373,29 @@ class TreeEntry:
         return self.descriptor is None
 
 
-def _open_without_following(directory: int, name: bytes) -> int:
+@contextmanager
+def _refusing_shape_on_lookup_errors() -> Generator[None]:
     try:
+        yield
+    except OSError as error:
+        if error.errno in _REFUSING_OPEN_ERRORS:
+            raise TreeRefusedError(_SHAPE_REFUSAL) from error
+        raise
+
+
+def _open_without_following(directory: int, name: bytes) -> int:
+    with _refusing_shape_on_lookup_errors():
         return os.open(
             name,
             os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
             dir_fd=directory,
         )
-    except OSError as error:
-        if error.errno in _REFUSING_OPEN_ERRORS:
-            raise TreeRefusedError(_SHAPE_REFUSAL) from error
-        raise
 
 
 def _refuse_unless_directory_or_file(directory: int, name: bytes) -> None:
     """Judge the entry's own type before any open, so a FIFO is never opened."""
-    try:
+    with _refusing_shape_on_lookup_errors():
         mode = os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode
-    except OSError as error:
-        if error.errno in _REFUSING_OPEN_ERRORS:
-            raise TreeRefusedError(_SHAPE_REFUSAL) from error
-        raise
     if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
         raise TreeRefusedError(_SHAPE_REFUSAL)
 

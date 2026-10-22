@@ -1,5 +1,6 @@
 """The sender's walk of /work/out: what it admits, refuses, limits and sends."""
 
+import errno
 import os
 import socket
 import threading
@@ -10,6 +11,7 @@ import pytest
 
 from presentator.adapters.build_wire import (
     MEGABYTE,
+    WireRefusedError,
     receive_entries,
     send_tree_reply,
 )
@@ -338,3 +340,31 @@ def test_an_export_sends_its_pdf_and_nothing_else(output: Path) -> None:
     entries = entry_stream(reply_to(output, StepKind.EXPORT))
 
     assert entries == support.file_entry(b"deck.pdf", b"%PDF") + support.end_entry(1, 4)
+
+
+def test_a_lookup_failing_for_any_other_reason_is_not_judged_as_shape(
+    output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (build_talk(output) / "index.html").write_text("x")
+
+    def failing_stat(*_arguments: object, **_options: object) -> os.stat_result:
+        raise OSError(errno.EIO, "input/output error")
+
+    monkeypatch.setattr(os, "stat", failing_stat)
+
+    with pytest.raises(OSError, match="input/output error"):
+        reply_to(output, StepKind.BUILD)
+
+
+def test_a_file_that_ends_before_its_surveyed_size_aborts_the_reply(
+    output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (build_talk(output) / "index.html").write_text("x")
+
+    def reading_nothing(_descriptor: int, _length: int) -> bytes:
+        return b""
+
+    monkeypatch.setattr(os, "read", reading_nothing)
+
+    with pytest.raises(WireRefusedError):
+        reply_to(output, StepKind.BUILD)
