@@ -24,6 +24,7 @@ from presentator.adapters.identity import (
     create_identity_tables,
 )
 from presentator.api.auth import InstalledAuth
+from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.models import Role, User
@@ -211,6 +212,7 @@ def two_hosts(
     *,
     admission: AdmissionConfig | None = None,
     given: GivenDecks | None = None,
+    copresenter: CoPresenterSurface | None = None,
 ) -> Hosts:
     """Both hosts over real identity tables, a fake issuer and one set of decks.
 
@@ -243,6 +245,7 @@ def two_hosts(
         decks=decks,
         auth=talk_auth,
         lobby_origin=A_BROWSERS_ADDRESS,
+        copresenter=copresenter,
     )
     never = Schedule(chore=lambda: None, interval=timedelta(days=1))
     router = served_by_host(

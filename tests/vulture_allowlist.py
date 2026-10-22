@@ -25,6 +25,7 @@ from presentator.contracts.voice import (
 )
 from presentator.host.config import Settings, WorkerSettings
 from tests.gitmirror.test_mirror import DumbHttpHandler, RespondingHandler
+from tests.test_worker_settings import no_worker_variables
 
 # `BaseHTTPRequestHandler`'s own request dispatch calls this by name; nothing
 # in the test that stands the server up ever calls it itself.
@@ -204,3 +205,6 @@ WorkerSettings.model_config
 
 # Pydantic runs this `model_validator` after every `Settings` validation.
 Settings._two_hostnames  # noqa: SLF001 - pydantic, not Python code, is the caller  # pyright: ignore[reportPrivateUsage]
+
+# pytest applies this autouse fixture to every worker-settings test by itself.
+no_worker_variables  # pyright: ignore[reportUnusedExpression]

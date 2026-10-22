@@ -108,7 +108,8 @@ from tests.application.fakes import (
 
 NOW: Final = datetime(2026, 1, 15, 9, tzinfo=UTC)
 # What `slidev build` of `examples/hello-deck` writes, `--base /deck/hello-deck/`.
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
+BUILT_TALK: Final = Path(__file__).parent / "built_talk"
+AN_ASSET: Final = "assets/index-mRcVgIkQ.js"
 _EXPORTED_PDF: Final = Path(__file__).parent / "exported_deck.pdf"
 _BUILT_DECK_COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 # No route test waits for a build, so the bound only has to be longer than the
@@ -681,7 +682,7 @@ def put_a_built_deck(store: FakeDeckStore, *, slug: str, owner_id: str) -> None:
     store.put_build(
         slug,
         Build(
-            directory=_BUILT_TALK,
+            directory=BUILT_TALK,
             pdf=_EXPORTED_PDF,
             commit=_BUILT_DECK_COMMIT,
             built_at=NOW,

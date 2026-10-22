@@ -14,6 +14,8 @@ from presentator.api.talk import talk_content_security_policy
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_SOCKET_ADDRESS,
+    AN_ASSET,
+    BUILT_TALK,
     a_content_security_policy,
 )
 from tests.api.talk_support import (
@@ -24,14 +26,12 @@ from tests.api.talk_support import (
     two_hosts,
 )
 
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
-_AN_ASSET: Final = "assets/index-mRcVgIkQ.js"
 _THE_THREE: Final = [A_DECK, B_DECK, NO_DECK]
 _SHAPES_OF_A_TALK: Final = [
     "presenter/",
     "presenter/2",
     "index.html",
-    _AN_ASSET,
+    AN_ASSET,
     "no-such-file",
 ]
 _SHAPES_AROUND_A_TALK: Final = [
@@ -39,7 +39,7 @@ _SHAPES_AROUND_A_TALK: Final = [
     "presenter/",
     "presenter/2",
     "index.html",
-    _AN_ASSET,
+    AN_ASSET,
     "no-such-file",
     "pdf/",
 ]
@@ -128,8 +128,8 @@ def test_no_lobby_address_of_a_deck_returns_a_byte_of_its_built_talk(
     answer = lobby.get(address)
 
     built = [
-        (_BUILT_TALK / "index.html").read_bytes(),
-        (_BUILT_TALK / _AN_ASSET).read_bytes(),
+        (BUILT_TALK / "index.html").read_bytes(),
+        (BUILT_TALK / AN_ASSET).read_bytes(),
     ]
     assert all(part not in answer.content for part in built)
 

@@ -17,6 +17,8 @@ from tests.api.lobby import (
     A_BROWSERS_HEADERS,
     A_TALK_ADDRESS,
     ADMIN,
+    AN_ASSET,
+    BUILT_TALK,
     ENGLISH,
     NEIGHBOUR,
     NOW,
@@ -29,13 +31,11 @@ from tests.api.talk_support import cookies_without_values, two_hosts
 from tests.api.test_sources import ask_removal, confirm_removal
 from tests.application.fakes import FakeDeckStore
 
-_TALK: Final = Path(__file__).parent / "built_talk"
 _PDF: Final = Path(__file__).parent / "exported_deck.pdf"
 _COMMIT: Final = "a3f19c2b8d4e5f60718293a4b5c6d7e8f9012345"
 _B: Final = f"id-of-{NEIGHBOUR}"
 _A_SOURCE_URL: Final = "git@heimserver:decks.git"
 _B_SOURCE_URL: Final = "https://git.example.invalid/b-talks.git"
-_AN_ASSET: Final = "assets/index-mRcVgIkQ.js"
 _THE_UNKNOWN: Final = "no-deck"
 
 
@@ -68,7 +68,7 @@ def _store_of_built_decks() -> FakeDeckStore:
         )
         store.put_build(
             slug,
-            Build(directory=_TALK, pdf=_PDF, commit=_COMMIT, built_at=NOW),
+            Build(directory=BUILT_TALK, pdf=_PDF, commit=_COMMIT, built_at=NOW),
         )
     return store
 
@@ -130,7 +130,7 @@ _REQUESTS: Final = [
     pytest.param(A_BROWSERS_ADDRESS, "get", "", _NO_HEADERS, id="the-deck-page"),
     pytest.param(A_TALK_ADDRESS, "get", "/", _NO_HEADERS, id="the-projector"),
     pytest.param(A_TALK_ADDRESS, "get", "/presenter/", _NO_HEADERS, id="the-presenter"),
-    pytest.param(A_TALK_ADDRESS, "get", f"/{_AN_ASSET}", _NO_HEADERS, id="an-asset"),
+    pytest.param(A_TALK_ADDRESS, "get", f"/{AN_ASSET}", _NO_HEADERS, id="an-asset"),
     pytest.param(
         A_TALK_ADDRESS, "get", "/no-such-file", _NO_HEADERS, id="the-fallback"
     ),
@@ -138,7 +138,7 @@ _REQUESTS: Final = [
     pytest.param(
         A_TALK_ADDRESS,
         "get",
-        f"/{_AN_ASSET}",
+        f"/{AN_ASSET}",
         {"range": "bytes=0-9"},
         id="a-range",
     ),
@@ -170,18 +170,18 @@ def test_a_conditional_request_for_a_foreign_asset_gets_no_not_modified(
     header: str,
 ) -> None:
     admins = _two_admins(tmp_path)
-    own = admins.talk_as_b.get(f"/deck/b-deck/{_AN_ASSET}")
+    own = admins.talk_as_b.get(f"/deck/b-deck/{AN_ASSET}")
     validators = {
         "if-none-match": own.headers["etag"],
         "if-modified-since": "Fri, 01 Jan 2100 00:00:00 GMT",
     }
 
     foreign = admins.talk_as_a.get(
-        f"/deck/b-deck/{_AN_ASSET}",
+        f"/deck/b-deck/{AN_ASSET}",
         headers={header: validators[header]},
     )
     unknown = admins.talk_as_a.get(
-        f"/deck/{_THE_UNKNOWN}/{_AN_ASSET}",
+        f"/deck/{_THE_UNKNOWN}/{AN_ASSET}",
         headers={header: validators[header]},
     )
 
@@ -194,21 +194,21 @@ def test_the_owner_receives_every_shape_of_request_for_the_own_deck(
 ) -> None:
     admins = _two_admins(tmp_path)
     client = admins.talk_as_a
-    asset = client.get(f"/deck/a-deck/{_AN_ASSET}")
+    asset = client.get(f"/deck/a-deck/{AN_ASSET}")
 
     assert asset.status_code == HTTPStatus.OK
-    assert asset.content == (_TALK / _AN_ASSET).read_bytes()
+    assert asset.content == (BUILT_TALK / AN_ASSET).read_bytes()
     assert (
         client.get("/deck/a-deck/no-such-file").content
-        == (_TALK / "index.html").read_bytes()
+        == (BUILT_TALK / "index.html").read_bytes()
     )
     head = client.head("/deck/a-deck/presenter/")
     assert head.status_code == HTTPStatus.OK
     assert head.content == b""
-    part = client.get(f"/deck/a-deck/{_AN_ASSET}", headers={"range": "bytes=0-9"})
+    part = client.get(f"/deck/a-deck/{AN_ASSET}", headers={"range": "bytes=0-9"})
     assert part.status_code == HTTPStatus.PARTIAL_CONTENT
     again = client.get(
-        f"/deck/a-deck/{_AN_ASSET}",
+        f"/deck/a-deck/{AN_ASSET}",
         headers={"if-none-match": asset.headers["etag"]},
     )
     assert again.status_code == HTTPStatus.NOT_MODIFIED
