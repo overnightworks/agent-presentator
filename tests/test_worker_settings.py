@@ -24,7 +24,7 @@ UNIQUE_BAD_VALUE = "hunter2-seconds"
 
 
 @pytest.fixture(autouse=True)
-def bare_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def no_worker_variables(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (*worker_settings_variables(), "PRESENTATOR_SECRET_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)

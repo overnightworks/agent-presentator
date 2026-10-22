@@ -20,22 +20,9 @@ from tests.api.lobby import (
     A_TALK_ADDRESS,
     AN_ISSUER,
     a_settings,
-    configure_oidc,
 )
 
 _UNDECODABLE: bytes = b"fake-secret-bytes-\xff\xfe"
-
-
-@pytest.fixture
-def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.MonkeyPatch:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
-    monkeypatch.setenv("PRESENTATOR_SECRET_KEY", "an instance key of at least 32 bytes")
-    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
-    monkeypatch.setenv("PRESENTATOR_COPRESENTER_SOCKET", str(tmp_path / "co.sock"))
-    monkeypatch.setenv("PRESENTATOR_BUILD_RUNNER", "host")
-    configure_oidc(monkeypatch, tmp_path)
-    return monkeypatch
 
 
 def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
@@ -252,8 +239,8 @@ def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None
         None,
         "http://presentator-talk.test",
         "https://presentator-talk.test/path",
-        "https://presentator.test",
-        "https://presentator.test:8443",
+        A_BROWSERS_ADDRESS,
+        f"{A_BROWSERS_ADDRESS}:8443",
     ],
     ids=["missing", "http", "a path", "the lobby's hostname", "the lobby's other port"],
 )

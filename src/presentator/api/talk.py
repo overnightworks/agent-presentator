@@ -35,10 +35,10 @@ from presentator.api.auth import (
     START_SIGN_IN_PATH,
     InstalledAuth,
     SignIn,
-    TalkRefusal,
+    TalkSignInRefusal,
     carry_set_cookies,
     signed_in_connection,
-    talk_refusal_path,
+    talk_sign_in_refusal_path,
 )
 from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_talk_mount
@@ -78,9 +78,11 @@ def create_talk(
     """Build the talk host around the same stores and use cases as the lobby."""
     sign_in = SignIn(sessions=sessions, auth=auth)
 
-    def refused(refusal: TalkRefusal, kept: Response) -> Response:
+    def refused(refusal: TalkSignInRefusal, kept: Response) -> Response:
         answer = Response(status_code=HTTPStatus.SEE_OTHER)
-        answer.headers["location"] = f"{lobby_origin}{talk_refusal_path(refusal)}"
+        answer.headers["location"] = (
+            f"{lobby_origin}{talk_sign_in_refusal_path(refusal)}"
+        )
         carry_set_cookies(kept, answer)
         return answer
 
