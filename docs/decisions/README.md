@@ -31,7 +31,7 @@ number is never reused and never renumbered.
 
 A record is a protocol, not a running contract: its text says what was decided
 on the date it names, and it is read that way. What holds today has its own
-owner — [PRODUCT.md](../PRODUCT.md) owns what exists — and an accepted record is
+owner — the [reference documents](../README.md) and the code — and an accepted record is
 not a claim that its slice is built.
 
 A decision is never rewritten silently. A later ruling that changes what a
