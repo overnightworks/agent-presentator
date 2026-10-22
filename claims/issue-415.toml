@@ -1,0 +1,7 @@
+claim_id = "b66d9f0db4104fad9b134d0f38c388d3"
+agent = "claude"
+role = "builder"
+base = "df49fbdbac9fdd162e25c760e5392539f055d9f4"
+branch = "claude/issue-415-quality-baseline"
+scope = ["quality/baseline.toml"]
+opened_commit = "f79bf2dd84265e8702547764e75bbe298a4daab7"
