@@ -7,6 +7,7 @@ import pytest
 from presentator.contracts.copresenter import (
     CoPresenterReadiness,
     CoPresenterUnavailableError,
+    PersonToken,
     Question,
 )
 
@@ -25,3 +26,10 @@ def test_copresenter_values_are_closed_and_immutable() -> None:
 
 def test_expected_private_refusal_has_one_neutral_exception() -> None:
     assert str(CoPresenterUnavailableError()) == "co-presenter unavailable"
+
+
+def test_a_person_token_shows_no_value_in_repr_or_str() -> None:
+    token = PersonToken("person-token-MARKER")
+
+    assert "person-token-MARKER" not in f"{token!r} {token!s}"
+    assert token.value == "person-token-MARKER"
