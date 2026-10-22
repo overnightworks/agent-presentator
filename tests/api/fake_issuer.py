@@ -7,7 +7,7 @@ inject, so no test ever contacts a real issuer.
 import base64
 import json
 import secrets
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from http import HTTPStatus
 from urllib.parse import parse_qs, urlsplit
@@ -20,6 +20,8 @@ from webauth.oidc import TokenEndpointAnswer, TokenEndpointError, TokenRequest
 A_KEY_ID = "the-key-only-this-test-has"
 A_BACKCHANNEL_EVENT = "http://schemas.openid.net/event/backchannel-logout"
 _TOKEN_LIFETIME_SECONDS = 300
+_AUTHORIZATION_CODE = "authorization_code"
+_REFRESH_TOKEN = "refresh_token"  # noqa: S105
 
 
 def _base64url(data: bytes) -> str:
@@ -42,6 +44,14 @@ def _signed(
     return f"{signing_input}.{_base64url(signature)}"
 
 
+def _refusal(error: str, status: HTTPStatus) -> TokenEndpointAnswer:
+    return TokenEndpointAnswer(status, json.dumps({"error": error}).encode())
+
+
+def _access_document(access_token: str) -> dict[str, str]:
+    return {"access_token": access_token, "token_type": "Bearer"}
+
+
 class FakeIssuer:
     """Signs ID tokens with a generated key and answers the two transports."""
 
@@ -53,6 +63,13 @@ class FakeIssuer:
         self._now = now
         self._tokens_by_code: dict[str, str] = {}
         self._refresh_token: str | None = None
+        self._person_access_token = secrets.token_urlsafe(8)
+        self._workload_access_token = secrets.token_urlsafe(8)
+        self._rotated_refresh_token: str | None = None
+        self._revoked_refresh_tokens: set[str] = set()
+        self.grant_types: list[str] = []
+        self.workload_is_refused = False
+        self.during_token_request: Callable[[], None] = lambda: None
         self.redirect_uris: list[str] = []
         self.token_endpoint_is_down = False
         self.key_set_is_down = False
@@ -60,6 +77,22 @@ class FakeIssuer:
     def issue_refresh_token(self, token: str) -> None:
         """Answer every later code exchange with this refresh token too."""
         self._refresh_token = token
+
+    def issue_person_access_token(self, token: str) -> None:
+        """Answer every later refresh grant with this access token."""
+        self._person_access_token = token
+
+    def issue_workload_access_token(self, token: str) -> None:
+        """Answer every later client-credentials grant with this access token."""
+        self._workload_access_token = token
+
+    def rotate_refresh_token_to(self, token: str) -> None:
+        """Answer every later refresh grant with this new refresh token too."""
+        self._rotated_refresh_token = token
+
+    def revoke_refresh_token(self, token: str) -> None:
+        """Refuse a refresh grant that presents this token with `invalid_grant`."""
+        self._revoked_refresh_tokens.add(token)
 
     def mint(
         self,
@@ -138,15 +171,42 @@ class FakeIssuer:
         return f"code={code}&state={parameters['state'][0]}"
 
     def post_token_request(self, request: TokenRequest) -> TokenEndpointAnswer:
-        """The token endpoint: the token minted for the code, or no answer at all."""
-        self.redirect_uris.append(request.form["redirect_uri"])
+        """The token endpoint: the grant's answer, or no answer at all."""
+        grant_type = request.form["grant_type"]
+        self.grant_types.append(grant_type)
+        self.during_token_request()
+        if grant_type == _AUTHORIZATION_CODE:
+            self.redirect_uris.append(request.form["redirect_uri"])
         if self.token_endpoint_is_down:
             message = "the token endpoint of a test issuer is down"
             raise TokenEndpointError(message)
-        document = {"id_token": self._tokens_by_code[request.form["code"]]}
+        if grant_type == _AUTHORIZATION_CODE:
+            return self._code_exchange(request.form["code"])
+        if grant_type == _REFRESH_TOKEN:
+            return self._refresh(request.form[_REFRESH_TOKEN])
+        return self._client_credentials()
+
+    def _code_exchange(self, code: str) -> TokenEndpointAnswer:
+        document = {"id_token": self._tokens_by_code[code]}
         if self._refresh_token is not None:
             document["refresh_token"] = self._refresh_token
         return TokenEndpointAnswer(HTTPStatus.OK, json.dumps(document).encode())
+
+    def _refresh(self, presented: str) -> TokenEndpointAnswer:
+        if presented in self._revoked_refresh_tokens:
+            return _refusal("invalid_grant", HTTPStatus.BAD_REQUEST)
+        document = _access_document(self._person_access_token)
+        if self._rotated_refresh_token is not None:
+            document[_REFRESH_TOKEN] = self._rotated_refresh_token
+        return TokenEndpointAnswer(HTTPStatus.OK, json.dumps(document).encode())
+
+    def _client_credentials(self) -> TokenEndpointAnswer:
+        if self.workload_is_refused:
+            return _refusal("invalid_client", HTTPStatus.UNAUTHORIZED)
+        return TokenEndpointAnswer(
+            HTTPStatus.OK,
+            json.dumps(_access_document(self._workload_access_token)).encode(),
+        )
 
     def fetch_key_set(self, url: str) -> bytes:
         """The key set endpoint: the one public key, or a failed fetch."""

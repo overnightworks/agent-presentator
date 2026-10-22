@@ -10,6 +10,8 @@ from typing import Literal
 
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
+from webauth.config import WebAuthConfig
+from webauth.oidc import OidcRelyingParty
 from webauth.oidc_login import AdmissionConfig
 from webauth.ports import AccountEvent, AuditSink, SubjectUserStore, WriteLock
 
@@ -33,6 +35,7 @@ from tests.api.lobby import (
     a_relying_party,
     an_installed_auth,
 )
+from tests.application.fakes import FrozenClock
 
 MEMBER = ["/apps/presentator"]
 ADMIN = ["/apps/presentator", "/apps/presentator/admin"]
@@ -70,6 +73,10 @@ class Scene:
     database: Path
     users: SqliteSubjectUserStore
     audit: RecordingAudit
+    sessions: SqliteSessionRecordStore
+    relying_party: OidcRelyingParty
+    config: WebAuthConfig
+    clock: FrozenClock
 
     def browser(self, *, raise_server_exceptions: bool = True) -> TestClient:
         return TestClient(
@@ -143,10 +150,11 @@ def a_scene(
         lock=lock,
         audit=audit(recording),
     )
+    sessions = SqliteSessionRecordStore(database)
     app, _ = a_lobby_app(
         people=people,
         signing_in=SigningIn(
-            sessions=SqliteSessionRecordStore(database),
+            sessions=sessions,
             auth=auth if admission is None else replace(auth, admission=admission),
         ),
     )
@@ -154,7 +162,15 @@ def a_scene(
         app, people=people, base_url=A_BROWSERS_ADDRESS, headers=A_BROWSERS_HEADERS
     )
     return Scene(
-        lobby=lobby, issuer=issuer, database=database, users=users, audit=recording
+        lobby=lobby,
+        issuer=issuer,
+        database=database,
+        users=users,
+        audit=recording,
+        sessions=sessions,
+        relying_party=auth.relying_party,
+        config=auth.config,
+        clock=people.clock,
     )
 
 
