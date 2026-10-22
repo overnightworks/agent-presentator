@@ -3,7 +3,8 @@
 A deck is code, so its talk runs on a site of its own where the lobby's cookies
 never reach. The talk host answers no lobby route: it starts the sign-in at the
 same issuer, completes it at its own callback, and serves the signed-in
-owner's built talk. It has no page of its own, so a refused sign-in is answered
+owner's built talk and, to an admin, the co-presenter that talk
+speaks to. It has no page of its own, so a refused sign-in is answered
 by a redirect to the lobby's refusal route.
 """
 
@@ -36,13 +37,18 @@ from presentator.api.auth import (
     SignIn,
     TalkRefusal,
     carry_set_cookies,
+    signed_in_connection,
     talk_refusal_path,
 )
+from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_talk_mount
 from presentator.application.decks import Decks
 
-TALK_PERMISSIONS_POLICY: Final = "camera=(), microphone=(), geolocation=()"
+TALK_PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
 _ROOT: Final = "/"
+_COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
+    protected=PathRules(exact=frozenset({"/copresenter/ask"})),
+)
 _SIGN_IN_ADDRESSES: Final = PathRules(
     exact=frozenset({_ROOT, START_SIGN_IN_PATH, SIGN_IN_CALLBACK_PATH}),
 )
@@ -67,6 +73,7 @@ def create_talk(
     decks: Decks,
     auth: InstalledAuth,
     lobby_origin: str,
+    copresenter: CoPresenterSurface | None = None,
 ) -> FastAPI:
     """Build the talk host around the same stores and use cases as the lobby."""
     sign_in = SignIn(sessions=sessions, auth=auth)
@@ -98,6 +105,7 @@ def create_talk(
         ),
         body_size=BodySizePolicy(default_max_bytes=DEFAULT_BODY_BYTES),
         csrf_origin=CsrfPolicy(),
+        csrf_token=_COPRESENTER_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
             login_redirect=LOGIN_REDIRECT,
@@ -108,4 +116,10 @@ def create_talk(
     talk.add_api_route(START_SIGN_IN_PATH, sign_in.start, methods=["GET"])
     talk.add_api_route(SIGN_IN_CALLBACK_PATH, finish_sign_in, methods=["GET"])
     add_talk_mount(talk, decks=decks)
+    if copresenter is not None:
+        add_copresenter_routes(
+            talk,
+            surface=copresenter,
+            admission=lambda connection: signed_in_connection(connection, sessions),
+        )
     return talk

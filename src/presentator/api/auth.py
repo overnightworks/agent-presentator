@@ -60,7 +60,6 @@ from webauth.ports import (
     WriteLock,
 )
 
-from presentator.api.copresenter import CoPresenterSurface, add_copresenter_routes
 from presentator.api.decks import add_deck_pages
 from presentator.api.hooks import HOOK_CALLS, fetch_hook
 from presentator.api.legal import DATENSCHUTZ, Emphasis
@@ -148,11 +147,8 @@ _PUBLIC_RULES: Final = (
     PublicRule(_SERVER_CALLS, methods=frozenset({HTTPMethod.POST})),
 )
 _OPTIONAL_PATHS: Final = PathRules(exact=frozenset({_DATENSCHUTZ}))
-PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
+PERMISSIONS_POLICY: Final = "camera=(), microphone=(), geolocation=()"
 _CSRF_POLICY: Final = CsrfPolicy(exempt=_SERVER_CALLS)
-_COPRESENTER_CSRF_POLICY: Final = CsrfPolicy(
-    protected=PathRules(exact=frozenset({"/copresenter/ask"})),
-)
 DEFAULT_BODY_BYTES: Final = 32 * 1024
 # Every route has this budget, forms and the ask included; the hook keeps a git
 # host's push budget, since GitHub documents payloads of up to 25 MB.
@@ -253,7 +249,6 @@ class LobbyPrivate:
     """Private capabilities the authenticated lobby may expose to an admin."""
 
     voice: VoiceStatusUse
-    copresenter: CoPresenterSurface | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -524,7 +519,6 @@ def _install_middleware(
         ),
         body_size=_BODY_SIZE,
         csrf_origin=_CSRF_POLICY,
-        csrf_token=_COPRESENTER_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
             login_redirect=LOGIN_REDIRECT,
@@ -580,10 +574,4 @@ def create_lobby(
     add_deck_pages(lobby, decks=decks, pages=pages)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
-    if private.copresenter is not None:
-        add_copresenter_routes(
-            lobby,
-            surface=private.copresenter,
-            admission=lambda connection: signed_in_connection(connection, sessions),
-        )
     return lobby

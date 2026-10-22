@@ -59,7 +59,8 @@ reachable under the other's name.
   does not separate them and deck code on the talk host can still set
   `Domain=` cookies for the shared registrable domain.
 - The Datenschutzerklärung names the talk host's own session cookie.
-- The lobby keeps its talk mount until the co-presenter moves to the talk host.
+- The co-presenter routes and the microphone permission are the talk host's;
+  the lobby keeps its talk mount until it stops serving talks.
 
 ## Rejected alternatives
 

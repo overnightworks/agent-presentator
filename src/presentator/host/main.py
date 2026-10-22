@@ -196,14 +196,9 @@ def build_instance(settings: Settings) -> Instance:
             decks=decks,
             pages=_pages(settings),
             auth=lobby_auth,
-            private=_lobby_private(settings, clock),
+            private=_lobby_private(settings),
         ),
-        talk=create_talk(
-            sessions=sessions,
-            decks=decks,
-            auth=talk_auth,
-            lobby_origin=settings.public_origin,
-        ),
+        talk=_talk(settings, sessions, decks, talk_auth, clock),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
@@ -212,17 +207,38 @@ def build_instance(settings: Settings) -> Instance:
     )
 
 
-def _lobby_private(settings: Settings, clock: SystemClock) -> LobbyPrivate:
-    """What only a signed-in admin of the lobby may reach: the sockets of the host."""
-    return LobbyPrivate(
-        copresenter=CoPresenterSurface(
-            use=CoPresenterUse(
-                answers=UdsCoPresenter(settings.copresenter_socket),
-                speech=UdsSpeechHearing(settings.speech_socket),
-            ),
-            limiter=AskLimiter(clock=clock),
-            public_origin=settings.public_origin,
+def _talk(
+    settings: Settings,
+    sessions: SqliteSessionRecordStore,
+    decks: Decks,
+    auth: InstalledAuth,
+    clock: SystemClock,
+) -> FastAPI:
+    """The talk host, with the co-presenter it speaks to."""
+    return create_talk(
+        sessions=sessions,
+        decks=decks,
+        auth=auth,
+        lobby_origin=settings.public_origin,
+        copresenter=_copresenter_surface(settings, clock),
+    )
+
+
+def _copresenter_surface(settings: Settings, clock: SystemClock) -> CoPresenterSurface:
+    """What only a signed-in admin may reach at the talk host: the host's sockets."""
+    return CoPresenterSurface(
+        use=CoPresenterUse(
+            answers=UdsCoPresenter(settings.copresenter_socket),
+            speech=UdsSpeechHearing(settings.speech_socket),
         ),
+        limiter=AskLimiter(clock=clock),
+        browser_origin=settings.talk_origin,
+    )
+
+
+def _lobby_private(settings: Settings) -> LobbyPrivate:
+    """What only a signed-in admin of the lobby may reach: the socket of the host."""
+    return LobbyPrivate(
         voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
     )
 

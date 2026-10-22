@@ -41,9 +41,9 @@ from tests.api.lobby import (
 )
 
 _HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-# The lobby's own policy (`presentator.api.auth`): never the camera, never a
-# page's own location, only the co-presenter's microphone.
-_MIC_ONLY_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=()"
+# The lobby's own policy (`presentator.api.auth`): no camera, no microphone,
+# never a page's own location.
+_NO_DEVICE_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=()"
 # Every one of these answers the same way whatever carried the request: a
 # page, a static file, a 404 nothing names, or an exception nothing caught.
 _EVERY_SECURITY_HEADER = {
@@ -52,7 +52,7 @@ _EVERY_SECURITY_HEADER = {
     "x-frame-options": FRAME_OPTIONS,
     "content-security-policy": a_content_security_policy(),
     "referrer-policy": REFERRER_POLICY,
-    "permissions-policy": _MIC_ONLY_PERMISSIONS_POLICY,
+    "permissions-policy": _NO_DEVICE_PERMISSIONS_POLICY,
 }
 
 
@@ -276,12 +276,12 @@ def test_a_lobby_reached_over_https_sends_strict_transport_security(
     assert answer.headers["strict-transport-security"] == STRICT_TRANSPORT_SECURITY
 
 
-def test_the_permissions_policy_admits_only_the_copresenters_own_microphone(
+def test_the_lobbys_permissions_policy_admits_no_device(
     signed_in_lobby: Lobby,
 ) -> None:
     answer = signed_in_lobby.client.get("/")
 
-    assert answer.headers["permissions-policy"] == _MIC_ONLY_PERMISSIONS_POLICY
+    assert answer.headers["permissions-policy"] == _NO_DEVICE_PERMISSIONS_POLICY
 
 
 def test_a_built_talk_carries_the_same_security_headers_as_the_lobby() -> None:
