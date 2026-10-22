@@ -65,7 +65,7 @@ def test_the_upload_wait_is_what_remains_of_the_budget_taken_at_the_accepted_exi
     assert life.budgets_waited[UPLOAD_WAIT] == pytest.approx(UPLOAD_SECONDS - taken)
 
 
-def test_an_upload_budget_spent_before_the_release_prevents_the_release(
+def test_an_upload_budget_spent_before_the_spawn_prevents_the_spawn(
     connection: socket.socket,
     listener: socket.socket,
 ) -> None:
@@ -75,16 +75,7 @@ def test_an_upload_budget_spent_before_the_release_prevents_the_release(
 
     assert outcome == LifeEnd.UPLOAD_EXPIRED
     upload_leg = life.events[life.events.index("seal") :]
-    assert upload_leg == [
-        "seal",
-        "open-deck",
-        "spawn",
-        "status",
-        "kill",
-        "wait",
-        "close",
-        "close-deck",
-    ]
+    assert upload_leg == ["seal", "open-deck", "close-deck"]
 
 
 def test_an_upload_budget_spent_during_the_release_is_not_waited_for(

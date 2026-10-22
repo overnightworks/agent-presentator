@@ -99,6 +99,7 @@ def test_a_round_comes_every_fifty_milliseconds_and_the_last_wait_is_clipped() -
 
     assert table.sleeps == pytest.approx([0.05, 0.05, 0.02])
     assert table.now == pytest.approx(deadline)
+    assert table.rounds == len(table.sleeps)
 
 
 LATE_TABLES = {
@@ -114,6 +115,33 @@ def test_only_pid_one_left_after_the_deadline_is_not_quiet(
     table: FakeProcessTable,
 ) -> None:
     assert not sweep(table.effects(), DEADLINE)
+
+
+LISTING_ENDS_AT_DEADLINE = {
+    "a leftover": (FakeProcessTable(processes=["1", LEFTOVER], now=3.75), False),
+    "only PID 1": (FakeProcessTable(now=3.75), True),
+}
+
+
+@pytest.mark.parametrize(
+    ("table", "quiet"),
+    LISTING_ENDS_AT_DEADLINE.values(),
+    ids=LISTING_ENDS_AT_DEADLINE.keys(),
+)
+def test_a_round_entered_before_the_deadline_is_judged_by_its_own_listing(
+    table: FakeProcessTable, *, quiet: bool
+) -> None:
+    table.listing_takes = 0.25
+
+    assert sweep(table.effects(), DEADLINE) is quiet
+    assert table.rounds == 1
+
+
+def test_a_sweep_entered_exactly_at_its_deadline_runs_no_round() -> None:
+    table = FakeProcessTable(now=DEADLINE)
+
+    assert not sweep(table.effects(), DEADLINE)
+    assert table.rounds == 0
 
 
 def test_a_listing_error_is_not_quiet() -> None:

@@ -589,7 +589,7 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
     assert run.spawns.roles == ["idle", "upload", "step", "send"]
     assert not run.thread.is_alive()
     assert run.serving.outcome == [0]
-    assert run.serving.sweep_deadlines == []
+    assert len(run.serving.sweep_deadlines) == 1
     assert run.serving.watchdog.events == ["arm", "arm"]
 
 

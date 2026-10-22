@@ -2,6 +2,7 @@
 
 import socket
 import sys
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import replace
 
@@ -335,3 +336,186 @@ def test_the_connection_is_not_looked_at_when_the_sender_is_already_ended(
 
     assert outcome == life_end
     assert sender_leg(life) == leg
+
+
+def planned(life: ScriptedLife) -> str:
+    """The reply plan on the sender's argv."""
+    *_front, flag, plan = life.spawned[-1].command
+    assert flag == "--plan"
+    return plan
+
+
+def quiesce_sweeps(life: ScriptedLife) -> list[str]:
+    return [event for event in life.events if event.startswith("sweep")]
+
+
+QUIESCED_LIVES = {
+    "the step exits zero": (accepted_life, "walk", "sweep 105.0"),
+    "the step exits one": (
+        lambda: accepted_life(step=ScriptedStep(exit_status=1)),
+        "failed-text",
+        "sweep 105.0",
+    ),
+    "the step is killed at the build bound": (
+        lambda: accepted_life(step=ScriptedStep(stalled=True)),
+        "failed-null",
+        "sweep 405.0",
+    ),
+    "the gate refuses the step": (
+        lambda: accepted_life(step=ScriptedStep(gate_admits=False)),
+        "failed-null",
+        "sweep 105.0",
+    ),
+    "the step's paths cannot be made": (
+        lambda: accepted_life(step=ScriptedStep(prepare_error=OSError("exists"))),
+        "failed-null",
+        "sweep 105.0",
+    ),
+    "the step exits zero and the sweep is not quiet": (
+        lambda: accepted_life(quiesce_quiet=False),
+        "failed-null",
+        "sweep 105.0",
+    ),
+    "the step exits one and the sweep is not quiet": (
+        lambda: accepted_life(step=ScriptedStep(exit_status=1), quiesce_quiet=False),
+        "failed-text",
+        "sweep 105.0",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("make_life", "plan", "sweep"), QUIESCED_LIVES.values(), ids=QUIESCED_LIVES.keys()
+)
+def test_every_path_to_the_reply_quiesces_once_and_hands_the_sender_its_plan(
+    connection: socket.socket,
+    listener: socket.socket,
+    make_life: Callable[[], ScriptedLife],
+    plan: str,
+    sweep: str,
+) -> None:
+    life = make_life()
+
+    outcome = run(life, connection, listener)
+
+    assert outcome == LifeEnd.CONSUMED
+    assert quiesce_sweeps(life) == [sweep]
+    assert life.events[life.events.index(sweep) + 1] == "spawn"
+    assert planned(life) == plan
+
+
+def test_a_cancellation_during_the_step_runs_no_quiesce_and_no_sender(
+    connection: socket.socket, listener: socket.socket
+) -> None:
+    life = accepted_life(step=ScriptedStep(connection_wakes=True))
+
+    outcome = run(life, connection, listener)
+
+    assert outcome == LifeEnd.CANCELLED
+    assert quiesce_sweeps(life) == []
+    assert len(life.spawned) == WIRE_SPAWNS - 1
+
+
+LIFE_END = ACCEPT_TIME + BUILD_SECONDS + 142.0
+UPLOAD_END = ACCEPT_TIME + 60.0
+LATE_RETURNS = {
+    "the quiesce sweep returns past its deadline": (
+        lambda: accepted_life(quiesce_overrun=7.25, step=ScriptedStep(stalled=True)),
+        "sweep 465.0",
+        69.75,
+    ),
+    "the step's reap after the build bound's kill takes long": (
+        lambda: accepted_life(step=ScriptedStep(stalled=True, reap_takes=78.0)),
+        "sweep 542.0",
+        4.0,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("make_life", "sweep", "reply_wait"),
+    LATE_RETURNS.values(),
+    ids=LATE_RETURNS.keys(),
+)
+def test_a_late_return_before_the_life_deadline_shortens_the_reply_and_never_moves_it(
+    connection: socket.socket,
+    listener: socket.socket,
+    make_life: Callable[[], ScriptedLife],
+    sweep: str,
+    reply_wait: float,
+) -> None:
+    life = make_life()
+    life.upload_runs_for = 60.0
+    life.send_stalled = True
+
+    outcome = run(life, connection, listener)
+
+    assert outcome == LifeEnd.REPLY_EXPIRED
+    assert quiesce_sweeps(life) == [sweep]
+    assert life.budgets_waited[-1] == reply_wait
+    assert life.clock_now == LIFE_END
+
+
+EXHAUSTED_LIVES = {
+    "the deck's close takes long": (
+        lambda: accepted_life(deck_close_takes=90.0, step=ScriptedStep(stalled=True)),
+        LIFE_END,
+    ),
+    "the step's reap returns exactly at the deadline": (
+        lambda: accepted_life(step=ScriptedStep(stalled=True, reap_takes=82.0)),
+        LIFE_END,
+    ),
+    "the step's reap returns after the deadline": (
+        lambda: accepted_life(step=ScriptedStep(stalled=True, reap_takes=84.0)),
+        LIFE_END + 2.0,
+    ),
+    "the deck's close returns after the deadline": (
+        lambda: accepted_life(deck_close_takes=385.0),
+        LIFE_END + 3.0,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("make_life", "clock_at_end"), EXHAUSTED_LIVES.values(), ids=EXHAUSTED_LIVES.keys()
+)
+def test_nothing_starts_once_the_life_deadline_has_passed(
+    connection: socket.socket,
+    listener: socket.socket,
+    make_life: Callable[[], ScriptedLife],
+    clock_at_end: float,
+) -> None:
+    life = make_life()
+    life.upload_runs_for = 60.0
+    life.send_stalled = True
+
+    outcome = run(life, connection, listener)
+
+    assert outcome == LifeEnd.REPLY_EXPIRED
+    assert len(life.spawned) == WIRE_SPAWNS - 1
+    assert quiesce_sweeps(life) == [f"sweep {LIFE_END}"]
+    assert life.events[-1] == f"sweep {LIFE_END}"
+    assert life.clock_now == clock_at_end
+
+
+def test_a_deck_close_that_outlasts_the_life_prepares_and_spawns_no_step(
+    connection: socket.socket, listener: socket.socket
+) -> None:
+    life = accepted_life(deck_close_takes=385.0, upload_runs_for=60.0)
+
+    run(life, connection, listener)
+
+    assert "prepare" not in life.events
+    assert life.step.spawned == []
+
+
+def test_a_deck_close_that_takes_long_leaves_the_step_the_rest_of_the_life(
+    connection: socket.socket, listener: socket.socket
+) -> None:
+    life = accepted_life(
+        deck_close_takes=90.0, upload_runs_for=60.0, step=ScriptedStep(stalled=True)
+    )
+
+    run(life, connection, listener)
+
+    assert life.budgets_waited[FIRST_STEP_WAIT] == LIFE_END - UPLOAD_END - 90.0

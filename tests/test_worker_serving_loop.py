@@ -234,14 +234,19 @@ def test_a_sweep_that_is_quiet_only_after_its_deadline_ends_the_life_armed(
 
 
 ACCEPTED_REARMS = {
-    "the design's 300 s build, observed at the accept": (300.0, 0.0, 447.0),
-    "the design's 1 s build, observed at the accept": (1.0, 0.0, 148.0),
-    "an observation 1.5 s after the accept shortens it by 1.5 s": (1.0, 1.5, 146.5),
+    "the design's 300 s build, observed at the accept": (300.0, 0.0, 447.0, 105.0),
+    "the design's 1 s build, observed at the accept": (1.0, 0.0, 148.0, 105.0),
+    "an observation 1.5 s after the accept shortens it by 1.5 s": (
+        1.0,
+        1.5,
+        146.5,
+        108.0,
+    ),
 }
 
 
 @pytest.mark.parametrize(
-    ("build_timeout", "inspection_takes", "rearmed_for"),
+    ("build_timeout", "inspection_takes", "rearmed_for", "quiesce_deadline"),
     ACCEPTED_REARMS.values(),
     ids=ACCEPTED_REARMS.keys(),
 )
@@ -250,6 +255,7 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
     build_timeout: float,
     inspection_takes: float,
     rearmed_for: float,
+    quiesce_deadline: float,
 ) -> None:
     life = ScriptedLife(
         exit_status=WireExit.ACCEPTED,
@@ -269,6 +275,7 @@ def test_an_accepted_step_re_arms_the_watchdog_to_the_emergency_end_from_the_acc
         *CHILD_LEG,
         "close-deck",
         *STEP_LEG,
+        f"sweep {quiesce_deadline}",
         *SENDER_LEG,
     ]
 
@@ -288,9 +295,11 @@ def test_every_role_is_spawned_with_the_work_and_the_megabytes_of_the_serving(
 
     consume_an_accepted_step(volume, life)
 
-    assert [spawned.command[-4:] for spawned in life.spawned] == [
+    idle, upload, sender = life.spawned
+    assert [spawned.command[-4:] for spawned in (idle, upload)] == [
         ["--work", "/a", "--megabytes", "7"]
-    ] * 3
+    ] * 2
+    assert sender.command[-6:] == ["--work", "/a", "--megabytes", "7", "--plan", "walk"]
     assert [
         spawned.command[spawned.command.index("--role") + 1] for spawned in life.spawned
     ] == [
@@ -353,6 +362,7 @@ LIFE_ENDS = {
             *CHILD_LEG,
             "close-deck",
             *STEP_LEG,
+            "sweep 105.0",
             *SENDER_LEG,
         ],
     ),

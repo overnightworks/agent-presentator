@@ -6,7 +6,12 @@ import socket
 import pytest
 
 from presentator.adapters.build_wire import (
+    LENGTH,
+    MAGIC,
+    MAXIMUM_HEADER_BYTES,
     EmptyHeader,
+    FailedOutcome,
+    MessageKind,
     RecordTag,
     StepHeader,
     WireRefusedError,
@@ -38,6 +43,42 @@ def test_failed_is_an_outcome_message_with_a_null_text(
     send_failed(writing_end)
 
     assert reading_end.recv(64) == support.OUTCOME_FAILED
+
+
+def _sent_outcome_text(reading_end: socket.socket) -> str | None:
+    preamble = reading_end.recv(len(MAGIC) + 2)
+    assert preamble[-1] == MessageKind.OUTCOME
+    (length,) = LENGTH.unpack(reading_end.recv(LENGTH.size))
+    assert length <= MAXIMUM_HEADER_BYTES
+    return FailedOutcome.model_validate_json(reading_end.recv(length)).text
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "\x1b" * 2000,
+        "\u20ac" * 2000,
+        "\x1b" * 1500 + "x" * 500,
+        "x" * 2000,
+    ],
+    ids=["escapes", "euros", "escapes then ascii", "ascii"],
+)
+def test_a_failed_text_is_the_longest_suffix_that_fits_the_header_bound(
+    wire: tuple[socket.socket, socket.socket], said: str
+) -> None:
+    reading_end, writing_end = wire
+
+    send_failed(writing_end, said)
+
+    sent = _sent_outcome_text(reading_end)
+    assert sent is not None
+    assert said.endswith(sent)
+    if sent != said:
+        longer = said[len(said) - len(sent) - 1 :]
+        oversized = FailedOutcome(text=longer).model_dump_json().encode()
+        assert len(oversized) > MAXIMUM_HEADER_BYTES
+    else:
+        assert sent == said
 
 
 def test_an_end_without_entries_is_thirteen_bytes(
