@@ -234,7 +234,7 @@ def test_a_dry_run_answers_the_same_body_and_changes_nothing() -> None:
     assert preview.json()["dry_run"] is True
     assert preview.json()["kinds"]
     real = scene.erase()
-    assert {**preview.json(), "dry_run": False} == real.json()
+    assert real.json() == {**preview.json(), "dry_run": False}
 
 
 def test_an_unparsable_dry_run_answers_422_and_deletes_nothing() -> None:
