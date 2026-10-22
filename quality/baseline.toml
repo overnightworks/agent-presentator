@@ -9,6 +9,9 @@
 [ccn."speech/src/presentator_speech/service.py"]
 "Runtime._activate_voice" = 18
 
+[ccn."tests/api/lobby.py"]
+"a_lobby_app" = 17
+
 [file_lines]
 "copresenter/scripts/prove_loop.py" = 849
 "speech/tests/test_provider_process.py" = 872
@@ -22,7 +25,7 @@
 "tests/api/test_sources.py" = 1719
 "tests/application/test_decks.py" = 2071
 "tests/gitmirror/test_mirror.py" = 1441
-"tests/test_host.py" = 824
+"tests/test_host.py" = 832
 
 [function_lines."copresenter/scripts/prove_loop.py"]
 "_drive_late_microphone_after_lease_loss" = 75
@@ -72,8 +75,10 @@
 "Decks.add_source" = 81
 
 [function_lines."src/presentator/host/main.py"]
-"build_instance" = 88
+"build_instance" = 91
 
 [function_lines."tests/adapters/test_decks.py"]
 "test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair" = 67
 
+[function_lines."tests/api/lobby.py"]
+"a_lobby_app" = 91
