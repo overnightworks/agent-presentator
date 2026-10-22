@@ -17,7 +17,14 @@ from webauth.middleware.security_headers import (
 from webauth.oidc_login import AdmissionConfig
 
 from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
-from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS, ENGLISH, Lobby
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
+    AN_ASSET,
+    BUILT_TALK,
+    ENGLISH,
+    Lobby,
+)
 from tests.api.talk_support import (
     A_DECK,
     B_DECK,
@@ -83,7 +90,6 @@ def test_an_unknown_talk_sign_in_refusal_is_not_found(signed_in_lobby: Lobby) ->
 
 # ---- the talk host itself ----------------------------------------------------
 
-_BUILT_TALK = Path(__file__).parent / "built_talk"
 _SIGNED_OUT = "signed out"
 _LOBBY_ONLY_PAGES = [
     "/settings",
@@ -471,22 +477,21 @@ def test_a_lobby_logout_leaves_the_talk_session_standing(hosts: Hosts) -> None:
 
 # ---- serving the owner's talk ------------------------------------------------
 
-_INDEX = (_BUILT_TALK / "index.html").read_bytes()
-_ASSET = "assets/index-mRcVgIkQ.js"
+_INDEX = (BUILT_TALK / "index.html").read_bytes()
 
 
 def _six_requests(talk: TestClient, slug: str) -> list[Response]:
     base = f"/deck/{slug}"
-    asset = talk.get(f"{base}/{_ASSET}")
+    asset = talk.get(f"{base}/{AN_ASSET}")
     validator = asset.headers.get("etag")
     return [
         talk.get(f"{base}/presenter/"),
-        talk.get(f"{base}/{_ASSET}"),
+        talk.get(f"{base}/{AN_ASSET}"),
         talk.get(f"{base}/no/such/page/"),
-        talk.head(f"{base}/{_ASSET}"),
-        talk.get(f"{base}/{_ASSET}", headers={"range": "bytes=0-9"}),
+        talk.head(f"{base}/{AN_ASSET}"),
+        talk.get(f"{base}/{AN_ASSET}", headers={"range": "bytes=0-9"}),
         talk.get(
-            f"{base}/{_ASSET}",
+            f"{base}/{AN_ASSET}",
             headers={"if-none-match": validator or '"unknown"'},
         ),
     ]
@@ -501,7 +506,7 @@ def test_the_owner_gets_the_talk_its_assets_ranges_and_validators(
     )
 
     assert presenter.content == _INDEX
-    assert asset.content == (_BUILT_TALK / _ASSET).read_bytes()
+    assert asset.content == (BUILT_TALK / AN_ASSET).read_bytes()
     assert fallback.content == _INDEX
     assert (head.status_code, head.content) == (HTTPStatus.OK, b"")
     assert ranged.status_code == HTTPStatus.PARTIAL_CONTENT

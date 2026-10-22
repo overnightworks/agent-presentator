@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_TALK_ADDRESS,
+    BUILT_TALK,
     ENGLISH,
     GivenDecks,
     a_configured_source,
@@ -28,7 +29,6 @@ _SLUG: Final = "hello-deck"
 _PROJECTOR: Final = f"/deck/{_SLUG}/"
 _PRESENTER: Final = f"/deck/{_SLUG}/presenter/"
 _ADDRESS: Final = "git@heimserver:decks.git"
-_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 
 
 def _talk_host_on_a_built_deck(tmp_path: Path) -> tuple[TestClient, Path]:
@@ -179,7 +179,7 @@ def test_a_nonsense_address_under_a_built_talk_is_the_application(
     tmp_path: Path,
 ) -> None:
     talk_host = a_talk_host(tmp_path, _a_built_deck())
-    application = (_BUILT_TALK / "index.html").read_bytes()
+    application = (BUILT_TALK / "index.html").read_bytes()
     nonsense = talk_host.get(f"{_PROJECTOR}this-slide-was-never-written")
 
     assert nonsense.status_code == HTTPStatus.OK
