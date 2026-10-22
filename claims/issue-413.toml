@@ -1,8 +1,0 @@
-claim_id = "5fbd88967bbb428087f508787016cfe8"
-agent = "claude"
-role = "builder"
-base = "df49fbdbac9fdd162e25c760e5392539f055d9f4"
-branch = "claude/issue-413-a6b3-walk"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/host/worker_wire.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_build_wire_walk.py", "tests/adapters/test_worker_children.py", "tests/step_support.py", "tests/test_worker_entries_chain.py", "tests/test_worker_reply_chain.py", "tests/test_worker_side_chain.py", "tests/test_worker_step_chain.py", "tests/test_worker_wire.py", "tests/worker_support.py"]
-opened_commit = "71e03df06d121b8ddd19f55d6fb0aa6812daa488"
-whole_reason = "The walk, the step contracts, the limits and the entry sending are one reply; the side-chain test pins that reply and changes with it."
