@@ -6,29 +6,16 @@ describes something this file does not list, that thing is not built.
 
 ## What exists today
 
-An instance signs a person in, lists the decks a configured Git source
-carries while keeping that list current by itself, gives each deck a page,
-builds the deck a push changed, shows what state that build is in, delivers
-that talk and its PDF from the page, and lets an admin and every person say how
-the lobby looks and which language it speaks. M0 is tracked on
-[#8](https://github.com/overnightworks/agent-presentator/issues/8); first start
-and password login landed as
-[#22](https://github.com/overnightworks/agent-presentator/issues/22) and were
-removed by [#262](https://github.com/overnightworks/agent-presentator/issues/262)
-(K13), the deck
-list as
-[#26](https://github.com/overnightworks/agent-presentator/issues/26), the deck
-page and the serving boundary as
-[#33](https://github.com/overnightworks/agent-presentator/issues/33), and
-Settings, Account and the person menu as
-[#32](https://github.com/overnightworks/agent-presentator/issues/32).
+An instance signs a person in through Keycloak, lists the decks a configured
+Git source carries while keeping that list current by itself, gives each deck a
+page, builds the deck a push changed, shows what state that build is in,
+delivers that talk and its PDF from the page, and lets an admin and every person
+say how the lobby looks and which language it speaks. A local speech process and
+a co-presenter answer beside a talk.
 
 A decision record is a technical choice, not a claim that its slice exists.
 
 ## Sections
-
-This index gains a section per subject once that subject has landed behavior to
-report.
 
 ### Running an instance
 
@@ -38,18 +25,14 @@ the packaged server as well. One compose file builds both and starts the server
 with the database, the mirrors and the built talks in named volumes: a `docker
 compose down` and the next `up` find the accounts, the sources, the decks and
 the talks that were built, and build nothing again. Nothing is reachable from
-beyond this machine yet — the tunnel, the service that survives a reboot, and
-the first login from the laptop are
-[#67](https://github.com/overnightworks/agent-presentator/issues/67). How an
+beyond this machine; no tunnel or boot-surviving service is shipped. How an
 instance is started, upgraded and backed up, and what a fresh one must be
 given, is [OPERATIONS.md](OPERATIONS.md).
 
 ### Signing in
 
-Nobody can sign in yet: the password login and `/setup` are gone, and the
-Keycloak sign-in is K13
-([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
-`/login` says "You are logged out." with one Log in button and the legal links;
+There is no password login and no `/setup`; accounts arrive with the Keycloak
+sign-in. `/login` says "You are logged out." with one Log in button and the legal links;
 the button starts the sign-in at `/login/oidc`, which sends the browser to
 Keycloak. The return at `/auth/callback` admits only members of the Keycloak
 group `/apps/presentator` (admins: `/apps/presentator/admin`), opens one
@@ -69,22 +52,18 @@ expired session rows every five minutes, apart from the deck refresh.
 A signed-out browser navigation goes to `/login/oidc` with the requested path
 and query in `next`; a JSON request receives 401. Every mutating route is
 cross-origin protected by default; the sessionless `POST /sources/<name>/fetch`
-and Keycloak's `POST /auth/backchannel-logout` are the only exemptions. A verified Logout Token ends every session of its subject (not live until edge#50 K3c registers the route); bodies over 32 KiB are refused, with a 25 MiB budget on the hook prefix. Logging out is a POST that deletes the session row at once and sends the browser to Keycloak's end-session endpoint (with the ID-token hint when usable), which returns it to `/login`. No answer may be replayed from the
+and Keycloak's `POST /auth/backchannel-logout` are the only exemptions. A verified Logout Token ends every session of its subject; bodies over 32 KiB are refused, with a 25 MiB budget on the hook prefix. Logging out is a POST that deletes the session row at once and sends the browser to Keycloak's end-session endpoint (with the ID-token hint when usable), which returns it to `/login`. No answer may be replayed from the
 browser cache.
 
 Every lobby page, signed in or out, ends with two links: Impressum goes to the
 operator's one Impressum at `https://hallucinai.de/impressum`, Datenschutz to
 `/datenschutz`. That page answers without a session and shows the German
-Datenschutzerklärung that `presentator.api.legal` owns; its wording waits for
-the operator's approval before Presentator goes online
-([#197](https://github.com/overnightworks/agent-presentator/issues/197),
-[ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
+Datenschutzerklärung that `presentator.api.legal` owns
+([ADR 0015](decisions/0015-public-like-songmaker-own-login.md)).
 
 The SQLite stores stay this repository's
 ([ADR 0003](decisions/0003-libraries-for-models-and-auth.md),
-[ADR 0011](decisions/0011-instance-users.md)); no password is stored. User management, including
-deactivation, belongs to [#61](https://github.com/overnightworks/agent-presentator/issues/61).
-How an instance is started is [OPERATIONS.md](OPERATIONS.md).
+[ADR 0011](decisions/0011-instance-users.md)); no password is stored. How an instance is started is [OPERATIONS.md](OPERATIONS.md).
 
 ### Settings, Account, and how the lobby looks
 
@@ -101,7 +80,7 @@ down, failed when the host answered with something else, or Error when a
 credential could not be resolved, never the internal reason why — and a Fetch
 now that refreshes that one source and returns to the list. An instance with
 no source says what a source
-is and what you need for it. Users is not a tab yet. An admin adds a source
+is and what you need for it. There is no Users tab. An admin adds a source
 there, and each source has a page of its own. Everybody opens Account
 and overrides language and theme for themselves alone. Both resolve the same way — the person's own choice first,
 the instance default behind it — and "follow system" writes no `data-theme`
@@ -118,9 +97,7 @@ is kept and shown back under Settings; nothing else reads it yet.
 The lobby's colours come from the vendored
 [`overnightworks/ui-console`](https://github.com/overnightworks/ui-console)
 v0.2.0 pin; Pico leftover chrome lives in `lobby.css`. Settings and Account
-still use this product's Pico markup; the package grammar is adopted when
-Users lands
-([#61](https://github.com/overnightworks/agent-presentator/issues/61)).
+use this product's Pico markup, not the package grammar.
 
 htmx 2.x is vendored beside Pico and carries the two writes a person makes
 about themselves: the theme rows of the person menu and the Account
@@ -129,8 +106,7 @@ jinja2-fragments ([ADR 0008](decisions/0008-lobby-server-rendered.md)) is not
 installed, because no surface here has a partial to serve: both writes change
 the whole document, down to the `<html>` element the theme sits on.
 
-Account carries neither the password nor the sessions part of the picture;
-each arrives with the slice that fills it.
+Account carries neither the password nor the sessions part of the picture.
 
 ### Listing decks
 
@@ -245,7 +221,7 @@ it is done. The PDF of the last good build stays offered beside them. Where the
 last build failed, the page names the commit that was tried, how long ago, and
 what the toolchain said — as text, never as markup, and cut to the last two
 thousand characters — and says that the last talk that was built still opens;
-the three ways in stay open, because the failure moved nothing (line 16). A
+the three ways in stay open, because the failure moved nothing. A
 build that left no words at all is explained in the lobby's own sentence
 instead.
 
@@ -331,12 +307,11 @@ a run given up on, one whose tree this host could not read, and one that
 printed nothing hand back no words, and the page says that in its own
 sentence. What a build that did not finish left behind is taken away again, and
 the directory a deck delivers from is never removed, so a request that read the previous
-pointer still finds a directory. Cleaning up the builds that were pointed at is
-open on [#8](https://github.com/overnightworks/agent-presentator/issues/8).
+pointer still finds a directory. A build that was pointed at is never cleaned up.
 
 **A deck is code, and its build runs in a container of its own.** The server
 asks its machine's daemon for a container per step
-([ADR 0005](decisions/0005-deck-folder-and-slidev.md), line 14a): no network,
+([ADR 0005](decisions/0005-deck-folder-and-slidev.md)): no network,
 every capability dropped, none of this server's environment, and nothing of
 this machine's filesystem but the deck's own tree, read-only, and the directory
 that run writes — both of them directories of one volume, named after the run

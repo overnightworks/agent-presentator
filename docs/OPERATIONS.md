@@ -89,8 +89,7 @@ SQLite file, `presentator.sqlite3`), `PRESENTATOR_MIRRORS` (where the bare
 mirrors of the deck sources live, `mirrors`), `PRESENTATOR_HOST`
 (`127.0.0.1`), `PRESENTATOR_PORT` (`8000`), and `PRESENTATOR_TRUSTED_PROXIES`
 (empty: a comma-separated list of addresses or networks). There is no `/setup`
-and no first admin: accounts arrive with the Keycloak sign-in of
-[#242](https://github.com/overnightworks/agent-presentator/issues/242).
+and no first admin: accounts arrive with the Keycloak sign-in.
 
 ### Starting over from an old database
 
@@ -109,8 +108,7 @@ the file or its `-wal` is written to; a `-shm` may appear. The order matters:
 
 The backup is what lets you return to the old version. Decks and sources
 are re-added in the fresh database, and the fresh start gets fresh builds and
-mirrors volumes
-([#242](https://github.com/overnightworks/agent-presentator/issues/242) S9).
+mirrors volumes.
 
 The client address is the ASGI peer. Empty `PRESENTATOR_TRUSTED_PROXIES`
 is correct for a direct run. Behind the tunnel of
@@ -247,19 +245,17 @@ machine and enters through the published port, so the container sees it as the
 gateway of its own network, never as `127.0.0.1`. `compose.yaml` fixes that
 network's subnet so the address is one to write down rather than one Docker
 numbered by chance — which also means one machine runs one such instance, since
-a second project from this file would ask for the same subnet:
+a second project from this file would ask for the same subnet.
 
-```sh
-printf 'PRESENTATOR_SECRET_KEY=%s\n' "$(openssl rand -base64 48)" >> .env
-printf 'PRESENTATOR_TRUSTED_PROXIES=%s\n' "172.31.255.1" >> .env
-printf 'PRESENTATOR_PUBLIC_ORIGIN=%s\n' "https://presentator.hallucinai.de" >> .env
-printf 'PRESENTATOR_RUNTIME_UID=%s\n' "$(id -u)" >> .env
-printf 'COPRESENTER_SOCKET_DIRECTORY=%s\n' "/run/user/$(id -u)/agent-presentator" >> .env
-printf 'SPEECH_SOCKET_DIRECTORY=%s\n' "/run/user/$(id -u)/agent-presentator-speech" >> .env
-docker compose up -d
-```
+A deployment's `.env` therefore carries `PRESENTATOR_SECRET_KEY` (a fresh
+random value of at least 32 bytes), `PRESENTATOR_TRUSTED_PROXIES=172.31.255.1`,
+`PRESENTATOR_PUBLIC_ORIGIN` (the canonical https origin),
+`PRESENTATOR_RUNTIME_UID` (the operator's uid), and the two socket directories
+`COPRESENTER_SOCKET_DIRECTORY` and `SPEECH_SOCKET_DIRECTORY` (private
+directories the operator owns, for example under `/run/user/<uid>`); then
+`docker compose up -d` starts the instance.
 
-Without that line the instance answers every request against the connection it
+Without the trusted proxy the instance answers every request against the connection it
 has — http, and one client address for the whole tunnel; the form guard itself
 still passes a real browser, which sends `Sec-Fetch-Site` regardless of what
 proxy the connection came through. After a change to the subnet, what the
@@ -271,8 +267,7 @@ docker compose ps -q presentator | xargs docker inspect \
 ```
 
 An instance without a source runs and lists nothing; the settings above say
-what each further variable does and what a refused one costs. Signing in
-is Keycloak's ([#242](https://github.com/overnightworks/agent-presentator/issues/242)).
+what each further variable does and what a refused one costs.
 
 A source need not leave this machine at all: a folder becomes one by being a
 bare git repository under a host directory mounted read-only into the
@@ -328,7 +323,7 @@ Everything under the mount is trusted as the operator: its repositories,
 their metadata (a `gitdir` file, `objects/info/alternates`, a symlink), and
 everyone who can write there. This is not a door for a repository somebody
 else controls — only for the operator's own folder, and pushing over SSH to
-this box (line 4a) is what a stranger's repository would still need.
+this box is what a stranger's repository would still need.
 
 Three named volumes hold what has to survive the container: `database`,
 `mirrors` and `builds`, each under the name of the project — the directory
@@ -416,9 +411,7 @@ Without a toolchain the instance still runs: every build fails, the deck pages
 say no talk has been built, and the failure is in the server log.
 
 Builds are kept per deck and per run, and none is ever deleted on its own, so
-`PRESENTATOR_BUILDS` grows with every push until the cleanup this defers lands
-([#8](https://github.com/overnightworks/agent-presentator/issues/8), line 20)
-— the one exception is Remove on a source's own page, which takes every
+`PRESENTATOR_BUILDS` grows with every push — the one exception is Remove on a source's own page, which takes every
 built directory of its decks off disk along with the mirror and the rows.
 
 **A deck is code, and its build runs in a container of its own.** That is what
@@ -504,26 +497,13 @@ and runs every deck's code as the server; an instance serving a repository
 somebody else can push to does not.
 
 **A talk authored for another Slidev setup needs work before it builds here.**
-Proven by pushing the operator's own March 2026 talk through a deployed
-instance ([#71](https://github.com/overnightworks/agent-presentator/issues/71)):
-a deck folder carries no dependencies of its own, so a theme, addon, or
-plugin the talk's original `package.json` installed builds only if
-`frontend/` already carries it too — the operator's talk named
-`@slidev/theme-seriph`, which the toolchain project already carried, so the
-build reached the deck's own content without a change to that project. A
-slide deck's own Vue
-components and global layers (`global-bottom.vue` and its kind) run again in
-this build, so a component wired to a service the deck does not bring with
-it — the operator's talk carried an AI overlay calling a chat backend from
-the tool it was written for — has to be stripped from the deck folder before
-pushing, because this instance has nowhere for it to call. A remote asset
-named in the frontmatter, such as a background image fetched by URL at build
-time, has to become a local file committed into the deck folder and named by
-a relative path instead — this instance's build never gets network, sandbox
-or not. With the theme resolved, the overlay stripped and the background
-made local, the operator's talk built, served all sixteen slides in the
-projector and presenter view at desktop and mobile widths, and exported a
-sixteen-page PDF.
+A deck folder carries no dependencies of its own, so a theme, addon or plugin
+builds only if `frontend/` carries it too. A deck's own Vue components and
+global layers run in this build, so a component wired to a service the deck does
+not bring with it has to be stripped before pushing, because the build has
+nowhere to call. A remote asset named in the frontmatter, such as a background
+image fetched by URL, has to become a local file committed into the deck folder
+and named by a relative path, because the build never gets network.
 
 ## The co-presenter on stage
 
@@ -543,6 +523,11 @@ Presentator reaches hearing and its readiness on speech's own socket, so
 speech must run a version whose `speech.sock` serves `/health` and `/hear`
 before Presentator is upgraded; against an older speech, `/copresenter/who`
 answers 503 and hearing reports its failure.
+
+The Chatterbox provider is a separate closed virtual environment under
+`SPEECH_PROVIDER_ROOT/chatterbox`. The speech service executes its
+`.venv/bin/presentator-chatterbox-worker` directly and never resolves it through
+PATH.
 
 Speech owns `SPEECH_STATE_DIRECTORY` (by default
 `~/.local/state/presentator-speech`) as a mode-0700 directory. Its
@@ -633,71 +618,14 @@ no browser to sign in with; the secret is what guards it instead
 ## Branch protection
 
 `main` takes a change only through a pull request whose gates are green. A
-repository ruleset owns that — not the legacy per-branch settings — and this is
-the command that created it. It is reproducible: `POST` refuses a second
-ruleset of the same name, so an update sends the same body to
-`PUT repos/overnightworks/agent-presentator/rulesets/<id>`, with the id that
-`gh api repos/overnightworks/agent-presentator/rulesets` reports.
-
-```sh
-gh api --method POST repos/overnightworks/agent-presentator/rulesets --input - <<'JSON'
-{
-  "name": "main-protection",
-  "target": "branch",
-  "enforcement": "active",
-  "bypass_actors": [],
-  "conditions": {
-    "ref_name": {
-      "include": ["refs/heads/main"],
-      "exclude": []
-    }
-  },
-  "rules": [
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": false,
-        "required_reviewers": [],
-        "require_code_owner_review": false,
-        "dismissal_restriction": {
-          "enabled": false,
-          "allowed_actors": []
-        },
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false,
-        "require_extra_approval_for_unattributed_changes": true,
-        "allowed_merge_methods": ["squash", "rebase"]
-      }
-    },
-    {"type": "deletion"},
-    {"type": "non_fast_forward"},
-    {"type": "required_linear_history"},
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": false,
-        "do_not_enforce_on_create": false,
-        "required_status_checks": [
-          {"context": "Python: architecture, lint, types"},
-          {"context": "Python: tests"},
-          {"context": "Frontend: lint, types, tests, deck build"},
-          {"context": "Container image"},
-          {"context": "pr-check"},
-          {"context": "quality / verdict"}
-        ]
-      }
-    }
-  ]
-}
-JSON
-```
-
-No bypass actor exists: an administrator is subject to the same gates, and
-`main` cannot be deleted at all. Approvals are set to zero on purpose — this
-repository is reviewed by agents before the pull request opens, not through
-GitHub review requests. Only `squash` and `rebase` are offered because a merge
-commit would violate the linear history the same ruleset requires.
+repository ruleset named `main-protection` owns that, not the legacy per-branch
+settings; `gh api repos/overnightworks/agent-presentator/rulesets` reads it, and
+GitHub is its one owner. It requires a pull request (squash or rebase only),
+linear history, no deletion and no force-push, and required status checks that include
+`pr-check` and `quality / verdict`. No bypass actor
+exists: an administrator is subject to the same gates. Approvals are set to zero
+on purpose — this repository is reviewed by agents before the pull request
+opens, not through GitHub review requests.
 
 `pr-check` runs from its own workflow on `opened`, `synchronize`,
 `reopened`, and `edited`, so a body change after the first run still has
@@ -717,11 +645,8 @@ the SonarCloud scan, and its `verdict` job is the one required check
 jobs) and the gate's own jobs are green. The `tests` job hands its coverage
 report to the scan as the artifact `coverage`. `SONAR_TOKEN` is passed to the
 gate by name, never `inherit`. The `quality_gate` property of this repository in
-the fleet registry records that `quality / verdict` is expected on `main`, but
-it does not edit the ruleset: the operator adds the `quality / verdict` context
-to the required status checks of the `main` ruleset (the example above) by hand
-immediately before this change lands, and removes the retired scanner checks in
-the same edit.
+the fleet registry records that `quality / verdict` is expected on `main`; it
+does not edit the ruleset.
 
 The SonarCloud project was created by dispatching the one-off bootstrap
 workflow, which also switches Automatic Analysis off:
@@ -741,7 +666,3 @@ gate would buy nothing here — its coverage condition (90% of new code) is
 strictly weaker than this repository's own floor, and its other conditions
 are identical to the built-in gate's. The coverage floor and what meets it
 are owned by [TESTING.md](TESTING.md).
-The Chatterbox provider is a separate closed virtual environment under
-`SPEECH_PROVIDER_ROOT/chatterbox`. The speech service executes its
-`.venv/bin/presentator-chatterbox-worker` directly and never resolves it through
-PATH.

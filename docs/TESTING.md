@@ -21,7 +21,7 @@ in for a higher one.
 | `api` | Routes and wire schemas | FastAPI `TestClient` driving the real routes with the real application and fake or tmp adapters. |
 | Template | Lobby HTML as the surface of a route | A ruled person-sentence is proven by a delegated agent driving the real interface. A route or fragment is FastAPI `TestClient` on the real route. A direct Jinja unit test is not the proof. |
 | `host` | Composition | Once: start the app with a test configuration. |
-| Slidev addon | That Slidev resolves this package; later, components | Vitest driving Slidev's own resolver, as `frontend/tests/addon-package.test.ts` already does. Component tests once components exist. |
+| Slidev addon | That Slidev resolves this package | Vitest driving Slidev's own resolver, as `frontend/tests/addon-package.test.ts` does. |
 | Surface | A person does X at the lobby | A delegated agent driving the real interface at the widths the dispatch brief names, taken from the picture at [mockups/README.md](mockups/README.md). One flow per ruled sentence. A unit test is not this proof. |
 
 `gitmirror` is proven the same way as an adapter: against a tmp bare repository,
@@ -70,40 +70,14 @@ Parametrize and fixture rather than copy. A review rejects:
 
 ## Local runs and the CI gate
 
-Local is targeted. CI is the full run and the gate. Never a full suite, a
-coverage run, or a Playwright suite on this machine unless the operator asked.
+Local runs are targeted — a named module or `-k` on the behaviour, from the
+repository root with `uv run --locked pytest`, or a named file from `frontend/`
+with `pnpm exec vitest run`; never the whole suite or a Playwright suite unless
+the operator asked. CI on the pull request is the full run and the gate. What
+`main` requires is [OPERATIONS.md](OPERATIONS.md). What the workflow runs is
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The coverage floor is
+the configuration above, not a number restated here.
 
-Python, named modules or a behaviour:
-
-```sh
-uv run --locked pytest tests/test_host.py -q --tb=short
-uv run --locked pytest -k "composition root refuses" -q --tb=short
-```
-
-Frontend, a named file, from `frontend/`:
-
-```sh
-pnpm exec vitest run tests/addon-package.test.ts
-```
-
-Never `pnpm test` of the whole tree locally.
-
-CI on the pull request is the gate. What `main` requires is
-[OPERATIONS.md](OPERATIONS.md). What the workflow runs is
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Coverage collection
-is `--cov=src` for Python and Vitest `--coverage` for the frontend.
-The floor those reports must meet is the configuration above, not a number
-restated here.
-
-## Probe stack and browser proofs
-
-Every UI change is proven by a delegated agent driving the real interface at
-the widths the brief names. The picture those widths are taken from is
-[mockups/README.md](mockups/README.md).
-
-Targeted browser proofs, live Docker probe stacks, and targeted E2E take
-`/tmp/probe-stack.lock` (`flock`, shared across repositories). Wait for the
-lock; do not skip the proof, and never point at the operator's live stack.
-Drive only the flow of the slice, at the named widths. A test that starts a
-server or process owns its end; remove the worktree only after those processes
-stop.
+Targeted browser proofs and live probe stacks follow the global contract's
+probe-stack rules; the widths a surface proof drives are taken from the picture
+at [mockups/README.md](mockups/README.md).
