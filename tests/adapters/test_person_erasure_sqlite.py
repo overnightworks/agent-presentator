@@ -24,6 +24,7 @@ from presentator.adapters.identity import (
     SqliteSubjectUserStore,
     TokenIdentifierFactory,
 )
+from presentator.adapters.key_drafts import SqliteSourceKeyDrafts
 from presentator.adapters.preferences import SqlitePersonPreferencesStore
 from presentator.adapters.schema import create_tables
 from presentator.adapters.secrets import secret_box
@@ -75,6 +76,131 @@ class Instance:
         return self.kept_by[owner.id][2]
 
 
+@dataclass(frozen=True)
+class _Stores:
+    database: Path
+    sources: SqliteSourceStore
+    decks: SqliteDeckStore
+    runs: SqliteSourceRunStore
+    key_drafts: SqliteSourceKeyDrafts
+    accounts: SqliteSubjectUserStore
+    sessions: SqliteSessionRecordStore
+    preferences: SqlitePersonPreferencesStore
+
+
+def _stores_over(database: Path) -> _Stores:
+    return _Stores(
+        database=database,
+        sources=SqliteSourceStore(
+            database=database,
+            identifiers=TokenIdentifierFactory(),
+            box=secret_box(INSTANCE_KEY),
+        ),
+        decks=SqliteDeckStore(database=database),
+        runs=SqliteSourceRunStore(database=database),
+        key_drafts=a_key_drafts_store(database),
+        accounts=SqliteSubjectUserStore(database, ProcessWriteLock()),
+        sessions=SqliteSessionRecordStore(database),
+        preferences=SqlitePersonPreferencesStore(database),
+    )
+
+
+def _seed_person(
+    person: User,
+    stores: _Stores,
+    mirrors: SourceMirrors,
+    builds: Path,
+) -> tuple[Source, Path, Path]:
+    seed_user(stores.database, person)
+    stores.sessions.create(
+        person.id,
+        now=_NOW,
+        expires_at=_NOW + timedelta(hours=1),
+        refresh_token=SecretStr("a-refresh-token"),
+    )
+    stores.preferences.write(person.id, PersonPreferences(language_tag="de"))
+    stores.key_drafts.mint(person.id, at=_NOW)
+    source = stores.sources.add(
+        SourceWrite(
+            name=f"{person.username}-decks",
+            url=f"git@example.invalid:{person.username}.git",
+            ref="main",
+            owner_id=person.id,
+            access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
+            hook_secret_hash=b"\x11" * 32,
+            public_key=None,
+        ),
+    )
+    assert source is not None
+    mirror_directory = mirrors.of(source)
+    assert mirror_directory is not None
+    mirror = mirror_directory.directory
+    mirror.mkdir(parents=True)
+    (mirror / "HEAD").write_text("ref: refs/heads/main")
+    build = builds / f"{person.username}-run" / _COMMIT / "talk"
+    build.mkdir(parents=True)
+    (build / "index.html").write_text("a talk")
+    slug = f"{person.username}-talk"
+    assert stores.decks.put(
+        Deck(
+            slug=slug,
+            title="A talk",
+            changed_at=_NOW,
+            owner_id=person.id,
+            source_id=source.id,
+            commit=_COMMIT,
+            build=None,
+            attempt=None,
+        ),
+    )
+    stores.decks.put_build(
+        slug,
+        Build(
+            directory=build,
+            pdf=build.parent / "deck.pdf",
+            commit=_COMMIT,
+            built_at=_NOW,
+        ),
+    )
+    stores.runs.record(
+        SourceRun(
+            source_id=source.id,
+            at=_NOW,
+            outcome=SourceRunOutcome.SUCCESS,
+            commit=_COMMIT,
+            reason=None,
+        ),
+    )
+    return source, mirror, build
+
+
+def _decks_application(
+    stores: _Stores,
+    mirrors: SourceMirrors,
+    builds: Path,
+    tmp_path: Path,
+) -> Decks:
+    return Decks(
+        sources=stores.sources,
+        key_drafts=stores.key_drafts,
+        folders=MirroredDeckFolders(mirrors=mirrors),
+        store=stores.decks,
+        builder=SlidevBuilds(
+            builds=builds,
+            toolchain=HostToolchain(project=tmp_path, bound=_A_BOUND),
+            mirrors=mirrors,
+            output_megabytes=1,
+        ),
+        source_runs=stores.runs,
+        checker=FakeConnectionChecker(),
+        toolchain_themes=FakeToolchainThemes(),
+        clock=FrozenClock(instant=_NOW),
+        local_mount=FilesystemLocalMount(mount=tmp_path),
+        build_bound=_A_BOUND,
+        fingerprint_key=b"a fingerprint key of some length",
+    )
+
+
 def an_instance_with_both_people(tmp_path: Path) -> Instance:
     """Each person has an account, a session, preferences, a draft and a source.
 
@@ -90,109 +216,21 @@ def an_instance_with_both_people(tmp_path: Path) -> Instance:
         local_mount=FilesystemLocalMount(mount=tmp_path),
     )
     builds = tmp_path / "builds"
-    sources = SqliteSourceStore(
-        database=database,
-        identifiers=TokenIdentifierFactory(),
-        box=secret_box(INSTANCE_KEY),
-    )
-    decks = SqliteDeckStore(database=database)
-    runs = SqliteSourceRunStore(database=database)
-    key_drafts = a_key_drafts_store(database)
-    accounts = SqliteSubjectUserStore(database, ProcessWriteLock())
-    sessions = SqliteSessionRecordStore(database)
-    preferences = SqlitePersonPreferencesStore(database)
-    kept_by: dict[str, tuple[Source, Path, Path]] = {}
-    for person in (THE_PERSON, _ANOTHER):
-        seed_user(database, person)
-        sessions.create(
-            person.id,
-            now=_NOW,
-            expires_at=_NOW + timedelta(hours=1),
-            refresh_token=SecretStr("a-refresh-token"),
-        )
-        preferences.write(person.id, PersonPreferences(language_tag="de"))
-        key_drafts.mint(person.id, at=_NOW)
-        source = sources.add(
-            SourceWrite(
-                name=f"{person.username}-decks",
-                url=f"git@example.invalid:{person.username}.git",
-                ref="main",
-                owner_id=person.id,
-                access_secret=_WHAT_THE_GIT_HOST_EXPECTS,
-                hook_secret_hash=b"\x11" * 32,
-                public_key=None,
-            ),
-        )
-        assert source is not None
-        mirror_directory = mirrors.of(source)
-        assert mirror_directory is not None
-        mirror = mirror_directory.directory
-        mirror.mkdir(parents=True)
-        (mirror / "HEAD").write_text("ref: refs/heads/main")
-        build = builds / f"{person.username}-run" / _COMMIT / "talk"
-        build.mkdir(parents=True)
-        (build / "index.html").write_text("a talk")
-        slug = f"{person.username}-talk"
-        assert decks.put(
-            Deck(
-                slug=slug,
-                title="A talk",
-                changed_at=_NOW,
-                owner_id=person.id,
-                source_id=source.id,
-                commit=_COMMIT,
-                build=None,
-                attempt=None,
-            ),
-        )
-        decks.put_build(
-            slug,
-            Build(
-                directory=build,
-                pdf=build.parent / "deck.pdf",
-                commit=_COMMIT,
-                built_at=_NOW,
-            ),
-        )
-        runs.record(
-            SourceRun(
-                source_id=source.id,
-                at=_NOW,
-                outcome=SourceRunOutcome.SUCCESS,
-                commit=_COMMIT,
-                reason=None,
-            ),
-        )
-        kept_by[person.id] = (source, mirror, build)
-    application = Decks(
-        sources=sources,
-        key_drafts=key_drafts,
-        folders=MirroredDeckFolders(mirrors=mirrors),
-        store=decks,
-        builder=SlidevBuilds(
-            builds=builds,
-            toolchain=HostToolchain(project=tmp_path, bound=_A_BOUND),
-            mirrors=mirrors,
-            output_megabytes=1,
-        ),
-        source_runs=runs,
-        checker=FakeConnectionChecker(),
-        toolchain_themes=FakeToolchainThemes(),
-        clock=FrozenClock(instant=_NOW),
-        local_mount=FilesystemLocalMount(mount=tmp_path),
-        build_bound=_A_BOUND,
-        fingerprint_key=b"a fingerprint key of some length",
-    )
+    stores = _stores_over(database)
+    kept_by = {
+        person.id: _seed_person(person, stores, mirrors, builds)
+        for person in (THE_PERSON, _ANOTHER)
+    }
     return Instance(
         database=database,
         mirrors=mirrors,
         builds=builds,
         people=People(
-            decks=application,
-            accounts=accounts,
-            sessions=sessions,
-            preferences=preferences,
-            key_drafts=key_drafts,
+            decks=_decks_application(stores, mirrors, builds, tmp_path),
+            accounts=stores.accounts,
+            sessions=stores.sessions,
+            preferences=stores.preferences,
+            key_drafts=stores.key_drafts,
         ),
         kept_by=kept_by,
     )
