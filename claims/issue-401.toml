@@ -1,0 +1,8 @@
+claim_id = "4faf43d9d9ba46b6b4686cd68198f5ce"
+agent = "claude"
+role = "builder"
+base = "581e1be6dd362f64f30da9bb0add8a61d2a521fb"
+branch = "claude/issue-401-doku-operations-wird-ein-runbook-je-aufg"
+scope = ["AGENTS.md", "README.md", "docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/README.md", "docs/TESTING.md", "docs/decisions/README.md", "docs/runbooks", "src/presentator/adapters/identity.py"]
+opened_commit = "06de6c249c8faacbde502295b2a069b7ff969b47"
+whole_reason = "One move of the operator documents into their types: every link to the split files changes with it."
