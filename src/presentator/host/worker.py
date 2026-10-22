@@ -91,7 +91,7 @@ HOME_DIRECTORY = "home"
 VITE_DIRECTORY = "vite"
 VITE_CACHE_TARGET = f"{WORK_MOUNT}/{VITE_DIRECTORY}"
 STEP_TEMPORARY_DIRECTORY = str(Path("/") / TEMPORARY_MOUNT_NAME)
-# The image's ENV keys, the base image's keys and the container runtime's HOSTNAME.
+# The image's and its base's keys, the runtime's HOSTNAME, Python's own LC_CTYPE.
 ALLOWED_ENVIRONMENT_KEYS = frozenset(
     {
         "HOME",
@@ -110,8 +110,8 @@ ALLOWED_ENVIRONMENT_KEYS = frozenset(
         "PRESENTATOR_LOCAL_SOURCES_MOUNT",
         "NODE_VERSION",
         "YARN_VERSION",
-        "HOSTNAME",
     }
+    | {"HOSTNAME", "LC_CTYPE"}
     | worker_settings_variables()
 )
 
@@ -618,7 +618,7 @@ def serve(
             life_end = accept_connections(listener, runtime_uid, serving)
     except StartRefusedError as refused:
         return _refuse(refused.refusal)
-    logger.error("life ended: %s", life_end)
+    logger.log(life_end.log_level, "life ended: %s", life_end)
     return 0
 
 

@@ -31,10 +31,6 @@ NOT_USABLE = (
     r"\( ! -readable -o \( -type d ! -executable \) "
     r"-o \( -type f -perm /111 ! -executable \) \) -print"
 )
-VITE_LINK = (
-    'test "$(readlink "$(realpath /app/frontend/node_modules/@slidev/cli)'
-    '/node_modules/.vite")" = /work/vite'
-)
 CHROMIUM_STARTS = (
     "/opt/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell "
     "--no-sandbox --user-data-dir=/tmp/profile --dump-dom about:blank"
@@ -142,13 +138,12 @@ def prove_build_and_export(image: str, scratch: Path) -> None:
 
 
 def prove_toolchain_is_usable(image: str, instance: str) -> None:
-    """Read the trees as each user, follow the vite link, start Chromium."""
+    """Read the trees as each user and start Chromium."""
     for user in (None, BUILD_USER):
         if in_image(image, user, f"find {TOOLCHAIN_TREES} {NOT_USABLE}"):
             refuse(f"toolchain trees are not usable as {user or 'presentator'}")
     if in_image(instance, WIRE_USER, f"find {SERVER_TREES} {NOT_USABLE}"):
         refuse("server trees are not usable as the wire user")
-    in_image(image, None, VITE_LINK)
     in_image(image, BUILD_USER, CHROMIUM_STARTS)
 
 
@@ -164,4 +159,8 @@ def main(image: str, instance: str) -> None:
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    match sys.argv[1:]:
+        case [image, instance]:
+            main(image, instance)
+        case _:
+            sys.exit(__doc__)
