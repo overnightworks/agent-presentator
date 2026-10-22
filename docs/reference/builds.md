@@ -118,3 +118,24 @@ start the server makes and starts one container of its own, bounded like a
 build's, running nothing, and takes it down. With `PRESENTATOR_BUILD_DISK=none`
 the log says at every start that nothing but a step's time bounds what a build
 writes beside its talk.
+
+## The build worker
+
+`compose.yaml` also declares `build-worker`, the sealed service of
+[ADR 0017](../decisions/0017-a-build-worker-runs-each-step-sealed.md). It is
+deployed but uncalled: the instance still builds through the Docker socket, and
+nothing connects to the worker's socket, which lives in the `build-socket`
+volume at `/run/presentator-build/worker.sock`. `docker compose up -d` therefore
+also starts an idle worker; it needs the image the `presentator` service builds
+and never pulls one.
+
+The worker reads `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and
+`PRESENTATOR_BUILD_OUTPUT_MEGABYTES` from the project's environment by name; a
+variable the project leaves unset keeps its default. `presentator-worker
+--check` runs only the self-check and exits `0` in the sealed service, and `2`
+naming the first failing predicate anywhere else.
+
+A connection is served by a wire child, and one life serves one step: the
+client sends HELLO or STEP, reads STATUS, uploads the deck, and reads the
+OUTCOME and the output. The codec's client half is in
+`presentator.adapters.build_wire`.
