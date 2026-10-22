@@ -296,15 +296,13 @@ class ConnectionCheckResult:
     carries git's own sanitised first line only for `SourceRunFailure.FAILED`
     — the one reason with no fixed sentence of its own. The fingerprint is
     the proof the form later needs to create what this probe found, and
-    travels only when the state is reachable. An address outside the source
-    grammar is `address_refused`: no failure, no commit, and nothing was probed.
+    travels only when the state is reachable.
     """
 
     failure: SourceRunFailure | None
     commit: str | None
     detail: str | None
     fingerprint: str | None = None
-    address_refused: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

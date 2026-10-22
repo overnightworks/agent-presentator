@@ -1084,42 +1084,49 @@ def _add(
         owner_id=_OWNER,
         key_draft_id="",
     )
+    fingerprint = (
+        "" if isinstance(checked, SourceRefusal) else checked.fingerprint or ""
+    )
     return decks.add_source(
         NewSourceDraft(
             name=name,
             url=url,
             access=access,
             secret=secret,
-            fingerprint=checked.fingerprint or "",
+            fingerprint=fingerprint,
         ),
         owner_id=_OWNER,
     )
+
+
+def _probed(
+    decks: Decks,
+    *,
+    url: str = _HTTPS_URL,
+    access: str = "https",
+    secret: str = _READ_ONLY,
+    key_draft_id: str = "",
+) -> ConnectionCheckResult:
+    found = decks.check_connection(
+        url=url,
+        access=access,
+        secret=secret,
+        owner_id=_OWNER,
+        key_draft_id=key_draft_id,
+    )
+    assert isinstance(found, ConnectionCheckResult)
+    return found
 
 
 def test_a_reachable_check_carries_a_fingerprint_a_refused_one_does_not() -> None:
-    reachable = decks_over().check_connection(
-        url=_HTTPS_URL,
-        access="https",
-        secret=_READ_ONLY,
-        owner_id=_OWNER,
-        key_draft_id="",
+    reachable = _probed(decks_over())
+    refused_answer = ConnectionCheckResult(
+        failure=SourceRunFailure.REFUSED, commit=None, detail=None
     )
-    refused = decks_over(
-        fakes=DecksFakes(
-            checker=FakeConnectionChecker(
-                answer=ConnectionCheckResult(
-                    failure=SourceRunFailure.REFUSED,
-                    commit=None,
-                    detail=None,
-                ),
-            ),
-        ),
-    ).check_connection(
-        url=_HTTPS_URL,
-        access="https",
-        secret=_READ_ONLY,
-        owner_id=_OWNER,
-        key_draft_id="",
+    refused = _probed(
+        decks_over(
+            fakes=DecksFakes(checker=FakeConnectionChecker(answer=refused_answer))
+        )
     )
 
     assert reachable.failure is None
@@ -1180,12 +1187,8 @@ def test_an_ssh_create_binds_the_shown_draft_and_deletes_it() -> None:
     decks = decks_over(sources=store)
     draft = decks.source_key_draft(owner_id=_OWNER)
 
-    checked = decks.check_connection(
-        url=_SSH_URL,
-        access="ssh",
-        secret="",
-        owner_id=_OWNER,
-        key_draft_id=draft.id,
+    checked = _probed(
+        decks, url=_SSH_URL, access="ssh", secret="", key_draft_id=draft.id
     )
     added = decks.add_source(
         NewSourceDraft(
@@ -1227,12 +1230,8 @@ def test_an_ssh_create_without_its_own_check_proof_is_refused() -> None:
 def test_an_ssh_check_proof_cannot_create_for_another_account() -> None:
     decks = decks_over(sources=having())
     owner_draft = decks.source_key_draft(owner_id=_OWNER)
-    checked = decks.check_connection(
-        url=_SSH_URL,
-        access="ssh",
-        secret="",
-        owner_id=_OWNER,
-        key_draft_id=owner_draft.id,
+    checked = _probed(
+        decks, url=_SSH_URL, access="ssh", secret="", key_draft_id=owner_draft.id
     )
     another_owner = "another admin entirely"
     other_draft = decks.source_key_draft(owner_id=another_owner)
@@ -1502,13 +1501,7 @@ def test_a_source_never_checked_for_these_values_is_refused() -> None:
 def test_a_fingerprint_from_a_different_secret_is_refused() -> None:
     store = having()
     decks = decks_over(sources=store)
-    checked = decks.check_connection(
-        url=_HTTPS_URL,
-        access="https",
-        secret=_READ_ONLY,
-        owner_id=_OWNER,
-        key_draft_id="",
-    )
+    checked = _probed(decks)
     assert checked.fingerprint is not None
 
     refused = decks.add_source(
@@ -1923,7 +1916,7 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
         ("ssh://git@git.example.invalid/talks.git", AccessKind.SSH),
         ("ssh://git@host:2222/r.git", AccessKind.SSH),
         ("git@git.example.invalid:talks.git", AccessKind.SSH),
-        ("https://[2001:db8::1]/r.git", AccessKind.HTTPS),
+        ("https://[2001:db8::1]:8443/r.git", AccessKind.HTTPS),
         ("ssh://git@[2001:db8::1]/r.git", AccessKind.SSH),
         ("git@[2001:db8::1]:r.git", AccessKind.SSH),
         ("file:///srv/r.git", AccessKind.FILE),
@@ -1999,6 +1992,7 @@ def test_a_url_whose_host_reads_two_ways_names_no_access(url: str) -> None:
     ],
 )
 def test_check_refuses_an_address_outside_the_grammar(url: str, access: str) -> None:
+    """#439 U2: Check answers the refusal Add answers and probes nothing."""
     decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
     draft = decks.source_key_draft(owner_id=_OWNER)
 
@@ -2010,7 +2004,7 @@ def test_check_refuses_an_address_outside_the_grammar(url: str, access: str) -> 
         key_draft_id=draft.id,
     )
 
-    assert checked.address_refused
+    assert checked is SourceRefusal.ACCESS_MISMATCH
 
 
 _URLS_NAMING_NO_ACCESS = (
@@ -2043,17 +2037,9 @@ def test_an_unknown_access_never_matches_a_url_that_names_no_access(
         earlier_instance.setattr(
             "presentator.application.decks.access_kind_of", read_as_https
         )
-        earlier_fingerprint = (
-            decks_over(fakes=DecksFakes(checker=FakeConnectionChecker()))
-            .check_connection(
-                url=url,
-                access="https",
-                secret=_READ_ONLY,
-                owner_id=_OWNER,
-                key_draft_id="",
-            )
-            .fingerprint
-        )
+        earlier_fingerprint = _probed(
+            decks_over(fakes=DecksFakes(checker=FakeConnectionChecker())), url=url
+        ).fingerprint
     created = decks.add_source(
         NewSourceDraft(
             name="talks",
@@ -2066,6 +2052,6 @@ def test_an_unknown_access_never_matches_a_url_that_names_no_access(
     )
 
     assert earlier_fingerprint is not None
-    assert checked.address_refused
+    assert checked is SourceRefusal.ACCESS_MISMATCH
     assert created is SourceRefusal.ACCESS_MISMATCH
     assert store.all() == ()

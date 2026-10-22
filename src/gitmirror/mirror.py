@@ -35,9 +35,8 @@ from gitmirror.model import (
 _CREDENTIAL_VARIABLE: Final = "GITMIRROR_CREDENTIAL"
 # GitHub, GitLab, and every other host that hands out a read-only token accept
 # any user name beside it, so an operator whose URL names none still reaches a
-# host that insists on one. A source address names no user for https (the
-# grammar refuses one), so git's request never names one and the helper always
-# answers this name.
+# host that insists on one. The caller hands an https URL without a user part,
+# so git's request never names one and the helper always answers this name.
 CREDENTIAL_USER_NAME: Final = "token"
 # git asks a helper for the credentials of an https remote, and answering out
 # of the child's environment keeps the secret off the command line and off

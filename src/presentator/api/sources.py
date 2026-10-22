@@ -669,7 +669,9 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
     }[reason]
 
 
-def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanner:
+def _check_banner(
+    checked: ConnectionCheckResult | SourceRefusal, text: LobbyText
+) -> CheckBanner:
     """What Check connection shows for that probe, in the source list's own words.
 
     The four banners keep the four states the probe itself can answer with,
@@ -678,10 +680,10 @@ def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanne
     words are exactly `_run_reason`'s own, so a check and a recorded run read
     alike; only `failed` carries git's own sanitised line beneath it.
     """
-    if checked.address_refused:
+    if isinstance(checked, SourceRefusal):
         return CheckBanner(
             state=SourceRunFailure.REFUSED.value,
-            message=text.source_refused_access,
+            message=_refusal_sentence(checked, text),
             detail=None,
             fingerprint=None,
         )

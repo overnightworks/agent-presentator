@@ -461,7 +461,7 @@ class Decks:
         secret: str,
         owner_id: str,
         key_draft_id: str,
-    ) -> ConnectionCheckResult:
+    ) -> ConnectionCheckResult | SourceRefusal:
         """Probe the Add form's own URL and secret, writing nothing down.
 
         Every added source takes the one ref this instance follows; a check
@@ -471,12 +471,7 @@ class Decks:
         """
         address = url.strip()
         if not _access_matches_url(access, address):
-            return ConnectionCheckResult(
-                failure=None,
-                commit=None,
-                detail=None,
-                address_refused=True,
-            )
+            return SourceRefusal.ACCESS_MISMATCH
         deploy_key = None
         if access == _SSH_ACCESS:
             deploy_key = self.key_drafts.unconsumed_for(

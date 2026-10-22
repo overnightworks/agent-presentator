@@ -49,7 +49,6 @@ from tests.api.lobby import (
     a_signed_in_lobby,
 )
 from tests.application.fakes import (
-    A_REACHABLE_CHECK,
     LOCAL_MOUNT_EXAMPLE,
     FakeDeckStore,
 )
@@ -784,17 +783,26 @@ _A_USER_PART_URL = "https://user:token@git.example.invalid/talks.git"
         (_A_REFUSED_CHECK, _HTTPS_URL, (ENGLISH.source_run_refused,)),
         (_AN_UNREACHABLE_CHECK, _HTTPS_URL, (ENGLISH.source_run_unreachable,)),
         (_A_FAILED_CHECK, _HTTPS_URL, (ENGLISH.source_run_failed, _FAILED_DETAIL)),
-        (A_REACHABLE_CHECK, _A_USER_PART_URL, (ENGLISH.source_refused_access,)),
     ],
 )
 def test_a_check_that_found_no_commit_reads_the_words_the_source_list_uses(
     checked: ConnectionCheckResult, url: str, words: tuple[str, ...]
 ) -> None:
+    """#439 Q2: the probe-failure banners keep the source list's own words."""
     lobby = a_signed_in_lobby(GivenDecks(checked=checked))
 
     shown = check_source(lobby, url=url)
 
     assert all(word in shown.text for word in words)
+    assert not fingerprint_of(shown)
+    assert "disabled" in create_button_of(shown.text)
+
+
+def test_a_check_of_an_address_with_a_user_part_reads_the_form_refusal() -> None:
+    """#439 U2: Check on an address outside the grammar reads Add's refusal sentence."""
+    shown = check_source(a_signed_in_lobby(), url=_A_USER_PART_URL)
+
+    assert ENGLISH.source_refused_access in shown.text
     assert not fingerprint_of(shown)
     assert "disabled" in create_button_of(shown.text)
 
