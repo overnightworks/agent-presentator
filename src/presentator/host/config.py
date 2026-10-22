@@ -26,6 +26,7 @@ NO_BOUND_AT_ALL: Final = "none"
 
 _INVALID_PORT: Final = "has an invalid port"
 _REFUSED: Final = "this environment cannot start an instance"
+_EMPTY_CLIENT_ID: Final = "admin_token_clients: names an empty client id"
 _ONE_HOSTNAME: Final = "talk_origin: is another hostname than public_origin"
 
 ENVIRONMENT_PREFIX: Final = "PRESENTATOR_"
@@ -75,6 +76,17 @@ def _a_proxy_list(given: str) -> str:
     """Refuse a list that is not addresses or networks."""
     TrustedProxies.parse(given)
     return given
+
+
+def _client_ids(given: str) -> str:
+    """Refuse a list with an empty entry; an empty list admits no client."""
+    if given and "" in _split_client_ids(given):
+        raise ValueError(_EMPTY_CLIENT_ID)
+    return given
+
+
+def _split_client_ids(given: str) -> list[str]:
+    return [entry.strip() for entry in given.split(",")]
 
 
 def _one_public_origin(given: str) -> str:
@@ -192,6 +204,15 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # Empty: the client address is the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
+    # The `azp` of the access tokens the admin routes take, hal's client ids.
+    # Empty: no token is admitted and the admin routes do not exist.
+    admin_token_clients: Annotated[str, AfterValidator(_client_ids)] = ""
+
+    def admitted_token_clients(self) -> frozenset[str]:
+        """The client ids whose tokens the admin routes take."""
+        if not self.admin_token_clients:
+            return frozenset()
+        return frozenset(_split_client_ids(self.admin_token_clients))
 
     @model_validator(mode="after")
     def _two_hostnames(self) -> Self:

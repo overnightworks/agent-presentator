@@ -73,10 +73,12 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.api.people import AdminPeople
 from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.application.decks import Decks
 from presentator.application.identity import SESSION_LIFETIME, SESSION_SWEEP_INTERVAL
+from presentator.application.people import People
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.host.config import (
@@ -196,7 +198,7 @@ def build_instance(settings: Settings) -> Instance:
             decks=decks,
             pages=_pages(settings),
             auth=lobby_auth,
-            private=_lobby_private(settings),
+            private=_lobby_private(settings, decks, sessions, key_drafts, lobby_auth),
         ),
         talk=_talk(settings, sessions, decks, talk_auth, clock),
         poller=Schedule(
@@ -240,10 +242,33 @@ def _copresenter_surface(
     )
 
 
-def _lobby_private(settings: Settings) -> LobbyPrivate:
-    """What only a signed-in admin of the lobby may reach: the socket of the host."""
+def _lobby_private(
+    settings: Settings,
+    decks: Decks,
+    sessions: SqliteSessionRecordStore,
+    key_drafts: SqliteSourceKeyDrafts,
+    lobby_auth: InstalledAuth,
+) -> LobbyPrivate:
+    """What only an admin of the lobby may reach: the host's socket, the people route.
+
+    The people route exists only while a client is named to call it. Its
+    accounts answer over the lock the sign-in holds, which deletes an account.
+    """
+    clients = settings.admitted_token_clients()
     return LobbyPrivate(
         voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
+        admin_people=AdminPeople(
+            people=People(
+                decks=decks,
+                accounts=SqliteSubjectUserStore(settings.database, lobby_auth.lock),
+                sessions=sessions,
+                preferences=SqlitePersonPreferencesStore(settings.database),
+                key_drafts=key_drafts,
+            ),
+            admitted_clients=clients,
+        )
+        if clients
+        else None,
     )
 
 
@@ -400,6 +425,10 @@ async def _serve(instance: Instance, settings: Settings) -> None:
             host=settings.host,
             port=settings.port,
             proxy_headers=False,
+            # A path under /api/admin/ carries a subject, and a rejected WebSocket
+            # handshake logs its path as an INFO record of uvicorn.error.
+            access_log=False,
+            log_level=logging.WARNING,
         ),
     )
     async with instance.poller.polling(), instance.session_sweep.polling():
