@@ -324,8 +324,8 @@ def rows_still_there(
 class ForeignKey(NamedTuple):
     """The columns of `PRAGMA foreign_key_list` the guard reads.
 
-    The pragma answers eight columns; `target` is NULL when the reference names
-    the parent's primary key.
+    The pragma answers eight columns; `target` is NULL when the reference is
+    written without naming a column, which then means the parent's primary key.
     """
 
     parent: str
