@@ -198,7 +198,7 @@ co-presenter's WebSocket is not an HTTP request, so it still admits through
 Six interface needs were filed against #825 as
 [a comment](https://github.com/overnightworks/songmaker/issues/825#issuecomment-5558849693)
 and classified by its head in the issue body under "Anforderungen
-presentator". They are wishes, not promises, and that classification —
+agent-presentator". They are wishes, not promises, and that classification —
 not this record — is the source of truth:
 
 | Need | Classification on #825 |
