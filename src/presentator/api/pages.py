@@ -14,10 +14,14 @@ from typing import Final
 
 from fastapi import Request, Response
 from fastapi.templating import Jinja2Templates
+from webauth.config import web_auth_config
+from webauth.dependencies import session_id_from_request
+from webauth.middleware.session_gate import admitted_user
+from webauth.ports import AuthenticatedUser
 
 from presentator.application.preferences import Preferences
 from presentator.contracts.decks import DeckState
-from presentator.contracts.models import User
+from presentator.contracts.models import Role, User
 from presentator.contracts.preferences import Appearance, ThemeChoice
 from presentator.contracts.text import LobbyText
 
@@ -109,7 +113,31 @@ class Pages:
         )
 
 
+def user_of_admitted(admitted: AuthenticatedUser) -> User:
+    """The lobby's person for the account the library admitted."""
+    return User(id=admitted.id, username=admitted.username, role=Role(admitted.role))
+
+
 def signed_in_person(request: Request) -> User | None:
-    """Who the guard let through, or nobody on the pages that need no session."""
-    person: User | None = request.state.signed_in_person
+    """Who the session gate admitted, or nobody on the pages that need no session."""
+    admitted = admitted_user(request)
+    return None if admitted is None else user_of_admitted(admitted)
+
+
+def gated_person(request: Request) -> User:
+    """Who the gate admitted on a gated route; a route it let past fails loud."""
+    person = signed_in_person(request)
+    if person is None:
+        message = "The gate admitted nobody on a route that needs a person."
+        raise RuntimeError(message)
     return person
+
+
+def gated_session_id(request: Request) -> str:
+    """The session the gate admitted on a gated route, so a secret binds to it."""
+    person = signed_in_person(request)
+    session_id = session_id_from_request(request, web_auth_config(request))
+    if person is None or session_id is None:
+        message = "The gate admitted no session on a route that needs one."
+        raise RuntimeError(message)
+    return session_id

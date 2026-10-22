@@ -193,7 +193,10 @@ def test_only_an_admin_is_offered_the_settings_section(instance: Lobby) -> None:
 
 
 def test_the_settings_link_is_current_on_the_sources_address(instance: Lobby) -> None:
-    page = instance.client.get(SOURCES).text
+    answer = instance.client.get(SOURCES)
+
+    assert answer.status_code == HTTPStatus.OK
+    page = answer.text
 
     assert f'aria-current="page">{ENGLISH.section_settings}<' in page
     assert f'href="{SOURCES}" aria-current="page">{ENGLISH.settings_sources}<' in page
@@ -201,7 +204,10 @@ def test_the_settings_link_is_current_on_the_sources_address(instance: Lobby) ->
 
 
 def test_settings_general_and_sources_share_the_tab_strip(instance: Lobby) -> None:
-    general = instance.client.get(SETTINGS).text
+    answer = instance.client.get(SETTINGS)
+
+    assert answer.status_code == HTTPStatus.OK
+    general = answer.text
 
     assert f'href="{SETTINGS}" aria-current="page">{ENGLISH.settings_title}<' in general
     assert f'href="{SOURCES}">{ENGLISH.settings_sources}<' in general

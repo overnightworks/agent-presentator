@@ -1,5 +1,6 @@
 """Shared arrangement for the sign-in tests: a lobby, a fake issuer, real stores."""
 
+import asyncio
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -10,7 +11,7 @@ from typing import Literal
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
 from webauth.oidc_login import AdmissionConfig
-from webauth.ports import AccountEvent, SubjectUserStore, WriteLock
+from webauth.ports import AccountEvent, AuditSink, SubjectUserStore, WriteLock
 
 from presentator.adapters.identity import (
     SqliteSessionRecordStore,
@@ -38,6 +39,15 @@ _COUNTS = {
     "users": "SELECT count(*) FROM users",
     "sessions": "SELECT count(*) FROM sessions",
 }
+
+
+def on_an_event_loop() -> bool:
+    """Whether the caller runs on an asyncio event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 @dataclass
@@ -112,6 +122,7 @@ def a_scene(
     *,
     accounts: Callable[[SqliteSubjectUserStore], SubjectUserStore] = lambda real: real,
     lock: WriteLock | None = None,
+    audit: Callable[[RecordingAudit], AuditSink] = lambda recording: recording,
     admission: AdmissionConfig | None = None,
 ) -> Scene:
     database = tmp_path / "identity.sqlite3"
@@ -119,7 +130,7 @@ def a_scene(
     people = a_crowd()
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=people.clock.now())
     users = SqliteSubjectUserStore(database)
-    audit = RecordingAudit()
+    recording = RecordingAudit()
     auth = an_installed_auth(
         people.clock,
         relying_party=a_relying_party(
@@ -129,7 +140,7 @@ def a_scene(
         ),
         accounts=accounts(users),
         lock=lock,
-        audit=audit,
+        audit=audit(recording),
     )
     app, _ = a_lobby_app(
         people=people,
@@ -142,7 +153,7 @@ def a_scene(
         app, people=people, base_url=A_BROWSERS_ADDRESS, headers=A_BROWSERS_HEADERS
     )
     return Scene(
-        lobby=lobby, issuer=issuer, database=database, users=users, audit=audit
+        lobby=lobby, issuer=issuer, database=database, users=users, audit=recording
     )
 
 

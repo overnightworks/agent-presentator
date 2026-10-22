@@ -15,7 +15,7 @@ from starlette.responses import RedirectResponse
 from webauth.proxies import request_is_https
 
 from presentator.api.hooks import hook_address
-from presentator.api.pages import Pages
+from presentator.api.pages import Pages, gated_person, gated_session_id
 from presentator.api.preferences import SETTINGS
 from presentator.application.decks import (
     AddedSource,
@@ -35,7 +35,6 @@ from presentator.contracts.decks import (
     SourceRunOutcome,
     SourceState,
 )
-from presentator.contracts.models import User
 from presentator.contracts.text import LobbyText
 
 SOURCES: Final = f"{SETTINGS}/sources"
@@ -209,19 +208,19 @@ class _Surfaces:
 
     def sources_page(self, request: Request) -> Response:
         """Show each source and what its newest run said, to an admin."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         text = self.pages.appearance(request).text
         return self.pages.page(
             request,
             "sources.html",
             sources=self._rows(text),
-            removed=self._removed_once.pop(_session_id(request), None),
+            removed=self._removed_once.pop(gated_session_id(request), None),
         )
 
     def add_page(self, request: Request) -> Response:
         """Offer the form that creates a source, to an admin."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         return self._form(request)
 
@@ -231,7 +230,7 @@ class _Surfaces:
         posted: Annotated[_NewSourcePost, Depends()],
     ) -> Response:
         """Store the source, fetch it once, and show the webhook secret once."""
-        person = _signed_in(request)
+        person = gated_person(request)
         if not person.is_admin:
             return _refused()
         added = self.decks.add_source(
@@ -260,7 +259,7 @@ class _Surfaces:
             )
         self._shown_once[
             _ShownOnceKey(
-                session_id=_session_id(request),
+                session_id=gated_session_id(request),
                 name=added.source.name,
                 operation=_ShownOperation.CREATE,
             )
@@ -281,13 +280,13 @@ class _Surfaces:
         form comes back with the fields exactly as typed and, once the probe
         answers reachable, the one proof Create later checks against.
         """
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         checked = self.decks.check_connection(
             url=posted.url,
             access=posted.access,
             secret=posted.secret,
-            owner_id=_signed_in(request).id,
+            owner_id=gated_person(request).id,
             key_draft_id=posted.key_draft_id,
         )
         text = self.pages.appearance(request).text
@@ -303,12 +302,12 @@ class _Surfaces:
 
     def source_page(self, request: Request, name: str) -> Response:
         """Show the created screen once after add, then the source's own page."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         shown = self.decks.shown_source(name)
         if shown is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
-        session_id = _session_id(request)
+        session_id = gated_session_id(request)
         created = _ShownOnceKey(
             session_id=session_id,
             name=name,
@@ -350,7 +349,7 @@ class _Surfaces:
         stay: Annotated[str, Form()] = "",
     ) -> Response:
         """Refresh that one source and return to the list, or to its page."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         if not self.decks.refresh_named(name):
             return Response(status_code=HTTPStatus.NOT_FOUND)
@@ -364,7 +363,7 @@ class _Surfaces:
         secret: Annotated[str, Form()] = "",
     ) -> Response:
         """Take a new access secret and show nothing of it back."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         shown = self.decks.shown_source(name)
         if shown is None:
@@ -381,14 +380,14 @@ class _Surfaces:
 
     def renew_webhook(self, request: Request, name: str) -> Response:
         """Mint a new webhook secret and show it exactly once on the next GET."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         minted = self.decks.renew_webhook(name)
         if minted is None:
             return Response(status_code=HTTPStatus.NOT_FOUND)
         self._shown_once[
             _ShownOnceKey(
-                session_id=_session_id(request),
+                session_id=gated_session_id(request),
                 name=name,
                 operation=_ShownOperation.RENEW,
             )
@@ -397,7 +396,7 @@ class _Surfaces:
 
     def ask_removal(self, request: Request, name: str) -> Response:
         """Show what removing this source would take with it. Deletes nothing."""
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         removal = self.decks.removal(name)
         if removal is None:
@@ -424,7 +423,7 @@ class _Surfaces:
         stops this too, before any row is touched, and the source's own page
         says so.
         """
-        if not _signed_in(request).is_admin:
+        if not gated_person(request).is_admin:
             return _refused()
         outcome = self.decks.remove_source(
             name,
@@ -450,7 +449,7 @@ class _Surfaces:
                 source=self._view(request, shown, text, webhook_secret=None),
                 refused=text.source_remove_refused,
             )
-        self._removed_once[_session_id(request)] = _removed_sentence(outcome, text)
+        self._removed_once[gated_session_id(request)] = _removed_sentence(outcome, text)
         return RedirectResponse(SOURCES, status_code=HTTPStatus.SEE_OTHER)
 
     def _form(
@@ -458,7 +457,7 @@ class _Surfaces:
         request: Request,
         draft: SourceDraft | None = None,
     ) -> Response:
-        drafted = self.decks.source_key_draft(owner_id=_signed_in(request).id)
+        drafted = self.decks.source_key_draft(owner_id=gated_person(request).id)
         return self.pages.page(
             request,
             "source_new.html",
@@ -693,18 +692,6 @@ def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanne
         detail=checked.detail if checked.failure is SourceRunFailure.FAILED else None,
         fingerprint=None,
     )
-
-
-def _signed_in(request: Request) -> User:
-    """The guard has already turned away everyone else on these addresses."""
-    person: User = request.state.signed_in_person
-    return person
-
-
-def _session_id(request: Request) -> str:
-    """The live session the guard stashed, so a secret binds to one session."""
-    session_id: str = request.state.signed_in_session_id
-    return session_id
 
 
 def _held_elsewhere(

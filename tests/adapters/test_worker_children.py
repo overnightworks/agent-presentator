@@ -28,7 +28,7 @@ from presentator.host.worker_serving import (
     WireChild,
 )
 from presentator.host.worker_termination import SWEEP_SECONDS
-from tests.test_worker_record_chain import END, HELLO, OUTCOME_FAILED, STATUS
+from tests import worker_support as support
 from tests.worker_support import (
     accept_time,
     open_descriptor_count,
@@ -418,16 +418,6 @@ def test_production_spawns_the_wire_child_as_the_wire_user_without_groups(
     assert keywords["start_new_session"] is True
 
 
-@pytest.fixture
-def socket_directory(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    before = os.umask(0)
-    os.umask(before)
-    directory = tmp_path_factory.mktemp("w")
-    directory.chmod(0o700)
-    yield directory
-    os.umask(before)
-
-
 @dataclass
 class RecordingWatchdog:
     """Records arm and cancel without ever arming a real timer."""
@@ -492,7 +482,11 @@ class RealServing:
         return thread
 
     def exchange(self, thread: threading.Thread, sent: bytes) -> Reply:
-        with closing(connect_when_bound(self.directory, thread.is_alive)) as client:
+        with closing(
+            support.connect_when_bound(
+                self.directory, thread.is_alive, WAIT_SECONDS, WAIT_SECONDS
+            )
+        ) as client:
             client.sendall(sent)
             received = b""
             try:
@@ -503,31 +497,30 @@ class RealServing:
             return Reply(received, ended_by_reset=False)
 
 
-def step_message(header: bytes) -> bytes:
-    return b"PBW\x01\x02" + len(header).to_bytes(2, "big") + header
-
-
-VALID_STEP = step_message(b'{"step":"build","slug":"my-deck"}')
 REJECTED_STEPS = {
-    "a slug leaving its folder": step_message(b'{"step":"build","slug":"../x"}'),
-    "an unknown step": step_message(b'{"step":"deploy","slug":"x"}'),
-    "an extra key": step_message(b'{"step":"build","slug":"x","more":1}'),
+    "a slug leaving its folder": support.framed(
+        b'{"step":"build","slug":"../x"}', support.STEP
+    ),
+    "an unknown step": support.framed(b'{"step":"deploy","slug":"x"}', support.STEP),
+    "an extra key": support.framed(
+        b'{"step":"build","slug":"x","more":1}', support.STEP
+    ),
 }
 
 
 def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_deadline(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+    volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    with dripped_header(socket_directory) as run:
+    with dripped_header(volume) as run:
         serving = run.serving
         for _ in range(SECOND_CONNECTION):
             before = time.monotonic()
-            reply = serving.exchange(run.thread, HELLO)
+            reply = serving.exchange(run.thread, support.HELLO)
             after = time.monotonic()
             serving.await_sweep()
 
-            assert reply.received == STATUS
+            assert reply.received == support.STATUS
             assert not reply.ended_by_reset
             assert after - before < HEADER_SECONDS
             assert before + SWEEP_SECONDS <= serving.sweep_deadlines[-1]
@@ -540,14 +533,14 @@ def test_the_real_entry_answers_a_hello_twice_in_one_process_within_the_header_d
 
 @pytest.mark.parametrize("sent", REJECTED_STEPS.values(), ids=REJECTED_STEPS.keys())
 def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_hello(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch, sent: bytes
+    volume: Path, monkeypatch: pytest.MonkeyPatch, sent: bytes
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    with dripped_header(socket_directory) as run:
+    with dripped_header(volume) as run:
         serving = run.serving
         assert serving.exchange(run.thread, sent).received == b""
-        second_reply = serving.exchange(run.thread, HELLO)
-        assert second_reply.received == STATUS
+        second_reply = serving.exchange(run.thread, support.HELLO)
+        assert second_reply.received == support.STATUS
         assert not second_reply.ended_by_reset
         run.thread.join(WAIT_SECONDS)
 
@@ -557,14 +550,14 @@ def test_a_rejected_step_is_closed_unserved_and_the_same_process_then_answers_a_
 
 
 def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_life(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+    volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    with dripped_header(socket_directory) as run:
-        reply = run.serving.exchange(run.thread, VALID_STEP + END)
+    with dripped_header(volume) as run:
+        reply = run.serving.exchange(run.thread, support.VALID_STEP + support.END)
         run.thread.join(WAIT_SECONDS)
 
-    assert reply.received == STATUS + OUTCOME_FAILED + END
+    assert reply.received == support.STATUS + support.OUTCOME_FAILED + support.END
     assert not reply.ended_by_reset
     assert run.spawns.roles == ["idle", "upload", "send"]
     assert not run.thread.is_alive()
@@ -573,9 +566,9 @@ def test_a_valid_step_and_end_get_status_failed_end_and_a_clean_eof_and_end_the_
     assert run.serving.watchdog.events == ["arm", "arm"]
 
 
-HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = HELLO[:7] + HELLO[7:8]
-THREE_PREAMBLE_BYTES = HELLO[:3]
-STEP_PREAMBLE_AND_ONE_HEADER_BYTE = VALID_STEP[:7] + VALID_STEP[7:8]
+HELLO_PREAMBLE_AND_ONE_HEADER_BYTE = support.HELLO[:7] + support.HELLO[7:8]
+THREE_PREAMBLE_BYTES = support.HELLO[:3]
+STEP_PREAMBLE_AND_ONE_HEADER_BYTE = support.VALID_STEP[:7] + support.VALID_STEP[7:8]
 
 
 @dataclass
@@ -584,6 +577,7 @@ class RecordingSpawn:
 
     children: list[GatedChild] = field(default_factory=list[GatedChild])
     roles: list[str] = field(default_factory=list[str])
+    process_ids: list[int] = field(default_factory=list[int])
     stopped: bool = False
 
     def __call__(
@@ -601,6 +595,7 @@ class RecordingSpawn:
         )
         self.children.append(child)
         self.roles.append(role_of(command))
+        self.process_ids.append(support.process_id_of(child))
         return child
 
     def still_running(self) -> list[GatedChild]:
@@ -611,6 +606,7 @@ class RecordingSpawn:
             child.kill()
         reaped = [child.wait_within(WAIT_SECONDS) for child in self.children]
         assert None not in reaped, "a killed child was not reaped"
+        support.assert_gone(self.process_ids)
 
 
 @dataclass
@@ -623,7 +619,9 @@ class DrippedHeader:
     clients: list[socket.socket] = field(default_factory=list[socket.socket])
 
     def drip_then_stop_writing(self, dripped: bytes) -> bytes:
-        client = connect_when_bound(self.serving.directory, self.thread.is_alive)
+        client = support.connect_when_bound(
+            self.serving.directory, self.thread.is_alive, WAIT_SECONDS, WAIT_SECONDS
+        )
         self.clients.append(client)
         client.sendall(dripped)
         return client.recv(64)
@@ -664,21 +662,21 @@ def dripped_header(directory: Path) -> Generator[DrippedHeader]:
     ],
 )
 def test_a_header_that_stops_midway_is_cut_off_at_the_deadline_and_serving_goes_on(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch, dripped: bytes
+    volume: Path, monkeypatch: pytest.MonkeyPatch, dripped: bytes
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
-    with dripped_header(socket_directory) as run:
+    with dripped_header(volume) as run:
         received = run.drip_then_stop_writing(dripped)
         ended_at = time.monotonic()
         run.serving.await_sweep()
         [sweep_deadline] = run.serving.sweep_deadlines
         accepted_at = sweep_deadline - SWEEP_SECONDS
-        second_reply = run.serving.exchange(run.thread, HELLO)
+        second_reply = run.serving.exchange(run.thread, support.HELLO)
         run.thread.join(WAIT_SECONDS)
 
     assert received == b""
     assert accepted_at + HEADER_SECONDS <= ended_at < sweep_deadline
-    assert second_reply.received == STATUS
+    assert second_reply.received == support.STATUS
     assert run.serving.watchdog.events == ["arm", "cancel", "arm"]
     assert run.serving.outcome == [0]
 
@@ -696,45 +694,31 @@ def fail_between_the_connections(directory: Path, started: list[DrippedHeader]) 
 
 
 def test_a_failure_between_the_two_connections_leaves_neither_thread_nor_child(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+    volume: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", PATH)
     started: list[DrippedHeader] = []
 
     with pytest.raises(ForcedFailureError):
-        fail_between_the_connections(socket_directory, started)
+        fail_between_the_connections(volume, started)
 
     [run] = started
     assert not run.thread.is_alive()
     assert run.spawns.still_running() == []
 
 
-def connect_when_bound(
-    directory: Path, still_serving: Callable[[], bool]
-) -> socket.socket:
-    deadline = time.monotonic() + WAIT_SECONDS
-    while still_serving() and time.monotonic() < deadline:
-        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        client.settimeout(WAIT_SECONDS)
-        try:
-            client.connect(str(directory / worker.SOCKET_NAME))
-        except (FileNotFoundError, ConnectionRefusedError):
-            client.close()
-            continue
-        return client
-    pytest.fail("the worker did not start serving")
-
-
 def test_a_stalled_controller_serving_an_idle_connection_exits_one_at_seven_seconds(
-    socket_directory: Path,
+    volume: Path,
 ) -> None:
     controller = subprocess.Popen(
-        [sys.executable, "-I", "-c", STALLED_CONTROLLER, str(socket_directory)],
+        [sys.executable, "-I", "-c", STALLED_CONTROLLER, str(volume)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     try:
-        client = connect_when_bound(socket_directory, lambda: controller.poll() is None)
+        client = support.connect_when_bound(
+            volume, lambda: controller.poll() is None, WAIT_SECONDS, WAIT_SECONDS
+        )
         with closing(client):
             exit_status = controller.wait(timeout=WAIT_SECONDS + 5)
         exited_at = time.monotonic()

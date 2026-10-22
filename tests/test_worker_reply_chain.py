@@ -12,23 +12,18 @@ from presentator.adapters.worker_children import spawn_gated
 from presentator.host import worker_serving
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
+from tests import worker_support as support
 from tests.test_worker_record_chain import (
-    END,
-    OUTCOME_FAILED,
     OWN_IDENTITY,
     PATH,
     SLEEPER,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
-    connect_when_serving,
     end_controller,
     read_to_end,
     run_life,
 )
-from tests.worker_support import DECK_CLOSED_MODE
 
 REPLY_BUDGET_SECONDS = 1.0
 DECK_MODE_REPORTER_EXITING_SENT = f"""
@@ -39,7 +34,7 @@ sys.exit({int(WireExit.SENT)})
 """
 OUTCOME_THEN_STALL = f"""
 import os, sys, time
-os.write(int(sys.argv[1]), {OUTCOME_FAILED!r})
+os.write(int(sys.argv[1]), {support.OUTCOME_FAILED!r})
 time.sleep(120)
 """
 CONSUMING_CONTROLLER = """
@@ -123,14 +118,16 @@ def test_a_valid_upload_over_a_controller_process_gets_status_failed_end_and_eof
     )
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
-            client.sendall(VALID_STEP + END)
+        with closing(
+            support.connect_when_serving(volume, controller, WAIT_SECONDS)
+        ) as client:
+            client.sendall(support.VALID_STEP + support.END)
             reply = read_to_end(client)
         exit_status = controller.wait_within(WAIT_SECONDS)
     finally:
         lines = end_controller(controller, log)
 
-    assert reply == STATUS + OUTCOME_FAILED + END
+    assert reply == support.STATUS + support.OUTCOME_FAILED + support.END
     assert exit_status == 0
     assert [line.split()[1] for line in lines] == ["idle", "upload", "send"]
 
@@ -141,9 +138,9 @@ def test_the_deck_a_fake_sender_sees_is_0755_and_its_exit_sent_ends_the_life_con
     deck = sandbox / "deck"
     spawn = ChainSpawn(programs={"send": [DECK_MODE_REPORTER_EXITING_SENT, str(deck)]})
 
-    life = run_life(VALID_STEP + END, spawn, LifeScenario(deck=deck))
+    life = run_life(support.VALID_STEP + support.END, spawn, LifeScenario(deck=deck))
 
-    assert life.reply == STATUS + oct(DECK_CLOSED_MODE).encode()
+    assert life.reply == support.STATUS + oct(support.DECK_CLOSED_MODE).encode()
     assert life.life_end == LifeEnd.CONSUMED
 
 
@@ -152,17 +149,19 @@ def test_an_exit_that_is_not_sent_ends_the_life_wire_exit_with_the_status_only(
 ) -> None:
     spawn = ChainSpawn(programs={"send": ["import sys; sys.exit(1)"]})
 
-    life = run_life(VALID_STEP + END, spawn, LifeScenario(deck=sandbox / "deck"))
+    life = run_life(
+        support.VALID_STEP + support.END, spawn, LifeScenario(deck=sandbox / "deck")
+    )
 
-    assert life.reply == STATUS
+    assert life.reply == support.STATUS
     assert life.life_end == LifeEnd.WIRE_EXIT
 
 
 STALLED_SENDERS = {
-    "a sender that stalls": (SLEEPER, STATUS),
+    "a sender that stalls": (SLEEPER, support.STATUS),
     "a sender that writes the OUTCOME and stalls": (
         OUTCOME_THEN_STALL,
-        STATUS + OUTCOME_FAILED,
+        support.STATUS + support.OUTCOME_FAILED,
     ),
 }
 
@@ -178,10 +177,10 @@ def test_a_stalled_sender_is_killed_at_the_reply_budget_leaving_the_reply_incomp
     deck = sandbox / "deck"
 
     started = time.monotonic()
-    life = run_life(VALID_STEP + END, spawn, LifeScenario(deck=deck))
+    life = run_life(support.VALID_STEP + support.END, spawn, LifeScenario(deck=deck))
     elapsed = time.monotonic() - started
 
     assert life.life_end == LifeEnd.REPLY_EXPIRED
     assert life.reply == reply
     assert REPLY_BUDGET_SECONDS <= elapsed < REPLY_BUDGET_SECONDS + WAIT_SECONDS
-    assert stat.S_IMODE(deck.stat().st_mode) == DECK_CLOSED_MODE
+    assert stat.S_IMODE(deck.stat().st_mode) == support.DECK_CLOSED_MODE

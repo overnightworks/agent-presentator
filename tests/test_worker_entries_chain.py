@@ -13,17 +13,14 @@ import pytest
 from presentator.adapters.build_wire import MEGABYTE, RecordTag
 from presentator.adapters.worker_children import GatedChild, spawn_gated
 from presentator.host.worker_serving import LifeEnd
+from tests import worker_support as support
 from tests.test_worker_record_chain import (
     EXITING_SENT,
-    OUTCOME_FAILED,
     OWN_IDENTITY,
     PATH,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
-    connect_when_serving,
     end_controller,
     read_to_end,
     read_to_end_or_reset,
@@ -31,7 +28,6 @@ from tests.test_worker_record_chain import (
 )
 from tests.test_worker_reply_chain import CONSUMING_CONTROLLER
 from tests.worker_support import (
-    DECK_CLOSED_MODE,
     OWN_UID,
     directory_entry,
     end_entry,
@@ -40,7 +36,6 @@ from tests.worker_support import (
     file_header,
 )
 
-BULK_SEND_SECONDS = 60
 CONTROLLER_UMASK = 0o077
 DIRECTORY_MODE = 0o755
 FILE_MODE = 0o644
@@ -91,7 +86,7 @@ def test_a_nested_upload_through_the_real_roles_is_stored_0755_and_0644(
     deck = sandbox / "deck"
 
     life = run_life(
-        VALID_STEP + NESTED_UPLOAD,
+        support.VALID_STEP + NESTED_UPLOAD,
         ChainSpawn(programs={"send": [EXITING_SENT]}),
         LifeScenario(deck=deck),
     )
@@ -105,7 +100,7 @@ def test_a_nested_upload_through_the_real_roles_is_stored_0755_and_0644(
         "e": (FILE_MODE, OWN_UID),
     }
     assert (deck / "e").read_bytes() == LARGE_FILE
-    assert stat.S_IMODE(deck.stat().st_mode) == DECK_CLOSED_MODE
+    assert stat.S_IMODE(deck.stat().st_mode) == support.DECK_CLOSED_MODE
 
 
 def spawn_controller(volume: Path, log: Path, deck: Path) -> GatedChild:
@@ -152,16 +147,18 @@ def assert_refused_upload_closes(
     controller = spawn_controller(volume, log, tmp_path / "deck")
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
-            client.settimeout(BULK_SEND_SECONDS)
-            client.sendall(VALID_STEP + refused)
+        with closing(
+            support.connect_when_serving(volume, controller, WAIT_SECONDS)
+        ) as client:
+            client.settimeout(support.BULK_SEND_SECONDS)
+            client.sendall(support.VALID_STEP + refused)
             client.settimeout(WAIT_SECONDS)
             reply = read_reply(client)
         exit_status = controller.wait_within(WAIT_SECONDS)
     finally:
         lines = end_controller(controller, log)
 
-    assert reply == STATUS
+    assert reply == support.STATUS
     assert exit_status == 0
     assert [line.split()[1] for line in lines] == ["idle", "upload"]
 
@@ -174,13 +171,15 @@ def test_a_nested_upload_over_a_controller_gets_status_failed_end_and_eof(
     controller = spawn_controller(volume, log, tmp_path / "deck")
     try:
         controller.release()
-        with closing(connect_when_serving(volume, controller)) as client:
-            client.sendall(VALID_STEP + NESTED_UPLOAD)
+        with closing(
+            support.connect_when_serving(volume, controller, WAIT_SECONDS)
+        ) as client:
+            client.sendall(support.VALID_STEP + NESTED_UPLOAD)
             reply = read_to_end(client)
         exit_status = controller.wait_within(WAIT_SECONDS)
     finally:
         lines = end_controller(controller, log)
 
-    assert reply == STATUS + OUTCOME_FAILED + end_entry(0, 0)
+    assert reply == support.STATUS + support.OUTCOME_FAILED + end_entry(0, 0)
     assert exit_status == 0
     assert [line.split()[1] for line in lines] == ["idle", "upload", "send"]

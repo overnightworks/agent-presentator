@@ -10,17 +10,14 @@ import pytest
 from presentator.host.worker_serving import LifeEnd
 from presentator.host.worker_wire import WireExit
 from tests.test_worker_record_chain import (
-    END,
-    OUTCOME_FAILED,
     PATH,
-    STATUS,
-    VALID_STEP,
     WAIT_SECONDS,
     ChainSpawn,
     LifeScenario,
     read_to_end_or_reset,
     run_life,
 )
+from tests.worker_support import END, OUTCOME_FAILED, STATUS, VALID_STEP
 
 SENDING_AFTER_THE_SIDE_CLIENT = f"""
 import os, sys, time
