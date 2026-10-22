@@ -20,7 +20,6 @@ from tests.api.talk_support import (
     cookie_header,
     two_hosts,
 )
-from tests.test_host import bare_environment, environment  # noqa: F401  (fixtures)
 
 _LOBBY_HOST = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
 _TALK_HOST = str(urlsplit(A_TALK_ADDRESS).hostname)

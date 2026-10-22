@@ -43,12 +43,12 @@ from presentator.host.main import Instance
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
-    configure_oidc,
     hand_over_session_cookies,
 )
 from tests.conftest import (
     EXAMPLE_SLUG,
     EXAMPLE_TITLE,
+    INSTANCE_KEY,
     GitRemote,
     with_the_program,
 )
@@ -58,7 +58,6 @@ from tests.people import (
     write_password_schema,
 )
 
-_INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 _PERSON = "felix"
 _ADMIN = User(id="id-of-felix", username=_PERSON, role=Role.ADMIN)
 _PUSHED_AT = datetime(2026, 1, 15, 9, tzinfo=UTC)
@@ -106,39 +105,6 @@ case "$1" in
     rm) exit 0;;
 esac
 """
-
-
-@pytest.fixture
-def bare_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> pytest.MonkeyPatch:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("PRESENTATOR_SECRET_KEY", raising=False)
-    monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
-    # `remote`/`another_remote` (tests/conftest.py) write their bare
-    # repositories straight into `tmp_path`, the one directory every real
-    # git address these tests build stands under; naming it as the mount
-    # lets a `file://` fixture keep standing in for "any git remote" without
-    # every such test naming the mount for itself.
-    monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
-    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", A_BROWSERS_ADDRESS)
-    configure_oidc(monkeypatch, tmp_path)
-    monkeypatch.setenv(
-        "PRESENTATOR_COPRESENTER_SOCKET",
-        str(tmp_path / "copresenter.sock"),
-    )
-    return monkeypatch
-
-
-@pytest.fixture
-def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    bare_environment.setenv("PRESENTATOR_SECRET_KEY", _INSTANCE_KEY)
-    # These tests are about the lobby this root composes, not about where a
-    # deck's code runs; the development run is what asks nothing of a daemon,
-    # and the tests below that are about the sandbox say so themselves.
-    bare_environment.setenv("PRESENTATOR_BUILD_RUNNER", "host")
-    return bare_environment
 
 
 def a_real_instance() -> Instance:
@@ -418,8 +384,8 @@ def test_an_instance_key_shorter_than_thirty_two_bytes_refuses_to_start(
 def test_the_instance_key_is_never_shown() -> None:
     settings = load_settings()
 
-    assert _INSTANCE_KEY not in repr(settings)
-    assert settings.secret_key.get_secret_value() == _INSTANCE_KEY
+    assert INSTANCE_KEY not in repr(settings)
+    assert settings.secret_key.get_secret_value() == INSTANCE_KEY
 
 
 def a_signed_in_instance() -> TestClient:
@@ -477,7 +443,7 @@ def call_the_hook(lobby: TestClient, *, carrying: str) -> Response:
 
 
 def sources_over(
-    database: Path, *, instance_key: str = _INSTANCE_KEY
+    database: Path, *, instance_key: str = INSTANCE_KEY
 ) -> SqliteSourceStore:
     """The real source store over the instance's file, keyed as it says.
 
