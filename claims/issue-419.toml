@@ -1,0 +1,8 @@
+claim_id = "96b703bfef9540108e2e15a2618ba196"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "20b0896bcc1f22f6d8dd01d7dc8c7a4b778643d9"
+branch = "claude/issue-419-presentator-exports-one-person-behind-th"
+scope = ["src/presentator/application/people.py", "src/presentator/contracts/people.py", "tests/adapters/person_instance_support.py", "tests/adapters/test_person_erasure_sqlite.py", "tests/adapters/test_person_export_sqlite.py", "tests/adapters/test_schema_guard.py", "tests/application/test_person_export.py"]
+opened_commit = "a32477d8334964433a9a182a68013a3b302bdc3c"
+whole_reason = "The export use case, its record types and its schema test are one capability; the two test files change only to share the instance builder the new sqlite test needs."
