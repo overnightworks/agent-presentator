@@ -1,0 +1,8 @@
+claim_id = "dd76dfeca23b4bc385f9ca045e92aa44"
+agent = "claude"
+role = "builder"
+base = "1dd2b99a5549952b9752138ad8b757b226e2a8b6"
+branch = "fix/speech-provider-advisories"
+scope = ["speech/providers/chatterbox/pyproject.toml", "speech/providers/chatterbox/uv.lock", "speech/providers/magpie/pyproject.toml", "speech/providers/magpie/uv.lock", "speech/providers/qwen/pyproject.toml", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/pyproject.toml", "speech/providers/voxcpm/uv.lock"]
+opened_commit = "f3927482978221811a00aa2b577a2ee152469fd0"
+whole_reason = "One advisory sweep across the four speech providers' lockfiles that turned main red; each provider's lock moves the same package."
