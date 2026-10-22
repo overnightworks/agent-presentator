@@ -14,10 +14,10 @@
 "speech/tests/test_provider_process.py" = 872
 "speech/tests/test_voice_status.py" = 1513
 "src/presentator/adapters/builds.py" = 1172
-"src/presentator/adapters/decks.py" = 1005
+"src/presentator/adapters/decks.py" = 876
 "src/presentator/application/decks.py" = 984
 "tests/adapters/test_builds.py" = 1825
-"tests/adapters/test_decks.py" = 1533
+"tests/adapters/test_decks.py" = 1432
 "tests/api/test_copresenter.py" = 1073
 "tests/api/test_sources.py" = 1719
 "tests/application/test_decks.py" = 2071
@@ -71,7 +71,7 @@
 "Decks.add_source" = 81
 
 [function_lines."src/presentator/host/main.py"]
-"build_instance" = 88
+"build_instance" = 86
 
 [function_lines."tests/adapters/test_decks.py"]
 "test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair" = 67

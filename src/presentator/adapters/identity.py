@@ -19,6 +19,7 @@ from webauth.ports import UsernameTakenError
 
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import Role, User
+from presentator.contracts.people import SessionTimes
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -119,6 +120,24 @@ class SystemClock:
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessWriteLock:
+    """The one lock the sign-in callback takes for admission and `open_session`.
+
+    The host's calls of webauth's `log_out` and `receive_backchannel_logout`
+    take it too. It defaults to a re-entrant `threading.RLock`, and is held only
+    on worker threads, never on the event loop.
+    """
+
+    primitive: AbstractContextManager[object] = field(default_factory=threading.RLock)
+
+    @contextmanager
+    def hold(self) -> Generator[None]:
+        """Serialize the check-then-write steps of this process."""
+        with self.primitive:
+            yield
+
+
+@dataclass(frozen=True, slots=True)
 class SqliteSubjectUserStore:
     """The accounts table, keyed by the identity provider's subject.
 
@@ -127,6 +146,7 @@ class SqliteSubjectUserStore:
     """
 
     database: Path
+    lock: ProcessWriteLock
 
     def get(self, user_id: str) -> User | None:
         """The account whose id is `user_id` character for character."""
@@ -159,30 +179,20 @@ class SqliteSubjectUserStore:
             row = cursor.execute(_SELECT_ACCOUNT, (user_id,)).fetchone()
         return _user(row)
 
+    def delete_account(self, user_id: str) -> None:
+        """Delete the account and its sessions together, serialized with sign-in."""
+        with self.lock.hold(), rows(self.database) as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            cursor.execute("COMMIT")
+
 
 def _is_a_taken_username(refused: sqlite3.IntegrityError) -> bool:
     return (
         refused.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE
         and _USERNAME_COLUMN in str(refused)
     )
-
-
-@dataclass(frozen=True, slots=True)
-class ProcessWriteLock:
-    """The one lock the sign-in callback takes for admission and `open_session`.
-
-    The host's calls of webauth's `log_out` and `receive_backchannel_logout`
-    take it too. It defaults to a re-entrant `threading.RLock`, and is held only
-    on worker threads, never on the event loop.
-    """
-
-    primitive: AbstractContextManager[object] = field(default_factory=threading.RLock)
-
-    @contextmanager
-    def hold(self) -> Generator[None]:
-        """Serialize the check-then-write steps of this process."""
-        with self.primitive:
-            yield
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -300,6 +310,21 @@ class SqliteSessionRecordStore:
         with rows(self.database) as cursor:
             cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             return int(cursor.rowcount)
+
+    def sessions_of(self, user_id: str) -> tuple[SessionTimes, ...]:
+        """When each sign-in of one account began and ends, and nothing else."""
+        with rows(self.database) as cursor:
+            found = cursor.execute(
+                "SELECT created_at, expires_at FROM sessions WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        return tuple(
+            SessionTimes(
+                created_at=datetime.fromisoformat(created_at),
+                expires_at=datetime.fromisoformat(expires_at),
+            )
+            for created_at, expires_at in found
+        )
 
     def delete_expired(self, at: datetime) -> int:
         """Delete every session that ended before `at`; one ending at `at` stands.

@@ -42,10 +42,8 @@ from presentator.adapters.decks import (
     SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
-    SqliteSourceKeyDrafts,
     SqliteSourceRunStore,
     SqliteSourceStore,
-    create_deck_tables,
 )
 from presentator.adapters.identity import (
     OldDatabaseError,
@@ -54,13 +52,13 @@ from presentator.adapters.identity import (
     SqliteSubjectUserStore,
     SystemClock,
     TokenIdentifierFactory,
-    create_identity_tables,
 )
+from presentator.adapters.key_drafts import SqliteSourceKeyDrafts
 from presentator.adapters.preferences import (
     SqliteInstanceSettingsStore,
     SqlitePersonPreferencesStore,
-    create_preference_tables,
 )
+from presentator.adapters.schema import create_tables
 from presentator.adapters.secrets import (
     connection_fingerprint_key,
     secret_box,
@@ -129,11 +127,9 @@ class Instance:
 def build_instance(settings: Settings) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
     try:
-        create_identity_tables(settings.database)
+        create_tables(settings.database)
     except OldDatabaseError as refused:
         raise cannot_start(str(refused)) from None
-    create_preference_tables(settings.database)
-    create_deck_tables(settings.database)
     identifiers = TokenIdentifierFactory()
     clock = SystemClock()
     # One box for both directions: what the store writes down is what the
@@ -240,6 +236,7 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
     store, and report to the one audit sink.
     """
     lobby_client, talk_client = client_configs_of(settings)
+    write_lock = ProcessWriteLock()
     lobby = InstalledAuth(
         config=web_auth_config_for(
             settings.secret_key,
@@ -248,8 +245,8 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
         ),
         relying_party=relying_party(lobby_client),
         admission=admission_of(settings),
-        accounts=SqliteSubjectUserStore(settings.database),
-        lock=ProcessWriteLock(),
+        accounts=SqliteSubjectUserStore(settings.database, write_lock),
+        lock=write_lock,
         audit=LoggingAuditSink(),
         content_security_policy=content_security_policy(
             end_session_origin(lobby_client)

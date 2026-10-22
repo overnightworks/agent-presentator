@@ -18,6 +18,7 @@ from webauth.oidc import OidcRelyingParty
 from webauth.oidc_login import AdmissionConfig
 
 from presentator.adapters.identity import (
+    ProcessWriteLock,
     SqliteSessionRecordStore,
     SqliteSubjectUserStore,
     create_identity_tables,
@@ -198,7 +199,7 @@ def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Ho
     lobby_auth = an_installed_auth(
         clock,
         relying_party=_relying_party_at(issuer, clock, A_BROWSERS_ADDRESS),
-        accounts=SqliteSubjectUserStore(database),
+        accounts=SqliteSubjectUserStore(database, ProcessWriteLock()),
     )
     if admission is not None:
         lobby_auth = replace(lobby_auth, admission=admission)
