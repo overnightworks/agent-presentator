@@ -43,6 +43,7 @@ from tests.adapters.agent_service_support import (
     violating_frame,
     whole,
 )
+from tests.leak_support import everything_shown
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -229,10 +230,64 @@ def test_no_secret_and_no_question_leaks(
 
     outcome = asyncio.run(drive())
 
-    for record in caplog.records:
-        shown = f"{record.getMessage()} {record.args} {record.exc_text}"
-        assert record.exc_info is None
-        assert not [marker for marker in MARKERS if marker in shown]
-    if outcome.error is not None:
-        error = unavailable(outcome)
-        assert not [m for m in MARKERS if m in f"{error!s} {error!r}"]
+    errors = [] if outcome.error is None else [unavailable(outcome)]
+    shown = everything_shown(caplog.records, errors)
+    assert not [marker for marker in MARKERS if marker in shown]
+
+
+_WALK_MARKER = "walk-MARKER"
+
+
+def _a_record(*, args: object = (), exc_info: object = None) -> logging.LogRecord:
+    return logging.LogRecord(
+        "name",
+        logging.INFO,
+        "path",
+        1,
+        "%s" if args else "plain",
+        args,  # pyright: ignore[reportArgumentType]
+        exc_info,  # pyright: ignore[reportArgumentType]
+    )
+
+
+def _chained_error() -> ValueError:
+    error = ValueError("outer")
+    error.__context__ = RuntimeError(_WALK_MARKER)
+    return error
+
+
+def _cyclic_error() -> RuntimeError:
+    error = RuntimeError("outer")
+    error.__context__ = RuntimeError(_WALK_MARKER)
+    error.__context__.__context__ = error
+    return error
+
+
+@pytest.mark.parametrize(
+    "shown",
+    [
+        pytest.param(
+            everything_shown([_a_record(args=({"k": [_WALK_MARKER]},))]), id="args"
+        ),
+        pytest.param(everything_shown(errors=[_chained_error()]), id="context"),
+        pytest.param(everything_shown(errors=[_cyclic_error()]), id="cycle"),
+        pytest.param(
+            everything_shown(
+                errors=[BaseExceptionGroup("group", [RuntimeError(_WALK_MARKER)])]
+            ),
+            id="group-member",
+        ),
+        pytest.param(
+            everything_shown(
+                [_a_record(exc_info=(RuntimeError, _chained_error(), None))]
+            ),
+            id="exc-info",
+        ),
+    ],
+)
+def test_a_marker_held_anywhere_is_found(shown: str) -> None:
+    assert _WALK_MARKER in shown
+
+
+def test_a_record_and_an_error_without_the_marker_show_none() -> None:
+    assert _WALK_MARKER not in everything_shown([_a_record()], [RuntimeError("other")])
