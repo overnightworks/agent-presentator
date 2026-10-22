@@ -242,10 +242,11 @@ here at all — see below. `BodySizePolicy` is installed with a 32 KiB default
 and a 25 MiB budget for the hook prefix (amendment 2026-10-21 below); `AuditSink` is a logging sink
 that writes one line per account created, role changed or back-channel logout that ended sessions. `SecurityHeadersPolicy` is
 mounted: the lobby's `SecurityHeadersMiddleware` sends HSTS, a strict
-`Content-Security-Policy`, and a `Permissions-Policy` that grants only
-`microphone=(self)` — never the camera, which nothing in this product asks for —
-because the co-presenter deck's own component (`CoPresenter.vue`) is the one
-surface that calls `getUserMedia`, and only for audio. `CsrfPolicy` exempts the
+`Content-Security-Policy`, and a `Permissions-Policy` that grants no device.
+Only the talk host grants `microphone=(self)` — never the camera, which nothing
+in this product asks for — because the co-presenter deck's own component
+(`CoPresenter.vue`) is the one surface that calls `getUserMedia`, and only for
+audio. `CsrfPolicy` exempts the
 two sessionless addresses another server posts to, the webhook prefix and the
 exact back-channel logout path; its default protects every mutating path (13c).
 

@@ -14,7 +14,6 @@ import uvicorn
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from starlette.routing import Router
-from starlette.websockets import WebSocketDisconnect
 from webauth.config import installed_web_auth_config
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 
@@ -44,7 +43,6 @@ from presentator.host.main import Instance
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_BROWSERS_HEADERS,
-    A_TALK_ADDRESS,
     hand_over_session_cookies,
 )
 from tests.conftest import (
@@ -127,40 +125,19 @@ def signed_in(
     session = SqliteSessionRecordStore(database).create(
         _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
     )
-    app = instance.talk if base_url == A_TALK_ADDRESS else instance.lobby
     client = TestClient(
-        app,
+        instance.lobby,
         base_url=base_url,
         follow_redirects=False,
         client=(peer, 50000),
         headers=A_BROWSERS_HEADERS,
     )
-    hand_over_session_cookies(client, session.id, installed_web_auth_config(app))
+    hand_over_session_cookies(
+        client,
+        session.id,
+        installed_web_auth_config(instance.lobby),
+    )
     return client
-
-
-def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    del environment
-    instance = a_real_instance()
-    lobby = signed_in(instance)
-    talk = signed_in(instance, base_url=A_TALK_ADDRESS)
-    json = {"accept": "application/json"}
-
-    at_the_lobby = lobby.get("/copresenter/who", headers=json)
-    at_the_talk_host = talk.get("/copresenter/who", headers=json)
-    with (
-        pytest.raises(WebSocketDisconnect),
-        lobby.websocket_connect(
-            "wss://testserver/copresenter/hear?language=de",
-            headers={"origin": A_BROWSERS_ADDRESS},
-        ),
-    ):
-        pytest.fail("the lobby accepted a hearing")
-
-    assert at_the_lobby.status_code == HTTPStatus.NOT_FOUND
-    assert at_the_talk_host.status_code == HTTPStatus.SERVICE_UNAVAILABLE
 
 
 def test_the_composition_root_serves_a_lobby_that_answers_the_login(

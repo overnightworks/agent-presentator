@@ -21,7 +21,8 @@ models run and what they cost on the card is owned by the speech README.
 ## Routes and access
 
 The repository overlay calls relative `/copresenter/who`, `/copresenter/ask`
-and `/copresenter/hear` routes. Only the admin role may use them, through the
+and `/copresenter/hear` routes. The talk host serves them under its own session
+and CSRF cookie and its own Origin; the lobby answers 404 on them. Only the admin role may use them, through the
 existing active session: a signed-in person without it gets 403 on `/who` and
 `/ask` and a 1008 close before accept on `/hear`. Presentator checks the
 session and, for the WebSocket, the exact Origin before opening the socket.

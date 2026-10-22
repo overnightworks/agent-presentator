@@ -1,5 +1,6 @@
 """The Host header alone chooses which app of the instance answers."""
 
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -7,11 +8,19 @@ from urllib.parse import urlsplit
 import pytest
 from starlette.testclient import TestClient, WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
+from webauth.config import installed_web_auth_config
 
+from presentator.adapters.identity import SqliteSessionRecordStore
 from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
+from presentator.application.identity import SESSION_LIFETIME
+from presentator.contracts.models import Role, User
 from presentator.host import main
 from presentator.host.config import load_settings
-from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
+    hand_over_session_cookies,
+)
 from tests.api.talk_support import (
     A_DECK,
     B_DECK,
@@ -20,11 +29,14 @@ from tests.api.talk_support import (
     cookie_header,
     two_hosts,
 )
+from tests.people import seed_user
 
 _LOBBY_HOST = str(urlsplit(A_BROWSERS_ADDRESS).hostname)
 _TALK_HOST = str(urlsplit(A_TALK_ADDRESS).hostname)
 _SOMEONE_ELSES = "elsewhere.example.test"
 _NOT_FOUND = HTTPStatus.NOT_FOUND
+_JSON = {"accept": "application/json"}
+_ADMIN = User(id="id-of-felix", username="felix", role=Role.ADMIN)
 
 
 @pytest.fixture
@@ -173,3 +185,36 @@ def test_the_composition_root_wires_the_talk_host_to_its_own_policy() -> None:
     assert "microphone=(self)" in TALK_PERMISSIONS_POLICY
     assert from_the_lobby.status_code == HTTPStatus.FORBIDDEN
     assert from_the_talk_host.status_code != HTTPStatus.FORBIDDEN
+
+
+# C1, through the composition root's own wiring.
+@pytest.mark.usefixtures("environment")
+def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only() -> None:
+    settings = load_settings()
+    instance = main.build_instance(settings)
+    router = main.served_by_host(instance, settings)
+    seed_user(settings.database, _ADMIN)
+    now = datetime.now(UTC)
+    session = SqliteSessionRecordStore(settings.database).create(
+        _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
+    )
+    lobby = TestClient(router, base_url=settings.public_origin)
+    talk = TestClient(router, base_url=settings.talk_origin)
+    hand_over_session_cookies(
+        lobby, session.id, installed_web_auth_config(instance.lobby)
+    )
+    hand_over_session_cookies(
+        talk, session.id, installed_web_auth_config(instance.talk)
+    )
+    hearing = f"wss://{_LOBBY_HOST}/copresenter/hear?language=de"
+
+    at_the_lobby = lobby.get("/copresenter/who", headers=_JSON)
+    at_the_talk_host = talk.get("/copresenter/who", headers=_JSON)
+    with (
+        pytest.raises((WebSocketDisconnect, WebSocketDenialResponse)),
+        lobby.websocket_connect(hearing, headers={"origin": settings.public_origin}),
+    ):
+        pytest.fail("the lobby accepted a hearing")
+
+    assert at_the_lobby.status_code == _NOT_FOUND
+    assert at_the_talk_host.status_code == HTTPStatus.SERVICE_UNAVAILABLE
