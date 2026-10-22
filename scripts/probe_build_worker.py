@@ -9,20 +9,44 @@ starts the worker service from the already built image `presentator`, holds its
 socket volume in a container of the runtime user, and runs `client` in that
 container, over the real socket, through the codec's client half. Every cell it
 drives prints one line, and a cell that is not driven fails the run.
+
+The isolation cells run one life attacked from two sides at once, by the attack
+deck (`probe_build_worker/attack`, build code as the build user) and by the 10002
+probe (`attack/kernel_attacks.py` on stdin); `probe_build_worker_isolation.py`
+drives and judges them.
 """
 
-import io
 import json
 import os
 import socket
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
-from typing import NoReturn
+
+from probe_build_worker_harness import (
+    ENTRY_FILE,
+    HOLDER,
+    OUTPUT_DIRECTORY,
+    PROBE_DIRECTORY,
+    PROBE_SOURCES,
+    REPOSITORY,
+    SERVICE,
+    Report,
+    compose,
+    docker,
+    extract,
+    in_holder,
+    probe_client,
+    refuse,
+    say,
+    state,
+    text_files,
+    worker,
+)
+from probe_build_worker_isolation import prove_attacked_life
 
 from presentator.adapters.build_wire import (
     LENGTH,
@@ -42,16 +66,11 @@ from presentator.adapters.build_wire import (
 )
 from presentator.contracts.decks import StepKind
 
-REPOSITORY = Path(__file__).parents[1]
 IMAGE = "presentator"
-SERVICE = "build-worker"
-HOLDER = "build-worker-probe-holder"
 SOCKET_DIRECTORY = "/run/presentator-build"
 SOCKET_PATH = f"{SOCKET_DIRECTORY}/worker.sock"
-PROBE_DIRECTORY = "/probe"
 DECKS_DIRECTORY = "/decks"
 HELLO_DECK = f"{DECKS_DIRECTORY}/hello-deck"
-OUTPUT_DIRECTORY = Path("/out")
 FOREIGN_USER = "4242:presentator"
 CONNECT_WINDOW_SECONDS = 70
 FIRST_RETRY_SECONDS = 0.25
@@ -87,19 +106,10 @@ HEADER_CLASSES = {
     "slug not a plain folder name": _framed(b'{"step":"build","slug":"../a"}'),
     "dripped past the header deadline": _framed(VALID_STEP[:9], len(VALID_STEP)),
 }
-CELLS = ("5", "6", "48", "49", "51", "52", "54", "A8", "D1", "D2", "D4", "D5", "D6")
-
-
-def refuse(claim: str) -> NoReturn:
-    """Stop with the claim that did not hold."""
-    sys.stderr.write(f"probe failed: {claim}\n")
-    sys.exit(1)
-
-
-def say(line: str) -> None:
-    """Print one line and flush it, so a hung probe shows where it stopped."""
-    sys.stdout.write(f"{line}\n")
-    sys.stdout.flush()
+CELLS = (
+    *("5", "6", "48", "49", "51", "52", "54", "A8", "D1", "D2", "D4", "D5", "D6"),
+    *("36", "37", "38", "39", "41", "42", "43", "44", "59", "60"),
+)
 
 
 # The codec's client half, run inside the holder container as the runtime user.
@@ -249,82 +259,11 @@ def client(command: str, arguments: list[str]) -> None:
 # The driver, run where Docker is.
 
 
-def docker(*arguments: str) -> str:
-    """Run the docker CLI, failing loudly, and return what it printed."""
-    return subprocess.run(
-        ("docker", *arguments), check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def compose(*arguments: str) -> str:
-    """Run docker compose in the repository, failing loudly."""
-    return docker("compose", "--file", str(REPOSITORY / "compose.yaml"), *arguments)
-
-
-def in_holder(
-    *command: str, user: str | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the holder container; the caller judges the status."""
-    who = ("--user", user) if user else ()
-    return subprocess.run(
-        ("docker", "exec", *who, HOLDER, *command),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-
-def probe_client(*arguments: str, user: str | None = None) -> str:
-    """Run a client command in the holder, failing with its error."""
-    done = in_holder(
-        "python",
-        f"{PROBE_DIRECTORY}/{Path(__file__).name}",
-        "client",
-        *arguments,
-        user=user,
-    )
-    if done.returncode:
-        refuse(f"client {' '.join(arguments)}: {done.stdout}{done.stderr}")
-    return done.stdout.strip()
-
-
-def state() -> tuple[str, str]:
-    """The worker container's start time and restart count."""
-    started, restarts = docker(
-        "inspect", "--format", "{{.State.StartedAt}} {{.RestartCount}}", worker()
-    ).split()
-    return started, restarts
-
-
-def worker() -> str:
-    """The id of the worker container."""
-    return compose("ps", "--all", "--quiet", SERVICE)
-
-
 def timed(action: Callable[[], object]) -> float:
     """The seconds the action took."""
     started = time.monotonic()
     action()
     return time.monotonic() - started
-
-
-class Report:
-    """The cells driven so far, one printed line each."""
-
-    def __init__(self) -> None:
-        """Start with no cell driven."""
-        self.driven: set[str] = set()
-
-    def cell(self, name: str, line: str) -> None:
-        """Record a cell as driven and print its line."""
-        self.driven.add(name)
-        say(f"cell {name}: {line}")
-
-    def finish(self) -> None:
-        """Fail unless every cell was driven."""
-        missing = [name for name in CELLS if name not in self.driven]
-        if missing:
-            refuse(f"cells not driven: {', '.join(missing)}")
 
 
 def prove_variables_reach_the_worker(report: Report) -> None:
@@ -485,8 +424,8 @@ def start_holder() -> None:
         "--volume", f"{Path(__file__).resolve().parent}:{PROBE_DIRECTORY}:ro",
         "--volume", f"{REPOSITORY / 'examples' / 'hello-deck'}:{HELLO_DECK}:ro",
         "--volume",
-        f"{Path(__file__).resolve().parent / 'probe_build_worker' / 'render'}"
-        f":{DECKS_DIRECTORY}/render:ro",
+        f"{PROBE_SOURCES / 'render'}:{DECKS_DIRECTORY}/render:ro",
+        "--volume", f"{PROBE_SOURCES / 'attack'}:{DECKS_DIRECTORY}/attack:ro",
         IMAGE, "sleep", "infinity",
     )  # fmt: skip
 
@@ -526,24 +465,6 @@ def prove_header_classes(report: Report) -> None:
         f"{len(HEADER_CLASSES)} header classes closed; no restart; "
         f"STATUS {probe_client('hello')}",
     )
-
-
-def extract(source: str, destination: Path) -> None:
-    """Copy a directory of the holder out through tar, since tmpfs defeats docker cp."""
-    packed = subprocess.run(
-        ("docker", "exec", HOLDER, "tar", "--create", "--directory", source, "."),
-        check=True,
-        capture_output=True,
-    ).stdout
-    with tarfile.open(fileobj=io.BytesIO(packed)) as archive:
-        archive.extractall(destination, filter="data")
-
-
-def text_files(directory: Path) -> Iterator[str]:
-    """The script, markup and page text files below a directory, decoded."""
-    for path in directory.rglob("*"):
-        if path.suffix in {".js", ".html"}:
-            yield path.read_text(encoding="utf-8", errors="replace")
 
 
 def prove_builds(report: Report) -> None:
@@ -596,7 +517,7 @@ def prove_stop(report: Report) -> None:
         if during_a_step:
             held = subprocess.Popen(
                 ("docker", "exec", HOLDER, "python",
-                 f"{PROBE_DIRECTORY}/{Path(__file__).name}", "client", "hold"),
+                 f"{PROBE_DIRECTORY}/{ENTRY_FILE}", "client", "hold"),
                 stdout=subprocess.PIPE, text=True,
             )  # fmt: skip
             if held.stdout is None or held.stdout.readline().strip() != "status":
@@ -618,7 +539,7 @@ def prove_stop(report: Report) -> None:
 
 def drive() -> None:
     """Start the worker from the built image and drive every cell."""
-    report = Report()
+    report = Report(CELLS)
     prove_variables_reach_the_worker(report)
     prove_glibc_floor(report)
     compose("up", "--no-start", SERVICE)
@@ -634,6 +555,7 @@ def drive() -> None:
         prove_refused_at_accept(report)
         prove_header_classes(report)
         prove_builds(report)
+        prove_attacked_life(report)
         prove_fast_lives(report)
         prove_stop(report)
     finally:
