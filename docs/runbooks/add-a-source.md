@@ -7,9 +7,8 @@ accepted is [sources](../reference/sources.md).
 
 ## Before you start
 
-- The Git URL, and for HTTPS a read-only token. A password in the URL's
-  userinfo is refused: it belongs in the Secret field. A user name in the URL
-  is optional.
+- The Git URL, and for HTTPS a read-only token. An `https://` address has no
+  user part; the token belongs in the Secret field.
 - For a folder on this machine use
   [add a folder on this box](add-a-folder-on-this-box.md) instead.
 

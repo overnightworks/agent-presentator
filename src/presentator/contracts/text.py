@@ -153,7 +153,6 @@ class LobbyText:
     source_refused_name: str
     source_refused_duplicate_name: str
     source_refused_duplicate_url: str
-    source_refused_password: str
     source_refused_access: str
     source_refused_secret: str
     source_refused_not_checked: str

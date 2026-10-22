@@ -785,6 +785,26 @@ def test_a_refused_check_reads_the_same_word_the_source_list_uses() -> None:
     assert "disabled" in create_button_of(checked.text)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@git.example.invalid/talks.git",
+        "https://user:token@git.example.invalid/talks.git",
+    ],
+)
+def test_a_check_of_an_address_with_a_user_part_shows_the_access_refusal(
+    url: str,
+) -> None:
+    lobby = a_signed_in_lobby(GivenDecks())
+
+    checked = check_source(lobby, url=url)
+
+    assert ENGLISH.source_refused_access in checked.text
+    assert ENGLISH.source_run_refused not in checked.text
+    assert not fingerprint_of(checked)
+    assert "disabled" in create_button_of(checked.text)
+
+
 def test_an_unreachable_check_reads_the_same_word_the_source_list_uses() -> None:
     lobby = a_signed_in_lobby(GivenDecks(checked=_AN_UNREACHABLE_CHECK))
 
@@ -1033,7 +1053,7 @@ def test_an_existing_source_without_a_stored_secret_stays_when_another_is_added(
                 "access": "https",
                 "secret": _READ_ONLY,
             },
-            ENGLISH.source_refused_password,
+            ENGLISH.source_refused_access,
             id="password in the URL",
         ),
         pytest.param(

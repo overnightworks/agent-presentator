@@ -660,7 +660,6 @@ def _refusal_sentence(reason: SourceRefusal, text: LobbyText) -> str:
         SourceRefusal.MALFORMED_NAME: text.source_refused_name,
         SourceRefusal.DUPLICATE_NAME: text.source_refused_duplicate_name,
         SourceRefusal.DUPLICATE_URL: text.source_refused_duplicate_url,
-        SourceRefusal.USERINFO: text.source_refused_password,
         SourceRefusal.ACCESS_MISMATCH: text.source_refused_access,
         SourceRefusal.BLANK_ACCESS: text.source_refused_secret,
         SourceRefusal.NOT_CHECKED: text.source_refused_not_checked,
@@ -679,6 +678,13 @@ def _check_banner(checked: ConnectionCheckResult, text: LobbyText) -> CheckBanne
     words are exactly `_run_reason`'s own, so a check and a recorded run read
     alike; only `failed` carries git's own sanitised line beneath it.
     """
+    if checked.address_refused:
+        return CheckBanner(
+            state=SourceRunFailure.REFUSED.value,
+            message=text.source_refused_access,
+            detail=None,
+            fingerprint=None,
+        )
     if checked.failure is None:
         return CheckBanner(
             state=SourceState.REACHABLE.value,

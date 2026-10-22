@@ -1344,7 +1344,7 @@ def test_a_refresh_sweeps_drafts_a_day_old() -> None:
             "https://user:token@git.example.invalid/talks.git",
             "https",
             _READ_ONLY,
-            SourceRefusal.USERINFO,
+            SourceRefusal.ACCESS_MISMATCH,
             id="password in the URL",
         ),
         pytest.param(
@@ -1915,9 +1915,11 @@ def test_removing_a_source_waits_for_a_refresh_then_checks_the_fresh_count() -> 
     ("url", "kind"),
     [
         ("https://git.example.invalid/talks.git", AccessKind.HTTPS),
-        ("https://user@host/r.git", AccessKind.HTTPS),
-        ("https://user@host:443/r.git", AccessKind.HTTPS),
-        ("https://me%40mail.com@host/r.git", AccessKind.HTTPS),
+        ("https://user@git.example.invalid/talks.git", None),
+        ("https://user:token@git.example.invalid/talks.git", None),
+        ("https://me%40mail.com@host/r.git", None),
+        ("ssh://git:secret@git.example.invalid/talks.git", None),
+        ("ssh://git.example.invalid/talks.git", AccessKind.SSH),
         ("https://host/r.git?x=a@b", AccessKind.HTTPS),
         ("ssh://git@git.example.invalid/talks.git", AccessKind.SSH),
         ("ssh://git@host:2222/r.git", AccessKind.SSH),
@@ -1994,9 +1996,15 @@ def test_a_url_whose_host_reads_two_ways_names_no_access(url: str) -> None:
 
 @pytest.mark.parametrize(
     ("url", "access"),
-    [(_HTTPS_TWO_HOSTS[0], "https"), (_SSH_TWO_HOSTS[1], "ssh")],
+    [
+        (_HTTPS_TWO_HOSTS[0], "https"),
+        (_SSH_TWO_HOSTS[1], "ssh"),
+        ("https://user@git.example.invalid/talks.git", "https"),
+        ("https://user:token@git.example.invalid/talks.git", "https"),
+        ("ssh://git:secret@git.example.invalid/talks.git", "ssh"),
+    ],
 )
-def test_check_connection_refuses_a_two_host_url_before_any_key_or_probe(
+def test_check_connection_refuses_an_address_outside_the_grammar_unprobed(
     url: str, access: str
 ) -> None:
     decks = decks_over(fakes=DecksFakes(checker=ConnectionCheckerThatMustNotRun()))
@@ -2010,7 +2018,7 @@ def test_check_connection_refuses_a_two_host_url_before_any_key_or_probe(
         key_draft_id=draft.id,
     )
 
-    assert checked.failure is SourceRunFailure.REFUSED
+    assert checked.address_refused
 
 
 _URLS_NAMING_NO_ACCESS = (
@@ -2066,6 +2074,6 @@ def test_an_unknown_access_never_matches_a_url_that_names_no_access(
     )
 
     assert earlier_fingerprint is not None
-    assert checked.failure is SourceRunFailure.REFUSED
+    assert checked.address_refused
     assert created is SourceRefusal.ACCESS_MISMATCH
     assert store.all() == ()
