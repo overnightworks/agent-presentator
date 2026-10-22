@@ -110,4 +110,4 @@ ENV PRESENTATOR_DATABASE=/data/database/presentator.sqlite3 \
 USER presentator
 WORKDIR /app
 EXPOSE 8000
-CMD ["agent-presentator"]
+CMD ["presentator"]

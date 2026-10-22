@@ -3,7 +3,7 @@ requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-presentator"
+name = "overnightworks-presentator"
 version = "0.0.0"
 requires-python = ">=3.12"
 license = "MIT"
@@ -21,8 +21,8 @@ dependencies = [
 ]
 
 [project.scripts]
-agent-presentator = "presentator.host.main:main"
-agent-presentator-worker = "presentator.host.worker:main"
+presentator = "presentator.host.main:main"
+presentator-worker = "presentator.host.worker:main"
 
 [dependency-groups]
 dev = [

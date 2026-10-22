@@ -76,7 +76,7 @@ image sets them and the defaults above do not apply; compose sets the rest.
 | `PRESENTATOR_LOCAL_SOURCES_MOUNT` | `/data/local-sources` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
-| `PRESENTATOR_BUILD_IMAGE` | `agent-presentator-build`, set by `compose.yaml` |
+| `PRESENTATOR_BUILD_IMAGE` | `presentator-build`, set by `compose.yaml` |
 | `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
 | `PRESENTATOR_COPRESENTER_SOCKET` | `/run/presentator-copresenter/copresenter.sock`, set by `compose.yaml` |
 | `PRESENTATOR_SPEECH_SOCKET` | `/run/presentator-speech/speech.sock`, set by `compose.yaml` |
