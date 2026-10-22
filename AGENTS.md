@@ -3,11 +3,7 @@ Audience: every agent that edits this repository.
 Code policy and coordination live once, in the global contract. This file adds
 only this repository's facts.
 
-Entry points (pointers only; the facts live there): `docs/README.md` maps the
-documentation layers; `docs/VISION.md` owns why this tool exists and what the
-operator wants from it; `docs/PRODUCT.md` owns implementation status;
-`docs/decisions/README.md` owns technical decision records; `README.md` is the
-human entry point to those owners.
+Documentation starts at `docs/README.md`, which maps each layer to its owner.
 
 ## Checks
 
