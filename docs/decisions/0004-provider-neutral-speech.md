@@ -6,7 +6,7 @@ Audience: humans and agents choosing or implementing a voice or a transcriber.
   [VISION.md](../VISION.md); the bootstrap implementations come earlier
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 - Neighbours: [ADR 0003](0003-libraries-for-models-and-auth.md) — the model that
   thinks and the voice that speaks are deliberately separate seams;
   [ADR 0009](0009-german-speech-text.md) owns the text that reaches the voice

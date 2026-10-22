@@ -3,10 +3,10 @@
 Audience: humans and agents who add a module and need to know where it belongs.
 
 - Status: ACCEPTED 2026-09-06 — the layer packages and the gate land with
-  [#3](https://github.com/overnightworks/agent-presentator/issues/3)
+  [#3](https://github.com/overnightworks/presentator/issues/3)
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
-  [#2](https://github.com/overnightworks/agent-presentator/issues/2)
+  [#2](https://github.com/overnightworks/presentator/issues/2)
 
 ## Context
 
