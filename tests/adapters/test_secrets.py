@@ -17,6 +17,7 @@ from presentator.adapters.secrets import (
     connection_fingerprint_key,
     generate_deploy_key,
     secret_box,
+    talk_session_secret,
 )
 
 # Exactly the thirty-two characters an instance key is at least, so the bytes
@@ -27,6 +28,7 @@ _ANOTHER_INSTANCE_KEY = "the key another instance carries"
 # a stand-in for the key it derives from them.
 _THE_RAW_INSTANCE_KEY = _INSTANCE_KEY.encode()
 _WHAT_THE_GIT_HOST_EXPECTS = "the read-only words only this test made up"
+_LONGEST_GUESSABLE = 32
 
 
 def test_a_secret_comes_back_out_of_the_box_it_went_into() -> None:
@@ -118,3 +120,23 @@ def test_two_generated_deploy_keys_never_share_their_private_half() -> None:
 
     assert first.private_key != second.private_key
     assert first.public_key != second.public_key
+
+
+def test_the_talk_session_secret_is_the_same_for_one_key_and_differs_per_key() -> None:
+    assert talk_session_secret(_INSTANCE_KEY) == talk_session_secret(_INSTANCE_KEY)
+    assert talk_session_secret(_INSTANCE_KEY) != talk_session_secret(
+        _ANOTHER_INSTANCE_KEY
+    )
+
+
+def test_the_talk_session_secret_is_long_and_shares_no_bytes_with_another_purpose() -> (
+    None
+):
+    secret = talk_session_secret(_INSTANCE_KEY)
+    sealed_by_the_box = secret_box(_INSTANCE_KEY).encrypt(_WHAT_THE_GIT_HOST_EXPECTS)
+
+    assert len(secret) >= _LONGEST_GUESSABLE
+    assert secret != _INSTANCE_KEY
+    assert urlsafe_b64decode(secret) != connection_fingerprint_key(_INSTANCE_KEY)
+    with pytest.raises(InvalidToken):
+        Fernet(secret).decrypt(sealed_by_the_box)

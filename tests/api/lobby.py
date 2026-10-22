@@ -80,7 +80,7 @@ from presentator.contracts.voice import (
     VoiceUnavailableError,
 )
 from presentator.host.config import Settings
-from presentator.host.main import lobby_web_auth_config
+from presentator.host.main import web_auth_config_for
 from presentator.host.oidc import admission_of, end_session_origin, oidc_client_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
@@ -133,6 +133,8 @@ A_BROWSERS_ADDRESS: Final = "https://testserver"
 # Starlette's test client opens a socket at its own `ws://` address unless it
 # is given a whole one, so a socket test names this one.
 A_BROWSERS_SOCKET_ADDRESS: Final = "wss://testserver"
+# The talk host is a second hostname of the same instance.
+A_TALK_ADDRESS: Final = "https://talk.testserver"
 AN_ISSUER: Final = "https://auth.example.test/realms/test"
 A_CLIENT_ID: Final = "presentator-test"
 A_CLIENT_CREDENTIAL: Final = "the-secret-only-this-test-has"
@@ -223,10 +225,10 @@ def a_web_auth(clock: FrozenClock) -> WebAuthConfig:
     The library reads its now from the test's clock, the one the session
     fake is seeded from.
     """
-    host_config = lobby_web_auth_config(
+    host_config = web_auth_config_for(
         SecretStr("t" * 32),
         trusted_proxies="",
-        public_origin=A_BROWSERS_ADDRESS,
+        origin=A_BROWSERS_ADDRESS,
     )
     return replace(host_config, wall_clock=lambda: clock.now().timestamp())
 
@@ -255,6 +257,7 @@ def a_settings() -> Settings:
     return Settings(
         secret_key=SecretStr("t" * 32),
         public_origin=A_BROWSERS_ADDRESS,
+        talk_origin=A_TALK_ADDRESS,
         copresenter_socket=Path("/run/copresenter.sock"),
         oidc_issuer=AN_ISSUER,
         oidc_client_id=A_CLIENT_ID,
@@ -264,7 +267,9 @@ def a_settings() -> Settings:
 
 def a_content_security_policy() -> str:
     """The policy of an instance at the test origin, signing out at the fake issuer."""
-    client = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
+    client = oidc_client_config(
+        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+    )
     return content_security_policy(end_session_origin(client))
 
 
@@ -276,7 +281,9 @@ def a_relying_party(
 ) -> OidcRelyingParty:
     """The issuer's client, whose transports reach nobody unless a test gives some."""
     return OidcRelyingParty(
-        oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL)),
+        oidc_client_config(
+        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+    ),
         post_token_request=post_token_request,
         fetch_key_set=fetch_key_set,
         wall_clock=lambda: clock.now().timestamp(),

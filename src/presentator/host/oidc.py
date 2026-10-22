@@ -44,9 +44,13 @@ def read_client_secret(secret_file: Path) -> SecretStr:
 
 
 def oidc_client_config(
-    settings: Settings, client_secret: SecretStr
+    settings: Settings, client_secret: SecretStr, *, origin: str
 ) -> OidcClientConfig:
-    """The Keycloak client these settings name, with its endpoints derived."""
+    """The Keycloak client these settings name, returning to `origin`.
+
+    The lobby and the talk host sign in through the one client, each as its own
+    relying party with its own redirect URI; signing out returns to the lobby.
+    """
     realm = f"{settings.oidc_issuer}/{_PROTOCOL_PATH}"
     try:
         return OidcClientConfig(
@@ -57,7 +61,7 @@ def oidc_client_config(
             end_session_endpoint=f"{realm}/logout",
             client_id=settings.oidc_client_id,
             client_secret=client_secret,
-            redirect_uri=f"{settings.public_origin}{SIGN_IN_CALLBACK_PATH}",
+            redirect_uri=f"{origin}{SIGN_IN_CALLBACK_PATH}",
             post_logout_redirect_uri=f"{settings.public_origin}{LOGIN_PATH}",
             logout_path=LOGOUT_PATH,
             scopes=_SCOPES,
@@ -80,10 +84,12 @@ def relying_party(config: OidcClientConfig) -> OidcRelyingParty:
     )
 
 
-def client_config_of(settings: Settings) -> OidcClientConfig:
-    """Read the secret file and build the client these settings describe."""
-    return oidc_client_config(
-        settings, read_client_secret(settings.oidc_client_secret_file)
+def client_configs_of(settings: Settings) -> tuple[OidcClientConfig, OidcClientConfig]:
+    """The lobby's client and the talk host's, from the one secret file read once."""
+    secret = read_client_secret(settings.oidc_client_secret_file)
+    return (
+        oidc_client_config(settings, secret, origin=settings.public_origin),
+        oidc_client_config(settings, secret, origin=settings.talk_origin),
     )
 
 

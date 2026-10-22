@@ -8,12 +8,14 @@ from pydantic import SecretStr
 from presentator.host import main
 from presentator.host.config import ConfigurationError, load_settings
 from presentator.host.oidc import (
-    client_config_of,
+    client_configs_of,
     oidc_client_config,
     read_client_secret,
     relying_party,
 )
 from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
     A_CLIENT_CREDENTIAL,
     A_CLIENT_ID,
     AN_ISSUER,
@@ -30,6 +32,7 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.Monke
     monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
     monkeypatch.setenv("PRESENTATOR_SECRET_KEY", "an instance key of at least 32 bytes")
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
+    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", "https://presentator-talk.test")
     monkeypatch.setenv("PRESENTATOR_COPRESENTER_SOCKET", str(tmp_path / "co.sock"))
     monkeypatch.setenv("PRESENTATOR_BUILD_RUNNER", "host")
     configure_oidc(monkeypatch, tmp_path)
@@ -37,7 +40,9 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.Monke
 
 
 def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
-    config = oidc_client_config(a_settings(), SecretStr(A_CLIENT_CREDENTIAL))
+    config = oidc_client_config(
+        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
+    )
 
     realm = f"{AN_ISSUER}/protocol/openid-connect"
     assert config.issuer == AN_ISSUER
@@ -50,6 +55,24 @@ def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
     assert config.post_logout_redirect_uri == "https://testserver/login"
     assert config.logout_path == "/logout"
     assert config.scopes == ("openid", "profile", "groups")
+
+
+def test_the_lobby_and_the_talk_host_sign_in_through_one_client_at_their_own_callbacks(
+    tmp_path: Path,
+) -> None:
+    secret_file = tmp_path / "secret"
+    secret_file.write_text(f"{A_CLIENT_CREDENTIAL}\n", encoding="utf-8")
+    settings = a_settings().model_copy(
+        update={"oidc_client_secret_file": secret_file}
+    )
+
+    lobby, talk = client_configs_of(settings)
+
+    assert (talk.client_id, talk.client_secret) == (lobby.client_id, lobby.client_secret)
+    assert lobby.redirect_uri == f"{A_BROWSERS_ADDRESS}/auth/callback"
+    assert talk.redirect_uri == f"{A_TALK_ADDRESS}/auth/callback"
+    assert talk.post_logout_redirect_uri == lobby.post_logout_redirect_uri
+    assert lobby.post_logout_redirect_uri == f"{A_BROWSERS_ADDRESS}/login"
 
 
 @pytest.mark.parametrize(
@@ -77,7 +100,7 @@ def test_the_relying_party_begins_a_login_at_the_issuer_the_settings_name(
 ) -> None:
     del environment
 
-    started = relying_party(client_config_of(load_settings())).begin_login()
+    started = relying_party(client_configs_of(load_settings())[0]).begin_login()
 
     assert started.url.startswith(f"{AN_ISSUER}/protocol/openid-connect/auth?")
 
@@ -216,7 +239,7 @@ def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None
     secret = SecretStr(A_CLIENT_CREDENTIAL)
 
     with pytest.raises(ConfigurationError, match="client_id") as refused:
-        oidc_client_config(settings, secret)
+        oidc_client_config(settings, secret, origin=A_BROWSERS_ADDRESS)
 
     assert A_CLIENT_CREDENTIAL not in str(refused.value)
 

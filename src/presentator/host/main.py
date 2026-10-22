@@ -84,7 +84,7 @@ from presentator.host.config import (
 )
 from presentator.host.oidc import (
     admission_of,
-    client_config_of,
+    client_configs_of,
     end_session_origin,
     relying_party,
 )
@@ -213,12 +213,12 @@ def build_instance(settings: Settings) -> Instance:
 
 
 def _installed_auth(settings: Settings) -> InstalledAuth:
-    client = client_config_of(settings)
+    client, _talk_client = client_configs_of(settings)
     return InstalledAuth(
-        config=lobby_web_auth_config(
+        config=web_auth_config_for(
             settings.secret_key,
             trusted_proxies=settings.trusted_proxies,
-            public_origin=settings.public_origin,
+            origin=settings.public_origin,
         ),
         relying_party=relying_party(client),
         admission=admission_of(settings),
@@ -282,25 +282,25 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     )
 
 
-def lobby_web_auth_config(
+def web_auth_config_for(
     secret: SecretStr,
     *,
     trusted_proxies: str,
-    public_origin: str,
+    origin: str,
 ) -> WebAuthConfig:
-    """The library configuration this host runs: no Redis, a 12 hour cap.
+    """The library configuration one origin of this host runs: no Redis, a 12 hour cap.
 
-    The cookies carry `Secure`, and the library's `__Host-` names: the public
-    origin is https, and a browser would not send a `Secure` cookie back over
-    plain http. The only host the lobby answers to is the one people reach it
-    under.
+    The cookies carry `Secure`, and the library's `__Host-` names: the origin
+    is https, and a browser would not send a `Secure` cookie back over plain
+    http. The only host this configuration answers to is the one people reach
+    that origin under, and `secret` signs its cookies alone.
     """
     lifetime_seconds = int(SESSION_LIFETIME.total_seconds())
     return WebAuthConfig(
         session_secret=secret,
         trusted_proxies=TrustedProxies.parse(trusted_proxies),
         rate_limits=SingleProcessRateLimitBackend(),
-        allowed_hosts_exact=frozenset({str(urlsplit(public_origin).hostname)}),
+        allowed_hosts_exact=frozenset({str(urlsplit(origin).hostname)}),
         allowed_hosts_patterns=(),
         session_lifetime=SessionLifetime(
             idle_seconds=lifetime_seconds,

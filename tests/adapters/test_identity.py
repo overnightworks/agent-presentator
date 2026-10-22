@@ -20,7 +20,7 @@ from presentator.adapters.identity import (
 )
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.models import Role, User
-from presentator.host.main import lobby_web_auth_config
+from presentator.host.main import web_auth_config_for
 from tests.people import (
     copy_of_a_crashed_database,
     seed_user,
@@ -281,10 +281,10 @@ def test_a_refused_session_is_not_renewed(
 
 def a_config_reading(now: datetime) -> WebAuthConfig:
     return replace(
-        lobby_web_auth_config(
+        web_auth_config_for(
             SecretStr("t" * 32),
             trusted_proxies="",
-            public_origin="https://testserver",
+            origin="https://testserver",
         ),
         wall_clock=now.timestamp,
     )

@@ -123,6 +123,7 @@ def bare_environment(
     # every such test naming the mount for itself.
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
+    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", "https://presentator-talk.test")
     configure_oidc(monkeypatch, tmp_path)
     monkeypatch.setenv(
         "PRESENTATOR_COPRESENTER_SOCKET",
@@ -225,6 +226,32 @@ def test_the_public_origin_must_be_one_canonical_https_origin(
 
     with pytest.raises(ConfigurationError, match="public_origin"):
         load_settings()
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        None,
+        "http://presentator-talk.test",
+        "https://presentator-talk.test/path",
+        "https://presentator.test",
+        "https://presentator.test:8443",
+    ],
+    ids=["missing", "http", "a path", "the lobby's hostname", "the lobby's other port"],
+)
+def test_the_talk_origin_must_be_another_canonical_https_hostname(
+    environment: pytest.MonkeyPatch,
+    origin: str | None,
+) -> None:
+    if origin is None:
+        environment.delenv("PRESENTATOR_TALK_ORIGIN")
+    else:
+        environment.setenv("PRESENTATOR_TALK_ORIGIN", origin)
+
+    with pytest.raises(ConfigurationError, match="talk_origin") as refused:
+        load_settings()
+
+    assert origin is None or origin not in str(refused.value)
 
 
 def test_copresenter_socket_must_be_an_absolute_path(

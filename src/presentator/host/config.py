@@ -3,10 +3,16 @@
 import threading
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, Field, SecretStr, ValidationError
+from pydantic import (
+    AfterValidator,
+    Field,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from webauth.proxies import TrustedProxies
 
@@ -170,6 +176,9 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     host: str = "127.0.0.1"
     port: int = 8000
     public_origin: Annotated[str, AfterValidator(_one_public_origin)]
+    # The talk host is an origin of its own, so a deck's code runs on a site the
+    # lobby's cookies never reach. It is a deployment fact: no default.
+    talk_origin: Annotated[str, AfterValidator(_one_public_origin)]
     # The issuer is the realm the lobby signs people in at; the secret is read
     # from a file once at start, so it never rides the environment.
     oidc_issuer: Annotated[str, AfterValidator(_an_https_realm_url)]
@@ -182,6 +191,14 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # Empty: the client address is the ASGI peer. A list is the peers whose
     # X-Forwarded-For this instance believes.
     trusted_proxies: Annotated[str, AfterValidator(_a_proxy_list)] = ""
+
+    @model_validator(mode="after")
+    def _two_hosts_not_one(self) -> Self:
+        """The cookies of the two origins stay apart only on two hostnames."""
+        if urlsplit(self.talk_origin).hostname == urlsplit(self.public_origin).hostname:
+            message = "talk_origin: is another hostname than public_origin"
+            raise ValueError(message)
+        return self
 
 
 class WorkerSettings(BaseSettings):
