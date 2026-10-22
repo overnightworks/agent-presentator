@@ -200,17 +200,7 @@ def build_instance(settings: Settings) -> Instance:
             decks=decks,
             pages=_pages(settings),
             auth=lobby_auth,
-            private=LobbyPrivate(
-                copresenter=CoPresenterSurface(
-                    use=CoPresenterUse(
-                        answers=UdsCoPresenter(settings.copresenter_socket),
-                        speech=UdsSpeechHearing(settings.speech_socket),
-                    ),
-                    limiter=AskLimiter(clock=clock),
-                    public_origin=settings.public_origin,
-                ),
-                voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
-            ),
+            private=_lobby_private(settings, clock),
         ),
         talk=create_talk(
             sessions=sessions,
@@ -223,6 +213,21 @@ def build_instance(settings: Settings) -> Instance:
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
         session_sweep=_session_sweep(sessions, clock),
+    )
+
+
+def _lobby_private(settings: Settings, clock: SystemClock) -> LobbyPrivate:
+    """What only a signed-in admin of the lobby may reach: the sockets of the host."""
+    return LobbyPrivate(
+        copresenter=CoPresenterSurface(
+            use=CoPresenterUse(
+                answers=UdsCoPresenter(settings.copresenter_socket),
+                speech=UdsSpeechHearing(settings.speech_socket),
+            ),
+            limiter=AskLimiter(clock=clock),
+            public_origin=settings.public_origin,
+        ),
+        voice=VoiceStatusUse(private=UdsSpeech(settings.speech_socket)),
     )
 
 

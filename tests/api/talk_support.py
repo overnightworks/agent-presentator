@@ -14,6 +14,7 @@ from httpx2 import Response
 from starlette.routing import Router
 from starlette.types import ASGIApp, Message, Scope
 from webauth.config import WebAuthConfig
+from webauth.oidc import OidcRelyingParty
 from webauth.oidc_login import AdmissionConfig
 
 from presentator.adapters.identity import (
@@ -168,6 +169,17 @@ class Hosts:
         )
 
 
+def _relying_party_at(
+    issuer: FakeIssuer, clock: FrozenClock, origin: str
+) -> OidcRelyingParty:
+    return a_relying_party(
+        clock,
+        post_token_request=issuer.post_token_request,
+        fetch_key_set=issuer.fetch_key_set,
+        origin=origin,
+    )
+
+
 def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Hosts:
     """Both hosts over real identity tables, a fake issuer and A's and B's decks.
 
@@ -185,11 +197,7 @@ def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Ho
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
     lobby_auth = an_installed_auth(
         clock,
-        relying_party=a_relying_party(
-            clock,
-            post_token_request=issuer.post_token_request,
-            fetch_key_set=issuer.fetch_key_set,
-        ),
+        relying_party=_relying_party_at(issuer, clock, A_BROWSERS_ADDRESS),
         accounts=SqliteSubjectUserStore(database),
     )
     if admission is not None:
@@ -198,12 +206,7 @@ def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Ho
     talk_auth = replace(
         lobby_auth,
         config=talk_config,
-        relying_party=a_relying_party(
-            clock,
-            post_token_request=issuer.post_token_request,
-            fetch_key_set=issuer.fetch_key_set,
-            origin=A_TALK_ADDRESS,
-        ),
+        relying_party=_relying_party_at(issuer, clock, A_TALK_ADDRESS),
         content_security_policy=talk_content_security_policy(),
     )
     lobby, _ = a_lobby_app(

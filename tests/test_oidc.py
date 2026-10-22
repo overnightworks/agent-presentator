@@ -32,7 +32,6 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.Monke
     monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
     monkeypatch.setenv("PRESENTATOR_SECRET_KEY", "an instance key of at least 32 bytes")
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
-    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", "https://presentator-talk.test")
     monkeypatch.setenv("PRESENTATOR_COPRESENTER_SOCKET", str(tmp_path / "co.sock"))
     monkeypatch.setenv("PRESENTATOR_BUILD_RUNNER", "host")
     configure_oidc(monkeypatch, tmp_path)
@@ -243,6 +242,46 @@ def test_a_client_the_library_refuses_refuses_to_start_naming_no_value() -> None
         oidc_client_config(settings, secret, origin=A_BROWSERS_ADDRESS)
 
     assert A_CLIENT_CREDENTIAL not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        None,
+        "http://presentator-talk.test",
+        "https://presentator-talk.test/path",
+        "https://presentator.test",
+        "https://presentator.test:8443",
+    ],
+    ids=["missing", "http", "a path", "the lobby's hostname", "the lobby's other port"],
+)
+def test_the_talk_origin_must_be_another_canonical_https_hostname(
+    environment: pytest.MonkeyPatch,
+    origin: str | None,
+) -> None:
+    if origin is None:
+        environment.delenv("PRESENTATOR_TALK_ORIGIN")
+    else:
+        environment.setenv("PRESENTATOR_TALK_ORIGIN", origin)
+
+    with pytest.raises(ConfigurationError, match="talk_origin") as refused:
+        load_settings()
+
+    assert origin is None or origin not in str(refused.value)
+
+
+def test_both_hosts_share_one_lock_one_account_store_and_one_audit_sink(
+    environment: pytest.MonkeyPatch,
+) -> None:
+    del environment
+
+    lobby, talk = main.installed_auths(load_settings())
+
+    assert talk.lock is lobby.lock
+    assert talk.accounts is lobby.accounts
+    assert talk.audit is lobby.audit
+    assert talk.config.session_secret != lobby.config.session_secret
+    assert talk.relying_party is not lobby.relying_party
 
 
 @pytest.mark.parametrize(

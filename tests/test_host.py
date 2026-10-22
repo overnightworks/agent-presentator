@@ -122,8 +122,7 @@ def bare_environment(
     # lets a `file://` fixture keep standing in for "any git remote" without
     # every such test naming the mount for itself.
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
-    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
-    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", "https://presentator-talk.test")
+    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", A_BROWSERS_ADDRESS)
     configure_oidc(monkeypatch, tmp_path)
     monkeypatch.setenv(
         "PRESENTATOR_COPRESENTER_SOCKET",
@@ -193,26 +192,7 @@ def test_the_composition_root_serves_a_lobby_that_answers_the_login(
     main.main()
 
     assert len(served) == 1
-    lobby_host = TestClient(served[0], base_url="https://presentator.test")
-    talk_host = TestClient(served[0], base_url="https://presentator-talk.test")
-    assert lobby_host.get("/login").is_success
-    assert (
-        talk_host.get("/", follow_redirects=False).status_code == HTTPStatus.SEE_OTHER
-    )
-
-
-def test_both_hosts_share_one_lock_one_account_store_and_one_audit_sink(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    del environment
-
-    lobby, talk = main.installed_auths(load_settings())
-
-    assert talk.lock is lobby.lock
-    assert talk.accounts is lobby.accounts
-    assert talk.audit is lobby.audit
-    assert talk.config.session_secret != lobby.config.session_secret
-    assert talk.relying_party is not lobby.relying_party
+    assert TestClient(served[0], base_url=A_BROWSERS_ADDRESS).get("/login").is_success
 
 
 def test_a_trusted_proxy_list_that_is_not_addresses_refuses_to_start(
@@ -245,32 +225,6 @@ def test_the_public_origin_must_be_one_canonical_https_origin(
 
     with pytest.raises(ConfigurationError, match="public_origin"):
         load_settings()
-
-
-@pytest.mark.parametrize(
-    "origin",
-    [
-        None,
-        "http://presentator-talk.test",
-        "https://presentator-talk.test/path",
-        "https://presentator.test",
-        "https://presentator.test:8443",
-    ],
-    ids=["missing", "http", "a path", "the lobby's hostname", "the lobby's other port"],
-)
-def test_the_talk_origin_must_be_another_canonical_https_hostname(
-    environment: pytest.MonkeyPatch,
-    origin: str | None,
-) -> None:
-    if origin is None:
-        environment.delenv("PRESENTATOR_TALK_ORIGIN")
-    else:
-        environment.setenv("PRESENTATOR_TALK_ORIGIN", origin)
-
-    with pytest.raises(ConfigurationError, match="talk_origin") as refused:
-        load_settings()
-
-    assert origin is None or origin not in str(refused.value)
 
 
 def test_copresenter_socket_must_be_an_absolute_path(

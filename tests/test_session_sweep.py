@@ -30,7 +30,6 @@ def clock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FrozenClock:
     monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", "https://presentator.test")
-    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", "https://presentator-talk.test")
     configure_oidc(monkeypatch, tmp_path)
     monkeypatch.setenv("PRESENTATOR_COPRESENTER_SOCKET", str(tmp_path / "co.sock"))
     monkeypatch.setenv("PRESENTATOR_SECRET_KEY", "an instance key of at least 32 bytes")

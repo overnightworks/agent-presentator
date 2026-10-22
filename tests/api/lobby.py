@@ -245,9 +245,14 @@ def a_talk_web_auth(clock: FrozenClock) -> WebAuthConfig:
 
 
 def configure_oidc(monkeypatch: pytest.MonkeyPatch, directory: Path) -> Path:
-    """Name the issuer, the client and a secret file of a test's own."""
+    """Name the issuer, the client, a secret file of a test's own and the talk host.
+
+    The talk host signs in through the same client, so a run that names the
+    sign-in names its origin too.
+    """
     secret_file = directory / "oidc-client-secret"
     secret_file.write_text(f"{A_CLIENT_CREDENTIAL}\n", encoding="utf-8")
+    monkeypatch.setenv("PRESENTATOR_TALK_ORIGIN", A_TALK_ADDRESS)
     monkeypatch.setenv("PRESENTATOR_OIDC_ISSUER", AN_ISSUER)
     monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_ID", A_CLIENT_ID)
     monkeypatch.setenv("PRESENTATOR_OIDC_CLIENT_SECRET_FILE", str(secret_file))
@@ -396,6 +401,21 @@ class SigningIn:
     decks: Decks | None = None
 
 
+def _carried_by(given: GivenDecks) -> dict[str, tuple[DeckFolder, ...] | None]:
+    if given.carried is not None:
+        return given.carried
+    if given.source is not None:
+        return {given.source.id: given.folders}
+    return {}
+
+
+def _run_store_of(given: GivenDecks) -> FakeSourceRunStore:
+    run_store = FakeSourceRunStore()
+    for run in given.runs:
+        run_store.record(run)
+    return run_store
+
+
 def a_decks(given: GivenDecks, clock: FrozenClock) -> Decks:
     """The deck use cases over fakes at every port, as a test arranged them."""
     stored = (
@@ -403,15 +423,6 @@ def a_decks(given: GivenDecks, clock: FrozenClock) -> Decks:
         if given.sources
         else ([] if given.source is None else [given.source])
     )
-    run_store = FakeSourceRunStore()
-    for run in given.runs:
-        run_store.record(run)
-    if given.carried is not None:
-        carried = given.carried
-    elif given.source is not None:
-        carried = {given.source.id: given.folders}
-    else:
-        carried = {}
     key_drafts = FakeDeployKeyDrafts(
         # Copied rather than shared: `NO_DECKS` is one module-level constant,
         # so every test starting from it must get its own mutable drafts.
@@ -426,7 +437,7 @@ def a_decks(given: GivenDecks, clock: FrozenClock) -> Decks:
         ),
         key_drafts=key_drafts,
         folders=FakeDeckFolders(
-            carried=carried,
+            carried=_carried_by(given),
             failures={} if given.failures is None else given.failures,
             stuck=(
                 frozenset({given.source.id})
@@ -436,7 +447,7 @@ def a_decks(given: GivenDecks, clock: FrozenClock) -> Decks:
         ),
         store=FakeDeckStore() if given.store is None else given.store,
         builder=FakeBuildRunner() if given.builder is None else given.builder,
-        source_runs=run_store,
+        source_runs=_run_store_of(given),
         checker=FakeConnectionChecker(answer=given.checked),
         toolchain_themes=(
             PackageJsonThemes(project=given.toolchain_project)
