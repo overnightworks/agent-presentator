@@ -1,8 +1,0 @@
-claim_id = "ac5cfaff98c944d59eee2f2cb74e8c60"
-agent = "claude"
-role = "builder"
-base = "1234085df806783e9b18a06cad4ed6667c9fa2f7"
-branch = "docs/cleanup-pass"
-scope = ["AGENTS.md", "README.md", "docs/OPERATIONS.md", "docs/PRODUCT.md", "docs/README.md", "docs/TESTING.md", "docs/VISION.md"]
-opened_commit = "c1ff05a2f58b8029db233876ff760c59e61aa341"
-whole_reason = "the operator-requested one-time docs-cleanup pass reads the whole document set against one rule set; ADRs and mockups stay out"
