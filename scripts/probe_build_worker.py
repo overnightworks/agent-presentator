@@ -424,7 +424,7 @@ def prove_inspect_sealing(report: Report) -> None:
         "PidMode": host["PidMode"] == "",
         "Privileged": host["Privileged"] is False,
         "MemorySwap": host["MemorySwap"] == host["Memory"] > 0,
-        "Init": not host["Init"],
+        "Init": not host.get("Init"),
         "WorkTmpfs": "mode=755" in host["Tmpfs"]["/work"].split(","),
         "NoCopy": mounts[SOCKET_DIRECTORY]["VolumeOptions"]["NoCopy"] is True,
         "Seccomp": "name=seccomp,profile=builtin"
