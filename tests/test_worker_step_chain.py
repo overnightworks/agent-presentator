@@ -289,7 +289,7 @@ def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bo
     assert elapsed >= REPLY_BOUND_SECONDS - SPAWN_TOLERANCE_SECONDS
     assert elapsed < REPLY_BOUND_SECONDS + WAIT_SECONDS
     assert sender_pid(life) not in life.present_at_return
-    assert life.reply.startswith(support.STATUS + support.OUTCOME_BUILT)
+    assert life.reply.startswith(support.OUTCOME_BUILT)
     assert not life.reply.endswith(support.END)
 
 
