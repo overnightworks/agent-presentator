@@ -1,8 +1,0 @@
-claim_id = "2d0a669ca04a49c69b99594e0c4094d4"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "20b0896bcc1f22f6d8dd01d7dc8c7a4b778643d9"
-branch = "claude/issue-431-build-worker-a7a-der-worker-dienst-in-co"
-scope = [".github/workflows/ci.yml", "compose.yaml", "docs/decisions/0017-a-build-worker-runs-each-step-sealed.md", "docs/decisions/README.md", "docs/reference/builds.md", "docs/reference/configuration.md", "pyproject.toml", "quality/config.toml", "scripts/probe_build_worker.py", "scripts/probe_build_worker/render/slides.md", "scripts/prove_container_build.py", "src/presentator/adapters/build_wire.py", "src/presentator/host/worker.py", "src/presentator/host/worker_serving.py", "tests/adapters/test_build_wire.py", "tests/adapters/test_build_wire_client.py", "tests/test_compose.py", "tests/test_worker_serving_loop.py", "tests/vulture_allowlist.py"]
-opened_commit = "798dec5701b2b2f2a5d8e25bb93d1d90f2e06f6e"
-whole_reason = "The sealed service is unproven without the probe client over the codec's client half, and both are test-only code without the service; the CI job, its required-jobs line, the ADR and the builds reference describe that one deployment, and D3's log level is the small card #243 requires before the service runs."
