@@ -39,10 +39,7 @@ every half second; generation, capture and queued or playing audio stop.
 anything else is refused with 422 before a turn starts. A session streams one
 answer at a time and may ask 20 questions per 10 minutes. An ask beyond either
 limit gets 429 with a `Retry-After` header (seconds until it may be asked
-again) and starts no turn. `deck` names the asker's deck and is at most 255
-characters, else 422; any deck the asker does not own built (malformed, missing,
-nonexistent, unbuilt, source-less or another admin's) gets one identical 404
-before the limiter, so it spends no question.
+again) and starts no turn.
 
 ## Turn homes
 

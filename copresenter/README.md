@@ -50,7 +50,7 @@ mic --PCM--> overlay --signed-in Presentator--UDS /hear--> copresenter --WS--> s
 | Overlay | Presentator `WS /copresenter/hear?language=de` | Raw 16-bit PCM frames from the microphone |
 | Copresenter | Speech `WS /hear?language=de` | Those frames, forwarded |
 | Speech | Overlay (via copresenter) | `{"text","final"}` partials and finals |
-| Overlay | Presentator `POST /copresenter/ask` | `{said, slide, language, deck}` plus its session CSRF token |
+| Overlay | Presentator `POST /copresenter/ask` | `{said, slide, language}` plus its session CSRF token |
 | Copresenter | Claude CLI | Current slide + the deck around it + what was said |
 | Copresenter | Speech `POST /speak` | One finished sentence, `{text, language}` |
 | Copresenter | Overlay | SSE: `text`, `sentence`, `audio` (WAV as `wav_b64`), `done` |
