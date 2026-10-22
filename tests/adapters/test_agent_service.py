@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 RUNS_URL = "http://agent-service.test/runs"
 PERSON = "person-token-MARKER"
 WORKLOAD = "workload-token-MARKER"
-SYSTEM = "system-prompt-MARKER"
 QUESTION = "question-MARKER"
 SERVICE_MESSAGE = "service-message-MARKER"
 CONTEXT = "context-MARKER"
@@ -50,7 +49,6 @@ VIOLATION_DETAIL = "violation-MARKER"
 MARKERS = (
     PERSON,
     WORKLOAD,
-    SYSTEM,
     QUESTION,
     SERVICE_MESSAGE,
     VIOLATION_DETAIL,
@@ -63,29 +61,29 @@ type Step = Callable[[UUID, int], RunEvent]
 
 
 def _started() -> Step:
-    return lambda run, _seq: RunStarted(v=1, run_id=run, seq=0, heartbeat_interval_s=15)
+    return lambda run, _seq: RunStarted(v=2, run_id=run, seq=0, heartbeat_interval_s=15)
 
 
 def _text(text: str) -> Step:
-    return lambda run, seq: AssistantText(v=1, run_id=run, seq=seq, text=text)
+    return lambda run, seq: AssistantText(v=2, run_id=run, seq=seq, text=text)
 
 
 def _beat() -> Step:
-    return lambda run, seq: Heartbeat(v=1, run_id=run, seq=seq)
+    return lambda run, seq: Heartbeat(v=2, run_id=run, seq=seq)
 
 
 def _succeeded() -> Step:
-    return lambda run, seq: Succeeded(v=1, run_id=run, seq=seq, text="fertig")
+    return lambda run, seq: Succeeded(v=2, run_id=run, seq=seq, text="fertig")
 
 
 def _failed(code: FailureCode) -> Step:
     return lambda run, seq: Failed(
-        v=1, run_id=run, seq=seq, code=code, message=SERVICE_MESSAGE
+        v=2, run_id=run, seq=seq, code=code, message=SERVICE_MESSAGE
     )
 
 
 def _cancelled() -> Step:
-    return lambda run, seq: Cancelled(v=1, run_id=run, seq=seq)
+    return lambda run, seq: Cancelled(v=2, run_id=run, seq=seq)
 
 
 def _frames(*steps: Step) -> list[bytes]:
@@ -123,7 +121,7 @@ def _answer(*chunks: bytes) -> _Reply:
 
 
 def _refusal(code: RejectionCode, status: int, **headers: str) -> _Reply:
-    body = RunRejection(v=1, code=code, message=SERVICE_MESSAGE).model_dump_json()
+    body = RunRejection(v=2, code=code, message=SERVICE_MESSAGE).model_dump_json()
     return _Reply(
         status=status,
         headers={"content-type": "application/json", **headers},
@@ -220,14 +218,11 @@ async def _ask(
     answerer: ServiceAnswerer,
     person: Callable[[], Awaitable[str]],
     *,
-    system: str,
     message: str,
 ) -> _Outcome:
     texts: list[str] = []
     try:
-        async with answerer.answer(
-            system=system, message=message, person_token=person
-        ) as stream:
+        async with answerer.answer(message=message, person_token=person) as stream:
             while True:
                 try:
                     texts.append(await anext(stream))
@@ -247,8 +242,8 @@ class _Asker:
     wire: _Wire
     answerer: ServiceAnswerer
 
-    async def ask(self, *, system: str = SYSTEM, message: str = QUESTION) -> _Outcome:
-        return await _ask(self.answerer, self.person, system=system, message=message)
+    async def ask(self, *, message: str = QUESTION) -> _Outcome:
+        return await _ask(self.answerer, self.person, message=message)
 
 
 def _asker(
@@ -298,8 +293,11 @@ def test_the_request_is_the_run_request_of_the_contract() -> None:
     assert request.method == "POST"
     assert str(request.url) == RUNS_URL
     run = RunRequest.model_validate_json(request.content)
-    assert (run.v, run.purpose) == (1, "copresenter")
-    assert run.turn.system == SYSTEM
+    assert (run.v, run.purpose) == (2, "copresenter")
+    assert run.roles == ["admin"]
+    assert run.tools == {}
+    assert run.model is None
+    assert run.turn.system
     assert [(m.role, m.text) for m in run.turn.messages] == [(TurnRole.USER, QUESTION)]
     assert request.extensions["timeout"] == {
         "connect": 5,
@@ -448,7 +446,7 @@ def test_every_rejection_is_unavailable_and_logs_its_code(
     assert (retry_after or "None") in warning
 
 
-_UNKNOWN_CODE = b'{"v": 1, "code": "bribe_me", "message": "Dienst sagt nein"}'
+_UNKNOWN_CODE = b'{"v": 2, "code": "bribe_me", "message": "Dienst sagt nein"}'
 
 
 @pytest.mark.parametrize(
@@ -501,18 +499,17 @@ def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
 
 
 @pytest.mark.parametrize(
-    ("person", "workload", "system", "message"),
+    ("person", "workload", "message"),
     [
-        (RuntimeError(PERSON), WORKLOAD, SYSTEM, QUESTION),
-        (PERSON, RuntimeError(WORKLOAD), SYSTEM, QUESTION),
-        (_RaisedBeforeAwaitingError(PERSON), WORKLOAD, SYSTEM, QUESTION),
-        (PERSON, _RaisedBeforeAwaitingError(WORKLOAD), SYSTEM, QUESTION),
-        ("bad\r\ntoken", WORKLOAD, SYSTEM, QUESTION),
-        (PERSON, "bad token", SYSTEM, QUESTION),
-        (PERSON, "tökén", SYSTEM, QUESTION),
-        ("", WORKLOAD, SYSTEM, QUESTION),
-        (PERSON, WORKLOAD, "\ud800", QUESTION),
-        (PERSON, WORKLOAD, SYSTEM, "\ud800"),
+        (RuntimeError(PERSON), WORKLOAD, QUESTION),
+        (PERSON, RuntimeError(WORKLOAD), QUESTION),
+        (_RaisedBeforeAwaitingError(PERSON), WORKLOAD, QUESTION),
+        (PERSON, _RaisedBeforeAwaitingError(WORKLOAD), QUESTION),
+        ("bad\r\ntoken", WORKLOAD, QUESTION),
+        (PERSON, "bad token", QUESTION),
+        (PERSON, "tökén", QUESTION),
+        ("", WORKLOAD, QUESTION),
+        (PERSON, WORKLOAD, "\ud800"),
     ],
     ids=[
         "person-raises",
@@ -523,14 +520,12 @@ def test_a_retry_after_that_is_not_a_whole_number_of_seconds_is_not_logged(
         "workload-space",
         "workload-non-ascii",
         "person-empty",
-        "system-surrogate",
         "message-surrogate",
     ],
 )
 def test_a_failure_before_the_run_sends_no_run(
     person: str | BaseException,
     workload: str | BaseException,
-    system: str,
     message: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -538,7 +533,7 @@ def test_a_failure_before_the_run_sends_no_run(
         _answer(*_whole(_frames(*_GOOD_ANSWER))), person=person, workload=workload
     )
 
-    outcome = asyncio.run(asker.ask(system=system, message=message))
+    outcome = asyncio.run(asker.ask(message=message))
 
     _unavailable(outcome)
     assert outcome.texts == []
@@ -589,7 +584,7 @@ def test_a_token_callable_that_interrupts_leaves_answer_to_the_caller(
         )
         person = interrupting if which == "person" else _Token(PERSON)
         with pytest.raises(type(error)) as caught:
-            await _ask(answerer, person, system=SYSTEM, message=QUESTION)
+            await _ask(answerer, person, message=QUESTION)
         return caught.value
 
     assert asyncio.run(drive()) is error
@@ -626,7 +621,7 @@ def test_leaving_early_closes_the_response() -> None:
 
     async def leave_after_first_text() -> None:
         async with asker.answerer.answer(
-            system=SYSTEM, message=QUESTION, person_token=asker.person
+            message=QUESTION, person_token=asker.person
         ) as stream:
             assert await anext(stream) == "Hallo"
         assert asker.wire.response_stream.closed.is_set()
@@ -697,11 +692,9 @@ def test_one_asks_end_leaves_another_intact() -> None:
         async with _fake_service(reply_for) as url:
             answerer = ServiceAnswerer(runs_url=url, workload_token=_Token(WORKLOAD))
             person = _Token(PERSON)
-            async with answerer.answer(
-                system=SYSTEM, message="second", person_token=person
-            ) as second:
+            async with answerer.answer(message="second", person_token=person) as second:
                 async with answerer.answer(
-                    system=SYSTEM, message="first", person_token=person
+                    message="first", person_token=person
                 ) as first:
                     assert await anext(first) == "erst"
                 first_left.set()
@@ -784,7 +777,7 @@ def test_no_secret_and_no_question_leaks(
             answerer = ServiceAnswerer(
                 runs_url=runs_url, workload_token=_Token(workload)
             )
-            return await _ask(answerer, _Token(person), system=SYSTEM, message=message)
+            return await _ask(answerer, _Token(person), message=message)
 
     outcome = asyncio.run(drive())
 

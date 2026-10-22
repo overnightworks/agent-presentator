@@ -7,20 +7,19 @@ import logging
 import re
 from contextlib import AsyncExitStack, asynccontextmanager
 from http import HTTPStatus
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn
 
 import httpx2
+from agent_client.agents import load_agent
 from agent_client.errors import raise_without_chain
 from agent_client.run_stream import StreamViolation
 from agent_client.sse import RunStreamDecoder
 from agent_client.wire import (
-    PROTOCOL_VERSION,
     AssistantText,
     Cancelled,
     Failed,
     RunRejection,
-    RunRequest,
-    Turn,
     TurnMessage,
     TurnRole,
 )
@@ -32,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
 _LOGGER = logging.getLogger(__name__)
-_PURPOSE: Final = "copresenter"
+_AGENT_FILE: Final = Path(__file__).parent.parent / "agents" / "copresenter.md"
 _EVENT_STREAM: Final = "text/event-stream"
 _BEARER_TOKEN: Final = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
 _WHOLE_SECONDS: Final = re.compile(r"\d{1,9}", re.ASCII)
@@ -127,13 +126,14 @@ class ServiceAnswerer:
         self._runs_url = runs_url
         self._workload_token = workload_token
         self._transport = transport
+        self._agent = load_agent(_AGENT_FILE, [])
 
     @asynccontextmanager
     async def answer(
-        self, *, system: str, message: str, person_token: TokenSource
+        self, *, message: str, person_token: TokenSource
     ) -> AsyncGenerator[AsyncIterator[str]]:
         """Stream the run's text; any refusal or failure is one unavailable error."""
-        body = _run_request(system, message)
+        body = self._run_request(message)
         person = await _bearer_token(person_token)
         workload = await _bearer_token(self._workload_token)
         async with AsyncExitStack() as scope:
@@ -168,16 +168,10 @@ class ServiceAnswerer:
             finally:
                 await texts.aclose()
 
-
-def _run_request(system: str, message: str) -> str:
-    try:
-        return RunRequest(
-            v=PROTOCOL_VERSION,
-            purpose=_PURPOSE,
-            turn=Turn(
-                system=system,
-                messages=[TurnMessage(role=TurnRole.USER, text=message)],
-            ),
-        ).model_dump_json()
-    except (ValidationError, ValueError) as error:
-        _fail(f"request invalid: {type(error).__name__}")
+    def _run_request(self, message: str) -> str:
+        try:
+            return self._agent.request(
+                [TurnMessage(role=TurnRole.USER, text=message)]
+            ).model_dump_json()
+        except (ValidationError, ValueError) as error:
+            _fail(f"request invalid: {type(error).__name__}")
