@@ -88,13 +88,17 @@ def test_a_refusal_or_an_empty_body_is_unavailable(
     fake = FakeSpeech()
     fake.body = refusal
 
+    speaking = speak_against(tmp_path, fake)
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(speak_against(tmp_path, fake))
+        asyncio.run(speaking)
 
 
 def test_a_missing_socket_is_unavailable(tmp_path: Path) -> None:
+    speech = UdsSpeaking(tmp_path / "absent.sock").speak("Eins.", "de")
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(UdsSpeaking(tmp_path / "absent.sock").speak("Eins.", "de"))
+        asyncio.run(speech)
 
 
 def test_a_stalled_body_is_unavailable_and_closes_the_connection(

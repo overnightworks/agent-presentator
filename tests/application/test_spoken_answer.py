@@ -146,8 +146,10 @@ def test_a_speech_failure_propagates_after_earlier_sentences_without_done() -> N
     speaking = RecordingSpeaking(fail_on=2)
     events: list[AnswerEvent] = []
 
+    streaming = _events(("Eins. Zwei. Drei",), speaking, events)
+
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(_events(("Eins. Zwei. Drei",), speaking, events))
+        asyncio.run(streaming)
 
     assert Audio(text="Eins.", wav=b"wav:Eins.") in events
     assert not any(isinstance(event, Done) for event in events)
