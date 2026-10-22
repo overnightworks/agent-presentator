@@ -92,6 +92,11 @@ class LifeEnd(StrEnum):
     DECK_FAILED = "deck-failed"
     CANCELLED = "cancelled"
 
+    @property
+    def log_level(self) -> int:
+        """The normal end is information; every other end is an error."""
+        return logging.INFO if self is LifeEnd.CONSUMED else logging.ERROR
+
 
 class WireChild(Protocol):
     """A spawned wire child that waits at its gate."""

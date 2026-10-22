@@ -6,6 +6,10 @@ const { currentSlideNo } = useNav()
 
 const LANGUAGE = 'de'
 const COPRESENTER = '/copresenter'
+// The host delivers this deck at `/deck/<slug>/`, so the base names its slug.
+const DECK_SLUG = decodeURIComponent(
+  import.meta.env.BASE_URL.split('/').filter(Boolean).pop() ?? '',
+)
 // Built on Vite's own `BASE_URL` (Slidev uses the same for its PDF link),
 // never on the current address: Slidev's router is history-mode, so once a
 // slide or the presenter view has been opened the browser's own address has
@@ -318,7 +322,12 @@ async function ask(text) {
         'Content-Type': 'application/json',
         'x-csrf-token': csrfToken(),
       },
-      body: JSON.stringify({ said: text, slide: currentSlideNo.value, language: LANGUAGE }),
+      body: JSON.stringify({
+        said: text,
+        slide: currentSlideNo.value,
+        language: LANGUAGE,
+        deck: DECK_SLUG,
+      }),
       signal: controller.signal,
     })
     if (!response.ok || !response.body) {

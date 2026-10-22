@@ -11,10 +11,17 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, StringConstraints, ValidationError
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+)
 
 from presentator.contracts.decks import (
     FAILURE_TEXT_LIMIT,
+    MAXIMUM_NAME_BYTES,
     PDF_FILE,
     TALK_DIRECTORY,
     TOOLCHAIN_SCRATCH_DIRECTORY,
@@ -30,7 +37,6 @@ SIZE = struct.Struct(">Q")
 MINIMUM_HEADER_BYTES = 2
 MAXIMUM_HEADER_BYTES = 4096
 MAXIMUM_PATH_BYTES = 1024
-MAXIMUM_NAME_BYTES = 255
 MAXIMUM_DEPTH = 32
 CHUNK_BYTES = 64 * 1024
 MAXIMUM_ENTRIES = 100_000
@@ -107,7 +113,7 @@ class RefusedOutcome(BaseModel, extra="forbid", strict=True):
 
 Outcome = BuiltOutcome | RefusedOutcome | FailedOutcome
 
-_HEADER_MODELS: dict[int, type[EmptyHeader | StepHeader]] = {
+_HEADER_MODELS: dict[MessageKind, type[EmptyHeader | StepHeader]] = {
     MessageKind.HELLO: EmptyHeader,
     MessageKind.STEP: StepHeader,
 }
@@ -127,28 +133,59 @@ def _read_exactly(connection: socket.socket, count: int) -> bytes:
     return bytes(received)
 
 
-def read_request(connection: socket.socket) -> EmptyHeader | StepHeader:
-    """Read one HELLO or STEP preamble and header; raise WireRefusedError otherwise."""
+def _read_message(
+    connection: socket.socket, accepted: frozenset[MessageKind]
+) -> tuple[MessageKind, bytes]:
+    """Read one preamble of an accepted kind and its header bytes; refuse otherwise."""
     preamble = _read_exactly(connection, len(MAGIC) + 2)
-    kind = preamble[len(MAGIC) + 1]
     if (
         preamble[: len(MAGIC) + 1] != MAGIC + bytes([VERSION])
-        or kind not in _HEADER_MODELS
+        or preamble[len(MAGIC) + 1] not in accepted
     ):
         raise WireRefusedError
     (length,) = LENGTH.unpack(_read_exactly(connection, LENGTH.size))
     if not MINIMUM_HEADER_BYTES <= length <= MAXIMUM_HEADER_BYTES:
         raise WireRefusedError
+    return MessageKind(preamble[len(MAGIC) + 1]), _read_exactly(connection, length)
+
+
+def _validated[Header](adapter: TypeAdapter[Header], header: bytes) -> Header:
     try:
-        return _HEADER_MODELS[kind].model_validate_json(
-            _read_exactly(connection, length)
-        )
+        return adapter.validate_json(header)
     except ValidationError as error:
         raise WireRefusedError from error
 
 
+def read_request(connection: socket.socket) -> EmptyHeader | StepHeader:
+    """Read one HELLO or STEP preamble and header; raise WireRefusedError otherwise."""
+    kind, header = _read_message(connection, frozenset(_HEADER_MODELS))
+    return _validated(TypeAdapter(_HEADER_MODELS[kind]), header)
+
+
+def read_status(connection: socket.socket) -> None:
+    """Read the STATUS message; raise WireRefusedError for anything else."""
+    _, header = _read_message(connection, frozenset({MessageKind.STATUS}))
+    _validated(TypeAdapter(EmptyHeader), header)
+
+
+def read_outcome(connection: socket.socket) -> Outcome:
+    """Read the OUTCOME message; raise WireRefusedError for anything else."""
+    _, header = _read_message(connection, frozenset({MessageKind.OUTCOME}))
+    return _validated(TypeAdapter(Outcome), header)
+
+
 def _send_message(connection: socket.socket, kind: MessageKind, header: bytes) -> None:
     connection.sendall(_preamble(kind) + LENGTH.pack(len(header)) + header)
+
+
+def send_hello(connection: socket.socket) -> None:
+    """Write the HELLO message: the preamble and the empty header."""
+    _send_message(connection, MessageKind.HELLO, b"{}")
+
+
+def send_step(connection: socket.socket, header: StepHeader) -> None:
+    """Write the STEP message carrying the step header."""
+    _send_message(connection, MessageKind.STEP, encode_record(header))
 
 
 def send_status(connection: socket.socket) -> None:
@@ -489,6 +526,11 @@ def send_tree_reply(
         send_end(connection, 0, 0)
         return
     send_outcome(connection, BuiltOutcome())
+    send_tree(connection, root)
+
+
+def send_tree(connection: socket.socket, root: int) -> None:
+    """Send every entry below the directory, then END; sends block."""
     count = total = 0
     with closing(_tree(root)) as entries:
         for entry in entries:

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from presentator.contracts.decks import Deck, Source
+
 
 class CoPresenterUnavailableError(RuntimeError):
     """The private service refused or could not satisfy an operation."""
@@ -12,12 +14,21 @@ class CoPresenterUnavailableError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AskedDeck:
+    """A built deck its asker owns, with the source that carries it."""
+
+    deck: Deck
+    source: Source
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Question:
     """What a person asked while showing one slide."""
 
     said: str
     slide: int
     language: str | None
+    deck: AskedDeck | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -17,6 +17,7 @@ dependencies = [
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.20.1/overnightworks_webauth-0.20.1-py3-none-any.whl#sha256=8826d20b033a0443963719b1261a466072be1ddf0a18e823640c1571742c6fd3",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
+    "syntok==1.4.4",
     "uvicorn==0.54.0",
 ]
 
@@ -96,6 +97,10 @@ convention = "google"
 # Standalone proof, not a package; it drives docker and git by name through
 # fixed argument vectors, never a shell.
 "scripts/prove_container_build.py" = ["INP001", "S404", "S603", "S607"]
+# Standalone probe, not a package; it drives docker and pdftotext by name
+# through fixed argument vectors, never a shell, and inside the container it is
+# the client of the worker's socket.
+"scripts/probe_build_worker.py" = ["INP001", "S404", "S603", "S607"]
 # Standalone gate, not a package; it only parses templates to an AST, it
 # never renders one, so autoescape has no effect on its behaviour.
 "scripts/check_catalog_purity.py" = ["INP001", "S701"]
@@ -216,6 +221,23 @@ source_modules = [
     "presentator.contracts",
 ]
 forbidden_modules = ["tomllib", "babel"]
+as_packages = true
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "sentence-library"
+name = "Only adapters find sentence boundaries"
+type = "forbidden"
+# ADR 0001: a third-party library lives in the adapter that owns it. `syntok`
+# finds the boundaries, so a layer above is handed the function instead.
+source_modules = [
+    "presentator.host",
+    "presentator.api",
+    "presentator.application",
+    "presentator.ports",
+    "presentator.contracts",
+]
+forbidden_modules = ["syntok"]
 as_packages = true
 allow_indirect_imports = true
 

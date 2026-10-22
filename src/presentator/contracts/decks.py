@@ -54,6 +54,9 @@ def failure_text(said: bytes) -> str:
     return bounded_failure(said.decode(errors="replace").strip())
 
 
+MAXIMUM_NAME_BYTES: Final = 255
+
+
 def is_a_plain_folder_name(candidate: str) -> bool:
     """Whether the candidate is a folder's own name and nothing besides."""
     return (
