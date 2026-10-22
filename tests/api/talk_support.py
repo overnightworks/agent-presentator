@@ -52,6 +52,7 @@ from tests.api.lobby import (
 from tests.application.fakes import FakeDeckStore, FrozenClock
 from tests.people import seed_user
 
+ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
 A_DECK: Final = "a-deck"
 B_DECK: Final = "b-deck"
 NO_DECK: Final = "no-deck"
@@ -310,3 +311,14 @@ def ask_at_the_door(
         "root_path": "",
     }
     return asyncio.run(_answer(app, scope))
+
+
+def cookies_without_values(response: Response) -> list[str]:
+    """Every `Set-Cookie` entry, its name and attributes kept, its random value not."""
+    return [
+        f"{name}=<value>{attributes}"
+        for name, attributes in (
+            (entry.split("=", 1)[0], ";" + entry.partition(";")[2])
+            for entry in response.headers.get_list("set-cookie")
+        )
+    ]

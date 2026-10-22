@@ -25,7 +25,7 @@ from tests.api.lobby import (
     a_configured_source,
     a_lobby,
 )
-from tests.api.talk_support import two_hosts
+from tests.api.talk_support import cookies_without_values, two_hosts
 from tests.api.test_sources import ask_removal, confirm_removal
 from tests.application.fakes import FakeDeckStore
 
@@ -82,15 +82,9 @@ class _TwoAdmins:
     talk_as_a: TestClient
     talk_as_b: TestClient
 
-    def at(self, origin: str, *, admin: str) -> TestClient:
-        """The browser of `a` or `b` at the lobby or at the talk host."""
-        browsers = {
-            (A_BROWSERS_ADDRESS, "a"): self.as_a,
-            (A_BROWSERS_ADDRESS, "b"): self.as_b,
-            (A_TALK_ADDRESS, "a"): self.talk_as_a,
-            (A_TALK_ADDRESS, "b"): self.talk_as_b,
-        }
-        return browsers[origin, admin]
+    def as_a_at(self, origin: str) -> TestClient:
+        """The browser of `a` at the lobby or at the talk host."""
+        return self.as_a if origin == A_BROWSERS_ADDRESS else self.talk_as_a
 
 
 _ADMIN_B: Final = User(id=_B, username=NEIGHBOUR, role=Role.ADMIN)
@@ -117,17 +111,6 @@ def _two_admins(tmp_path: Path, *, stuck_mirror: bool = False) -> _TwoAdmins:
     )
 
 
-def _cookies_without_values(response: Response) -> list[str]:
-    """Every `Set-Cookie` entry, its name and attributes kept, its random value not."""
-    return [
-        f"{name}=<value>{attributes}"
-        for name, attributes in (
-            (entry.split("=", 1)[0], ";" + entry.partition(";")[2])
-            for entry in response.headers.get_list("set-cookie")
-        )
-    ]
-
-
 def _alike(answer: Response, unknown: Response) -> None:
     def comparable(response: Response) -> dict[str, str]:
         return {
@@ -139,7 +122,7 @@ def _alike(answer: Response, unknown: Response) -> None:
     assert answer.status_code == unknown.status_code
     assert answer.content == unknown.content
     assert comparable(answer) == comparable(unknown)
-    assert _cookies_without_values(answer) == _cookies_without_values(unknown)
+    assert cookies_without_values(answer) == cookies_without_values(unknown)
 
 
 _NO_HEADERS: Final[dict[str, str]] = {}
@@ -172,7 +155,7 @@ def test_a_deck_of_another_account_answers_like_an_unknown_slug(
     headers: dict[str, str],
 ) -> None:
     admins = _two_admins(tmp_path)
-    send = getattr(admins.at(origin, admin="a"), method)
+    send = getattr(admins.as_a_at(origin), method)
 
     foreign = send(f"/deck/b-deck{tail}", headers=headers)
     unknown = send(f"/deck/{_THE_UNKNOWN}{tail}", headers=headers)

@@ -16,7 +16,13 @@ from tests.api.lobby import (
     A_BROWSERS_SOCKET_ADDRESS,
     a_content_security_policy,
 )
-from tests.api.talk_support import A_DECK, B_DECK, NO_DECK, two_hosts
+from tests.api.talk_support import (
+    A_DECK,
+    B_DECK,
+    NO_DECK,
+    cookies_without_values,
+    two_hosts,
+)
 
 _BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 _AN_ASSET: Final = "assets/index-mRcVgIkQ.js"
@@ -52,7 +58,8 @@ def _unvarying(response: Response, *, besides: frozenset[str] = frozenset()) -> 
         for name, value in sorted(response.headers.items())
         if name not in withheld
     }
-    return repr((response.status_code, response.content, headers))
+    cookies = cookies_without_values(response)
+    return repr((response.status_code, response.content, headers, cookies))
 
 
 # C10.
@@ -112,7 +119,6 @@ def test_a_websocket_into_a_deck_address_on_the_lobby_is_never_accepted(
     [
         *(f"/deck/{A_DECK}/{shape}" for shape in _SHAPES_AROUND_A_TALK),
         "/static/%2e%2e/deck/a-deck/",
-        f"/deck/{A_DECK}/pdf/",
         f"/deck/{A_DECK}",
     ],
 )

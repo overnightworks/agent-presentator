@@ -17,11 +17,9 @@ from tests.api.lobby import (
     a_swapped_build,
     real_builds_under,
 )
-from tests.api.talk_support import two_hosts
+from tests.api.talk_support import ONLY_THIS_TEST_WROTE_IT, two_hosts
 from tests.api.test_deck_page import (
-    ONLY_THIS_TEST_WROTE_IT,
     a_build,
-    a_build_next_to_a_secret,
     a_deck_store,
     a_talk_host,
 )
@@ -37,6 +35,18 @@ def _talk_host_on_a_built_deck(tmp_path: Path) -> tuple[TestClient, Path]:
     """A browser signed in at the talk host of a built deck, and its run directory."""
     given, run = a_swapped_build(tmp_path, slug=_SLUG)
     return two_hosts(tmp_path, given=given).signed_in_at(A_TALK_ADDRESS), run
+
+
+def a_build_next_to_a_secret(tmp_path: Path) -> Path:
+    """A build directory with something worth stealing outside and beside it."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
+    (build / "out").symlink_to(outside)
+    return build
 
 
 @pytest.mark.parametrize(

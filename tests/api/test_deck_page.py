@@ -26,7 +26,7 @@ from tests.api.lobby import (
     a_signed_in_lobby,
     a_swapped_build,
 )
-from tests.api.talk_support import two_hosts
+from tests.api.talk_support import ONLY_THIS_TEST_WROTE_IT, two_hosts
 from tests.application.fakes import FakeDeckStore
 
 _SLUG: Final = "hello-deck"
@@ -43,7 +43,6 @@ _PRESENTER: Final = f"/deck/{_SLUG}/presenter/"
 _PDF: Final = f"/deck/{_SLUG}/pdf"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = f'attachment; filename="{_SLUG}.pdf"'
-ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
 _BUILT_AGO: Final = timedelta(minutes=12)
 _HOW_LONG_AGO: Final = "12 minutes ago"
 _ATTEMPT_COMMIT: Final = "e91c5ad4f3b2a1908877665544332211aabbccdd"
@@ -171,18 +170,6 @@ def talk_host(tmp_path: Path) -> TestClient:
     )
 
 
-def a_build_next_to_a_secret(tmp_path: Path) -> Path:
-    """A build directory with something worth stealing outside and beside it."""
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "secret.txt").write_text(ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
-    build = tmp_path / "build"
-    build.mkdir()
-    (build / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
-    (build / "out").symlink_to(outside)
-    return build
-
-
 def test_the_deck_page_names_the_title_the_source_and_the_commit_it_was_taken_from(
     lobby: TestClient,
 ) -> None:
@@ -196,6 +183,7 @@ def test_the_deck_page_names_the_title_the_source_and_the_commit_it_was_taken_fr
     assert _COMMIT not in page.text
 
 
+# C13.
 @pytest.mark.parametrize(
     "view", [_PRESENTER, _PROJECTOR], ids=["presenter", "projector"]
 )
@@ -208,6 +196,7 @@ def test_a_deck_with_a_built_talk_links_its_views_at_the_talk_host(
     assert ENGLISH.deck_state_ready in page
 
 
+# D4.
 def test_a_built_talk_opens_its_presenter_and_its_projector_view_at_the_talk_host(
     talk_host: TestClient,
 ) -> None:
@@ -628,6 +617,7 @@ def test_a_deck_whose_build_failed_names_the_attempt_and_what_broke() -> None:
     assert _WHAT_THE_TOOLCHAIN_SAID in page
 
 
+# C13.
 def test_the_last_good_talk_still_opens_from_a_failed_decks_page(
     tmp_path: Path,
 ) -> None:
@@ -679,6 +669,7 @@ def test_a_deck_that_never_built_and_failed_promises_no_talk_to_open() -> None:
     assert ENGLISH.deck_pdf not in page
 
 
+# C13.
 def test_a_deck_being_built_locks_both_views_and_still_offers_the_pdf() -> None:
     lobby = a_signed_in_lobby(
         GivenDecks(
@@ -696,7 +687,8 @@ def test_a_deck_being_built_locks_both_views_and_still_offers_the_pdf() -> None:
     assert ENGLISH.deck_building_for.format(age=_HOW_LONG_IT_HAS_RUN) in page
     assert f'href="{A_TALK_ADDRESS}{_PRESENTER}"' not in page
     assert f'href="{A_TALK_ADDRESS}{_PROJECTOR}"' not in page
-    assert page.count("data-locked") == len((_PRESENTER, _PROJECTOR))
+    assert f"data-locked>{ENGLISH.deck_presenter_view}<" in page
+    assert f"data-locked>{ENGLISH.deck_projector_view}<" in page
     assert f'href="{_PDF}"' in page
     assert lobby.get(_PDF).status_code == HTTPStatus.OK
 
