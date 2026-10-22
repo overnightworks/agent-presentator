@@ -68,7 +68,7 @@ def test_a_step_is_read_by_the_worker_with_its_step_and_slug(
 def test_a_status_from_the_worker_is_read_and_anything_else_is_refused(
     pair: tuple[socket.socket, socket.socket],
 ) -> None:
-    """#431 Done when: the client reads STATUS and refuses any other reply in its place."""
+    """#431 Done when: the client reads STATUS and refuses any other reply."""
     client, worker = pair
     send_status(worker)
     read_status(client)
