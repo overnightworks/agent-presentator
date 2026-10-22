@@ -13,7 +13,6 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from enum import Enum
 from http import HTTPStatus
 from typing import Annotated, Final, assert_never
 
@@ -123,14 +122,6 @@ def _rfc3339(instant: datetime) -> str:
     return instant.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _json_value(value: object) -> str:
-    if isinstance(value, datetime):
-        return _rfc3339(value)
-    if isinstance(value, Enum):
-        return str(value.value)
-    raise TypeError(type(value).__name__)
-
-
 def _export_archive(
     export: PersonExport, *, app: str, subject: str, now: datetime
 ) -> bytes:
@@ -157,7 +148,7 @@ def _export_archive(
     with zipfile.ZipFile(archive, "w") as zipped:
         zipped.writestr(
             member,
-            json.dumps(document, default=_json_value, sort_keys=True),
+            json.dumps(document, default=_rfc3339, sort_keys=True),
             compress_type=zipfile.ZIP_DEFLATED,
         )
     return archive.getvalue()
