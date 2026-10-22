@@ -1,0 +1,8 @@
+claim_id = "2cbbbde8a5e6476bad15f98c87101c54"
+agent = "claude"
+role = "builder"
+base = "7b838d0542d1318b803992fa17a460d4830ec93b"
+branch = "claude/issue-405-umbenennung-r1-pakete-befehle-images-und"
+scope = [".github/workflows/ci.yml", "Dockerfile", "compose.yaml", "docs/reference/configuration.md", "docs/runbooks/run-from-a-checkout.md", "pyproject.toml", "speech/pyproject.toml", "speech/scripts", "speech/src", "speech/tests", "speech/uv.lock", "uv.lock"]
+opened_commit = "10afd2a434a9130b2d7e32f05bd5079dd84a4daa"
+whole_reason = "A half-renamed distribution or package does not install or import, so each name moves with all its holders in one lane, as two commits a reviewer reads apart."
