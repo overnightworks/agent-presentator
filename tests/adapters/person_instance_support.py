@@ -41,8 +41,8 @@ from presentator.contracts.decks import (
 )
 from presentator.contracts.models import Role, User
 from presentator.contracts.preferences import PersonPreferences
+from tests.adapters.credentials_support import OpenCredentials
 from tests.adapters.key_draft_support import INSTANCE_KEY, a_key_drafts_store
-from tests.adapters.test_decks import OpenCredentials
 from tests.application.fakes import (
     FakeConnectionChecker,
     FakeToolchainThemes,
