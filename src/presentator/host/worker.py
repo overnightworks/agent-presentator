@@ -684,7 +684,8 @@ def prepare_step_paths(work: Path) -> int:
         make_open_directory(directory)
     descriptor = os.open(work / STEP_ERROR_FILE, STEP_ERROR_FLAGS, STEP_ERROR_MODE)
     try:
-        os.fchmod(descriptor, STEP_ERROR_MODE)
+        # The wire user (another uid) reads stderr; a shared group breaks sealing
+        os.fchmod(descriptor, STEP_ERROR_MODE)  # NOSONAR(S2612) see #381
     except BaseException:
         os.close(descriptor)
         raise
