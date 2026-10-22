@@ -126,11 +126,11 @@ function filesystemAttacks() {
   check('fs.create.root', () => fs.writeFileSync('/attack-marker', 'x'))
   check('fs.create.frontend', () => fs.writeFileSync('/app/frontend/attack-marker', 'x'))
   check('fs.write.package-json', () => fs.closeSync(fs.openSync('/app/frontend/package.json', 'r+')))
-  // The read-only mount answers EROFS whatever the mode says, so the mode is
-  // read as well: neither this user nor this group nor anyone else may write it.
+  // The read-only root answers EROFS whatever the mode says, so the owner and
+  // mode are printed as an observation of the second layer, not as a refusal.
   const manifest = fs.statSync('/app/frontend/package.json')
-  const reachable = manifest.uid === 10001 || manifest.gid === 10001 || (manifest.mode & 0o002) !== 0
-  record(`check fs.package-json.denied-by-mode ${reachable ? 'no' : 'yes'}`)
+  const mode = (manifest.mode & 0o7777).toString(8).padStart(4, '0')
+  record(`observe package-json owner=${manifest.uid} mode=${mode}`)
 }
 
 async function networkAttacks() {

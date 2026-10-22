@@ -70,11 +70,13 @@ DECK_REFUSALS = {
         "fs.create.root": "EROFS",
         "fs.create.frontend": "EROFS",
         "fs.write.package-json": "EROFS",
-        "fs.package-json.denied-by-mode": "yes",
     },
     "43": {"net.connect.ip": "ENETUNREACH", "net.dns": "EAI_AGAIN"},
     "44": {"keyctl": "EPERM", "unshare.user": "EPERM"},
 }
+# The read-only root answers EROFS before the mode is looked at, so the second
+# layer (root-owned, not writable by 10001) is observed, not counted as a refusal.
+DECK_OBSERVATIONS = {"observe.package-json": "owner=0 mode=0644"}
 DECK_CREATIONS = {
     "ipc.shmget": "succeeded",
     "ipc.msgget": "succeeded",
@@ -135,8 +137,8 @@ def parse_observations(text: str) -> Observations:
         match kind, rest.split():
             case "status", [who, name, *values]:
                 statuses.setdefault(who, {})[name] = tuple(values)
-            case "check", [key, result]:
-                checks[key] = result
+            case "check" | "observe", [key, *result]:
+                checks[key if kind == "check" else f"observe.{key}"] = " ".join(result)
             case "marker", [path]:
                 markers.append(path)
             case "child", [pid, uid]:
@@ -370,6 +372,7 @@ def prove_attacked_life(report: Report) -> None:
     for who in ("node", "python"):
         require_identity(deck, who, BUILD_IDENTITY)
     require_checks(deck, DECK_CREATIONS, "deck")
+    require_checks(deck, DECK_OBSERVATIONS, "deck observations")
     for cell, expected in DECK_REFUSALS.items():
         require_checks(deck, expected, f"deck cell {cell}")
     for cell, expected in PROBE_REFUSALS.items():
@@ -379,5 +382,7 @@ def prove_attacked_life(report: Report) -> None:
         report.cell(
             cell, ", ".join(f"{key} {errno}" for key, errno in recorded.items())
         )
+    for name in DECK_OBSERVATIONS:
+        say(f"{name} {deck.checks[name]}")
     prove_nothing_reaches_the_next_life(report, deck, probe)
     say("attacked life judged")
