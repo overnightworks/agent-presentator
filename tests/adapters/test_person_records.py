@@ -91,6 +91,23 @@ def test_the_sessions_of_a_person_carry_their_times_and_no_secret(
     assert _A_REFRESH_WORD not in repr(found)
 
 
+def test_only_sessions_holding_a_refresh_token_are_counted_as_holding_one(
+    database: Path,
+) -> None:
+    """D5 (#419): a session without a refresh token is not counted as holding one."""
+    sessions = SqliteSessionRecordStore(database)
+    for token in (SecretStr(_A_REFRESH_WORD), None):
+        sessions.create(
+            _THE_PERSON.id,
+            now=_NOW,
+            expires_at=_NOW + timedelta(hours=1),
+            refresh_token=token,
+        )
+
+    assert sessions.refresh_tokens_held(_THE_PERSON.id) == 1
+    assert sessions.refresh_tokens_held(_ANOTHER.id) == 0
+
+
 def test_deleting_preferences_removes_only_that_persons_row(database: Path) -> None:
     """S9 (#293): preferences go per person and a repeat deletes zero."""
     preferences = SqlitePersonPreferencesStore(database)

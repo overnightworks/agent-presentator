@@ -16,8 +16,8 @@
 "src/presentator/adapters/builds.py" = 1172
 "src/presentator/adapters/decks.py" = 890
 "src/presentator/application/decks.py" = 984
-"tests/adapters/test_builds.py" = 1825
-"tests/adapters/test_decks.py" = 1432
+"tests/adapters/test_builds.py" = 1816
+"tests/adapters/test_decks.py" = 1424
 "tests/api/test_copresenter.py" = 1073
 "tests/api/test_sources.py" = 1719
 "tests/application/test_decks.py" = 2071
