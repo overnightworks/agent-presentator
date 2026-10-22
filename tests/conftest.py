@@ -1,4 +1,4 @@
-"""A real git remote in a temporary directory, for every layer that reads one."""
+"""A real git remote, and the environment the composition root reads."""
 
 import os
 import shutil
@@ -13,12 +13,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.api.lobby import A_BROWSERS_ADDRESS, configure_oidc
 from tests.worker_support import WAIT_SECONDS, listening_socket
 
 EXAMPLE_DECK = Path(__file__).parents[1] / "examples" / "hello-deck"
 EXAMPLE_SLUG = EXAMPLE_DECK.name
 EXAMPLE_TITLE = "Hello Co-Presenter"
 MAIN_BRANCH = "main"
+INSTANCE_KEY = "an instance key of at least thirty-two bytes"
 
 _AUTHORSHIP = {
     "GIT_AUTHOR_NAME": "a test",
@@ -173,3 +175,36 @@ def deck(tmp_path: Path) -> Iterator[int]:
         yield descriptor
     finally:
         os.close(descriptor)
+
+
+@pytest.fixture
+def bare_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> pytest.MonkeyPatch:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PRESENTATOR_SECRET_KEY", raising=False)
+    monkeypatch.setenv("PRESENTATOR_DATABASE", str(tmp_path / "presentator.sqlite3"))
+    # `remote`/`another_remote` (tests/conftest.py) write their bare
+    # repositories straight into `tmp_path`, the one directory every real
+    # git address these tests build stands under; naming it as the mount
+    # lets a `file://` fixture keep standing in for "any git remote" without
+    # every such test naming the mount for itself.
+    monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
+    monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", A_BROWSERS_ADDRESS)
+    configure_oidc(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "PRESENTATOR_COPRESENTER_SOCKET",
+        str(tmp_path / "copresenter.sock"),
+    )
+    return monkeypatch
+
+
+@pytest.fixture
+def environment(bare_environment: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    bare_environment.setenv("PRESENTATOR_SECRET_KEY", INSTANCE_KEY)
+    # These tests are about the lobby this root composes, not about where a
+    # deck's code runs; the development run is what asks nothing of a daemon,
+    # and the tests below that are about the sandbox say so themselves.
+    bare_environment.setenv("PRESENTATOR_BUILD_RUNNER", "host")
+    return bare_environment
