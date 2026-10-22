@@ -37,6 +37,7 @@ from tests.api.lobby import (
     ADMIN,
     AN_ISSUER,
     NO_DECKS,
+    GivenDecks,
     SigningIn,
     a_crowd,
     a_decks,
@@ -181,19 +182,30 @@ def _relying_party_at(
     )
 
 
-def two_hosts(tmp_path: Path, *, admission: AdmissionConfig | None = None) -> Hosts:
-    """Both hosts over real identity tables, a fake issuer and A's and B's decks.
+def two_hosts(
+    tmp_path: Path,
+    *,
+    admission: AdmissionConfig | None = None,
+    given: GivenDecks | None = None,
+) -> Hosts:
+    """Both hosts over real identity tables, a fake issuer and one set of decks.
 
-    `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to nobody.
+    Without `given`, `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to
+    nobody. A given deck side is used instead, its store included.
     """
     database = tmp_path / "identity.sqlite3"
     create_identity_tables(database)
     people = a_crowd()
     clock = people.clock
-    decks_store = FakeDeckStore()
-    put_a_built_deck(decks_store, slug=A_DECK, owner_id=A.id)
-    put_a_built_deck(decks_store, slug=B_DECK, owner_id=B.id)
-    decks = a_decks(replace(NO_DECKS, store=decks_store), clock)
+    decks_store = (
+        FakeDeckStore() if given is None or given.store is None else given.store
+    )
+    if given is None:
+        put_a_built_deck(decks_store, slug=A_DECK, owner_id=A.id)
+        put_a_built_deck(decks_store, slug=B_DECK, owner_id=B.id)
+    decks = a_decks(
+        replace(NO_DECKS if given is None else given, store=decks_store), clock
+    )
     sessions = SqliteSessionRecordStore(database)
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
     lobby_auth = an_installed_auth(
