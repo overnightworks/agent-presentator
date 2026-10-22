@@ -1,7 +1,0 @@
-claim_id = "259add20f5cd477f8cc9195a6699fe3a"
-agent = "claude"
-role = "builder"
-base = "b3b9e345fd7cc255da44db846d56a8b3de6ee682"
-branch = "claude/issue-371-quality-v0-3-0-bernehmen-gate-und-codeql"
-scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", "quality/config.toml"]
-opened_commit = "a1f04113765dbf895974e94b0dad9528ce04dff5"
