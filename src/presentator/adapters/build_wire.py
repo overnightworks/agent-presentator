@@ -414,7 +414,7 @@ def _meets_step_contract(step: StepKind, position: int, entry: TreeEntry) -> boo
         return (
             position == 0
             and entry.components == (PDF_FILE.encode(),)
-            and not (entry.is_directory)
+            and not entry.is_directory
         )
     talk = TALK_DIRECTORY.encode()
     if position == 0:

@@ -236,6 +236,9 @@ def test_an_export_writing_its_pdf_gets_built_and_the_pdf_as_the_only_entry(
 
 
 BLOB_BYTES = 16 * 1024 * 1024
+REPLY_BOUND_SECONDS = 1.0
+# The gate records the sender's spawn just after the controller's own clock began.
+SPAWN_TOLERANCE_SECONDS = 0.1
 
 
 def a_blob_building_chain(
@@ -272,7 +275,7 @@ def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bo
     sandbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     work, spawn, sender_spawned = a_blob_building_chain(sandbox, monkeypatch)
-    monkeypatch.setattr(worker_serving, "REPLY_SECONDS", 1.0)
+    monkeypatch.setattr(worker_serving, "REPLY_SECONDS", REPLY_BOUND_SECONDS)
 
     life = run_life(
         SENT,
@@ -282,7 +285,9 @@ def test_a_client_that_stops_reading_a_large_reply_ends_the_life_at_the_reply_bo
     )
 
     assert life.life_end == LifeEnd.REPLY_EXPIRED
-    assert 1.0 <= life.returned_at - sender_spawned[0] < 1.0 + WAIT_SECONDS
+    elapsed = life.returned_at - sender_spawned[0]
+    assert elapsed >= REPLY_BOUND_SECONDS - SPAWN_TOLERANCE_SECONDS
+    assert elapsed < REPLY_BOUND_SECONDS + WAIT_SECONDS
     assert sender_pid(life) not in life.present_at_return
     assert life.reply.startswith(support.STATUS + support.OUTCOME_BUILT)
     assert not life.reply.endswith(support.END)
