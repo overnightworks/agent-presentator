@@ -10,10 +10,12 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from presentator.contracts.copresenter import (
+        AccessRefusal,
         AnswerEvent,
         CoPresenterReadiness,
         DeckText,
         HearingTranscript,
+        PersonToken,
         Question,
     )
     from presentator.contracts.decks import Deck, Source
@@ -77,5 +79,17 @@ class Speaking(Protocol):
         """The sentence as one whole WAV.
 
         Raises CoPresenterUnavailableError when speech cannot speak it.
+        """
+        ...
+
+
+class PersonAccess(Protocol):
+    """Gives a signed-in person's fresh access token for the agent service."""
+
+    async def fresh(self, session_id: str) -> PersonToken | AccessRefusal:
+        """The session's person's token, or why it has none.
+
+        Raises CoPresenterUnavailableError when the session store or a worker
+        thread fails.
         """
         ...

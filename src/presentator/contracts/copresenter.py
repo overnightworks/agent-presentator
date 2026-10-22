@@ -1,6 +1,7 @@
 """Provider-neutral values carried by the authenticated co-presenter path."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum, auto
 
 from presentator.contracts.decks import Deck, Source
 
@@ -11,6 +12,25 @@ class CoPresenterUnavailableError(RuntimeError):
     def __str__(self) -> str:
         """Keep the expected failure provider-neutral."""
         return "co-presenter unavailable"
+
+
+class NotEnabledError(CoPresenterUnavailableError):
+    """The service does not answer this person: they are not enabled for it."""
+
+
+class AccessRefusal(Enum):
+    """Why a session yields no access token for the agent service."""
+
+    SIGN_IN_AGAIN = auto()
+    SESSION_ENDED = auto()
+    ISSUER_UNAVAILABLE = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class PersonToken:
+    """A person's access token; neither `repr` nor `str` shows it."""
+
+    value: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
