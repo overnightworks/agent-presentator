@@ -17,6 +17,7 @@ dependencies = [
     "overnightworks-webauth @ https://github.com/overnightworks/webauth/releases/download/v0.20.1/overnightworks_webauth-0.20.1-py3-none-any.whl#sha256=8826d20b033a0443963719b1261a466072be1ddf0a18e823640c1571742c6fd3",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
+    "syntok==1.4.4",
     "uvicorn==0.54.0",
 ]
 
@@ -207,7 +208,8 @@ name = "Only adapters read the manifest format and word a language"
 type = "forbidden"
 # ADR 0001: a third-party or format library lives in the adapter that owns it.
 # `tomllib` reads the deck manifest and `babel` owns the catalog and the
-# wording of an age, so a layer above must ask a port or be handed the words.
+# wording of an age, and `syntok` finds sentence boundaries, so a layer above
+# must ask a port or be handed the words.
 source_modules = [
     "presentator.host",
     "presentator.api",
@@ -215,7 +217,7 @@ source_modules = [
     "presentator.ports",
     "presentator.contracts",
 ]
-forbidden_modules = ["tomllib", "babel"]
+forbidden_modules = ["tomllib", "babel", "syntok"]
 as_packages = true
 allow_indirect_imports = true
 
