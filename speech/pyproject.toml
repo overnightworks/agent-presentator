@@ -18,7 +18,7 @@ dependencies = [
     "pydantic-settings==2.15.0",
     "uvicorn==0.54.0",
     "websockets==17.2",
-    "presentator-speech-provider-contract",
+    "overnightworks-presentator-speech-provider-contract",
 ]
 
 [project.scripts]
@@ -35,7 +35,7 @@ dev = [
 packages = ["src/speech"]
 
 [tool.uv.sources]
-presentator-speech-provider-contract = { path = "providers/provider-contract", editable = true }
+overnightworks-presentator-speech-provider-contract = { path = "providers/provider-contract", editable = true }
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"

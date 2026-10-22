@@ -319,8 +319,8 @@ dependencies = [
     { name = "numpy" },
     { name = "nvidia-cublas-cu12" },
     { name = "nvidia-cudnn-cu12" },
+    { name = "overnightworks-presentator-speech-provider-contract" },
     { name = "piper-tts" },
-    { name = "presentator-speech-provider-contract" },
     { name = "pydantic-settings" },
     { name = "uvicorn" },
     { name = "websockets" },
@@ -341,8 +341,8 @@ requires-dist = [
     { name = "numpy", specifier = "==2.5.4" },
     { name = "nvidia-cublas-cu12", specifier = "==12.4.5.8" },
     { name = "nvidia-cudnn-cu12", specifier = "==9.1.0.70" },
+    { name = "overnightworks-presentator-speech-provider-contract", editable = "providers/provider-contract" },
     { name = "piper-tts", specifier = "==1.8.0" },
-    { name = "presentator-speech-provider-contract", editable = "providers/provider-contract" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "uvicorn", specifier = "==0.54.0" },
     { name = "websockets", specifier = "==17.2" },
@@ -354,6 +354,11 @@ dev = [
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.17.1" },
 ]
+
+[[package]]
+name = "overnightworks-presentator-speech-provider-contract"
+version = "0.0.0"
+source = { editable = "providers/provider-contract" }
 
 [[package]]
 name = "packaging"
@@ -398,11 +403,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
 ]
-
-[[package]]
-name = "presentator-speech-provider-contract"
-version = "0.0.0"
-source = { editable = "providers/provider-contract" }
 
 [[package]]
 name = "protobuf"
