@@ -23,6 +23,7 @@ from presentator.contracts.copresenter import (
 )
 from tests.adapters.agent_service_support import (
     GOOD_ANSWER,
+    ReceivedCredentials,
     ask_once,
     event_frames,
     fake_service,
@@ -436,9 +437,12 @@ def test_the_real_suppliers_feed_the_answerer_over_a_socket_and_leak_nothing(
         assert isinstance(token, PersonToken)
         return token.value
 
+    received: list[ReceivedCredentials] = []
+
     async def drive() -> list[str]:
         async with fake_service(
-            lambda _question: reply_with(*whole(event_frames(*GOOD_ANSWER)))
+            lambda _question: reply_with(*whole(event_frames(*GOOD_ANSWER))),
+            credentials_seen=received,
         ) as origin:
             with _every_logger_at_debug(caplog):
                 answerer = ServiceAnswerer(
@@ -449,5 +453,6 @@ def test_the_real_suppliers_feed_the_answerer_over_a_socket_and_leak_nothing(
             return outcome.texts
 
     assert asyncio.run(drive()) == ["Hallo ", "Welt."]
+    assert received == [ReceivedCredentials(f"Bearer {PERSON_ACCESS}", WORKLOAD_ACCESS)]
     assert caplog.records
     assert arranged.scene.stored_tokens() == [ROTATED]

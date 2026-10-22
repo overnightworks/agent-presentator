@@ -9,7 +9,7 @@ import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Annotated, NoReturn
 from uuid import UUID, uuid4
 
 import httpx2
@@ -26,7 +26,7 @@ from agent_client.wire import (
     RunStarted,
     Succeeded,
 )
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.responses import Response, StreamingResponse
 
 from presentator.adapters.agent_service import ServiceAnswerer
@@ -311,14 +311,37 @@ def one_warning(caplog: pytest.LogCaptureFixture) -> str:
     return warning
 
 
+@dataclass(frozen=True)
+class ReceivedCredentials:
+    """The ``Authorization`` and ``Agent-Workload-Token`` headers of one request."""
+
+    authorization: str | None
+    workload_token: str | None
+
+
 @asynccontextmanager
-async def fake_service(reply_for: Callable[[str], Reply]) -> AsyncGenerator[str]:
-    """Serve ``POST /runs`` on 127.0.0.1; the reply may depend on the question."""
+async def fake_service(
+    reply_for: Callable[[str], Reply],
+    *,
+    credentials_seen: list[ReceivedCredentials] | None = None,
+) -> AsyncGenerator[str]:
+    """Serve ``POST /runs`` on 127.0.0.1; the reply may depend on the question.
+
+    Each request's two credential headers are appended to ``credentials_seen``.
+    """
     app = FastAPI()
     stopped = asyncio.Event()
 
     @app.post("/runs")
-    async def runs(run: RunRequest) -> Response:
+    async def runs(
+        run: RunRequest,
+        authorization: Annotated[str | None, Header()] = None,
+        agent_workload_token: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        if credentials_seen is not None:
+            credentials_seen.append(
+                ReceivedCredentials(authorization, agent_workload_token)
+            )
         reply = reply_for(run.turn.messages[0].text)
 
         async def body() -> AsyncIterator[bytes]:
