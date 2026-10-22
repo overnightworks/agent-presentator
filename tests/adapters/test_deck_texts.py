@@ -134,3 +134,81 @@ def test_a_deck_whose_manifest_is_unreadable_is_still_read_by_its_slides(
 
     assert text is not None
     assert (text.title, text.language) == ("One", None)
+
+
+def test_a_source_that_no_longer_resolves_is_unavailable(tmp_path: Path) -> None:
+    deck = built(a_deck(_TALK), a_build(tmp_path))
+
+    with pytest.raises(CoPresenterUnavailableError):
+        MirroredDeckTexts(mirrors=mirrors_under(tmp_path)).text_of(
+            deck, a_source("not an address")
+        )
+
+
+@pytest.mark.parametrize(
+    ("markdown", "expected"),
+    [
+        pytest.param(
+            "---\ntheme: dark\n---\n# One\nbody\n\n---\n\n# Two\n",
+            [(1, "One"), (2, "Two")],
+            id="per-slide frontmatter is not a slide",
+        ),
+        pytest.param(
+            "---\ntheme: dark\n# One\n",
+            [(1, "One")],
+            id="unclosed frontmatter stays in its slide",
+        ),
+        pytest.param(
+            "# One\n```md\n---\n# not a slide\n```\n---\n\n# Two\n",
+            [(1, "One"), (2, "Two")],
+            id="a fence inside code is not a separator",
+        ),
+        pytest.param(
+            "# One\n<!--\n---\nnotes\n-->\n\n---\n\n# Two\n",
+            [(1, "One"), (2, "Two")],
+            id="a fence inside a multiline comment is not a separator",
+        ),
+        pytest.param(
+            "# One\n```\nnever closed\n---\n",
+            [(1, "One")],
+            id="an unclosed code fence runs to the end",
+        ),
+        pytest.param(
+            "# One\n\n---\n\nplain words\n",
+            [(1, "One"), (2, "plain words")],
+            id="leading blank lines do not title a slide",
+        ),
+        pytest.param(
+            "# One\n\n---\n\n---\n\n# Three\n",
+            [(1, "One"), (2, "Three")],
+            id="an empty slide is skipped",
+        ),
+        pytest.param(
+            "# One\n\n---\n",
+            [(1, "One")],
+            id="a trailing separator opens no slide",
+        ),
+        pytest.param(
+            "just words\n",
+            [(1, "just words")],
+            id="a slide without a heading is titled by its first line",
+        ),
+        pytest.param(
+            "<!-- only notes -->\n",
+            [(1, "Untitled")],
+            id="a slide of notes alone is untitled",
+        ),
+    ],
+)
+def test_slides_follow_slidev_separators(
+    remote: GitRemote,
+    tmp_path: Path,
+    markdown: str,
+    expected: list[tuple[int, str]],
+) -> None:
+    remote.commit({f"{_TALK}/slides.md": markdown}, at=_PUSHED_AT)
+
+    text = read_deck(tmp_path, remote, _TALK)
+
+    assert text is not None
+    assert [(s.number, s.title) for s in text.slides] == expected
