@@ -15,7 +15,12 @@ from presentator.api.auth import BACKCHANNEL_LOGOUT_PATH
 from presentator.api.copresenter import MAX_SAID_LENGTH
 from presentator.contracts.models import Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG
-from tests.api.lobby import A_BROWSERS_ADDRESS, a_content_security_policy, a_lobby
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
+    a_content_security_policy,
+    a_lobby,
+)
 from tests.api.test_copresenter import QUESTION, a_copresenter_talk_host
 from tests.sign_in_support import Scene, a_scene
 
@@ -87,14 +92,16 @@ def stream_to(
     return streamed
 
 
-def a_browsers_headers(client: TestClient, content_type: str) -> dict[str, str]:
+def a_browsers_headers(
+    client: TestClient, content_type: str, *, origin: str = A_BROWSERS_ADDRESS
+) -> dict[str, str]:
     cookies = "; ".join(
         f"{cookie.name}={cookie.value}" for cookie in client.cookies.jar
     )
     return {
         "cookie": cookies,
         "content-type": content_type,
-        "origin": A_BROWSERS_ADDRESS,
+        "origin": origin,
         "sec-fetch-site": "same-origin",
         "accept": "text/html",
         "x-csrf-token": client.cookies.get(DEFAULT_CSRF_COOKIE_NAME) or "",
@@ -151,12 +158,17 @@ def test_a_streamed_settings_form_over_the_cap_gets_400_and_saves_nothing() -> N
 
 
 def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -> None:
-    lobby, private, _clock = a_copresenter_talk_host()
-    lobby.sign_in()
+    talk, private, _clock = a_copresenter_talk_host()
+    talk.sign_in()
     asked = json.dumps(QUESTION)
     body = (asked + " " * (_BODY_SIZE - len(asked))).encode()
 
-    streamed = stream_to(lobby.app, _ASK, a_browsers_headers(lobby.client, _JSON), body)
+    streamed = stream_to(
+        talk.app,
+        _ASK,
+        a_browsers_headers(talk.client, _JSON, origin=A_TALK_ADDRESS),
+        body,
+    )
 
     assert streamed.status == HTTPStatus.BAD_REQUEST
     assert streamed.chunks_taken <= _FIRST_CHUNK_PASSING_THE_CAP
@@ -164,15 +176,15 @@ def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -
 
 
 def test_the_longest_ask_in_the_widest_json_spelling_still_fits_the_cap() -> None:
-    lobby, private, _clock = a_copresenter_talk_host()
-    lobby.sign_in()
+    talk, private, _clock = a_copresenter_talk_host()
+    talk.sign_in()
     escaped_surrogate_pair = "\\ud83d\\ude00"
     body = json.dumps({**QUESTION, "said": "SAID"}).replace(
         "SAID", escaped_surrogate_pair * MAX_SAID_LENGTH
     )
-    headers = a_browsers_headers(lobby.client, _JSON)
+    headers = a_browsers_headers(talk.client, _JSON, origin=A_TALK_ADDRESS)
 
-    answer = lobby.client.post(_ASK, content=body, headers=headers)
+    answer = talk.client.post(_ASK, content=body, headers=headers)
 
     assert len(body) > _CAP // 2
     assert answer.status_code == HTTPStatus.OK
