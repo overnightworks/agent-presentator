@@ -119,6 +119,34 @@ class FakeIssuer:
             self._key, {"alg": "RS256", "typ": "JWT", "kid": A_KEY_ID}, claims
         )
 
+    def mint_access_token(
+        self,
+        *,
+        subject: str,
+        groups: list[str],
+        authorized_party: str,
+        audience: str | None = None,
+        media_type: str = "at+jwt",
+    ) -> str:
+        """An access token as a client other than this one's holds it.
+
+        It names `audience` (this issuer's client by default), is issued to
+        `authorized_party` and carries `media_type` as its header `typ`.
+        """
+        issued_at = int(self._now.timestamp())
+        claims: dict[str, object] = {
+            "iss": self._issuer,
+            "aud": self._client_id if audience is None else audience,
+            "azp": authorized_party,
+            "sub": subject,
+            "iat": issued_at,
+            "exp": issued_at + _TOKEN_LIFETIME_SECONDS,
+            "groups": groups,
+        }
+        return _signed(
+            self._key, {"alg": "RS256", "typ": media_type, "kid": A_KEY_ID}, claims
+        )
+
     def mint_logout_token(
         self,
         *,

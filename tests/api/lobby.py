@@ -58,6 +58,7 @@ from presentator.api.auth import (
 )
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.pages import Pages
+from presentator.api.people import AdminPeople
 from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.decks import Decks
 from presentator.application.preferences import Preferences
@@ -476,6 +477,7 @@ def a_lobby_app(
     catalogs: Catalogs = CATALOGS,
     given: GivenDecks = NO_DECKS,
     signing_in: SigningIn | None = None,
+    admin_people: AdminPeople | None = None,
 ) -> tuple[FastAPI, FrozenClock]:
     """The whole lobby wiring, so a test that needs two clients shares one app."""
     crowd = a_crowd() if people is None else people
@@ -504,6 +506,7 @@ def a_lobby_app(
                 if given.voice is not None
                 else VoiceStatusUse(private=UnavailableSpeech())
             ),
+            admin_people=admin_people,
         ),
     )
     return lobby, clock

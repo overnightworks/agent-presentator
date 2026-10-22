@@ -28,6 +28,7 @@ from webauth.dependencies import (
     admit_session,
     session_id_from_request,
 )
+from webauth.middleware.bearer_gate import BearerGate
 from webauth.middleware.session_gate import SessionGate
 from webauth.middleware.stack import install_web_auth_middleware
 from webauth.oidc import OidcRefusal, OidcRelyingParty
@@ -43,6 +44,7 @@ from webauth.oidc_login import (
     start_login,
 )
 from webauth.policies import (
+    AuthorizedParties,
     BodySizePolicy,
     BodySizeRule,
     CacheControlRule,
@@ -70,6 +72,7 @@ from presentator.api.pages import (
     state_word,
     user_of_admitted,
 )
+from presentator.api.people import ADMIN_PREFIX, AdminPeople, people_routes
 from presentator.api.preferences import preference_routes
 from presentator.api.sources import source_routes
 from presentator.application.decks import Decks
@@ -252,6 +255,8 @@ class LobbyPrivate:
     """Private capabilities the authenticated lobby may expose to an admin."""
 
     voice: VoiceStatusUse
+    # Absent: no token is admitted, so neither the gate nor the route exists.
+    admin_people: AdminPeople | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -502,25 +507,28 @@ class _Surfaces:
 
 def _install_middleware(
     lobby: FastAPI,
-    content_security_policy: str,
+    auth: InstalledAuth,
     sessions: SessionRecordStore,
+    admin: AdminPeople | None,
 ) -> None:
     """Install the library's stack once, in its own order.
 
     Every answer, including the gate's redirect and a refusal, carries the
     security headers. Each store call commits on its own and `touch` is one
     update-only statement (ADR 0003), so the gate's admission takes no lock.
+    The admin prefix, when it is served, takes a bearer token and no cookie.
     """
     install_web_auth_middleware(
         lobby,
         security_headers=SecurityHeadersPolicy(
-            content_security_policy=content_security_policy,
+            content_security_policy=auth.content_security_policy,
             permissions_policy=PERMISSIONS_POLICY,
             cache_control_rules=(
                 CacheControlRule(PathRules(prefixes=("/",)), "no-store"),
             ),
         ),
         body_size=_BODY_SIZE,
+        bearer_gate=None if admin is None else _bearer_gate(auth, admin),
         csrf_origin=_CSRF_POLICY,
         session_gate=SessionGate(
             session_transaction=lambda: nullcontext(sessions),
@@ -528,6 +536,15 @@ def _install_middleware(
             public=_PUBLIC_RULES,
             optional=_OPTIONAL_PATHS,
         ),
+    )
+
+
+def _bearer_gate(auth: InstalledAuth, admin: AdminPeople) -> BearerGate:
+    return BearerGate(
+        paths=PathRules(prefixes=(ADMIN_PREFIX,)),
+        relying_party=auth.relying_party,
+        admission=auth.admission,
+        authorized_parties=AuthorizedParties(admin.admitted_clients),
     )
 
 
@@ -554,7 +571,7 @@ def create_lobby(
     )
     lobby = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     install_web_auth_config(lobby, auth.config)
-    _install_middleware(lobby, auth.content_security_policy, sessions)
+    _install_middleware(lobby, auth, sessions, private.admin_people)
     lobby.add_api_route(_LOBBY, surfaces.home, methods=["GET"])
     lobby.add_api_route(LOGIN_PATH, surfaces.login_page, methods=["GET"])
     lobby.add_api_route(START_SIGN_IN_PATH, surfaces.start_sign_in, methods=["GET"])
@@ -577,4 +594,12 @@ def create_lobby(
     add_deck_pages(lobby, decks=decks, pages=pages, talk_origin=auth.talk_origin)
     lobby.mount(_STATIC_PATH, StaticFiles(directory=_STATIC_DIR), name="static")
     lobby.include_router(fetch_hook(decks=decks))
+    if private.admin_people is not None:
+        lobby.include_router(
+            people_routes(
+                admin=private.admin_people,
+                # The app is the last segment of the group its people sign in by.
+                app=str(auth.admission.login_group).rsplit("/", 1)[-1],
+            )
+        )
     return lobby
