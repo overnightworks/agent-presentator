@@ -8,23 +8,24 @@ from typing import Final
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
-from starlette.websockets import WebSocketDisconnect
 
 from presentator.api.sources import ACCESS, SOURCES
 from presentator.contracts.decks import Build, Deck, Source
-from presentator.contracts.models import Role
+from presentator.contracts.models import Role, User
 from tests.api.lobby import (
-    A_BROWSERS_SOCKET_ADDRESS,
+    A_BROWSERS_ADDRESS,
+    A_BROWSERS_HEADERS,
+    A_TALK_ADDRESS,
     ADMIN,
     ENGLISH,
     NEIGHBOUR,
     NOW,
     SOURCE_ID,
     GivenDecks,
-    Lobby,
     a_configured_source,
     a_lobby,
 )
+from tests.api.talk_support import two_hosts
 from tests.api.test_sources import ask_removal, confirm_removal
 from tests.application.fakes import FakeDeckStore
 
@@ -74,14 +75,31 @@ def _store_of_built_decks() -> FakeDeckStore:
 
 @dataclass(frozen=True, slots=True)
 class _TwoAdmins:
-    lobby: Lobby
+    """Both admins, each signed in at the lobby and at the talk host."""
+
     as_a: TestClient
     as_b: TestClient
+    talk_as_a: TestClient
+    talk_as_b: TestClient
+
+    def at(self, origin: str, *, admin: str) -> TestClient:
+        """The browser of `a` or `b` at the lobby or at the talk host."""
+        browsers = {
+            (A_BROWSERS_ADDRESS, "a"): self.as_a,
+            (A_BROWSERS_ADDRESS, "b"): self.as_b,
+            (A_TALK_ADDRESS, "a"): self.talk_as_a,
+            (A_TALK_ADDRESS, "b"): self.talk_as_b,
+        }
+        return browsers[origin, admin]
 
 
-def _two_admins(*, stuck_mirror: bool = False) -> _TwoAdmins:
+_ADMIN_B: Final = User(id=_B, username=NEIGHBOUR, role=Role.ADMIN)
+
+
+def _two_admins(tmp_path: Path, *, stuck_mirror: bool = False) -> _TwoAdmins:
     foreign = _b_source()
-    lobby = a_lobby(
+    hosts = two_hosts(
+        tmp_path,
         given=GivenDecks(
             store=_store_of_built_decks(),
             source=foreign if stuck_mirror else None,
@@ -89,10 +107,14 @@ def _two_admins(*, stuck_mirror: bool = False) -> _TwoAdmins:
             stuck_mirror=stuck_mirror,
         ),
     )
-    lobby.sign_in()
-    second = lobby.another_browser()
-    second.sign_in(username=NEIGHBOUR, role=Role.ADMIN)
-    return _TwoAdmins(lobby=lobby, as_a=lobby.client, as_b=second.client)
+    return _TwoAdmins(
+        as_a=hosts.signed_in_at(A_BROWSERS_ADDRESS, headers=A_BROWSERS_HEADERS),
+        as_b=hosts.signed_in_at(
+            A_BROWSERS_ADDRESS, _ADMIN_B, headers=A_BROWSERS_HEADERS
+        ),
+        talk_as_a=hosts.signed_in_at(A_TALK_ADDRESS),
+        talk_as_b=hosts.signed_in_at(A_TALK_ADDRESS, _ADMIN_B),
+    )
 
 
 def _cookies_without_values(response: Response) -> list[str]:
@@ -122,30 +144,35 @@ def _alike(answer: Response, unknown: Response) -> None:
 
 _NO_HEADERS: Final[dict[str, str]] = {}
 _REQUESTS: Final = [
-    pytest.param("get", "", _NO_HEADERS, id="the-deck-page"),
-    pytest.param("get", "/", _NO_HEADERS, id="the-projector"),
-    pytest.param("get", "/presenter/", _NO_HEADERS, id="the-presenter"),
-    pytest.param("get", f"/{_AN_ASSET}", _NO_HEADERS, id="an-asset"),
-    pytest.param("get", "/no-such-file", _NO_HEADERS, id="the-fallback"),
-    pytest.param("head", "/presenter/", _NO_HEADERS, id="head"),
+    pytest.param(A_BROWSERS_ADDRESS, "get", "", _NO_HEADERS, id="the-deck-page"),
+    pytest.param(A_TALK_ADDRESS, "get", "/", _NO_HEADERS, id="the-projector"),
+    pytest.param(A_TALK_ADDRESS, "get", "/presenter/", _NO_HEADERS, id="the-presenter"),
+    pytest.param(A_TALK_ADDRESS, "get", f"/{_AN_ASSET}", _NO_HEADERS, id="an-asset"),
     pytest.param(
+        A_TALK_ADDRESS, "get", "/no-such-file", _NO_HEADERS, id="the-fallback"
+    ),
+    pytest.param(A_TALK_ADDRESS, "head", "/presenter/", _NO_HEADERS, id="head"),
+    pytest.param(
+        A_TALK_ADDRESS,
         "get",
         f"/{_AN_ASSET}",
         {"range": "bytes=0-9"},
         id="a-range",
     ),
-    pytest.param("get", "/pdf", _NO_HEADERS, id="the-pdf"),
+    pytest.param(A_BROWSERS_ADDRESS, "get", "/pdf", _NO_HEADERS, id="the-pdf"),
 ]
 
 
-@pytest.mark.parametrize(("method", "tail", "headers"), _REQUESTS)
+@pytest.mark.parametrize(("origin", "method", "tail", "headers"), _REQUESTS)
 def test_a_deck_of_another_account_answers_like_an_unknown_slug(
+    tmp_path: Path,
+    origin: str,
     method: str,
     tail: str,
     headers: dict[str, str],
 ) -> None:
-    admins = _two_admins()
-    send = getattr(admins.as_a, method)
+    admins = _two_admins(tmp_path)
+    send = getattr(admins.at(origin, admin="a"), method)
 
     foreign = send(f"/deck/b-deck{tail}", headers=headers)
     unknown = send(f"/deck/{_THE_UNKNOWN}{tail}", headers=headers)
@@ -156,20 +183,21 @@ def test_a_deck_of_another_account_answers_like_an_unknown_slug(
 
 @pytest.mark.parametrize("header", ["if-none-match", "if-modified-since"])
 def test_a_conditional_request_for_a_foreign_asset_gets_no_not_modified(
+    tmp_path: Path,
     header: str,
 ) -> None:
-    admins = _two_admins()
-    own = admins.as_b.get(f"/deck/b-deck/{_AN_ASSET}")
+    admins = _two_admins(tmp_path)
+    own = admins.talk_as_b.get(f"/deck/b-deck/{_AN_ASSET}")
     validators = {
         "if-none-match": own.headers["etag"],
         "if-modified-since": "Fri, 01 Jan 2100 00:00:00 GMT",
     }
 
-    foreign = admins.as_a.get(
+    foreign = admins.talk_as_a.get(
         f"/deck/b-deck/{_AN_ASSET}",
         headers={header: validators[header]},
     )
-    unknown = admins.as_a.get(
+    unknown = admins.talk_as_a.get(
         f"/deck/{_THE_UNKNOWN}/{_AN_ASSET}",
         headers={header: validators[header]},
     )
@@ -178,8 +206,11 @@ def test_a_conditional_request_for_a_foreign_asset_gets_no_not_modified(
     assert foreign.status_code == HTTPStatus.NOT_FOUND
 
 
-def test_the_owner_receives_every_shape_of_request_for_the_own_deck() -> None:
-    client = _two_admins().as_a
+def test_the_owner_receives_every_shape_of_request_for_the_own_deck(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path)
+    client = admins.talk_as_a
     asset = client.get(f"/deck/a-deck/{_AN_ASSET}")
 
     assert asset.status_code == HTTPStatus.OK
@@ -198,28 +229,11 @@ def test_the_owner_receives_every_shape_of_request_for_the_own_deck() -> None:
         headers={"if-none-match": asset.headers["etag"]},
     )
     assert again.status_code == HTTPStatus.NOT_MODIFIED
-    assert client.get("/deck/a-deck/pdf").status_code == HTTPStatus.OK
+    assert admins.as_a.get("/deck/a-deck/pdf").status_code == HTTPStatus.OK
 
 
-@pytest.mark.parametrize("slug", ["a-deck", "b-deck"])
-@pytest.mark.parametrize("signed_in", [True, False])
-def test_a_websocket_into_a_talk_is_closed_before_it_is_accepted(
-    slug: str,
-    *,
-    signed_in: bool,
-) -> None:
-    admins = _two_admins()
-    client = admins.as_a if signed_in else admins.lobby.another_browser().client
-
-    with (
-        pytest.raises(WebSocketDisconnect),
-        client.websocket_connect(f"{A_BROWSERS_SOCKET_ADDRESS}/deck/{slug}/"),
-    ):
-        pass
-
-
-def test_each_admin_lists_exactly_the_own_deck() -> None:
-    admins = _two_admins()
+def test_each_admin_lists_exactly_the_own_deck(tmp_path: Path) -> None:
+    admins = _two_admins(tmp_path)
 
     listed_for_a = admins.as_a.get("/").text
     listed_for_b = admins.as_b.get("/").text
@@ -242,50 +256,67 @@ def test_an_admin_with_no_deck_gets_an_empty_list_that_names_no_address() -> Non
     assert _B_SOURCE_URL not in home
 
 
-def test_a_member_without_the_admin_role_has_no_deck_of_another_account() -> None:
-    lobby = a_lobby(given=GivenDecks(store=_store_of_built_decks()))
-    lobby.sign_in(username="walter")
+_WALTER: Final = User(id="id-of-walter", username="walter", role=Role.USER)
+_AT_THE_LOBBY_OR_THE_TALK_HOST: Final = [
+    (A_BROWSERS_ADDRESS, ""),
+    (A_TALK_ADDRESS, "/presenter/"),
+    (A_BROWSERS_ADDRESS, "/pdf"),
+]
 
-    assert "Title of" not in lobby.client.get("/").text
-    for tail in ("", "/presenter/", "/pdf"):
+
+def test_a_member_without_the_admin_role_has_no_deck_of_another_account(
+    tmp_path: Path,
+) -> None:
+    hosts = two_hosts(tmp_path, given=GivenDecks(store=_store_of_built_decks()))
+
+    assert (
+        "Title of" not in hosts.signed_in_at(A_BROWSERS_ADDRESS, _WALTER).get("/").text
+    )
+    for origin, tail in _AT_THE_LOBBY_OR_THE_TALK_HOST:
+        member = hosts.signed_in_at(origin, _WALTER)
         _alike(
-            lobby.client.get(f"/deck/b-deck{tail}"),
-            lobby.client.get(f"/deck/{_THE_UNKNOWN}{tail}"),
+            member.get(f"/deck/b-deck{tail}"),
+            member.get(f"/deck/{_THE_UNKNOWN}{tail}"),
         )
 
 
-def test_the_owner_without_the_admin_role_has_the_own_deck_but_no_sources() -> None:
+def test_the_owner_without_the_admin_role_has_the_own_deck_but_no_sources(
+    tmp_path: Path,
+) -> None:
     store = _store_of_built_decks()
-    store.put(replace(store.kept["a-deck"], owner_id="id-of-walter"))
-    lobby = a_lobby(given=GivenDecks(store=store))
-    lobby.sign_in(username="walter")
-    client = lobby.client
+    store.put(replace(store.kept["a-deck"], owner_id=_WALTER.id))
+    hosts = two_hosts(tmp_path, given=GivenDecks(store=store))
+    client = hosts.signed_in_at(A_BROWSERS_ADDRESS, _WALTER)
 
     assert "Title of a-deck" in client.get("/").text
-    for tail in ("", "/presenter/", "/pdf"):
-        assert client.get(f"/deck/a-deck{tail}").status_code == HTTPStatus.OK
+    for origin, tail in _AT_THE_LOBBY_OR_THE_TALK_HOST:
+        member = hosts.signed_in_at(origin, _WALTER)
+        assert member.get(f"/deck/a-deck{tail}").status_code == HTTPStatus.OK
     assert client.get(SOURCES).status_code == HTTPStatus.FORBIDDEN
 
 
-def test_a_deck_of_a_removed_source_answers_like_an_unknown_slug_for_its_owner() -> (
-    None
-):
-    admins = _two_admins()
+def test_a_deck_of_a_removed_source_answers_like_an_unknown_slug_for_its_owner(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path)
     own_source = a_configured_source(_A_SOURCE_URL)
 
     removed = confirm_removal(admins.as_a, own_source.name)
 
     assert removed.status_code == HTTPStatus.SEE_OTHER
-    for client in (admins.as_a, admins.as_b):
+    for talk_host in (admins.talk_as_a, admins.talk_as_b):
         _alike(
-            client.get("/deck/a-deck/presenter/"),
-            client.get(f"/deck/{_THE_UNKNOWN}/presenter/"),
+            talk_host.get("/deck/a-deck/presenter/"),
+            talk_host.get(f"/deck/{_THE_UNKNOWN}/presenter/"),
         )
+    for client in (admins.as_a, admins.as_b):
         _alike(client.get("/deck/a-deck"), client.get(f"/deck/{_THE_UNKNOWN}"))
 
 
-def test_an_admin_opens_the_source_of_another_without_its_deck_chips() -> None:
-    admins = _two_admins()
+def test_an_admin_opens_the_source_of_another_without_its_deck_chips(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path)
 
     page = admins.as_a.get(f"{SOURCES}/b-talks")
 
@@ -294,8 +325,10 @@ def test_an_admin_opens_the_source_of_another_without_its_deck_chips() -> None:
     assert "b-deck" not in page.text
 
 
-def test_a_refused_renewal_of_anothers_source_shows_no_deck_chips() -> None:
-    admins = _two_admins()
+def test_a_refused_renewal_of_anothers_source_shows_no_deck_chips(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path)
 
     refused = admins.as_a.post(ACCESS.format(name="b-talks"), data={"secret": "  "})
 
@@ -303,8 +336,10 @@ def test_a_refused_renewal_of_anothers_source_shows_no_deck_chips() -> None:
     assert "b-deck" not in refused.text
 
 
-def test_a_refused_removal_of_anothers_source_shows_no_deck_chips() -> None:
-    admins = _two_admins(stuck_mirror=True)
+def test_a_refused_removal_of_anothers_source_shows_no_deck_chips(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path, stuck_mirror=True)
 
     refused = confirm_removal(admins.as_a, "b-talks")
 
@@ -312,8 +347,10 @@ def test_a_refused_removal_of_anothers_source_shows_no_deck_chips() -> None:
     assert "b-deck" not in refused.text
 
 
-def test_the_removal_of_anothers_source_asks_with_its_deck_count_but_no_title() -> None:
-    admins = _two_admins()
+def test_the_removal_of_anothers_source_asks_with_its_deck_count_but_no_title(
+    tmp_path: Path,
+) -> None:
+    admins = _two_admins(tmp_path)
 
     asked = ask_removal(admins.as_a, "b-talks")
 
