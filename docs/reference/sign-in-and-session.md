@@ -97,8 +97,8 @@ signed `SameSite=Lax` session cookie.
   and connections (the lobby admits no inline style; the talk host does,
   because a built Slidev talk inlines its styles), and a `Permissions-Policy`
   granting `microphone=(self)` on the talk host for the co-presenter deck and
-  nothing else; the lobby sends `microphone=()`. `Strict-Transport-Security` follows the always-on `Secure`
-  cookie setting, so it is always sent.
+  nothing else; the lobby sends `microphone=()`. `Strict-Transport-Security`
+  follows the always-on `Secure` cookie setting, so it is always sent.
 
 ## Legal links
 

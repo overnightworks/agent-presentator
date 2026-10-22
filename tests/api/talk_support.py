@@ -183,6 +183,29 @@ def _relying_party_at(
     )
 
 
+def _both_auths(
+    database: Path,
+    issuer: FakeIssuer,
+    clock: FrozenClock,
+    admission: AdmissionConfig | None,
+) -> tuple[InstalledAuth, InstalledAuth]:
+    """The lobby's and the talk host's sign-in wiring over one issuer."""
+    lobby_auth = an_installed_auth(
+        clock,
+        relying_party=_relying_party_at(issuer, clock, A_BROWSERS_ADDRESS),
+        accounts=SqliteSubjectUserStore(database, ProcessWriteLock()),
+    )
+    if admission is not None:
+        lobby_auth = replace(lobby_auth, admission=admission)
+    talk_auth = replace(
+        lobby_auth,
+        config=a_talk_web_auth(clock),
+        relying_party=_relying_party_at(issuer, clock, A_TALK_ADDRESS),
+        content_security_policy=talk_content_security_policy(),
+    )
+    return lobby_auth, talk_auth
+
+
 def two_hosts(
     tmp_path: Path,
     *,
@@ -209,20 +232,8 @@ def two_hosts(
     )
     sessions = SqliteSessionRecordStore(database)
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
-    lobby_auth = an_installed_auth(
-        clock,
-        relying_party=_relying_party_at(issuer, clock, A_BROWSERS_ADDRESS),
-        accounts=SqliteSubjectUserStore(database, ProcessWriteLock()),
-    )
-    if admission is not None:
-        lobby_auth = replace(lobby_auth, admission=admission)
-    talk_config = a_talk_web_auth(clock)
-    talk_auth = replace(
-        lobby_auth,
-        config=talk_config,
-        relying_party=_relying_party_at(issuer, clock, A_TALK_ADDRESS),
-        content_security_policy=talk_content_security_policy(),
-    )
+    lobby_auth, talk_auth = _both_auths(database, issuer, clock, admission)
+    talk_config = talk_auth.config
     lobby, _ = a_lobby_app(
         people=people,
         signing_in=SigningIn(sessions=sessions, auth=lobby_auth, decks=decks),
