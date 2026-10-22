@@ -25,7 +25,6 @@ from tests.api.lobby import (
     a_lobby,
     a_signed_in_lobby,
     a_swapped_build,
-    real_builds_under,
 )
 from tests.api.talk_support import two_hosts
 from tests.application.fakes import FakeDeckStore
@@ -44,7 +43,7 @@ _PRESENTER: Final = f"/deck/{_SLUG}/presenter/"
 _PDF: Final = f"/deck/{_SLUG}/pdf"
 _PDF_TYPE: Final = "application/pdf"
 _SAVED_AS: Final = f'attachment; filename="{_SLUG}.pdf"'
-_ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
+ONLY_THIS_TEST_WROTE_IT: Final = "the secret beside the build directory"
 _BUILT_AGO: Final = timedelta(minutes=12)
 _HOW_LONG_AGO: Final = "12 minutes ago"
 _ATTEMPT_COMMIT: Final = "e91c5ad4f3b2a1908877665544332211aabbccdd"
@@ -176,7 +175,7 @@ def a_build_next_to_a_secret(tmp_path: Path) -> Path:
     """A build directory with something worth stealing outside and beside it."""
     outside = tmp_path / "outside"
     outside.mkdir()
-    (outside / "secret.txt").write_text(_ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
+    (outside / "secret.txt").write_text(ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
     build = tmp_path / "build"
     build.mkdir()
     (build / "index.html").write_text("<h1>a talk</h1>", encoding="utf-8")
@@ -505,69 +504,12 @@ def test_a_deck_address_answers_the_login_to_anyone_who_is_not_signed_in(
     assert _TITLE not in refused.text
 
 
-@pytest.mark.parametrize(
-    "crafted",
-    [
-        "/deck/hello-deck/%2e%2e/outside/secret.txt",
-        "/deck/hello-deck/..%2foutside%2fsecret.txt",
-        "/deck/hello-deck/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
-        "/deck/hello-deck/out/secret.txt",
-    ],
-    ids=["encoded dots", "encoded separator", "out of the tree", "symlink"],
-)
-def test_a_path_that_would_leave_the_build_directory_is_refused(
-    tmp_path: Path,
-    crafted: str,
-) -> None:
-    signed_in = a_talk_host(
-        tmp_path,
-        GivenDecks(
-            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
-            source=a_configured_source(_ADDRESS),
-        ),
-    )
-
-    refused = signed_in.get(crafted)
-
-    assert refused.status_code == HTTPStatus.NOT_FOUND
-    assert _ONLY_THIS_TEST_WROTE_IT not in refused.text
-
-
-def test_the_talk_itself_is_still_served_from_inside_that_directory(
-    tmp_path: Path,
-) -> None:
-    signed_in = a_talk_host(
-        tmp_path,
-        GivenDecks(
-            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
-            source=a_configured_source(_ADDRESS),
-        ),
-    )
-
-    assert "a talk" in signed_in.get(_PROJECTOR).text
-
-
-def test_a_nonsense_address_under_a_built_talk_is_the_application(
-    talk_host: TestClient,
-) -> None:
-    application = (_BUILT_TALK / "index.html").read_bytes()
-    nonsense = talk_host.get(f"{_PROJECTOR}this-slide-was-never-written")
-
-    assert nonsense.status_code == HTTPStatus.OK
-    assert nonsense.content == application
-    assert ENGLISH.deck_unknown_title not in nonsense.text
-
-
-def test_a_talk_refuses_a_method_that_is_not_a_read(talk_host: TestClient) -> None:
-    assert talk_host.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
-
-
 def a_secret_a_link_may_point_at(tmp_path: Path) -> Path:
     """A directory holding the secret under every name a build file has."""
     secret = tmp_path / "secret"
     secret.mkdir()
     for name in ("deck.pdf", "app.js", "index.html"):
-        (secret / name).write_text(_ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
+        (secret / name).write_text(ONLY_THIS_TEST_WROTE_IT, encoding="utf-8")
     return secret
 
 
@@ -601,7 +543,7 @@ def test_a_link_laid_after_the_build_was_adopted_delivers_no_byte_of_its_target(
 
     refused = signed_in.get(address)
 
-    assert _ONLY_THIS_TEST_WROTE_IT not in refused.text
+    assert ONLY_THIS_TEST_WROTE_IT not in refused.text
     assert refused.headers["content-type"] != _PDF_TYPE
     if replaced.startswith("talk/assets"):
         assert refused.status_code == HTTPStatus.NOT_FOUND
@@ -620,56 +562,6 @@ def test_a_pdf_replaced_by_a_link_answers_as_if_it_were_missing(
 
     assert refused.status_code == HTTPStatus.NOT_FOUND
     assert ENGLISH.deck_unknown_title in refused.text
-
-
-@pytest.mark.parametrize(
-    "address",
-    [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}a-route-the-build-did-not-write"],
-    ids=["projector", "presenter", "a missing route"],
-)
-def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
-    tmp_path: Path,
-    address: str,
-) -> None:
-    marker = "outside the built talk"
-    outside = tmp_path / "outside.html"
-    outside.write_text(marker, encoding="utf-8")
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    (talk / "index.html").symlink_to(outside)
-    signed_in = a_talk_host(
-        tmp_path,
-        GivenDecks(
-            store=a_deck_store(built=a_build(talk=talk)),
-            source=a_configured_source(_ADDRESS),
-            builder=real_builds_under(tmp_path),
-        ),
-    )
-
-    refused = signed_in.get(address)
-
-    assert refused.status_code == HTTPStatus.NOT_FOUND
-    assert marker not in refused.text
-
-
-def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
-    tmp_path: Path,
-) -> None:
-    talk = tmp_path / "talk"
-    talk.mkdir()
-    (talk / "notes.txt").write_text("not an application", encoding="utf-8")
-    signed_in = a_talk_host(
-        tmp_path,
-        GivenDecks(
-            store=a_deck_store(built=a_build(talk=talk)),
-            source=a_configured_source(_ADDRESS),
-        ),
-    )
-
-    missing = signed_in.get(_PRESENTER)
-
-    assert missing.status_code == HTTPStatus.NOT_FOUND
-    assert "not an application" not in missing.text
 
 
 def test_an_address_no_deck_carries_answers_the_lobbys_own_page(

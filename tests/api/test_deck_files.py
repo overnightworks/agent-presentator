@@ -8,11 +8,29 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.api.lobby import A_BROWSERS_ADDRESS, A_TALK_ADDRESS, a_swapped_build
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
+    ENGLISH,
+    GivenDecks,
+    a_configured_source,
+    a_swapped_build,
+    real_builds_under,
+)
 from tests.api.talk_support import two_hosts
+from tests.api.test_deck_page import (
+    ONLY_THIS_TEST_WROTE_IT,
+    a_build,
+    a_build_next_to_a_secret,
+    a_deck_store,
+    a_talk_host,
+)
 
 _SLUG: Final = "hello-deck"
 _PROJECTOR: Final = f"/deck/{_SLUG}/"
+_PRESENTER: Final = f"/deck/{_SLUG}/presenter/"
+_ADDRESS: Final = "git@heimserver:decks.git"
+_BUILT_TALK: Final = Path(__file__).parent / "built_talk"
 
 
 def _talk_host_on_a_built_deck(tmp_path: Path) -> tuple[TestClient, Path]:
@@ -96,3 +114,120 @@ def test_a_head_request_to_an_asset_answers_its_headers_without_its_body(
     assert head.headers["content-length"] == full.headers["content-length"]
     assert head.headers["content-type"] == full.headers["content-type"]
     assert head.content == b""
+
+
+def _a_built_deck() -> GivenDecks:
+    return GivenDecks(
+        store=a_deck_store(built=a_build()),
+        source=a_configured_source(_ADDRESS),
+    )
+
+
+@pytest.mark.parametrize(
+    "crafted",
+    [
+        "/deck/hello-deck/%2e%2e/outside/secret.txt",
+        "/deck/hello-deck/..%2foutside%2fsecret.txt",
+        "/deck/hello-deck/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+        "/deck/hello-deck/out/secret.txt",
+    ],
+    ids=["encoded dots", "encoded separator", "out of the tree", "symlink"],
+)
+def test_a_path_that_would_leave_the_build_directory_is_refused(
+    tmp_path: Path,
+    crafted: str,
+) -> None:
+    signed_in = a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    refused = signed_in.get(crafted)
+
+    assert refused.status_code == HTTPStatus.NOT_FOUND
+    assert ONLY_THIS_TEST_WROTE_IT not in refused.text
+
+
+def test_the_talk_itself_is_still_served_from_inside_that_directory(
+    tmp_path: Path,
+) -> None:
+    signed_in = a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=a_build_next_to_a_secret(tmp_path))),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    assert "a talk" in signed_in.get(_PROJECTOR).text
+
+
+def test_a_nonsense_address_under_a_built_talk_is_the_application(
+    tmp_path: Path,
+) -> None:
+    talk_host = a_talk_host(tmp_path, _a_built_deck())
+    application = (_BUILT_TALK / "index.html").read_bytes()
+    nonsense = talk_host.get(f"{_PROJECTOR}this-slide-was-never-written")
+
+    assert nonsense.status_code == HTTPStatus.OK
+    assert nonsense.content == application
+    assert ENGLISH.deck_unknown_title not in nonsense.text
+
+
+def test_a_talk_refuses_a_method_that_is_not_a_read(tmp_path: Path) -> None:
+    talk_host = a_talk_host(tmp_path, _a_built_deck())
+
+    assert talk_host.put(_PRESENTER).status_code == HTTPStatus.METHOD_NOT_ALLOWED
+
+
+@pytest.mark.parametrize(
+    "address",
+    [_PROJECTOR, _PRESENTER, f"{_PROJECTOR}a-route-the-build-did-not-write"],
+    ids=["projector", "presenter", "a missing route"],
+)
+def test_a_talk_with_an_application_link_outside_its_build_answers_nothing(
+    tmp_path: Path,
+    address: str,
+) -> None:
+    marker = "outside the built talk"
+    outside = tmp_path / "outside.html"
+    outside.write_text(marker, encoding="utf-8")
+    talk = tmp_path / "talk"
+    talk.mkdir()
+    (talk / "index.html").symlink_to(outside)
+    signed_in = a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk)),
+            source=a_configured_source(_ADDRESS),
+            builder=real_builds_under(tmp_path),
+        ),
+    )
+
+    refused = signed_in.get(address)
+
+    assert refused.status_code == HTTPStatus.NOT_FOUND
+    assert marker not in refused.text
+
+
+def test_a_missing_path_under_a_talk_with_no_application_answers_nothing(
+    tmp_path: Path,
+) -> None:
+    talk = tmp_path / "talk"
+    talk.mkdir()
+    (talk / "notes.txt").write_text("not an application", encoding="utf-8")
+    signed_in = a_talk_host(
+        tmp_path,
+        GivenDecks(
+            store=a_deck_store(built=a_build(talk=talk)),
+            source=a_configured_source(_ADDRESS),
+        ),
+    )
+
+    missing = signed_in.get(_PRESENTER)
+
+    assert missing.status_code == HTTPStatus.NOT_FOUND
+    assert "not an application" not in missing.text
