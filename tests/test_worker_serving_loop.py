@@ -17,6 +17,7 @@ from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd
 from presentator.host.worker_termination import SWEEP_SECONDS, SweepEffects, sweep
 from presentator.host.worker_wire import WireExit
 from tests.step_support import ADMITTING_PATH, STEP_LEG
+from tests.test_worker import sealed_snapshot, with_fields
 from tests.worker_support import (
     ACCEPT_TIME,
     CHILD_LEG,
@@ -764,3 +765,11 @@ def test_a_gate_mismatch_is_a_gate_end_whatever_the_clock_says(volume: Path) -> 
 
     assert outcome == LifeEnd.GATE
     assert "release" not in life.events
+
+
+def test_the_locale_key_python_sets_itself_passes_the_environment_predicate() -> None:
+    snapshot = with_fields(environment_keys=frozenset({"PATH", "LC_CTYPE"}))(
+        sealed_snapshot()
+    )
+
+    assert worker.first_failing_predicate(snapshot) is None
