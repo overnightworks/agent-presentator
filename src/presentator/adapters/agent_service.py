@@ -77,7 +77,8 @@ async def _bearer_token(source: TokenSource) -> str:
     try:
         token = await source()
     except (asyncio.CancelledError, KeyboardInterrupt, SystemExit) as error:
-        raise_without_chain(error)
+        error.__cause__ = error.__context__ = None
+        raise
     except BaseException as error:  # noqa: BLE001 - the boundary sanitises every other supplier failure; gather routes measured worse
         _fail(f"token source raised {type(error).__name__}")
     if _BEARER_TOKEN.fullmatch(token) is None:
