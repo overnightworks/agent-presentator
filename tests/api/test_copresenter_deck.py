@@ -1,4 +1,4 @@
-"""The co-presenter answers only about a built deck its asker owns."""
+"""E11 (#355): the co-presenter answers only about a built deck its asker owns."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
+from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
 
 from presentator.application.copresenter import AskLimiter, AskLimits
 from presentator.contracts.models import Role
@@ -66,6 +67,7 @@ def the_answer_to_a_deck_that_does_not_exist() -> tuple[bytes, dict[str, str]]:
 
 
 def test_the_owner_asks_about_their_own_built_deck() -> None:
+    """E11 (#355) matrix, deck: the owner's own built deck is answered."""
     lobby, private = an_instance()
 
     answer = ask(lobby.client)
@@ -91,6 +93,7 @@ def test_the_owner_asks_about_their_own_built_deck() -> None:
 def test_a_refused_deck_gets_one_answer_and_spends_no_question(
     others: tuple[Deck, ...], removed: tuple[str, ...], slug: str
 ) -> None:
+    """E11 (#355) matrix, deck: every unusable deck gets one 404, no port, no budget."""
     lobby, private = an_instance(*others, removed=removed)
 
     refused = ask_about(lobby, slug)
@@ -104,11 +107,13 @@ def test_a_refused_deck_gets_one_answer_and_spends_no_question(
 
 
 def test_a_question_without_a_deck_gets_the_same_refusal() -> None:
+    """E11 (#355) matrix, deck: a missing deck field gets the one 404."""
     lobby, private = an_instance()
     without_deck = {key: value for key, value in QUESTION.items() if key != "deck"}
 
     refused = ask(lobby.client, without_deck)
 
+    assert refused.status_code == HTTPStatus.NOT_FOUND
     assert (refused.content, dict(refused.headers)) == (
         the_answer_to_a_deck_that_does_not_exist()
     )
@@ -117,21 +122,48 @@ def test_a_question_without_a_deck_gets_the_same_refusal() -> None:
 
 
 def test_a_name_over_the_length_bound_is_rejected_before_any_lookup() -> None:
+    """E11 (#355) matrix, deck: a name over 255 is 422 and spends no question."""
     lobby, private = an_instance()
 
     refused = ask_about(lobby, "x" * 256)
 
     assert refused.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     assert private.questions == []
+    assert ask(lobby.client).status_code == HTTPStatus.OK
 
 
 def test_an_owner_who_lost_the_admin_role_is_refused() -> None:
+    """E11 (#355) matrix, asker: #400 [Admin-Rolle verloren], 403, no budget."""
     users = FakeUserStore()
-    lobby, private, _clock = a_copresenter_lobby(users=users)
+    lobby, private, _clock = a_copresenter_lobby(
+        users=users,
+        limiter=AskLimiter(clock=FrozenClock(instant=NOW), limits=ONE_QUESTION_ONLY),
+    )
     lobby.sign_in(role=Role.ADMIN)
     users.users[ADMIN] = replace(users.users[ADMIN], role=Role.USER)
 
     refused = ask(lobby.client)
+    users.users[ADMIN] = replace(users.users[ADMIN], role=Role.ADMIN)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert private.questions == []
+    assert ask(lobby.client).status_code == HTTPStatus.OK
+    assert len(private.questions) == 1
+
+
+def test_a_signed_out_asker_is_refused_and_spends_no_question() -> None:
+    """E11 (#355) matrix, asker: signed out is refused 403, no port, no budget."""
+    lobby, private, _clock = a_copresenter_lobby(
+        limiter=AskLimiter(clock=FrozenClock(instant=NOW), limits=ONE_QUESTION_ONLY),
+    )
+
+    lobby.sign_in(role=Role.ADMIN)
+    session = lobby.client.cookies[DEFAULT_SESSION_COOKIE_NAME]
+    lobby.client.cookies.delete(DEFAULT_SESSION_COOKIE_NAME)
+
+    refused = ask(lobby.client)
+    lobby.client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, session)
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert private.questions == []
+    assert ask(lobby.client).status_code == HTTPStatus.OK
