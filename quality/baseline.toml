@@ -71,7 +71,7 @@
 "Decks.add_source" = 81
 
 [function_lines."src/presentator/host/main.py"]
-"build_instance" = 81
+"build_instance" = 86
 
 [function_lines."tests/adapters/test_decks.py"]
 "test_renewing_an_ssh_deploy_key_replaces_only_that_sources_encrypted_pair" = 67
