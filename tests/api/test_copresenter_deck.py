@@ -100,9 +100,9 @@ def test_a_refused_deck_gets_one_answer_and_spends_no_question(
     refused = ask_about(lobby, slug)
 
     assert refused.status_code == HTTPStatus.NOT_FOUND
-    assert (refused.content, dict(refused.headers)) == (
-        the_answer_to_a_deck_that_does_not_exist()
-    )
+    ghost_content, ghost_headers = the_answer_to_a_deck_that_does_not_exist()
+    assert refused.content == ghost_content
+    assert dict(refused.headers) == ghost_headers
     assert private.questions == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
 
@@ -115,9 +115,9 @@ def test_a_question_without_a_deck_gets_the_same_refusal() -> None:
     refused = ask(lobby.client, without_deck)
 
     assert refused.status_code == HTTPStatus.NOT_FOUND
-    assert (refused.content, dict(refused.headers)) == (
-        the_answer_to_a_deck_that_does_not_exist()
-    )
+    ghost_content, ghost_headers = the_answer_to_a_deck_that_does_not_exist()
+    assert refused.content == ghost_content
+    assert dict(refused.headers) == ghost_headers
     assert private.questions == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
 
