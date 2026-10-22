@@ -362,14 +362,13 @@ def test_a_refused_talk_sign_in_goes_to_the_lobbys_refusal_route_with_no_session
     assert hosts.session_count() == 0
 
 
-@pytest.mark.parametrize(("reason", "state"), _REFUSALS)
+@pytest.mark.parametrize("reason", [reason for reason, _state in _REFUSALS])
 def test_a_refused_talk_sign_in_clears_the_talk_hosts_pending_login(
-    tmp_path: Path, reason: str, state: str
+    tmp_path: Path, reason: str
 ) -> None:
     _hosts, _browser, answer = _refused(tmp_path, reason)
 
     pending = [c for c in answer.headers.get_list("set-cookie") if "oidc_pending" in c]
-    assert state
     assert len(pending) == 1
     assert "max-age=0" in pending[0].lower()
 
