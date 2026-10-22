@@ -42,7 +42,6 @@ from presentator.adapters.decks import (
     SourceCredentials,
     SourceMirrors,
     SqliteDeckStore,
-    SqliteSourceKeyDrafts,
     SqliteSourceRunStore,
     SqliteSourceStore,
     create_deck_tables,
@@ -56,6 +55,7 @@ from presentator.adapters.identity import (
     TokenIdentifierFactory,
     create_identity_tables,
 )
+from presentator.adapters.key_drafts import SqliteSourceKeyDrafts
 from presentator.adapters.preferences import (
     SqliteInstanceSettingsStore,
     SqlitePersonPreferencesStore,
