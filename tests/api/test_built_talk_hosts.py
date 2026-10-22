@@ -2,17 +2,15 @@
 
 import re
 from http import HTTPStatus
+from pathlib import Path
 from typing import Final
 
 import pytest
 
 from presentator.api.talk import talk_content_security_policy
 from presentator.contracts.decks import talk_address
-from tests.api.lobby import (
-    A_BUILT_DECK_SLUG,
-    a_content_security_policy,
-    a_signed_in_lobby_with_a_built_deck,
-)
+from tests.api.lobby import A_TALK_ADDRESS, a_content_security_policy
+from tests.api.talk_support import A_DECK, two_hosts
 
 # Outside `form-action`, a source names no host when it is 'self', 'none',
 # 'unsafe-inline', a hash or nonce, or the data: or blob: scheme; every other
@@ -71,10 +69,12 @@ def test_the_talk_hosts_policy_admits_no_host_at_all() -> None:
 
 
 @pytest.mark.parametrize("page_name", ["", "404.html"])
-def test_a_built_talk_page_points_only_at_its_own_origin(page_name: str) -> None:
-    lobby = a_signed_in_lobby_with_a_built_deck()
+def test_a_built_talk_page_points_only_at_its_own_origin(
+    page_name: str, tmp_path: Path
+) -> None:
+    talk_host = two_hosts(tmp_path).signed_in_at(A_TALK_ADDRESS)
 
-    page = lobby.get(talk_address(A_BUILT_DECK_SLUG) + page_name)
+    page = talk_host.get(talk_address(A_DECK) + page_name)
 
     assert page.status_code == HTTPStatus.OK
     foreign_addresses = [
