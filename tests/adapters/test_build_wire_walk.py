@@ -20,6 +20,7 @@ from tests import worker_support as support
 
 BUILT = support.OUTCOME_BUILT
 MEGABYTES = 1
+type OpenablePath = str | bytes | os.PathLike[str] | os.PathLike[bytes]
 
 AS_ROOT = pytest.mark.skipif(
     os.geteuid() == 0, reason="root ignores file modes, so a 0000 mode refuses nothing"
@@ -161,10 +162,10 @@ def test_a_fifo_is_refused_without_ever_being_opened(
 ) -> None:
     """Cell W1 (29): the entry's type is judged before any open."""
     a_fifo(build_talk(output))
-    opened: list[str | bytes] = []
+    opened: list[OpenablePath] = []
     open_entry = os.open
 
-    def recording_open(path: object, *arguments: int, **keywords: int) -> int:
+    def recording_open(path: OpenablePath, *arguments: int, **keywords: int) -> int:
         opened.append(path)
         return open_entry(path, *arguments, **keywords)  # type: ignore[call-overload]
 
@@ -345,6 +346,7 @@ def test_an_export_sends_its_pdf_and_nothing_else(output: Path) -> None:
 def test_a_lookup_failing_for_any_other_reason_is_not_judged_as_shape(
     output: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Decision 1: any other OSError passes through, with no OUTCOME sent."""
     (build_talk(output) / "index.html").write_text("x")
 
     def failing_stat(*_arguments: object, **_options: object) -> os.stat_result:
@@ -359,6 +361,7 @@ def test_a_lookup_failing_for_any_other_reason_is_not_judged_as_shape(
 def test_a_file_that_ends_before_its_surveyed_size_aborts_the_reply(
     output: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Decision 1: a short read raises, and the reply ends without END."""
     (build_talk(output) / "index.html").write_text("x")
 
     def reading_nothing(_descriptor: int, _length: int) -> bytes:
