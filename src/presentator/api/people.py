@@ -81,15 +81,18 @@ def _answer(
             )
 
 
+def _tallied(kinds: tuple[KindCount, ...]) -> str:
+    return ", ".join(f"{one.kind.value}={one.count}" for one in kinds) or "nothing"
+
+
 def _audited(outcome: PersonErasure, *, dry_run: bool) -> None:
     """One line per call: what was asked, how it ended, how many; nobody named."""
     operation = "dry run" if dry_run else "erase"
     match outcome:
         case PersonErased(kinds=kinds):
-            counted = ", ".join(f"{one.kind.value}={one.count}" for one in kinds)
-            _log.info("person %s: erased %s", operation, counted or "nothing")
-        case PersonBusy():
-            _log.info("person %s: busy", operation)
+            _log.info("person %s: erased %s", operation, _tallied(kinds))
+        case PersonBusy(running=running):
+            _log.info("person %s: busy with %s", operation, _tallied(running))
         case PersonDiskLeftover():
             _log.info("person %s: disk leftover", operation)
 
@@ -105,7 +108,8 @@ def people_routes(*, admin: AdminPeople, app: str) -> APIRouter:
     def erase_person(
         subject: str,
         caller: Annotated[BearerCaller, Depends(bearer_caller)],
-        dry_run: bool = False,  # noqa: FBT001, FBT002
+        *,
+        dry_run: bool = False,
     ) -> Response:
         del caller
         outcome = people.erase_person(subject, dry_run=dry_run)
