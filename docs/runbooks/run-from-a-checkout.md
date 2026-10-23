@@ -38,7 +38,7 @@ uv run presentator
 ```
 
 The co-presenter cannot answer from a checkout: the agent service sits on the
-`hal_agent` network, which has no host address and publishes no port, so every
+`hal_agent_presentator` network, which has no host address and publishes no port, so every
 ask ends in an `error` event.
 
 ## Check

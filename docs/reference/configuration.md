@@ -14,7 +14,7 @@ output.
 | `PRESENTATOR_SECRET_KEY` | At least 32 bytes. `webauth` signs the lobby's session cookie with it, signs the talk host's through a derivation of its own, and, through another, encrypts what a source's row holds ([ADR 0013](../decisions/0013-secrets-at-rest-and-credential-delivery.md)). Without it the process refuses to start. |
 | `PRESENTATOR_PUBLIC_ORIGIN` | The one canonical https origin. An `http://` origin refuses the start, because a browser does not send a `Secure` cookie back over plain http. |
 | `PRESENTATOR_TALK_ORIGIN` | The talk host's canonical https origin, on another hostname than `PRESENTATOR_PUBLIC_ORIGIN`; talks are served and signed in there ([ADR 0016](../decisions/0016-a-talk-host-signs-in-by-itself.md)). |
-| `PRESENTATOR_AGENT_SERVICE` | Where the agent service answers the co-presenter: one canonical `http` or `https` origin, without credentials or a path. Compose sets `http://agent-service:8080`, the name it has on the `hal_agent` network. |
+| `PRESENTATOR_AGENT_SERVICE` | Where the agent service answers the co-presenter: one canonical `http` or `https` origin, without credentials or a path. Compose sets `http://agent-service:8080`, the name it has on the `hal_agent_presentator` network. |
 | `PRESENTATOR_SPEECH_SOCKET` | Absolute private Unix socket path of the speech service. |
 | `PRESENTATOR_OIDC_ISSUER` | The https URL of the Keycloak realm, without a trailing slash; exactly the `issuer` of its discovery document. |
 | `PRESENTATOR_OIDC_CLIENT_ID` | The Keycloak client id. |

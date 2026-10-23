@@ -135,7 +135,7 @@ networks:
           gateway: 172.31.255.1
   agent:
     external: true
-    name: hal_agent
+    name: hal_agent_presentator
 
 volumes:
   database:

@@ -31,7 +31,7 @@ Reader: the operator of this machine's deployment.
    - `SPEECH_SOCKET_DIRECTORY`: the private directory of the speech service's
      socket, which you own.
 
-   The `hal_agent` network must exist: the edge creates it, and the instance
+   The `hal_agent_presentator` network must exist: the edge creates it, and the instance
    joins it to reach the agent service. The instance also needs the sign-in settings
    ([settings](../reference/configuration.md)) and, in this deployment:
 

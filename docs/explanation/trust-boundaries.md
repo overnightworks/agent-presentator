@@ -36,7 +36,7 @@ own folder, not for a repository somebody else controls.
 
 The co-presenter's answer comes from the operator's agent service, which holds
 the Claude subscription and its card. The person's fresh access token and
-Presentator's own workload token cross to it over the `hal_agent` network, an
+Presentator's own workload token cross to it over the `hal_agent_presentator` network, an
 internal network with no host address and no published port, whose members the
 edge decides; the plain `http` hop is safe only because of that. The question
 and the asked deck's words cross with them, and the model gets no tools. The

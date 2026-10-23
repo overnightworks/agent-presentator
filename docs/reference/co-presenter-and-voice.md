@@ -10,7 +10,7 @@ the authority it shares is [trust boundaries](../explanation/trust-boundaries.md
 The agent service answers; the speech service speaks and hears.
 
 The agent service is the operator's own, reached at `PRESENTATOR_AGENT_SERVICE`
-over the `hal_agent` network. Presentator reads the asked deck's words at its
+over the `hal_agent_presentator` network. Presentator reads the asked deck's words at its
 built commit, sends them with the question as one message, with no tools, and
 streams the model's text back. Both the person's fresh access token and
 Presentator's own workload token go with every run. Presentator splits the text
