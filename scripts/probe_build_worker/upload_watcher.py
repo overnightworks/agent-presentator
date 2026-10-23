@@ -1,6 +1,7 @@
 """Record what a life creates in the sealed worker's writable mounts (as root).
 
-Usage: python -I upload_watcher.py WORKER_HOST_PID, with the driver holding stdin.
+Usage: python -I upload_watcher.py WORKER_HOST_PID SOCKET_DIRECTORY SOCKET_NAME, with
+the driver holding stdin.
 
 Reads the worker's mountinfo, classifies every writable mount, watches the
 watched ones with non-recursive inotify (creates and moves in) and prints one
@@ -26,14 +27,10 @@ IN_IGNORED = 0x8000
 IN_ONLYDIR = 0x01000000
 ENDED = IN_UNMOUNT | IN_IGNORED
 EVENT_HEADER = struct.Struct("iIII")
-BOUNDARY_ROOT = "/run/presentator-build"
-BOUNDARY_NAME = "worker.sock"
 BOUNDARY_SECONDS = 10
 READ_BYTES = 65536
 
-WATCHED = frozenset(
-    {"/work", "/tmp", "/dev/shm", BOUNDARY_ROOT, "/dev", "/dev/mqueue"}  # noqa: S108
-)
+WATCHED = frozenset({"/work", "/tmp", "/dev/shm", "/dev", "/dev/mqueue"})  # noqa: S108
 EXCLUDED_FILESYSTEMS = {
     "proc": "a kernel interface with no path create",
     "sysfs": "a kernel interface with no path create",
@@ -54,11 +51,11 @@ def writable_mounts(pid: str) -> dict[str, str]:
     return mounts
 
 
-def classify(pid: str, mounts: dict[str, str]) -> dict[str, str]:
+def classify(pid: str, mounts: dict[str, str], socket_directory: str) -> dict[str, str]:
     """Each writable mount as `watched` or `excluded: <reason>`; else `unclassified`."""
     table: dict[str, str] = {}
     for mount_point, filesystem in mounts.items():
-        if mount_point in WATCHED:
+        if mount_point in WATCHED or mount_point == socket_directory:
             table[mount_point] = "watched"
         elif filesystem in EXCLUDED_FILESYSTEMS:
             table[mount_point] = f"excluded: {EXCLUDED_FILESYSTEMS[filesystem]}"
@@ -117,7 +114,9 @@ def decode(data: bytes) -> list[tuple[int, int, str]]:
     return events
 
 
-def record(descriptor: int, roots: dict[int, str]) -> dict[str, object]:
+def record(
+    descriptor: int, roots: dict[int, str], boundary: tuple[str, str]
+) -> dict[str, object]:
     """Read until stdin is closed and the next life's socket create is read.
 
     Creates stop at that socket create; ends of a watch are read until stdin is
@@ -145,7 +144,7 @@ def record(descriptor: int, roots: dict[int, str]) -> dict[str, object]:
                     ended.add(root)
                 elif ended_at_boundary is not None:
                     continue
-                elif (root, name) == (BOUNDARY_ROOT, BOUNDARY_NAME):
+                elif (root, name) == boundary:
                     ended_at_boundary = sorted(ended)
                 elif mask & (IN_CREATE | IN_MOVED_TO):
                     created[root].append(name)
@@ -161,15 +160,16 @@ def record(descriptor: int, roots: dict[int, str]) -> dict[str, object]:
     }
 
 
-def main(pid: str) -> None:
+def main(pid: str, socket_directory: str, socket_name: str) -> None:
     """Arm, print the mount table, then record until the next life's socket."""
-    table = classify(pid, writable_mounts(pid))
+    table = classify(pid, writable_mounts(pid), socket_directory)
     directories = unclassified_directories(pid, table)
     descriptor, roots = arm(pid, table)
     sys.stdout.write(json.dumps({"mounts": table, "directories": directories}) + "\n")
     sys.stdout.flush()
-    sys.stdout.write(json.dumps(record(descriptor, roots)) + "\n")
+    report = record(descriptor, roots, (socket_directory, socket_name))
+    sys.stdout.write(json.dumps(report) + "\n")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:4])

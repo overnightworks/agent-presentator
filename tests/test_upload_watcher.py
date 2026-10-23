@@ -29,13 +29,15 @@ def test_a_watch_that_ends_after_the_boundary_is_read_until_the_stdin_close(
     )
     read_end, write_end = os.pipe()
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(fileno=lambda: read_end))
-    (tmp_path / watcher.BOUNDARY_NAME).touch()
+    (tmp_path / "worker.sock").touch()
     libc.inotify_rm_watch(descriptor, watch)
     os.close(write_end)
 
-    report = watcher.record(descriptor, {watch: watcher.BOUNDARY_ROOT})
+    report = watcher.record(
+        descriptor, {watch: "/run/boundary"}, ("/run/boundary", "worker.sock")
+    )
 
     os.close(read_end)
     os.close(descriptor)
     assert report["ended_at_boundary"] == []
-    assert report["ended_at_stdin_close"] == [watcher.BOUNDARY_ROOT]
+    assert report["ended_at_stdin_close"] == ["/run/boundary"]

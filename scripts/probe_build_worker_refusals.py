@@ -41,6 +41,7 @@ from presentator.contracts.decks import DECK_DIRECTORY, OUTPUT_DIRECTORY
 from presentator.host.worker import (
     HOME_DIRECTORY,
     SOCKET_DIRECTORY,
+    SOCKET_NAME,
     VITE_DIRECTORY,
     WORK_MOUNT,
 )
@@ -122,7 +123,10 @@ class RootWatcher:
     def __init__(self) -> None:
         """Start the watcher with `sudo -n` and read the line it prints when armed."""
         self.process = subprocess.Popen(
-            ("sudo", "-n", sys.executable, "-I", str(WATCHER), host_pid()),
+            (
+                "sudo", "-n", sys.executable, "-I", str(WATCHER), host_pid(),
+                SOCKET_DIRECTORY, SOCKET_NAME,
+            ),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
         )  # fmt: skip
         stdout = self.process.stdout
