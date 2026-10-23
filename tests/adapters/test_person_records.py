@@ -49,6 +49,7 @@ def test_deleting_an_account_takes_its_sessions_and_leaves_another_account(
             now=_NOW,
             expires_at=_NOW + timedelta(hours=1),
             refresh_token=None,
+            id_token=SecretStr("an-id-token"),
         )
 
     accounts.delete_account(_THE_PERSON.id)
@@ -81,6 +82,7 @@ def test_the_sessions_of_a_person_carry_their_times_and_no_secret(
         now=_NOW,
         expires_at=_NOW + timedelta(hours=1),
         refresh_token=SecretStr(_A_REFRESH_WORD),
+        id_token=SecretStr("an-id-token"),
     )
 
     found = sessions.sessions_of(_THE_PERSON.id)
@@ -102,10 +104,11 @@ def test_only_sessions_holding_a_refresh_token_are_counted_as_holding_one(
             now=_NOW,
             expires_at=_NOW + timedelta(hours=1),
             refresh_token=token,
+            id_token=SecretStr("an-id-token"),
         )
 
-    assert sessions.refresh_tokens_held(_THE_PERSON.id) == 1
-    assert sessions.refresh_tokens_held(_ANOTHER.id) == 0
+    assert sessions.secrets_held(_THE_PERSON.id).refresh_tokens == 1
+    assert sessions.secrets_held(_ANOTHER.id).refresh_tokens == 0
 
 
 def test_deleting_preferences_removes_only_that_persons_row(database: Path) -> None:
@@ -173,6 +176,7 @@ def test_deleting_an_account_cannot_split_a_sign_in_that_has_read_the_account(
             now=_NOW,
             expires_at=_NOW + timedelta(hours=1),
             refresh_token=None,
+            id_token=SecretStr("an-id-token"),
         )
     deletion.join(timeout=10)
 

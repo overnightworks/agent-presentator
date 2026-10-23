@@ -76,6 +76,7 @@ class People:
         owned = self._sources_of(subject)
         draft = self._draft_of(subject)
         sessions = self.sessions.sessions_of(subject)
+        tokens = self.sessions.secrets_held(subject)
         data = PersonData(
             account=self.accounts.get(subject),
             sessions=sessions,
@@ -90,10 +91,8 @@ class People:
                 PersonKind.KEY_DRAFT_PRIVATE_KEY,
                 self.key_drafts.count_for_owner(subject),
             ),
-            (
-                PersonKind.REFRESH_TOKEN,
-                self.sessions.refresh_tokens_held(subject),
-            ),
+            (PersonKind.REFRESH_TOKEN, tokens.refresh_tokens),
+            (PersonKind.ID_TOKEN, tokens.id_tokens),
         )
         return PersonExport(
             data=data,

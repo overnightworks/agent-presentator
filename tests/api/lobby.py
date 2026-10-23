@@ -85,7 +85,7 @@ from presentator.contracts.voice import (
 )
 from presentator.host.config import Settings
 from presentator.host.main import web_auth_config_for
-from presentator.host.oidc import admission_of, end_session_origin, oidc_client_config
+from presentator.host.oidc import admission_of, oidc_client_config
 from presentator.ports.decks import BuildRunner
 from tests.application.fakes import (
     A_REACHABLE_CHECK,
@@ -287,11 +287,8 @@ def a_settings() -> Settings:
 
 
 def a_content_security_policy() -> str:
-    """The policy of an instance at the test origin, signing out at the fake issuer."""
-    client = oidc_client_config(
-        a_settings(), SecretStr(A_CLIENT_CREDENTIAL), origin=A_BROWSERS_ADDRESS
-    )
-    return content_security_policy(end_session_origin(client))
+    """The policy every answer of an instance carries but the logout page."""
+    return content_security_policy()
 
 
 def a_relying_party(

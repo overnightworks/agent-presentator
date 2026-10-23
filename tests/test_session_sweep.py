@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+from pydantic import SecretStr
 
 from presentator.adapters.identity import SqliteSessionRecordStore
 from presentator.api.legal import DATENSCHUTZ
@@ -55,6 +56,7 @@ def test_the_sweep_reads_the_clock_on_every_run_and_not_once_at_the_start(
         now=clock.now(),
         expires_at=clock.now() + SESSION_LIFETIME,
         refresh_token=None,
+        id_token=SecretStr("an-id-token"),
     )
 
     asyncio.run(instance.session_sweep.tick())
@@ -101,6 +103,7 @@ def test_the_sweep_runs_while_the_server_serves(
                 now=clock.now() - SESSION_LIFETIME,
                 expires_at=clock.now() - timedelta(seconds=1),
                 refresh_token=None,
+                id_token=SecretStr("an-id-token"),
             )
             await asyncio.to_thread(deleted_a_session.wait, PATIENCE.total_seconds())
             swept.append(not stored_session_ids(database))

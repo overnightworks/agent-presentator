@@ -6,6 +6,7 @@ adapter satisfies which port.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -15,6 +16,7 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from starlette.routing import Host, Router
 from webauth.config import SessionLifetime, WebAuthConfig
+from webauth.oidc import OidcClientConfig, OidcRelyingParty
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
@@ -94,7 +96,6 @@ from presentator.host.config import (
 from presentator.host.oidc import (
     admission_of,
     client_configs_of,
-    end_session_origin,
     relying_party,
 )
 from presentator.host.polling import Schedule
@@ -118,6 +119,8 @@ _UNBOUNDED_BY_CHOICE = (
 
 _log = logging.getLogger(__name__)
 
+RelyingPartyFor = Callable[[OidcClientConfig], OidcRelyingParty]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Instance:
@@ -129,7 +132,10 @@ class Instance:
     session_sweep: Schedule
 
 
-def build_instance(settings: Settings) -> Instance:
+def build_instance(
+    settings: Settings,
+    relying_party_for: RelyingPartyFor = relying_party,
+) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
     try:
         create_tables(settings.database)
@@ -191,19 +197,13 @@ def build_instance(settings: Settings) -> Instance:
         clock=SystemClock(),
         local_mount=local_mount,
     )
-    sessions = SqliteSessionRecordStore(settings.database)
+    sessions = SqliteSessionRecordStore(settings.database, keeps_id_token=True)
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
-    lobby_auth, talk_auth = installed_auths(settings)
+    lobby_auth, talk_auth = installed_auths(settings, relying_party_for)
     return Instance(
-        lobby=create_lobby(
-            sessions=sessions,
-            decks=decks,
-            pages=_pages(settings),
-            auth=lobby_auth,
-            private=_lobby_private(settings, decks, sessions, key_drafts, lobby_auth),
-        ),
-        talk=_talk(settings, sessions, decks, talk_auth, mirrors),
+        lobby=_lobby(settings, decks, sessions, key_drafts, lobby_auth),
+        talk=_talk(settings, decks, talk_auth, mirrors),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
@@ -212,14 +212,34 @@ def build_instance(settings: Settings) -> Instance:
     )
 
 
+def _lobby(
+    settings: Settings,
+    decks: Decks,
+    sessions: SqliteSessionRecordStore,
+    key_drafts: SqliteSourceKeyDrafts,
+    auth: InstalledAuth,
+) -> FastAPI:
+    """The lobby host, with the pages and the private routes it serves."""
+    return create_lobby(
+        sessions=sessions,
+        decks=decks,
+        pages=_pages(settings),
+        auth=auth,
+        private=_lobby_private(settings, decks, sessions, key_drafts, auth),
+    )
+
+
 def _talk(
     settings: Settings,
-    sessions: SqliteSessionRecordStore,
     decks: Decks,
     auth: InstalledAuth,
     mirrors: SourceMirrors,
 ) -> FastAPI:
-    """The talk host, with the co-presenter it speaks to."""
+    """The talk host, with the co-presenter it speaks to.
+
+    Its own session store keeps no ID token: the talk host has no logout route.
+    """
+    sessions = SqliteSessionRecordStore(settings.database)
     return create_talk(
         sessions=sessions,
         decks=decks,
@@ -287,7 +307,10 @@ def _lobby_private(
     )
 
 
-def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
+def installed_auths(
+    settings: Settings,
+    relying_party_for: RelyingPartyFor = relying_party,
+) -> tuple[InstalledAuth, InstalledAuth]:
     """The lobby's sign-in wiring and the talk host's, over one lock and one store.
 
     Each host has its own relying party and its own signing key, so neither
@@ -303,14 +326,12 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
             trusted_proxies=settings.trusted_proxies,
             origin=settings.public_origin,
         ),
-        relying_party=relying_party(lobby_client),
+        relying_party=relying_party_for(lobby_client),
         admission=admission_of(settings),
         accounts=SqliteSubjectUserStore(settings.database, write_lock),
         lock=write_lock,
         audit=LoggingAuditSink(),
-        content_security_policy=content_security_policy(
-            end_session_origin(lobby_client)
-        ),
+        content_security_policy=content_security_policy(),
         talk_origin=settings.talk_origin,
     )
     talk = replace(
@@ -320,7 +341,7 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
             trusted_proxies=settings.trusted_proxies,
             origin=settings.talk_origin,
         ),
-        relying_party=relying_party(talk_client),
+        relying_party=relying_party_for(talk_client),
         content_security_policy=talk_content_security_policy(),
     )
     return lobby, talk

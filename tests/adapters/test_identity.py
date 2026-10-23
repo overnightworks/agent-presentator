@@ -14,7 +14,10 @@ from webauth.dependencies import ConnectionRefusal, admit_session
 
 from presentator.adapters.identity import (
     OldDatabaseError,
+    ProcessWriteLock,
     SqliteSessionRecordStore,
+    SqliteSubjectUserStore,
+    StoredSession,
     SystemClock,
     create_identity_tables,
 )
@@ -28,6 +31,7 @@ from tests.people import (
 )
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_ID_MARKER = "id-MARKER-4f7c1e"
 _A_FIRST_SESSIONS_TABLE_WITH_ITS_ROWS = (
     "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL"
     " UNIQUE, role TEXT NOT NULL);"
@@ -58,7 +62,28 @@ def database(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sessions(database: Path) -> SqliteSessionRecordStore:
-    return SqliteSessionRecordStore(database)
+    return SqliteSessionRecordStore(database, keeps_id_token=True)
+
+
+def an_id_token(word: str = _ID_MARKER) -> SecretStr:
+    return SecretStr(word)
+
+
+def open_session(
+    store: SqliteSessionRecordStore,
+    user_id: str = "user-1",
+    *,
+    now: datetime = _NOW,
+    expires_at: datetime = _NOW,
+    refresh_token: SecretStr | None = None,
+) -> StoredSession:
+    return store.create(
+        user_id,
+        now=now,
+        expires_at=expires_at,
+        refresh_token=refresh_token,
+        id_token=an_id_token(),
+    )
 
 
 def an_admin(user_id: str = "user-1", username: str = "felix") -> User:
@@ -85,9 +110,7 @@ def test_a_session_is_read_back_with_the_account_joined_from_the_users(
 ) -> None:
     expires_at = _NOW + timedelta(hours=1)
 
-    created = sessions.create(
-        "user-1", now=_NOW, expires_at=expires_at, refresh_token=None
-    )
+    created = open_session(sessions, "user-1", expires_at=expires_at)
 
     loaded = sessions.load(created.id)
     assert loaded is not None
@@ -100,7 +123,7 @@ def test_a_session_for_an_account_that_does_not_exist_is_refused_loudly(
     sessions: SqliteSessionRecordStore,
 ) -> None:
     with pytest.raises(LookupError, match="nobody"):
-        sessions.create("nobody", now=_NOW, expires_at=_NOW, refresh_token=None)
+        open_session(sessions, "nobody")
 
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM sessions").fetchone() == (0,)
@@ -116,7 +139,7 @@ def test_a_session_whose_account_row_is_gone_reads_as_nothing(
     database: Path,
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    session = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    session = open_session(sessions, "user-1")
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM users WHERE id = 'user-1'")
 
@@ -126,7 +149,7 @@ def test_a_session_whose_account_row_is_gone_reads_as_nothing(
 def test_a_touched_session_keeps_its_creation_and_takes_the_given_expiry(
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    session = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    session = open_session(sessions, "user-1")
     later = _NOW + timedelta(minutes=15)
 
     renewed = sessions.touch(session.id, expires_at=later)
@@ -142,7 +165,7 @@ def test_a_session_deleted_after_its_load_is_not_brought_back_by_touch(
     database: Path,
 ) -> None:
     logout = SqliteSessionRecordStore(database)
-    session = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    session = open_session(sessions, "user-1")
 
     assert sessions.load(session.id) is not None
     logout.delete(session.id)
@@ -153,7 +176,7 @@ def test_a_session_deleted_after_its_load_is_not_brought_back_by_touch(
 
 
 def test_a_removed_session_is_gone(sessions: SqliteSessionRecordStore) -> None:
-    session = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    session = open_session(sessions, "user-1")
 
     sessions.delete(session.id)
 
@@ -163,8 +186,8 @@ def test_a_removed_session_is_gone(sessions: SqliteSessionRecordStore) -> None:
 def test_deleting_one_persons_sessions_counts_them_and_leaves_another_standing(
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    kept = sessions.create("user-2", now=_NOW, expires_at=_NOW, refresh_token=None)
-    sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    kept = open_session(sessions, "user-2")
+    open_session(sessions, "user-1")
 
     dropped = sessions.delete_for_user("user-1")
 
@@ -192,12 +215,7 @@ def test_overflow_sessions_drop_the_oldest_by_creation_and_keep_the_newest(
     kept_of_oldest_middle_newest: tuple[bool, bool, bool],
 ) -> None:
     created = [
-        sessions.create(
-            "user-1",
-            now=_NOW + timedelta(minutes=minute),
-            expires_at=_NOW,
-            refresh_token=None,
-        )
+        open_session(sessions, "user-1", now=_NOW + timedelta(minutes=minute))
         for minute in range(3)
     ]
 
@@ -219,6 +237,7 @@ def test_a_timestamp_given_with_an_offset_is_stored_as_the_same_instant_in_utc(
         now=_NOW.astimezone(in_berlin),
         expires_at=(_NOW + timedelta(hours=1)).astimezone(in_berlin),
         refresh_token=None,
+        id_token=an_id_token(),
     )
 
     assert stored_expiry(database, session.id) == "2026-01-15T10:00:00+00:00"
@@ -235,9 +254,7 @@ def test_an_admitted_session_is_renewed_to_the_cap_when_the_window_reaches_it(
     database: Path,
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    session = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW + timedelta(hours=1), refresh_token=None
-    )
+    session = open_session(sessions, "user-1", expires_at=_NOW + timedelta(hours=1))
     at = _NOW + timedelta(minutes=30)
 
     admitted = admit_session(session.id, sessions=sessions, config=a_config_reading(at))
@@ -266,9 +283,7 @@ def test_a_refused_session_is_not_renewed(
     idle_expiry: timedelta,
     refused_at: timedelta,
 ) -> None:
-    session = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW + idle_expiry, refresh_token=None
-    )
+    session = open_session(sessions, "user-1", expires_at=_NOW + idle_expiry)
     expiry_before = stored_expiry(database, session.id)
 
     refused = admit_session(
@@ -294,7 +309,7 @@ def test_creating_the_tables_twice_leaves_the_people_as_they_were(
     database: Path,
 ) -> None:
     session = SqliteSessionRecordStore(database).create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=None
+        "user-1", now=_NOW, expires_at=_NOW, refresh_token=None, id_token=an_id_token()
     )
 
     create_identity_tables(database)
@@ -328,6 +343,7 @@ def test_a_fresh_database_stores_no_password_no_login_attempts_and_no_client_add
         "created_at",
         "expires_at",
         "refresh_token",
+        "id_token",
     ]
     assert "login_attempts" not in tables
 
@@ -355,6 +371,14 @@ def test_a_fresh_database_stores_no_password_no_login_attempts_and_no_client_add
         pytest.param(
             _A_SESSIONS_TABLE_OF_THE_PREVIOUS_VERSION,
             id="sessions-with-last-seen-and-a-client-address",
+        ),
+        pytest.param(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL"
+            " UNIQUE, role TEXT NOT NULL);"
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL"
+            " REFERENCES users(id), created_at TEXT NOT NULL, expires_at TEXT NOT"
+            " NULL, refresh_token TEXT);",
+            id="sessions-before-the-id-token-column",
         ),
         pytest.param(
             "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL,"
@@ -407,7 +431,14 @@ def test_a_file_this_version_started_is_completed_to_sessions_without_a_client_a
 
     with closing(sqlite3.connect(database)) as connection:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(sessions)")]
-    assert columns == ["id", "user_id", "created_at", "expires_at", "refresh_token"]
+    assert columns == [
+        "id",
+        "user_id",
+        "created_at",
+        "expires_at",
+        "refresh_token",
+        "id_token",
+    ]
 
 
 def test_a_password_schema_only_in_the_write_ahead_log_is_refused_and_left_untouched(
@@ -444,8 +475,8 @@ def test_a_sweep_deletes_a_session_only_when_it_ended_before_the_sweep(
     *,
     stays: bool,
 ) -> None:
-    session = sessions.create(
-        "user-1", now=_NOW - SESSION_LIFETIME, expires_at=expires_at, refresh_token=None
+    session = open_session(
+        sessions, "user-1", now=_NOW - SESSION_LIFETIME, expires_at=expires_at
     )
 
     deleted = sessions.delete_expired(_NOW)
@@ -464,12 +495,8 @@ def test_the_sweep_keeps_exactly_the_sessions_the_admission_admits(
     after_expiry: timedelta,
 ) -> None:
     expires_at = _NOW + timedelta(hours=1)
-    admitted_one = sessions.create(
-        "user-1", now=_NOW, expires_at=expires_at, refresh_token=None
-    )
-    swept_one = sessions.create(
-        "user-2", now=_NOW, expires_at=expires_at, refresh_token=None
-    )
+    admitted_one = open_session(sessions, "user-1", expires_at=expires_at)
+    swept_one = open_session(sessions, "user-2", expires_at=expires_at)
     at = expires_at + after_expiry
 
     admitted = admit_session(
@@ -496,7 +523,7 @@ def test_a_sweep_leaves_the_accounts_and_every_other_table_as_they_were(
     sessions: SqliteSessionRecordStore,
 ) -> None:
     ended = _NOW - SESSION_LIFETIME
-    sessions.create("user-1", now=ended, expires_at=ended, refresh_token=None)
+    open_session(sessions, "user-1", now=ended, expires_at=ended)
     before = dump_without_sessions(database)
 
     deleted = sessions.delete_expired(_NOW)
@@ -519,9 +546,7 @@ def occurrences_in_the_file(database: Path, text: str) -> int:
 def test_a_refresh_token_is_stored_in_the_row_and_read_back_as_a_secret(
     database: Path, sessions: SqliteSessionRecordStore
 ) -> None:
-    created = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
-    )
+    created = open_session(sessions, "user-1", refresh_token=a_token())
 
     loaded = sessions.load(created.id)
 
@@ -534,7 +559,7 @@ def test_a_refresh_token_is_stored_in_the_row_and_read_back_as_a_secret(
 def test_a_session_without_a_refresh_token_reads_back_none(
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    created = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    created = open_session(sessions, "user-1")
 
     loaded = sessions.load(created.id)
 
@@ -545,13 +570,9 @@ def test_a_session_without_a_refresh_token_reads_back_none(
 def test_a_replaced_refresh_token_is_read_back_and_the_answer_is_true(
     sessions: SqliteSessionRecordStore,
 ) -> None:
-    created = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
-    )
+    created = open_session(sessions, "user-1", refresh_token=a_token())
 
-    other = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token("rt-other")
-    )
+    other = open_session(sessions, "user-1", refresh_token=a_token("rt-other"))
 
     answer = sessions.replace_refresh_token(created.id, refresh_token=a_token("rt-2"))
 
@@ -568,7 +589,7 @@ def test_a_replaced_refresh_token_is_read_back_and_the_answer_is_true(
 def test_replacing_the_token_of_a_gone_session_answers_false_and_creates_no_row(
     database: Path, sessions: SqliteSessionRecordStore, session_id: str
 ) -> None:
-    created = sessions.create("user-1", now=_NOW, expires_at=_NOW, refresh_token=None)
+    created = open_session(sessions, "user-1")
     sessions.delete(created.id)
     target = created.id if session_id == "deleted" else session_id
 
@@ -582,9 +603,7 @@ def test_replacing_the_token_of_a_gone_session_answers_false_and_creates_no_row(
 def test_a_logout_on_another_store_before_a_replacement_leaves_the_row_gone(
     database: Path, sessions: SqliteSessionRecordStore
 ) -> None:
-    created = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
-    )
+    created = open_session(sessions, "user-1", refresh_token=a_token())
     SqliteSessionRecordStore(database).delete(created.id)
 
     answer = sessions.replace_refresh_token(created.id, refresh_token=a_token("rt-2"))
@@ -613,6 +632,11 @@ def end_by_prune_overflow(store: SqliteSessionRecordStore, session_id: str) -> N
     store.prune_overflow("user-1", 0)
 
 
+def end_by_delete_account(store: SqliteSessionRecordStore, session_id: str) -> None:
+    del session_id
+    SqliteSubjectUserStore(store.database, ProcessWriteLock()).delete_account("user-1")
+
+
 @pytest.mark.parametrize(
     "remove",
     [
@@ -620,6 +644,7 @@ def end_by_prune_overflow(store: SqliteSessionRecordStore, session_id: str) -> N
         end_by_delete_for_user,
         end_by_delete_expired,
         end_by_prune_overflow,
+        end_by_delete_account,
     ],
 )
 def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
@@ -627,14 +652,14 @@ def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
     sessions: SqliteSessionRecordStore,
     remove: Callable[[SqliteSessionRecordStore, str], None],
 ) -> None:
-    created = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
-    )
+    created = open_session(sessions, "user-1", refresh_token=a_token())
     assert occurrences_in_the_file(database, "rt-MARKER") == 1
+    assert occurrences_in_the_file(database, _ID_MARKER) == 1
 
     remove(sessions, created.id)
 
     assert occurrences_in_the_file(database, "rt-MARKER") == 0
+    assert occurrences_in_the_file(database, _ID_MARKER) == 0
     with closing(sqlite3.connect(database)) as connection:
         owners = [
             table
@@ -647,15 +672,62 @@ def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
     assert owners == ["sessions"]
 
 
-def test_a_session_never_shows_its_token_in_repr_or_str(
+def test_a_session_never_shows_its_tokens_in_repr_or_str(
     sessions: SqliteSessionRecordStore,
 ) -> None:
+    """#428 cell 4: neither `repr` nor `str` shows a token."""
     created = sessions.create(
-        "user-1", now=_NOW, expires_at=_NOW, refresh_token=a_token()
+        "user-1",
+        now=_NOW,
+        expires_at=_NOW,
+        refresh_token=a_token(),
+        id_token=an_id_token("id-MARKER"),
     )
 
-    assert "rt-MARKER" not in repr(created)
-    assert "rt-MARKER" not in str(created)
+    for shown in (repr(created), str(created), repr(sessions.load(created.id))):
+        assert "rt-MARKER" not in shown
+        assert "id-MARKER" not in shown
+
+
+def test_the_id_token_is_read_back_and_survives_a_touch_and_a_refresh_token_swap(
+    sessions: SqliteSessionRecordStore,
+) -> None:
+    """#428 cells 1-3: the ID token reads back and outlives a touch and a swap."""
+    created = sessions.create(
+        "user-1",
+        now=_NOW,
+        expires_at=_NOW,
+        refresh_token=a_token(),
+        id_token=an_id_token("id-kept"),
+    )
+
+    sessions.touch(created.id, expires_at=_NOW + timedelta(hours=1))
+    sessions.replace_refresh_token(created.id, refresh_token=a_token("rt-2"))
+
+    loaded = sessions.load(created.id)
+    assert loaded is not None
+    assert loaded.id_token is not None
+    assert loaded.id_token.get_secret_value() == "id-kept"
+
+
+def test_a_store_that_does_not_keep_the_id_token_writes_none(
+    database: Path,
+) -> None:
+    """#428 D4 (T1): a store that does not keep the ID token writes NULL."""
+    store = SqliteSessionRecordStore(database)
+    created = store.create(
+        "user-1",
+        now=_NOW,
+        expires_at=_NOW,
+        refresh_token=None,
+        id_token=an_id_token("id-dropped"),
+    )
+
+    assert created.id_token is None
+    loaded = store.load(created.id)
+    assert loaded is not None
+    assert loaded.id_token is None
+    assert occurrences_in_the_file(database, "id-dropped") == 0
 
 
 def write_the_first_sessions_table_in_the_log(database: Path) -> None:

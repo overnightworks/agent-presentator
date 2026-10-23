@@ -137,6 +137,26 @@ carries the instance key too. Residuals:
   nothing at Keycloak.
 - SQLite's freed pages and the `-wal` may keep an ended session's token.
 
+### Amendment 2026-10-23 — the session's ID token at rest
+
+Authority: [#428](https://github.com/overnightworks/presentator/issues/428),
+operator rulings of 22.10. and 23.10.2026.
+
+The ID token of the sign-in, which carries the subject id, the groups and the
+profile and e-mail claims, is stored in plain text in the session's row beside
+the refresh token and leaves with the row; it never sits in a browser cookie.
+Only the lobby's store keeps it, because only the lobby has a logout route; the
+talk host's rows hold none. It goes back to Keycloak only as the logout hint,
+in the body of a form POST, and the export counts it under `id-token` without
+its value. Not encrypted under the instance key, for the reason given above.
+Residuals:
+
+- A database copy shows the claims of every session of the last twelve hours.
+- A copy can serve as the logout hint that ends that person's Keycloak session
+  without a prompt.
+- SQLite's freed pages, the `-wal` and every backup may keep an ended session's
+  token.
+
 ## Rejected alternatives
 
 - **PyNaCl.** No OpenSSH private-key serialisation, so the deploy key would
