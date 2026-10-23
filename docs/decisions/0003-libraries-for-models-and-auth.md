@@ -2,7 +2,7 @@
 
 Audience: humans and agents who need a model call or a logged-in user.
 
-- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20 and 2026-10-21, see below
+- Status: ACCEPTED 2026-09-06 — amended 2026-09-07, 2026-09-08, 2026-10-20, 2026-10-21 and 2026-10-23, see below
 - Date: 2026-09-06
 - Decision authority: the operator's ruling of 2026-09-06 recorded on
   [#2](https://github.com/overnightworks/presentator/issues/2)
@@ -388,3 +388,12 @@ operated database has it, so there is no in-place migration.
 - **Waiting for the libraries to be published to an index before using them.**
   There is one consumer and one operator; a Git tag pins a version exactly, and
   publishing buys nothing yet.
+
+### Amendment 2026-10-23: the agent service client is `agent_runtime_client`
+
+Authority: [#460](https://github.com/overnightworks/presentator/issues/460).
+
+The library `agent_client` of the 2026-10-21 amendment is renamed
+`overnightworks-agent-runtime-client` (import `agent_runtime_client`), pinned at
+v0.7.0 from agent-runtime. Nothing on the wire changes; the adapters-only rule
+stands under the new name.

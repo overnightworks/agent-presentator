@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn
 
 import httpx2
-from agent_client.agents import load_agent
-from agent_client.errors import raise_without_chain
-from agent_client.run_stream import StreamViolation
-from agent_client.sse import RunStreamDecoder
-from agent_client.wire import (
+from agent_runtime_client.agents import load_agent
+from agent_runtime_client.errors import raise_without_chain
+from agent_runtime_client.run_stream import StreamViolation
+from agent_runtime_client.sse import RunStreamDecoder
+from agent_runtime_client.wire import (
     AssistantText,
     Cancelled,
     Failed,

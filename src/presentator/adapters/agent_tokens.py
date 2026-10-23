@@ -7,7 +7,7 @@ import logging
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, NoReturn, assert_never
 
-from agent_client.errors import raise_without_chain
+from agent_runtime_client.errors import raise_without_chain
 from webauth.oidc import OidcRefusal
 from webauth.oidc_login import (
     AccessTokenRefusal,

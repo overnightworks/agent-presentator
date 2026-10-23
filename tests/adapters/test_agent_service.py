@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import pytest
-from agent_client.wire import (
+from agent_runtime_client.wire import (
     FailureCode,
     RejectionCode,
     RunRequest,

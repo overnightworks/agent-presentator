@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Annotated, NoReturn
 from uuid import UUID, uuid4
 
 import httpx2
-from agent_client.sse import encode_event
-from agent_client.wire import (
+from agent_runtime_client.sse import encode_event
+from agent_runtime_client.wire import (
     AssistantText,
     Cancelled,
     Failed,
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
     import pytest
-    from agent_client.wire import RunEvent
+    from agent_runtime_client.wire import RunEvent
 
 ORIGIN = "http://agent-service.test"
 PERSON = "person-token-MARKER"
