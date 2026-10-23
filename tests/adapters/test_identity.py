@@ -14,7 +14,9 @@ from webauth.dependencies import ConnectionRefusal, admit_session
 
 from presentator.adapters.identity import (
     OldDatabaseError,
+    ProcessWriteLock,
     SqliteSessionRecordStore,
+    SqliteSubjectUserStore,
     StoredSession,
     SystemClock,
     create_identity_tables,
@@ -29,6 +31,7 @@ from tests.people import (
 )
 
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
+_ID_MARKER = "id-MARKER-4f7c1e"
 _A_FIRST_SESSIONS_TABLE_WITH_ITS_ROWS = (
     "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL"
     " UNIQUE, role TEXT NOT NULL);"
@@ -62,7 +65,7 @@ def sessions(database: Path) -> SqliteSessionRecordStore:
     return SqliteSessionRecordStore(database, keeps_id_token=True)
 
 
-def an_id_token(word: str = "id-1") -> SecretStr:
+def an_id_token(word: str = _ID_MARKER) -> SecretStr:
     return SecretStr(word)
 
 
@@ -629,6 +632,11 @@ def end_by_prune_overflow(store: SqliteSessionRecordStore, session_id: str) -> N
     store.prune_overflow("user-1", 0)
 
 
+def end_by_delete_account(store: SqliteSessionRecordStore, session_id: str) -> None:
+    del session_id
+    SqliteSubjectUserStore(store.database, ProcessWriteLock()).delete_account("user-1")
+
+
 @pytest.mark.parametrize(
     "remove",
     [
@@ -636,6 +644,7 @@ def end_by_prune_overflow(store: SqliteSessionRecordStore, session_id: str) -> N
         end_by_delete_for_user,
         end_by_delete_expired,
         end_by_prune_overflow,
+        end_by_delete_account,
     ],
 )
 def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
@@ -645,12 +654,12 @@ def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
 ) -> None:
     created = open_session(sessions, "user-1", refresh_token=a_token())
     assert occurrences_in_the_file(database, "rt-MARKER") == 1
-    assert occurrences_in_the_file(database, "id-1") == 1
+    assert occurrences_in_the_file(database, _ID_MARKER) == 1
 
     remove(sessions, created.id)
 
     assert occurrences_in_the_file(database, "rt-MARKER") == 0
-    assert occurrences_in_the_file(database, "id-1") == 0
+    assert occurrences_in_the_file(database, _ID_MARKER) == 0
     with closing(sqlite3.connect(database)) as connection:
         owners = [
             table
