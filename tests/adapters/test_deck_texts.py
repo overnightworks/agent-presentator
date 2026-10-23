@@ -201,6 +201,11 @@ def test_a_source_that_no_longer_resolves_is_unavailable(tmp_path: Path) -> None
             [(1, "Untitled")],
             id="a slide of notes alone is untitled",
         ),
+        pytest.param(
+            "#  \n",
+            [(1, "#")],
+            id="a heading line without words falls back to the first line",
+        ),
     ],
 )
 def test_slides_follow_slidev_separators(
@@ -217,10 +222,78 @@ def test_slides_follow_slidev_separators(
     assert [(s.number, s.title) for s in text.slides] == expected
 
 
-def test_a_heading_buried_in_blank_space_is_read_in_linear_time(
+@pytest.mark.parametrize(
+    ("markdown", "body", "notes"),
+    [
+        pytest.param(
+            "# T\n<!-- first -->\n<!-- second -->\n",
+            "# T\n<!-- first -->",
+            "second",
+            id="the last of two closed comments is the notes",
+        ),
+        pytest.param(
+            "# T\n<!-- a <!-- b -->\n",
+            "# T",
+            "a <!-- b",
+            id="a comment opened inside a comment ends at the first close",
+        ),
+        pytest.param(
+            "# T\n<!-- n -->\ntext <!-- open\n",
+            "# T\n\ntext <!-- open",
+            "n",
+            id="an unclosed opener after a closed comment stays in the body",
+        ),
+        pytest.param(
+            "# T\n<!---->\nbody\n",
+            "# T\n\nbody",
+            "",
+            id="an empty comment is empty notes and leaves the body",
+        ),
+        pytest.param(
+            "# T\nbody\n",
+            "# T\nbody",
+            "",
+            id="a slide without a comment has no notes",
+        ),
+    ],
+)
+def test_the_last_closed_comment_is_the_notes(
+    remote: GitRemote,
+    tmp_path: Path,
+    markdown: str,
+    body: str,
+    notes: str,
+) -> None:
+    """#476 cells 2-6: the last closed comment is the notes, as the regex read it."""
+    remote.commit({f"{_TALK}/slides.md": markdown}, at=_PUSHED_AT)
+
+    text = read_deck(tmp_path, remote, _TALK)
+
+    assert text is not None
+    assert (text.slides[0].body, text.slides[0].notes) == (body, notes)
+
+
+def test_unclosed_comment_openers_are_read_in_linear_time(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
+    """#476 cell 1: 160 KB of unclosed openers read within the bound."""
+    remote.commit({f"{_TALK}/slides.md": "# T\n" + "<!--" * 40_000}, at=_PUSHED_AT)
+
+    started = time.monotonic()
+    text = read_deck(tmp_path, remote, _TALK)
+    elapsed = time.monotonic() - started
+
+    assert text is not None
+    assert text.slides[0].notes == ""
+    assert elapsed < _QUICK_SECONDS
+
+
+def test_a_lone_hash_does_not_borrow_a_heading_from_a_later_line(
+    remote: GitRemote,
+    tmp_path: Path,
+) -> None:
+    """#476 cell 8 (Decision 3): a heading is one line; a lone # takes no later one."""
     padding = " \n" * 50_000
     remote.commit({f"{_TALK}/slides.md": f"#{padding}# Found\n"}, at=_PUSHED_AT)
 
@@ -229,5 +302,5 @@ def test_a_heading_buried_in_blank_space_is_read_in_linear_time(
     elapsed = time.monotonic() - started
 
     assert text is not None
-    assert text.slides[0].title == "# Found"
+    assert text.slides[0].title == "Found"
     assert elapsed < _QUICK_SECONDS
