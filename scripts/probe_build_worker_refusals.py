@@ -232,6 +232,7 @@ class Life:
     watcher: RootWatcher
     roots: list[str]
     finished: datetime
+    endings_before: int
 
 
 def drive_life(client_arguments: tuple[str, ...], seconds: float) -> Life:
@@ -239,11 +240,13 @@ def drive_life(client_arguments: tuple[str, ...], seconds: float) -> Life:
     probe_client("hello")
     wait_for_uptime()
     restarts_before = int(state()[1])
+    endings_before = life_endings()
     watcher = RootWatcher()
     roots = judge_armed(watcher.armed)
     make_canaries(roots)
     window = watch_client(start_client(*client_arguments), seconds)
-    return Life(window, watcher, roots, after_the_next_status(restarts_before))
+    finished = after_the_next_status(restarts_before)
+    return Life(window, watcher, roots, finished, endings_before)
 
 
 def prove_control_life() -> str:
@@ -264,7 +267,6 @@ def prove_control_life() -> str:
 
 def prove_refused_upload(name: str, row: UploadClass) -> str:
     """One refused upload in its own life: the ending, the life end, the creates."""
-    endings_before = life_endings()
     started = time.monotonic()
     life = drive_life(("upload-class", name), UPLOAD_SECONDS + UPLOAD_SLACK_SECONDS)
     if len(life.window.lines) != 1 or not ends_as_the_row_says(
@@ -272,7 +274,7 @@ def prove_refused_upload(name: str, row: UploadClass) -> str:
     ):
         refuse(f"{name}: the client printed {life.window.lines}, not {row.ending}")
     line = life.window.lines[0]
-    if newest_life_end() != row.life_end or life_endings() != endings_before + 1:
+    if newest_life_end() != row.life_end or life_endings() != life.endings_before + 1:
         refuse(f"{name}: the life did not end as {row.life_end}")
     report = life.watcher.finish()
     created = report.created

@@ -118,37 +118,46 @@ def decode(data: bytes) -> list[tuple[int, int, str]]:
 
 
 def record(descriptor: int, roots: dict[int, str]) -> dict[str, object]:
-    """Read events until stdin is closed and the next life's socket create is read."""
+    """Read until stdin is closed and the next life's socket create is read.
+
+    Creates stop at that socket create; ends of a watch are read until stdin is
+    closed, so both moments are measured. The deadline counts only while the
+    socket create is missing.
+    """
     created: dict[str, list[str]] = {root: [] for root in roots.values()}
-    ended_at_close: list[str] = []
+    ended_at_close: list[str] | None = None
+    ended_at_boundary: list[str] | None = None
     ended: set[str] = set()
-    overflow = boundary = stdin_closed = False
+    overflow = False
     deadline = float("inf")
-    while not boundary and time.monotonic() < deadline:
-        watching = [descriptor] if stdin_closed else [descriptor, sys.stdin.fileno()]
+    while ended_at_close is None or (
+        ended_at_boundary is None and time.monotonic() < deadline
+    ):
+        watching = [descriptor]
+        if ended_at_close is None:
+            watching.append(sys.stdin.fileno())
         readable, _, _ = select.select(watching, [], [], 1.0)
+        if descriptor in readable:
+            for watch, mask, name in decode(os.read(descriptor, READ_BYTES)):
+                root = roots.get(watch, "")
+                overflow = overflow or bool(mask & IN_Q_OVERFLOW)
+                if mask & ENDED:
+                    ended.add(root)
+                elif ended_at_boundary is not None:
+                    continue
+                elif (root, name) == (BOUNDARY_ROOT, BOUNDARY_NAME):
+                    ended_at_boundary = sorted(ended)
+                elif mask & (IN_CREATE | IN_MOVED_TO):
+                    created[root].append(name)
         if sys.stdin.fileno() in readable and not os.read(sys.stdin.fileno(), 1):
-            stdin_closed = True
             deadline = time.monotonic() + BOUNDARY_SECONDS
             ended_at_close = sorted(ended)
-        if descriptor not in readable:
-            continue
-        for watch, mask, name in decode(os.read(descriptor, READ_BYTES)):
-            root = roots.get(watch, "")
-            overflow = overflow or bool(mask & IN_Q_OVERFLOW)
-            if mask & ENDED:
-                ended.add(root)
-            elif (root, name) == (BOUNDARY_ROOT, BOUNDARY_NAME):
-                boundary = True
-                break
-            elif mask & (IN_CREATE | IN_MOVED_TO):
-                created[root].append(name)
     return {
-        "boundary": boundary,
+        "boundary": ended_at_boundary is not None,
         "overflow": overflow,
         "created": created,
         "ended_at_stdin_close": ended_at_close,
-        "ended_at_boundary": sorted(ended),
+        "ended_at_boundary": ended_at_boundary,
     }
 
 
