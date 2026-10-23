@@ -11,7 +11,6 @@ import uvicorn
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from presentator.api.people import AdminPeople
 from presentator.application.people import People
 from presentator.host import main
 from presentator.host.config import ConfigurationError, load_settings
@@ -29,6 +28,7 @@ from tests.api.lobby import (
     a_lobby_app,
     a_relying_party,
     a_talk_app,
+    an_admin_people,
     an_installed_auth,
 )
 from tests.application.fakes import (
@@ -114,8 +114,8 @@ def a_scene(
         ),
         admin_people=None
         if clients is None
-        else AdminPeople(
-            people=People(
+        else an_admin_people(
+            People(
                 decks=instance.decks,
                 accounts=instance.users,
                 sessions=instance.sessions,
@@ -123,7 +123,7 @@ def a_scene(
                 key_drafts=instance.fakes.key_drafts,
                 lock_wait=lock_wait,
             ),
-            admitted_clients=clients,
+            clients=clients,
         ),
     )
     return Scene(
@@ -381,6 +381,7 @@ def test_one_call_writes_one_audit_line_naming_nobody(
         record for record in caplog.records if record.name == "presentator.api.people"
     ]
     assert [record.levelno for record in ours] == [logging.INFO]
+    assert ("would erase" in ours[0].getMessage()) == (query == "?dry_run=true")
     # The test client logs its own request line; only the server's records count.
     everything = " ".join(
         f"{record.getMessage()} {record.args}"

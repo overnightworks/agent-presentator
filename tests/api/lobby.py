@@ -61,6 +61,7 @@ from presentator.api.pages import Pages
 from presentator.api.people import AdminPeople
 from presentator.api.talk import create_talk, talk_content_security_policy
 from presentator.application.decks import Decks
+from presentator.application.people import People
 from presentator.application.preferences import Preferences
 from presentator.application.voice import VoiceStatusUse
 from presentator.contracts.decks import (
@@ -383,6 +384,17 @@ class GivenDecks:
 
 
 NO_DECKS: Final = GivenDecks()
+
+
+def an_admin_people(
+    people: People,
+    *,
+    clients: frozenset[str],
+    clock: FrozenClock | None = None,
+) -> AdminPeople:
+    """The people route over `people`, stamping exports from `clock` (default `NOW`)."""
+    stamping = FrozenClock(instant=NOW) if clock is None else clock
+    return AdminPeople(people=people, admitted_clients=clients, clock=stamping.now)
 
 
 def a_crowd(users: FakeUserStore | None = None) -> FakePeople:
