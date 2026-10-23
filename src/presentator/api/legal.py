@@ -191,22 +191,17 @@ DATENSCHUTZ: Final = LegalDocument(
                     "CoPresenter (Sprachfunktion):",
                     "Ihre gesprochene Frage wird auf dem Server in Text "
                     "umgewandelt; die Audio-Rohdaten werden nicht gespeichert. "
-                    "Mit jeder Frage sendet der Browser den Namen des gezeigten "
-                    "Decks, die Nummer der gezeigten Folie und den erkannten "
-                    "Text der Frage, daneben das Mikrofon-Audio. Presentator "
-                    "beantwortet die Frage nur, wenn das Deck gebaut ist und "
-                    "der fragenden Person gehört, und nimmt dann die Folien "
-                    "genau dieses Decks in seinem zuletzt gebauten Stand. Der "
-                    "erkannte Text, die Nummer der Folie, der Titel des Decks "
-                    "und jede Folie dieses Decks mit ihren Notizen gehen an den "
-                    "Agent-Dienst des Betreibers, der die Antwort bei Anthropic "
-                    "erzeugen lässt (Abschnitt 3). Solange der CoPresenter "
-                    "zuhört, wird Sprache im "
+                    "Stellen Sie im Vortrag eine Frage, sendet Presentator sie "
+                    "mit dem Titel und dem Text des gefragten Decks an den "
+                    "Agent-Dienst von hallucinai, der sie mit Claude von "
+                    "Anthropic beantwortet. Derzeit ist der CoPresenter nur "
+                    "für den Betreiber freigeschaltet; Fragen anderer Personen "
+                    "weist der Dienst ab, sie gehen nicht an Anthropic. "
+                    "Solange der CoPresenter zuhört, wird Sprache im "
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
                     "als Frage gesendet, außer während der "
                     "CoPresenter spricht oder wenn ein Echo erkannt wird; "
-                    "niemand wählt die Fragen aus. Der CoPresenter "
-                    "steht derzeit nur dem Betreiber zur Verfügung. Die "
+                    "niemand wählt die Fragen aus. Die "
                     "gesprochene Antwort wird "
                     "auf dem Server erzeugt und nur für die Wiedergabe "
                     "gestreamt. Zweck · Rechtsgrundlage: der Vortrag "
@@ -245,37 +240,6 @@ DATENSCHUTZ: Final = LegalDocument(
                 _point(
                     "Git-Hosts der verbundenen Quellen:",
                     "erhalten die Abrufe, mit denen der Server die Quellen spiegelt.",
-                ),
-                _point(
-                    "Agent-Dienst des Betreibers:",
-                    "Er läuft auf einem Server des Betreibers und erzeugt die "
-                    "CoPresenter-Antworten. Er erhält die Frage als Text, die "
-                    "Nummer der gezeigten Folie, den Titel und die Folien des "
-                    "Decks mit ihren Notizen und ein Zugriffstoken Ihrer "
-                    "Anmeldung bei Keycloak, mit dem er prüft, ob Sie "
-                    "freigeschaltet sind. Das Token enthält Ihre Kennung, Ihren "
-                    "Benutzernamen und Namen, Ihre E-Mail-Adresse und ob sie "
-                    "bestätigt ist, Ihre Gruppen und Rollen sowie technische "
-                    "Angaben (Aussteller, Empfänger, Gültigkeit, "
-                    "Sitzungskennung). Er prüft das Token bei jeder Frage, "
-                    "speichert es nicht und gibt es nicht an die "
-                    "Claude-Software weiter. Er hat keine Datenbank; Frage, "
-                    "Folien und Antwort laufen nur durch seinen "
-                    "Arbeitsspeicher. Sein Protokoll nennt Modell, "
-                    "Benutzer-ID, Zeichenzahlen und Fehlerart, nie Frage, "
-                    "Folien oder Antwort.",
-                ),
-                _point(
-                    "Anthropic Ireland, Limited:",
-                    "Der Agent-Dienst lässt die CoPresenter-Antworten von "
-                    "Claude erzeugen, über den Claude-Zugang des Betreibers. "
-                    "Anthropic ist dafür ein eigener Verantwortlicher. "
-                    "Übertragen werden die gesprochene Frage als Text, die "
-                    "Nummer der gezeigten Folie, der Titel und jede Folie des "
-                    "gefragten Decks mit ihren Notizen. Ihr Zugriffstoken und "
-                    "das Token von Presentator erhält Anthropic nicht. Was die "
-                    "Claude-Software darüber hinaus selbst an Anthropic "
-                    "sendet, ist nicht gemessen.",
                 ),
                 _point(
                     "Sprachausgabe und Spracherkennung:",
@@ -322,32 +286,6 @@ DATENSCHUTZ: Final = LegalDocument(
                     "ein neuer Build lässt den alten bestehen. Das Entfernen "
                     "einer Quelle löscht ihren Spiegel, ihre Decks und deren "
                     "aktive Builds.",
-                ),
-                _point(
-                    "CoPresenter-Antworten beim Agent-Dienst:",
-                    "Der Agent-Dienst hat keine Datenbank: Frage, Folien und "
-                    "Antwort laufen nur durch seinen Arbeitsspeicher. Für jede "
-                    "Antwort legt er einen privaten Ordner in einem temporären "
-                    "Speicher an, den ein Neustart des Dienstes verwirft und "
-                    "den das System auslagern kann; der Dienst entfernt den "
-                    "Ordner, wenn die Antwort beendet ist. Was die "
-                    "Claude-Software für eine Antwort schreibt, ist für eine "
-                    "Antwort mit allen ihren Schaltern im echten Betrieb noch "
-                    "nicht gemessen. Über jede Antwort hält der Dienst "
-                    "Besitzer, Zeiten, Zahl der Ereignisse und Ende im "
-                    "Arbeitsspeicher, ohne Text, Token oder Gruppen: eine "
-                    "laufende Antwort ohne Frist, eine beendete höchstens eine "
-                    "Stunde abrufbar, im Leerlauf des Dienstes aber unter "
-                    "Umständen länger im Speicher, und höchstens 10.000 "
-                    "beendete. Die Telemetrie, die Fehlerberichte und die "
-                    "nicht notwendigen Verbindungen der Claude-Software sind "
-                    "abgeschaltet. Die Frage selbst geht weiterhin an "
-                    "Anthropic. Ausnahme: Lässt sich ein Ordner nicht gleich "
-                    "entfernen, etwa weil sich nicht bestätigen lässt, dass "
-                    "alle Prozesse der Antwort beendet sind, versucht der "
-                    "Dienst es erneut, wenn er geordnet beendet wird; gelingt "
-                    "auch das nicht oder bricht der Dienst ab, bleibt der "
-                    "Ordner, bis er entfernt wird.",
                 ),
                 _point(
                     "CoPresenter-Audio:",
