@@ -313,10 +313,7 @@ async def _answer_events(
                         if session_watch in done:
                             _observe_session_end(session_watch)
                             return
-                        try:
-                            event = next_event.result()
-                        except StopAsyncIteration:
-                            return
+                        event = next_event.result()
                         yield _sse(event)
                         if isinstance(event, Done):
                             return
