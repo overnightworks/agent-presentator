@@ -10,6 +10,11 @@ socket volume in a container of the runtime user, and runs `client` in that
 container, over the real socket, through the codec's client half. Every cell it
 drives prints one line, and a cell that is not driven fails the run.
 
+The life-ending cells (`probe_build_worker_lives.py`) end lives by abandonment,
+by exhaustion with the flood deck (`probe_build_worker/flood`), and by a leftover
+of a kept life; the client half below reports the outcome a flooded step saw and
+abandons a build on the driver's signal.
+
 The isolation cells run one life attacked from two sides at once, by the attack
 deck (`probe_build_worker/attack`, build code as the build user) and by the 10002
 probe (`attack/kernel_attacks.py` on stdin); `probe_build_worker_isolation.py`
@@ -47,12 +52,18 @@ from probe_build_worker_harness import (
     worker,
 )
 from probe_build_worker_isolation import prove_attacked_life
+from probe_build_worker_lives import (
+    FLOOD_SLUG,
+    Abandonment,
+    prove_lives_that_end_badly,
+)
 
 from presentator.adapters.build_wire import (
     LENGTH,
     MAGIC,
     VERSION,
     BuiltOutcome,
+    FailedOutcome,
     MessageKind,
     RecordTag,
     StepHeader,
@@ -109,7 +120,14 @@ HEADER_CLASSES = {
 CELLS = (
     *("5", "6", "48", "49", "51", "52", "54", "A8", "D1", "D2", "D4", "D5", "D6"),
     *("36", "37", "38", "39", "41", "42", "43", "44", "59", "60"),
+    *("25", "40", "45", "46", "56"),
 )
+# The kept-life connections of cell 56 C: each ends in a sweep, none in a restart.
+KEPT_LIFE_CONNECTIONS = {
+    "answered HELLO": ("hello",),
+    "rejected STEP header": ("header-class", "length 0"),
+    "H expiry": ("header-class", "dripped past the header deadline"),
+}
 
 
 # The codec's client half, run inside the holder container as the runtime user.
@@ -216,22 +234,76 @@ def client_hold() -> None:
     connection.close()
 
 
+def start_build(slug: str) -> socket.socket:
+    """Open a build STEP of the deck and wait for its STATUS."""
+    header = StepHeader(step=StepKind.BUILD, slug=slug)
+    return open_exchange(lambda opened: send_step(opened, header))
+
+
+def upload_deck(connection: socket.socket, slug: str) -> None:
+    """Send the deck's tree and END."""
+    deck = os.open(Path(DECKS_DIRECTORY) / slug, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        send_tree(connection, deck)
+    finally:
+        os.close(deck)
+
+
+def client_outcome(slug: str) -> None:
+    """Upload the deck and report how the step ended: the OUTCOME's class, or closed."""
+    connection = start_build(slug)
+    try:
+        upload_deck(connection, slug)
+        outcome = read_outcome(connection)
+    except (WireRefusedError, ConnectionError):
+        say("closed")
+        return
+    finally:
+        connection.close()
+    match outcome:
+        case FailedOutcome(text=None):
+            say("outcome failed without-text")
+        case FailedOutcome():
+            say("outcome failed with-text")
+        case BuiltOutcome():
+            say("outcome built")
+        case _:
+            say("outcome refused")
+
+
+def client_abandon(slug: str, how: Abandonment) -> None:
+    """Upload the deck, leave after END on the driver's line, print the close time."""
+    connection = start_build(slug)
+    upload_deck(connection, slug)
+    say("uploaded")
+    if not sys.stdin.readline():
+        refuse("the driver never signalled the abandonment")
+    closed_at = time.time()
+    if how is Abandonment.HANG_UP:
+        connection.close()
+        say(f"closed {closed_at!r}")
+        return
+    connection.shutdown(socket.SHUT_WR)
+    say(f"closed {closed_at!r}")
+    connection.settimeout(CLOSE_SECONDS * 3)
+    expect_closed_without_a_reply(connection)
+    connection.close()
+
+
 def client_step(slug: str, step: StepKind) -> None:
     """Upload the deck, read the outcome and receive the output below /out."""
     header = StepHeader(step=step, slug=slug)
     connection = open_exchange(lambda opened: send_step(opened, header))
-    deck = os.open(Path(DECKS_DIRECTORY) / slug, os.O_RDONLY | os.O_DIRECTORY)
     received = OUTPUT_DIRECTORY / f"{step}-{slug}"
     received.mkdir()
     output = os.open(received, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        send_tree(connection, deck)
+        upload_deck(connection, slug)
         outcome = read_outcome(connection)
         if not isinstance(outcome, BuiltOutcome):
             refuse(f"{step} of {slug} answered {outcome}")
         receive_entries(connection, output, OUTPUT_MEGABYTES)
     finally:
-        os.close(deck)
         os.close(output)
         connection.close()
     say(f"{step} of {slug} built and received")
@@ -252,6 +324,10 @@ def client(command: str, arguments: list[str]) -> None:
             client_hold()
         case "step", [slug, step]:
             client_step(slug, StepKind(step))
+        case "outcome", [slug]:
+            client_outcome(slug)
+        case "abandon", [slug, how]:
+            client_abandon(slug, Abandonment(how))
         case _:
             sys.exit(__doc__)
 
@@ -426,6 +502,8 @@ def start_holder() -> None:
         "--volume",
         f"{PROBE_SOURCES / 'render'}:{DECKS_DIRECTORY}/render:ro",
         "--volume", f"{PROBE_SOURCES / 'attack'}:{DECKS_DIRECTORY}/attack:ro",
+        "--volume",
+        f"{PROBE_SOURCES / FLOOD_SLUG}:{DECKS_DIRECTORY}/{FLOOD_SLUG}:ro",
         IMAGE, "sleep", "infinity",
     )  # fmt: skip
 
@@ -556,6 +634,7 @@ def drive() -> None:
         prove_header_classes(report)
         prove_builds(report)
         prove_attacked_life(report)
+        prove_lives_that_end_badly(report, KEPT_LIFE_CONNECTIONS)
         prove_fast_lives(report)
         prove_stop(report)
     finally:
