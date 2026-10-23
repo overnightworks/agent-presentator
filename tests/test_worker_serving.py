@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from presentator.adapters import build_wire
 from presentator.host import worker
 from presentator.host.worker import StartRefusal
 from tests.worker_support import (
@@ -45,7 +46,7 @@ def make_directory(path: Path) -> None:
 def test_refuses_a_non_socket_at_the_socket_path_and_leaves_it(
     volume: Path, occupy: Callable[[Path], None]
 ) -> None:
-    occupied = volume / worker.SOCKET_NAME
+    occupied = volume / build_wire.SOCKET_NAME
     occupy(occupied)
 
     with pytest.raises(worker.StartRefusedError) as refused:
@@ -57,24 +58,24 @@ def test_refuses_a_non_socket_at_the_socket_path_and_leaves_it(
 
 def test_replaces_a_stale_socket_of_the_controller(volume: Path) -> None:
     stale = socket.socket(socket.AF_UNIX)
-    stale.bind(str(volume / worker.SOCKET_NAME))
+    stale.bind(str(volume / build_wire.SOCKET_NAME))
     stale.close()
 
     worker.prepare_socket_directory(volume, OWN_UID, OWN_GID)
 
-    assert not (volume / worker.SOCKET_NAME).exists()
+    assert not (volume / build_wire.SOCKET_NAME).exists()
 
 
 def test_refuses_a_foreign_socket_at_the_socket_path(volume: Path) -> None:
     stale = socket.socket(socket.AF_UNIX)
-    stale.bind(str(volume / worker.SOCKET_NAME))
+    stale.bind(str(volume / build_wire.SOCKET_NAME))
     stale.close()
 
     with pytest.raises(worker.StartRefusedError) as refused:
-        worker.remove_stale_socket(volume / worker.SOCKET_NAME, FOREIGN_UID)
+        worker.remove_stale_socket(volume / build_wire.SOCKET_NAME, FOREIGN_UID)
 
     assert refused.value.refusal == StartRefusal.STALE_SOCKET
-    assert (volume / worker.SOCKET_NAME).exists()
+    assert (volume / build_wire.SOCKET_NAME).exists()
 
 
 def test_refuses_a_volume_root_of_another_uid_and_leaves_its_mode(volume: Path) -> None:
@@ -108,12 +109,12 @@ def test_refuses_a_missing_volume_root(volume: Path) -> None:
 def test_binds_a_group_socket_in_a_group_directory(volume: Path) -> None:
     worker.prepare_socket_directory(volume, OWN_UID, OWN_GID)
     with worker.bind_socket(volume, OWN_UID, OWN_GID):
-        socket_status = (volume / worker.SOCKET_NAME).lstat()
+        socket_status = (volume / build_wire.SOCKET_NAME).lstat()
         directory_status = volume.stat()
 
-    assert stat.S_IMODE(socket_status.st_mode) == worker.SOCKET_MODE
+    assert stat.S_IMODE(socket_status.st_mode) == build_wire.SOCKET_MODE
     assert (socket_status.st_uid, socket_status.st_gid) == (OWN_UID, OWN_GID)
-    assert stat.S_IMODE(directory_status.st_mode) == worker.SOCKET_DIRECTORY_MODE
+    assert stat.S_IMODE(directory_status.st_mode) == build_wire.SOCKET_DIRECTORY_MODE
     assert directory_status.st_gid == OWN_GID
 
 
@@ -138,7 +139,7 @@ def test_refuses_a_socket_the_controller_does_not_own_after_bind(
         worker.bind_socket(volume, controller_uid, controller_gid)
 
     assert refused.value.refusal == StartRefusal.BIND
-    assert stat.S_ISSOCK((volume / worker.SOCKET_NAME).lstat().st_mode)
+    assert stat.S_ISSOCK((volume / build_wire.SOCKET_NAME).lstat().st_mode)
 
 
 def test_refuses_the_start_when_no_socket_can_be_allocated(
@@ -240,12 +241,12 @@ def test_serve_exits_two_and_logs_the_name_of_the_refused_step(
 
 def test_refuses_a_stale_socket_it_cannot_remove(volume: Path) -> None:
     stale = socket.socket(socket.AF_UNIX)
-    stale.bind(str(volume / worker.SOCKET_NAME))
+    stale.bind(str(volume / build_wire.SOCKET_NAME))
     stale.close()
     volume.chmod(0o500)
 
     with pytest.raises(worker.StartRefusedError) as refused:
-        worker.remove_stale_socket(volume / worker.SOCKET_NAME, OWN_UID)
+        worker.remove_stale_socket(volume / build_wire.SOCKET_NAME, OWN_UID)
     volume.chmod(0o700)
 
     assert refused.value.refusal == StartRefusal.STALE_SOCKET

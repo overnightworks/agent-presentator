@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from presentator.adapters import build_wire
 from presentator.host import worker
 from presentator.host.config import (
     WorkerSettings,
@@ -395,7 +396,7 @@ def test_the_real_boundary_serves_the_socket_directory_bounded_by_the_settings(
     )
 
     assert status == 0
-    assert served["directory"] == Path(worker.SOCKET_DIRECTORY)
+    assert served["directory"] == Path(build_wire.SOCKET_DIRECTORY)
     assert (
         served["controller_uid"],
         served["controller_gid"],

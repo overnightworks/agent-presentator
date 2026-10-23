@@ -37,11 +37,10 @@ from probe_build_worker_lives import (
 )
 from probe_build_worker_uploads import UPLOAD_CLASSES, Ending, UploadClass
 
+from presentator.adapters.build_wire import SOCKET_DIRECTORY, SOCKET_NAME
 from presentator.contracts.decks import DECK_DIRECTORY, OUTPUT_DIRECTORY
 from presentator.host.worker import (
     HOME_DIRECTORY,
-    SOCKET_DIRECTORY,
-    SOCKET_NAME,
     VITE_DIRECTORY,
     WORK_MOUNT,
 )
