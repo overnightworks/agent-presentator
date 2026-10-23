@@ -15,6 +15,11 @@ by exhaustion with the flood deck (`probe_build_worker/flood`), and by a leftove
 of a kept life; the client half below reports the outcome a flooded step saw and
 abandons a build on the driver's signal.
 
+The refused-upload lives (`probe_build_worker_refusals.py`) send each crafted
+upload of `probe_build_worker_uploads.py` in a life of its own while a root
+watcher (`probe_build_worker/upload_watcher.py`, through `sudo -n`) records every
+create in the worker's writable mounts.
+
 The isolation cells run one life attacked from two sides at once, by the attack
 deck (`probe_build_worker/attack`, build code as the build user) and by the 10002
 probe (`attack/kernel_attacks.py` on stdin); `probe_build_worker_isolation.py`
@@ -58,6 +63,7 @@ from probe_build_worker_lives import (
     StepEnd,
     prove_lives_that_end_badly,
 )
+from probe_build_worker_refusals import prove_refused_uploads
 from probe_build_worker_uploads import (
     ABSOLUTE_PATH_CLASS,
     UPLOAD_CLASSES,
@@ -126,7 +132,7 @@ HEADER_CLASSES = {
 CELLS = (
     *("5", "6", "48", "49", "51", "52", "54", "A8", "D1", "D2", "D4", "D5", "D6"),
     *("36", "37", "38", "39", "41", "42", "43", "44", "59", "60"),
-    *("25", "40", "45", "46", "56"),
+    *("25", "40", "45", "46", "56", "50"),
 )
 # The kept-life connections of cell 56 C: each ends in a sweep, none in a restart.
 KEPT_LIFE_CONNECTIONS = {
@@ -695,6 +701,7 @@ def drive() -> None:
         prove_builds(report)
         prove_attacked_life(report)
         prove_lives_that_end_badly(report, KEPT_LIFE_CONNECTIONS)
+        prove_refused_uploads(report)
         prove_fast_lives(report)
         prove_stop(report)
     finally:
