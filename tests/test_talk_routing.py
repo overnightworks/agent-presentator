@@ -232,9 +232,10 @@ def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only() -> 
 
 # T1, through the composition root's own wiring.
 @pytest.mark.usefixtures("environment")
-def test_a_sign_in_at_the_talk_host_stores_no_id_token_while_one_at_the_lobby_does(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_sign_in_at_the_talk_host_stores_no_id_token_while_one_at_the_lobby_does() -> (
+    None
+):
+    """#428 cell 29 (D4, T1): the lobby's row keeps the ID token, the talk host's none."""
     settings = load_settings()
     now = datetime.now(UTC)
     issuer = FakeIssuer(
@@ -252,8 +253,9 @@ def test_a_sign_in_at_the_talk_host_stores_no_id_token_while_one_at_the_lobby_do
             monotonic_clock=lambda: 0.0,
         )
 
-    monkeypatch.setattr(main, "relying_party", relying_party_over_the_fake_issuer)
-    router = main.served_by_host(main.build_instance(settings), settings)
+    router = main.served_by_host(
+        main.build_instance(settings, relying_party_over_the_fake_issuer), settings
+    )
 
     def stored_id_tokens() -> list[str | None]:
         with closing(sqlite3.connect(settings.database)) as connection:

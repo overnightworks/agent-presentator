@@ -6,6 +6,7 @@ adapter satisfies which port.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -15,6 +16,7 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from starlette.routing import Host, Router
 from webauth.config import SessionLifetime, WebAuthConfig
+from webauth.oidc import OidcClientConfig, OidcRelyingParty
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
@@ -114,6 +116,8 @@ _UNBOUNDED_BY_CHOICE = (
 
 _log = logging.getLogger(__name__)
 
+RelyingPartyFor = Callable[[OidcClientConfig], OidcRelyingParty]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Instance:
@@ -125,7 +129,10 @@ class Instance:
     session_sweep: Schedule
 
 
-def build_instance(settings: Settings) -> Instance:
+def build_instance(
+    settings: Settings,
+    relying_party_for: RelyingPartyFor = relying_party,
+) -> Instance:
     """Choose the adapter behind every port and hand the routes their use cases."""
     try:
         create_tables(settings.database)
@@ -190,7 +197,7 @@ def build_instance(settings: Settings) -> Instance:
     sessions = SqliteSessionRecordStore(settings.database, keeps_id_token=True)
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
-    lobby_auth, talk_auth = installed_auths(settings)
+    lobby_auth, talk_auth = installed_auths(settings, relying_party_for)
     return Instance(
         lobby=create_lobby(
             sessions=sessions,
@@ -274,7 +281,10 @@ def _lobby_private(
     )
 
 
-def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
+def installed_auths(
+    settings: Settings,
+    relying_party_for: RelyingPartyFor = relying_party,
+) -> tuple[InstalledAuth, InstalledAuth]:
     """The lobby's sign-in wiring and the talk host's, over one lock and one store.
 
     Each host has its own relying party and its own signing key, so neither
@@ -290,7 +300,7 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
             trusted_proxies=settings.trusted_proxies,
             origin=settings.public_origin,
         ),
-        relying_party=relying_party(lobby_client),
+        relying_party=relying_party_for(lobby_client),
         admission=admission_of(settings),
         accounts=SqliteSubjectUserStore(settings.database, write_lock),
         lock=write_lock,
@@ -305,7 +315,7 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
             trusted_proxies=settings.trusted_proxies,
             origin=settings.talk_origin,
         ),
-        relying_party=relying_party(talk_client),
+        relying_party=relying_party_for(talk_client),
         content_security_policy=talk_content_security_policy(),
     )
     return lobby, talk
