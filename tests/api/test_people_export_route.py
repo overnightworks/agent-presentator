@@ -91,6 +91,7 @@ def a_scene() -> Scene:
         now=NOW,
         expires_at=NOW + timedelta(hours=1),
         refresh_token=SecretStr(_A_REFRESH_WORD),
+        id_token=SecretStr("an-id-token"),
     )
     an_offset_instant = (NOW + timedelta(microseconds=123456)).astimezone(
         timezone(timedelta(hours=5, minutes=30))
@@ -196,6 +197,7 @@ def test_every_kind_of_row_is_exported_and_each_secret_kind_counted_withheld() -
         {"kind": "hook-secret-hash", "reason": "secret", "count": 2},
         {"kind": "key-draft-private-key", "reason": "secret", "count": 1},
         {"kind": "refresh-token", "reason": "secret", "count": 1},
+        {"kind": "id-token", "reason": "secret", "count": 2},
     ]
 
 

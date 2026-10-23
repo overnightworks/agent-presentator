@@ -71,6 +71,7 @@ def test_the_secret_columns_are_counted_withheld_over_real_rows(
         PersonKind.HOOK_SECRET_HASH: 1,
         PersonKind.KEY_DRAFT_PRIVATE_KEY: 1,
         PersonKind.REFRESH_TOKEN: 1,
+        PersonKind.ID_TOKEN: 1,
     }
     shown = str(asdict(export))
     seeded_secrets = (
@@ -78,6 +79,7 @@ def test_the_secret_columns_are_counted_withheld_over_real_rows(
         repr(b"\x11" * 32),
         "PRIVATE KEY",
         "a-refresh-token",
+        "an-id-token",
     )
     assert not [secret for secret in seeded_secrets if secret in shown]
 

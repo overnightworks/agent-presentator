@@ -48,7 +48,6 @@ from webauth.policies import (
     BodySizePolicy,
     BodySizeRule,
     CacheControlRule,
-    CspDirective,
     CsrfPolicy,
     PathRules,
     PublicRule,
@@ -180,22 +179,15 @@ cast("dict[str, object]", TEMPLATES.env.globals).update(
 )
 
 
-def content_security_policy(end_session_origin: str) -> str:
-    """The one policy every answer of the lobby carries.
+def content_security_policy() -> str:
+    """The one policy every answer of the lobby carries, except the logout page.
 
     Nothing in the lobby needs an inline script, an inline style, an external
     script host, or a frame: every asset ships under `/static`, served from this
-    origin. Signing out is a
-    form the browser follows to the issuer, and Chromium checks `form-action`
-    on that redirect, so the end-session endpoint's origin is the one host a
-    form may reach.
+    origin. The logout page brings its own policy, which webauth's security
+    headers leave in place.
     """
-    return default_content_security_policy(
-        [],
-        added_sources={
-            CspDirective.FORM_ACTION: [end_session_origin],
-        },
-    )
+    return default_content_security_policy([])
 
 
 def carry_set_cookies(source: Response, target: Response) -> None:
@@ -310,7 +302,7 @@ class SignIn:
         """Complete the sign-in the issuer returns to, or hand the refusal on.
 
         The `Response` the library writes its cookies to is the one answered
-        with, so the pending login's clear and the logout hint travel with the
+        with, so the pending login's clear travels with the
         session cookies; `refused` receives it to carry them on.
         """
         config = web_auth_config(request)
@@ -448,21 +440,19 @@ class _Surfaces:
         return page
 
     def log_out(self, request: Request) -> Response:
-        """End the session here and at the issuer, and clear the sign-in's cookies.
+        """End the session here and answer the page that ends it at the issuer.
 
-        The answer is one `Response`, never a `RedirectResponse`, so the
-        library's cookie deletions survive the redirect it points at the issuer.
+        The library's answer is returned as it is: it clears the sign-in's
+        cookies and carries its own policy and `Cache-Control`.
         """
-        answer = Response(status_code=HTTPStatus.SEE_OTHER)
-        answer.headers["location"] = log_out(
+        return log_out(
             self.auth.relying_party,
             request,
-            answer,
             web_auth_config(request),
             sessions=self.sessions,
             lock=self.auth.lock,
+            button_label=self.pages.appearance(request).text.log_out,
         )
-        return answer
 
     async def backchannel_logout(self, request: Request) -> Response:
         """End every session of the person Keycloak's Logout Token names.

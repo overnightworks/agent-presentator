@@ -12,7 +12,7 @@ from presentator.contracts.preferences import PersonPreferences
 class PersonKind(StrEnum):
     """One kind of thing a person owns, as the erasure counts it.
 
-    The last four are the secrets an export withholds, each under its own word.
+    The last five are the secrets an export withholds, each under its own word.
     """
 
     ACCOUNT = "account"
@@ -31,6 +31,16 @@ class PersonKind(StrEnum):
     KEY_DRAFT_PRIVATE_KEY = "key-draft-private-key"
     # These are kind words, not passwords.
     REFRESH_TOKEN = "refresh-token"  # noqa: S105
+    # This is a kind word, not a password.
+    ID_TOKEN = "id-token"  # noqa: S105
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SessionSecretsHeld:
+    """How many of one person's sessions hold each secret, never the secrets."""
+
+    refresh_tokens: int
+    id_tokens: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

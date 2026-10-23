@@ -3,7 +3,6 @@
 import time
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 from webauth.https_client import fetch_key_set_over_https
@@ -11,7 +10,7 @@ from webauth.oidc import OidcClientConfig, OidcRelyingParty
 from webauth.oidc_login import AdmissionConfig
 from webauth.oidc_transport import post_token_request_over_https
 
-from presentator.api.auth import LOGIN_PATH, LOGOUT_PATH, SIGN_IN_CALLBACK_PATH
+from presentator.api.auth import LOGIN_PATH, SIGN_IN_CALLBACK_PATH
 from presentator.host.config import Settings, cannot_start
 
 _PROTOCOL_PATH: Final = "protocol/openid-connect"
@@ -63,7 +62,6 @@ def oidc_client_config(
             client_secret=client_secret,
             redirect_uri=f"{origin}{SIGN_IN_CALLBACK_PATH}",
             post_logout_redirect_uri=f"{settings.public_origin}{LOGIN_PATH}",
-            logout_path=LOGOUT_PATH,
             scopes=_SCOPES,
             leeway_seconds=_CLOCK_LEEWAY_SECONDS,
         )
@@ -91,12 +89,6 @@ def client_configs_of(settings: Settings) -> tuple[OidcClientConfig, OidcClientC
         oidc_client_config(settings, secret, origin=settings.public_origin),
         oidc_client_config(settings, secret, origin=settings.talk_origin),
     )
-
-
-def end_session_origin(config: OidcClientConfig) -> str:
-    """The scheme and authority of the issuer's end-session endpoint, no path."""
-    endpoint = urlsplit(config.end_session_endpoint)
-    return f"{endpoint.scheme}://{endpoint.netloc}"
 
 
 def admission_of(settings: Settings) -> AdmissionConfig:

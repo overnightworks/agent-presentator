@@ -91,7 +91,6 @@ from presentator.host.config import (
 from presentator.host.oidc import (
     admission_of,
     client_configs_of,
-    end_session_origin,
     relying_party,
 )
 from presentator.host.polling import Schedule
@@ -188,7 +187,7 @@ def build_instance(settings: Settings) -> Instance:
         clock=SystemClock(),
         local_mount=local_mount,
     )
-    sessions = SqliteSessionRecordStore(settings.database)
+    sessions = SqliteSessionRecordStore(settings.database, keeps_id_token=True)
     # One use case object serves both callers, so the hook and the poll share
     # the one refresh that runs at a time.
     lobby_auth, talk_auth = installed_auths(settings)
@@ -200,7 +199,7 @@ def build_instance(settings: Settings) -> Instance:
             auth=lobby_auth,
             private=_lobby_private(settings, decks, sessions, key_drafts, lobby_auth),
         ),
-        talk=_talk(settings, sessions, decks, talk_auth, clock),
+        talk=_talk(settings, decks, talk_auth, clock),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
@@ -211,14 +210,16 @@ def build_instance(settings: Settings) -> Instance:
 
 def _talk(
     settings: Settings,
-    sessions: SqliteSessionRecordStore,
     decks: Decks,
     auth: InstalledAuth,
     clock: SystemClock,
 ) -> FastAPI:
-    """The talk host, with the co-presenter it speaks to."""
+    """The talk host, with the co-presenter it speaks to.
+
+    Its own session store keeps no ID token: the talk host has no logout route.
+    """
     return create_talk(
-        sessions=sessions,
+        sessions=SqliteSessionRecordStore(settings.database),
         decks=decks,
         auth=auth,
         lobby_origin=settings.public_origin,
@@ -294,9 +295,7 @@ def installed_auths(settings: Settings) -> tuple[InstalledAuth, InstalledAuth]:
         accounts=SqliteSubjectUserStore(settings.database, write_lock),
         lock=write_lock,
         audit=LoggingAuditSink(),
-        content_security_policy=content_security_policy(
-            end_session_origin(lobby_client)
-        ),
+        content_security_policy=content_security_policy(),
         talk_origin=settings.talk_origin,
     )
     talk = replace(

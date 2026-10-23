@@ -341,7 +341,7 @@ def test_a_form_naming_the_public_host_is_accepted_without_a_fetch_site() -> Non
 
     accepted = submit_the_logout_form(lobby, {"origin": lobby.own_origin()})
 
-    assert accepted.status_code == HTTPStatus.SEE_OTHER
+    assert accepted.status_code == HTTPStatus.OK
 
 
 def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
@@ -349,7 +349,7 @@ def test_a_navigation_without_an_origin_from_this_instance_is_accepted(
 ) -> None:
     accepted = submit_the_logout_form(lobby, {"sec-fetch-site": "same-origin"})
 
-    assert accepted.status_code == HTTPStatus.SEE_OTHER
+    assert accepted.status_code == HTTPStatus.OK
 
 
 @pytest.mark.parametrize("fetch_site", ["same-site", "none"])
@@ -460,7 +460,8 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
         for paragraph in section.paragraphs
     )
 
-    assert "__Secure-oidc_id_token_hint" in document
+    assert "oidc_id_token_hint" not in document
+    assert "Browserverlauf landen" not in document
     assert "__Host-oidc_pending_" in document
     assert "werden danach nicht erneuert" in document
     assert "mit jeder angemeldeten Antwort erneuert" not in document
@@ -474,11 +475,12 @@ def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
 
     assert (
         "Gespeichert werden Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
-        "und des Ablaufs sowie das Erneuerungs-Token (Refresh-Token), das Keycloak "
-        "bei der Anmeldung ausstellt. Es liegt unverschlüsselt in der "
-        "Sitzungszeile, ist ohne das Client-Geheimnis von Presentator bei Keycloak "
-        "nicht verwendbar und wird mit der Sitzung gelöscht. Das Zugriffstoken der "
-        "Anmeldung wird nicht gespeichert."
+        "und des Ablaufs, das ID-Token der Anmeldung sowie das Erneuerungs-Token "
+        "(Refresh-Token), das Keycloak bei der Anmeldung ausstellt. Es liegt "
+        "unverschlüsselt in der Sitzungszeile, ist ohne das Client-Geheimnis von "
+        "Presentator bei Keycloak nicht verwendbar und wird mit der Sitzung "
+        "gelöscht. Auch das ID-Token liegt unverschlüsselt in der Sitzungszeile "
+        "und wird mit ihr gelöscht."
     ) in page
 
 
@@ -519,19 +521,24 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
 @pytest.mark.parametrize(
     "disclosure",
     [
-        "vier Cookie-Arten",
+        "drei Cookie-Arten",
         "bleibt es, bis seine {pending_minutes} Minuten ablaufen",
         (
-            "Ihre Gruppen und, soweit in Keycloak hinterlegt, Ihren Benutzernamen, "
-            "Ihren Namen und Ihre E-Mail-Adresse"
+            "Es enthält Ihre Subject-ID, Ihre Gruppen und, soweit in Keycloak "
+            "hinterlegt, Ihren Benutzernamen, Ihren Namen, weitere Profilangaben "
+            "und Ihre E-Mail-Adresse samt der Angabe, ob sie bestätigt ist, dazu "
+            "technische Angaben zur Anmeldung (u. a. Aussteller, Empfänger, "
+            "Zeitpunkte, Keycloak-Sitzungskennung)."
         ),
         (
-            "Beim Abmelden wird dieses Cookie gelöscht. Ist es dabei noch "
-            "vorhanden und verwendbar, gibt Presentator sein ID-Token als "
-            "Hinweis an Keycloak weiter, damit Keycloak ohne Rückfrage "
-            "abmelden kann. Der Hinweis steht in der Adresse, die der Browser "
-            "aufruft, und kann so im Browserverlauf landen."
+            "Presentator braucht es nur zum Abmelden: Dann löscht Presentator die "
+            "Sitzung und liefert Ihrem Browser eine Seite, die nicht "
+            "zwischengespeichert wird und das ID-Token als Hinweis per Formular an "
+            "Keycloak sendet, damit Keycloak ohne Rückfrage abmelden kann. Der "
+            "Hinweis steht nicht in der aufgerufenen Adresse. Ist die Sitzung "
+            "schon beendet, fehlt der Hinweis, und Keycloak fragt einmal nach."
         ),
+        "Für die Anmeldung am Talk-Host speichert Presentator kein ID-Token.",
         (
             "Presentator beendet beim Abmelden sofort die Sitzung in "
             "Presentator und leitet den Browser zu Keycloak weiter, um dort "
@@ -540,7 +547,7 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
         ),
     ],
 )
-def test_the_datenschutz_discloses_the_cookie_kinds_the_token_and_the_hint_at_logout(
+def test_the_datenschutz_discloses_the_cookie_kinds_the_id_token_and_the_logout_page(
     lobby: Lobby,
     disclosure: str,
 ) -> None:

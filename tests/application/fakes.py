@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, BinaryIO, Final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from pydantic import SecretStr
+
+from pydantic import SecretStr
 
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.decks import (
@@ -32,7 +33,7 @@ from presentator.contracts.decks import (
     local_mount_path_of,
 )
 from presentator.contracts.models import User
-from presentator.contracts.people import SessionTimes
+from presentator.contracts.people import SessionSecretsHeld, SessionTimes
 from presentator.contracts.preferences import InstanceSettings, PersonPreferences
 from presentator.contracts.text import LobbyText
 
@@ -73,6 +74,7 @@ class FakeSession:
     created_at: datetime
     expires_at: datetime
     refresh_token: SecretStr | None
+    id_token: SecretStr | None
 
 
 @dataclass
@@ -92,6 +94,7 @@ class FakeSessionRecordStore:
         now: datetime,
         expires_at: datetime,
         refresh_token: SecretStr | None,
+        id_token: SecretStr,
     ) -> FakeSession:
         self.minted += 1
         session = FakeSession(
@@ -100,6 +103,7 @@ class FakeSessionRecordStore:
             created_at=now,
             expires_at=expires_at,
             refresh_token=refresh_token,
+            id_token=id_token,
         )
         self.rows[session.id] = session
         return session
@@ -154,11 +158,13 @@ class FakeSessionRecordStore:
             if session.user.id == user_id
         )
 
-    def refresh_tokens_held(self, user_id: str) -> int:
-        return sum(
-            session.refresh_token is not None
-            for session in self.rows.values()
-            if session.user.id == user_id
+    def secrets_held(self, user_id: str) -> SessionSecretsHeld:
+        owned = [
+            session for session in self.rows.values() if session.user.id == user_id
+        ]
+        return SessionSecretsHeld(
+            refresh_tokens=sum(session.refresh_token is not None for session in owned),
+            id_tokens=sum(session.id_token is not None for session in owned),
         )
 
     def prune_overflow(self, user_id: str, keep_newest: int) -> None:
@@ -188,6 +194,7 @@ class FakePeople:
             now=now,
             expires_at=now + SESSION_LIFETIME,
             refresh_token=None,
+            id_token=SecretStr("an-id-token"),
         ).id
 
 

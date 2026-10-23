@@ -13,6 +13,7 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from pydantic import SecretStr
 from starlette.routing import Router
 from webauth.config import installed_web_auth_config
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
@@ -123,7 +124,11 @@ def signed_in(
     seed_user(database, _ADMIN)
     now = datetime.now(UTC)
     session = SqliteSessionRecordStore(database).create(
-        _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
+        _ADMIN.id,
+        now=now,
+        expires_at=now + SESSION_LIFETIME,
+        refresh_token=None,
+        id_token=SecretStr("an-id-token"),
     )
     client = TestClient(
         instance.lobby,
@@ -306,7 +311,7 @@ def test_the_real_stack_keeps_a_seeded_person_in_until_they_sign_out() -> None:
     assert _PERSON in real_lobby.get("/").text
 
     signed_in_cookie = real_lobby.cookies[DEFAULT_SESSION_COOKIE_NAME]
-    assert real_lobby.post("/logout").status_code == HTTPStatus.SEE_OTHER
+    assert real_lobby.post("/logout").status_code == HTTPStatus.OK
 
     real_lobby.cookies.set(DEFAULT_SESSION_COOKIE_NAME, signed_in_cookie)
     assert real_lobby.get("/").status_code == HTTPStatus.FOUND
@@ -772,7 +777,11 @@ def test_an_instance_restarts_on_a_crash_that_left_only_current_frames_in_the_lo
         seed_user(database, _ADMIN)
         now = datetime.now(UTC)
         opened = SqliteSessionRecordStore(database).create(
-            _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
+            _ADMIN.id,
+            now=now,
+            expires_at=now + SESSION_LIFETIME,
+            refresh_token=None,
+            id_token=SecretStr("an-id-token"),
         )
         session_ids.append(opened.id)
 

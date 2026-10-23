@@ -39,7 +39,6 @@ def test_the_client_is_derived_from_the_issuer_and_the_public_origin() -> None:
     assert config.client_id == A_CLIENT_ID
     assert config.redirect_uri == "https://testserver/auth/callback"
     assert config.post_logout_redirect_uri == "https://testserver/login"
-    assert config.logout_path == "/logout"
     assert config.scopes == ("openid", "profile", "groups")
 
 

@@ -116,6 +116,14 @@ class Scene:
         with closing(sqlite3.connect(self.database)) as connection:
             return dict(connection.execute("SELECT id, refresh_token FROM sessions"))
 
+    def stored_id_tokens(self) -> list[str | None]:
+        """The ID token of every session row, as the file holds it."""
+        with closing(sqlite3.connect(self.database)) as connection:
+            return [
+                token
+                for (token,) in connection.execute("SELECT id_token FROM sessions")
+            ]
+
     def stored_tokens(self) -> list[str | None]:
         return list(self.stored_sessions().values())
 
@@ -150,7 +158,7 @@ def a_scene(
         lock=lock,
         audit=audit(recording),
     )
-    sessions = SqliteSessionRecordStore(database)
+    sessions = SqliteSessionRecordStore(database, keeps_id_token=True)
     app, _ = a_lobby_app(
         people=people,
         signing_in=SigningIn(

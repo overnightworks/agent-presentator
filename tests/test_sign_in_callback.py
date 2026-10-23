@@ -4,6 +4,8 @@ The issuer is a fake that signs with a key the test generated; the accounts and
 the sessions are the real SQLite stores on a temporary file.
 """
 
+import base64
+import json
 import logging
 import re
 import sqlite3
@@ -16,7 +18,6 @@ from datetime import datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
@@ -58,9 +59,8 @@ from tests.sign_in_support import (
 
 _BOUND = 30.0
 _TOO_LONG_FOR_A_COOKIE = 4000
-_COOKIES_OF_A_SIGN_IN = 4
+_COOKIES_OF_A_SIGN_IN = 3
 _HOLDS_OF_A_SIGN_IN = 2
-_LOGOUT_HINT_NAME = "id_token_hint"
 
 
 @dataclass
@@ -157,27 +157,41 @@ def test_a_member_signs_in_and_the_303_carries_every_cookie_the_sign_in_needs(
     assert "HttpOnly" in session
     assert "SameSite=lax" in session
     assert "HttpOnly" not in _cookie(answer, DEFAULT_CSRF_COOKIE_NAME)
-    hint = _cookie(answer, _LOGOUT_HINT_NAME)
-    assert f"Path={LOGOUT_PATH}" in hint
-    assert lifetime in hint
-    assert "Secure" in hint
-    assert "HttpOnly" in hint
     (pending,) = (
         cookie
         for cookie in answer.headers.get_list("set-cookie")
-        if "Max-Age=0" in cookie and _LOGOUT_HINT_NAME not in cookie
+        if "Max-Age=0" in cookie
     )
     assert pending.startswith("__Host-")
     assert len(cookie_names(answer)) == _COOKIES_OF_A_SIGN_IN
+    assert not [name for name in cookie_names(answer) if "id_token" in name]
 
 
-def test_a_token_too_long_for_a_cookie_clears_the_hint_the_way_the_library_does(
+def _claims_of(token: str | None) -> dict[str, object]:
+    assert token is not None
+    payload = token.split(".")[1]
+    document: dict[str, object] = json.loads(base64.urlsafe_b64decode(payload + "=="))
+    return document
+
+
+def test_the_session_row_holds_the_id_token_the_sign_in_returned(
+    scene: Scene,
+) -> None:
+    scene.sign_in(username="felix")
+
+    (stored,) = scene.stored_id_tokens()
+    claims = _claims_of(stored)
+    assert (claims["sub"], claims["preferred_username"]) == ("subject-1", "felix")
+
+
+def test_an_id_token_longer_than_a_cookie_could_hold_is_stored_whole(
     scene: Scene,
 ) -> None:
     answer = scene.sign_in(username="x" * _TOO_LONG_FOR_A_COOKIE)
 
     assert answer.status_code == HTTPStatus.SEE_OTHER
-    assert "Max-Age=0" in _cookie(answer, _LOGOUT_HINT_NAME)
+    (stored,) = scene.stored_id_tokens()
+    assert _claims_of(stored)["preferred_username"] == "x" * _TOO_LONG_FOR_A_COOKIE
 
 
 @pytest.mark.parametrize(
@@ -381,7 +395,7 @@ def test_the_back_script_is_served_without_a_session(scene: Scene) -> None:
     assert "history.back()" in script.text
 
 
-def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
+def test_log_out_on_the_no_access_page_asks_the_issuer_without_a_hint(
     scene: Scene,
 ) -> None:
     _in_another_group(scene)
@@ -390,16 +404,11 @@ def test_log_out_on_the_no_access_page_leaves_for_the_issuer_without_a_hint(
         LOGOUT_PATH, headers={"content-type": "application/x-www-form-urlencoded"}
     )
 
-    assert answer.status_code == HTTPStatus.SEE_OTHER
-    query = parse_qs(urlsplit(answer.headers["location"]).query)
-    assert "post_logout_redirect_uri" in query
-    assert "id_token_hint" not in query
+    assert answer.status_code == HTTPStatus.OK
+    assert 'name="post_logout_redirect_uri"' in answer.text
+    assert "id_token_hint" not in answer.text
     assert scene.count("sessions") == 0
-    for name in (
-        DEFAULT_SESSION_COOKIE_NAME,
-        DEFAULT_CSRF_COOKIE_NAME,
-        _LOGOUT_HINT_NAME,
-    ):
+    for name in (DEFAULT_SESSION_COOKIE_NAME, DEFAULT_CSRF_COOKIE_NAME):
         assert "Max-Age=0" in _cookie(answer, name)
 
 
@@ -430,7 +439,6 @@ def test_a_refusal_sets_no_session_cookie_and_keeps_only_what_the_library_cleare
     (cleared,) = page.headers.get_list("set-cookie")
     assert cleared.startswith("__Host-")
     assert "Max-Age=0" in cleared
-    assert _LOGOUT_HINT_NAME not in cleared
 
 
 @pytest.mark.parametrize("drive", _ALL_REFUSALS)
@@ -544,13 +552,14 @@ def test_a_store_failure_after_the_admission_keeps_the_account_and_sets_no_cooki
     create = SqliteSessionRecordStore.create
     failures = [sqlite3.OperationalError("disk I/O error")]
 
-    def create_unless_the_disk_fails(
+    def create_unless_the_disk_fails(  # noqa: PLR0913
         store: SqliteSessionRecordStore,
         user_id: str,
         *,
         now: datetime,
         expires_at: datetime,
         refresh_token: SecretStr | None,
+        id_token: SecretStr,
     ) -> StoredSession:
         if failures:
             raise failures.pop()
@@ -560,6 +569,7 @@ def test_a_store_failure_after_the_admission_keeps_the_account_and_sets_no_cooki
             now=now,
             expires_at=expires_at,
             refresh_token=refresh_token,
+            id_token=id_token,
         )
 
     monkeypatch.setattr(

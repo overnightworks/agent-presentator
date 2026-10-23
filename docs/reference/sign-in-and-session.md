@@ -24,9 +24,11 @@ sign-in, and no password is stored.
   role (event kind, Keycloak subject id, role).
 - A signed-out browser navigation is redirected to
   `/login/oidc?next=<requested-path-and-query>`; a JSON request receives 401.
-- Logging out is a POST that deletes the session row at once and sends the
-  browser to Keycloak's end-session endpoint (with the ID-token hint when
-  usable), which returns it to `<PRESENTATOR_PUBLIC_ORIGIN>/login`.
+- Logging out is a POST that deletes the session row at once and answers a
+  page that posts the client id, the return address and, when the row held
+  one, the stored ID-token hint to Keycloak's end-session endpoint. Keycloak
+  returns the browser to `<PRESENTATOR_PUBLIC_ORIGIN>/login`; without a hint it
+  asks once. The page is `webauth`'s, with its own policy and `no-store`.
 - A valid Logout Token at `POST /auth/backchannel-logout` ends every session
   of its subject, on every device.
 
@@ -44,8 +46,9 @@ sessions of both hosts, a logout at the lobby ends the lobby's alone.
 A session that SQLite holds is carried by a signed cookie and ends twelve
 hours after the sign-in that opened it, however often it is used; the store
 keeps the sign-in time and the expiry for that. The session row holds no
-client address and no user agent, and holds the sign-in's refresh token in
-plain text ([ADR 0013](../decisions/0013-secrets-at-rest-and-credential-delivery.md)).
+client address and no user agent, and holds the sign-in's refresh token and
+ID token in plain text. The talk host's rows hold no ID token, because that
+host has no logout route ([ADR 0013](../decisions/0013-secrets-at-rest-and-credential-delivery.md)).
 A session past its expiry is refused, and a schedule of its own deletes
 expired rows every five minutes, apart from the deck refresh.
 
@@ -55,7 +58,7 @@ The SQLite stores stay this repository's
 
 ## What protects a request
 
-`webauth` v0.21.0 owns the mechanism. `issue_session_cookies`,
+`webauth` v0.22.0 owns the mechanism. `issue_session_cookies`,
 `clear_session_cookies` and `session_id_from_request` set, clear and read the
 signed `SameSite=Lax` session cookie.
 
@@ -98,7 +101,8 @@ signed `SameSite=Lax` session cookie.
   (no answer may be replayed from the browser cache), a
   `Content-Security-Policy` admitting only this origin's own scripts, styles
   and connections (the lobby admits no inline style; the talk host does,
-  because a built Slidev talk inlines its styles), and a `Permissions-Policy`
+  because a built Slidev talk inlines its styles; the logout page brings its
+  own, with one hashed script and a form to Keycloak), and a `Permissions-Policy`
   granting `microphone=(self)` on the talk host for the co-presenter deck and
   nothing else; the lobby sends `microphone=()`. `Strict-Transport-Security`
   follows the always-on `Secure` cookie setting, so it is always sent.
