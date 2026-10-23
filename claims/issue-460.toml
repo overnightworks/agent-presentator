@@ -1,0 +1,8 @@
+claim_id = "eccebc89819148deaef95d92e93c66b6"
+agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
+role = "builder"
+base = "b4b02a46921c1ca1bad687363a5a5a97564c7815"
+branch = "claude/issue-460-agent-runtime-client-0-7-0"
+scope = ["pyproject.toml", "src/presentator/adapters/agent_service.py", "src/presentator/adapters/agent_tokens.py", "tests/adapters/agent_service_support.py", "tests/adapters/test_agent_service.py", "tests/adapters/test_agent_service_tokens.py", "uv.lock"]
+opened_commit = "7d73259580c4274b422758fde1ec658246954a87"
+whole_reason = "One rename of a dependency and its imports; the pin, the lock, the import-linter contract and every import move together or nothing builds."
