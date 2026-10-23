@@ -72,7 +72,7 @@ _SWEEP_MINUTES: Final = (
     int(SESSION_SWEEP_INTERVAL.total_seconds()) // _SECONDS_PER_MINUTE
 )
 _DRAFT_HOURS: Final = int(DRAFT_MAX_AGE.total_seconds()) // _SECONDS_PER_HOUR
-_STAND: Final = "21. Oktober 2026"
+_STAND: Final = "23. Oktober 2026"
 _BASIS_CONTRACT: Final = "Art. 6 Abs. 1 lit. b DSGVO (hilfsweise lit. f)"
 _BASIS_INTEREST: Final = "Art. 6 Abs. 1 lit. f DSGVO"
 
@@ -149,12 +149,14 @@ DATENSCHUTZ: Final = LegalDocument(
                     "erforderlich ist. Gespeichert werden "
                     "Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
                     "und des Ablaufs sowie das Erneuerungs-Token "
-                    "(Refresh-Token), das Keycloak bei der Anmeldung "
-                    "ausstellt. Es liegt unverschlüsselt in der "
+                    "(Refresh-Token), das Keycloak bei der Anmeldung und bei "
+                    "jeder Erneuerung ausstellt. Es liegt unverschlüsselt in der "
                     "Sitzungszeile, ist ohne das Client-Geheimnis von "
                     "Presentator bei Keycloak nicht verwendbar und wird mit "
-                    "der Sitzung gelöscht. Das Zugriffstoken der Anmeldung "
-                    "wird nicht gespeichert. Eine "
+                    "der Sitzung gelöscht. Zugriffstoken werden nicht "
+                    "gespeichert; für jede CoPresenter-Frage holt Presentator "
+                    "ein frisches bei Keycloak und gibt es nur an den "
+                    "Agent-Dienst weiter. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
                     "Zweck · Rechtsgrundlage: angemeldet bleiben, "
                     f"{_BASIS_CONTRACT}; die Cookies "
@@ -189,17 +191,19 @@ DATENSCHUTZ: Final = LegalDocument(
                     "CoPresenter (Sprachfunktion):",
                     "Ihre gesprochene Frage wird auf dem Server in Text "
                     "umgewandelt; die Audio-Rohdaten werden nicht gespeichert. "
-                    "Von der Folie, die er zeigt, sendet der Browser nur die "
-                    "Nummer, daneben das Mikrofon-Audio und den erkannten Text "
-                    "der Frage. Der CoPresenter nimmt die Folie mit dieser "
-                    "Nummer aus dem Deck, mit dem er gestartet wurde, falls "
-                    "dieses Deck sie hat. Der erkannte Text, der Inhalt dieser "
-                    "Folie und jede Folie dieses Decks mit ihren Notizen "
-                    "werden an Anthropic gesendet, um eine Antwort zu "
-                    "erzeugen; dieses Deck kann vom Deck im Browser "
-                    "abweichen. Solange der CoPresenter zuhört, wird Sprache im "
+                    "Mit jeder Frage sendet der Browser den Namen des gezeigten "
+                    "Decks, die Nummer der gezeigten Folie und den erkannten "
+                    "Text der Frage, daneben das Mikrofon-Audio. Presentator "
+                    "beantwortet die Frage nur, wenn das Deck gebaut ist und "
+                    "der fragenden Person gehört, und nimmt dann die Folien "
+                    "genau dieses Decks in seinem zuletzt gebauten Stand. Der "
+                    "erkannte Text, die Nummer der Folie, der Titel des Decks "
+                    "und jede Folie dieses Decks mit ihren Notizen gehen an den "
+                    "Agent-Dienst des Betreibers, der die Antwort bei Anthropic "
+                    "erzeugen lässt (Abschnitt 3). Solange der CoPresenter "
+                    "zuhört, wird Sprache im "
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
-                    "als Frage an Anthropic gesendet, außer während der "
+                    "als Frage gesendet, außer während der "
                     "CoPresenter spricht oder wenn ein Echo erkannt wird; "
                     "niemand wählt die Fragen aus. Der CoPresenter "
                     "steht derzeit nur dem Betreiber zur Verfügung. Die "
@@ -243,15 +247,35 @@ DATENSCHUTZ: Final = LegalDocument(
                     "erhalten die Abrufe, mit denen der Server die Quellen spiegelt.",
                 ),
                 _point(
+                    "Agent-Dienst des Betreibers:",
+                    "Er läuft auf einem Server des Betreibers und erzeugt die "
+                    "CoPresenter-Antworten. Er erhält die Frage als Text, die "
+                    "Nummer der gezeigten Folie, den Titel und die Folien des "
+                    "Decks mit ihren Notizen und ein Zugriffstoken Ihrer "
+                    "Anmeldung bei Keycloak, mit dem er prüft, ob Sie "
+                    "freigeschaltet sind. Das Token enthält Ihre Kennung, Ihren "
+                    "Benutzernamen und Namen, Ihre E-Mail-Adresse und ob sie "
+                    "bestätigt ist, Ihre Gruppen und Rollen sowie technische "
+                    "Angaben (Aussteller, Empfänger, Gültigkeit, "
+                    "Sitzungskennung). Er prüft das Token bei jeder Frage, "
+                    "speichert es nicht und gibt es nicht an die "
+                    "Claude-Software weiter. Er hat keine Datenbank; Frage, "
+                    "Folien und Antwort laufen nur durch seinen "
+                    "Arbeitsspeicher. Sein Protokoll nennt Modell, "
+                    "Benutzer-ID, Zeichenzahlen und Fehlerart, nie Frage, "
+                    "Folien oder Antwort.",
+                ),
+                _point(
                     "Anthropic Ireland, Limited:",
-                    "Für die CoPresenter-Antworten wird Claude verwendet, über "
-                    "den eigenen Claude-Zugang des Betreibers (die installierte "
-                    "claude-Kommandozeile). Anthropic ist dafür ein eigener "
-                    "Verantwortlicher. Übertragen werden die gesprochene Frage "
-                    "als Text, der Inhalt der Folie mit der Nummer, die der Browser "
-                    "meldet, aus dem Deck, mit dem der CoPresenter gestartet wurde "
-                    "(falls dieses Deck sie hat), und jede Folie dieses Decks mit "
-                    "ihren Notizen.",
+                    "Der Agent-Dienst lässt die CoPresenter-Antworten von "
+                    "Claude erzeugen, über den Claude-Zugang des Betreibers. "
+                    "Anthropic ist dafür ein eigener Verantwortlicher. "
+                    "Übertragen werden die gesprochene Frage als Text, die "
+                    "Nummer der gezeigten Folie, der Titel und jede Folie des "
+                    "gefragten Decks mit ihren Notizen. Ihr Zugriffstoken und "
+                    "das Token von Presentator erhält Anthropic nicht. Was die "
+                    "Claude-Software darüber hinaus selbst an Anthropic "
+                    "sendet, ist nicht gemessen.",
                 ),
                 _point(
                     "Sprachausgabe und Spracherkennung:",
@@ -300,19 +324,30 @@ DATENSCHUTZ: Final = LegalDocument(
                     "aktive Builds.",
                 ),
                 _point(
-                    "Kopien der Claude-Software:",
-                    "Die Claude-Software führt jede Frage in einem eigenen "
-                    "privaten Ordner auf dem Server des Betreibers aus, der "
-                    "mit dem Ende der Antwort entfernt wird, und behält "
-                    "keinen Gesprächsverlauf auf der Festplatte. Ihre eigene "
-                    "Telemetrie, ihre Fehlerberichte und ihre nicht "
-                    "notwendigen Verbindungen sind abgeschaltet; die Frage "
-                    "selbst geht weiterhin an Anthropic. Ausnahme: Lässt sich "
-                    "ein Ordner nicht gleich entfernen, etwa weil sich nicht "
-                    "bestätigen lässt, dass alle Prozesse der Antwort beendet "
-                    "sind, versucht der Dienst es erneut, wenn er geordnet "
-                    "beendet wird; gelingt auch das nicht oder bricht der "
-                    "Dienst ab, bleibt der Ordner, bis er entfernt wird.",
+                    "CoPresenter-Antworten beim Agent-Dienst:",
+                    "Der Agent-Dienst hat keine Datenbank: Frage, Folien und "
+                    "Antwort laufen nur durch seinen Arbeitsspeicher. Für jede "
+                    "Antwort legt er einen privaten Ordner in einem temporären "
+                    "Speicher an, den ein Neustart des Dienstes verwirft und "
+                    "den das System auslagern kann; der Dienst entfernt den "
+                    "Ordner, wenn die Antwort beendet ist. Was die "
+                    "Claude-Software für eine Antwort schreibt, ist für eine "
+                    "Antwort mit allen ihren Schaltern im echten Betrieb noch "
+                    "nicht gemessen. Über jede Antwort hält der Dienst "
+                    "Besitzer, Zeiten, Zahl der Ereignisse und Ende im "
+                    "Arbeitsspeicher, ohne Text, Token oder Gruppen: eine "
+                    "laufende Antwort ohne Frist, eine beendete höchstens eine "
+                    "Stunde abrufbar, im Leerlauf des Dienstes aber unter "
+                    "Umständen länger im Speicher, und höchstens 10.000 "
+                    "beendete. Die Telemetrie, die Fehlerberichte und die "
+                    "nicht notwendigen Verbindungen der Claude-Software sind "
+                    "abgeschaltet. Die Frage selbst geht weiterhin an "
+                    "Anthropic. Ausnahme: Lässt sich ein Ordner nicht gleich "
+                    "entfernen, etwa weil sich nicht bestätigen lässt, dass "
+                    "alle Prozesse der Antwort beendet sind, versucht der "
+                    "Dienst es erneut, wenn er geordnet beendet wird; gelingt "
+                    "auch das nicht oder bricht der Dienst ab, bleibt der "
+                    "Ordner, bis er entfernt wird.",
                 ),
                 _point(
                     "CoPresenter-Audio:",

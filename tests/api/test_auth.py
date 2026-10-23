@@ -475,10 +475,12 @@ def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
     assert (
         "Gespeichert werden Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
         "und des Ablaufs sowie das Erneuerungs-Token (Refresh-Token), das Keycloak "
-        "bei der Anmeldung ausstellt. Es liegt unverschlüsselt in der "
+        "bei der Anmeldung und bei jeder Erneuerung ausstellt. Es liegt "
+        "unverschlüsselt in der "
         "Sitzungszeile, ist ohne das Client-Geheimnis von Presentator bei Keycloak "
-        "nicht verwendbar und wird mit der Sitzung gelöscht. Das Zugriffstoken der "
-        "Anmeldung wird nicht gespeichert."
+        "nicht verwendbar und wird mit der Sitzung gelöscht. Zugriffstoken werden "
+        "nicht gespeichert; für jede CoPresenter-Frage holt Presentator ein "
+        "frisches bei Keycloak und gibt es nur an den Agent-Dienst weiter."
     ) in page
 
 
@@ -554,18 +556,35 @@ def test_the_datenschutz_discloses_the_cookie_kinds_the_token_and_the_hint_at_lo
     )
 
 
-def test_the_datenschutz_says_the_claude_software_keeps_no_conversation_and_no_old_copy(
+def test_the_datenschutz_says_what_the_agent_service_keeps_of_an_answer(
     lobby: Lobby,
 ) -> None:
     page = lobby.client.get("/datenschutz").text
 
-    assert "keinen Gesprächsverlauf auf der Festplatte" in page
-    assert "Sitzung auf der Festplatte" not in page
+    assert (
+        "Der Agent-Dienst hat keine Datenbank: Frage, Folien und Antwort laufen "
+        "nur durch seinen Arbeitsspeicher."
+    ) in page
+    assert "noch nicht gemessen" in page
+    assert "keinen Gesprächsverlauf auf der Festplatte" not in page
     assert "versucht der Dienst es erneut, wenn er geordnet beendet wird" in page
     assert "gelingt auch das nicht oder bricht der Dienst ab" in page
-    assert "Einzige Ausnahme" not in page
-    assert "die Frage selbst geht weiterhin an Anthropic" in page
+    assert "Die Frage selbst geht weiterhin an Anthropic" in page
     assert "30 Tage" not in page
+
+
+def test_the_datenschutz_says_the_question_goes_through_the_agent_service(
+    lobby: Lobby,
+) -> None:
+    page = lobby.client.get("/datenschutz").text
+
+    assert "gehen an den Agent-Dienst des Betreibers" in page
+    assert "Agent-Dienst des Betreibers:" in page
+    assert (
+        "Ihr Zugriffstoken und das Token von Presentator erhält Anthropic nicht."
+        in page
+    )
+    assert "Claude-Kommandozeile" not in page
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])
