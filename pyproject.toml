@@ -343,7 +343,7 @@ as_packages = true
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-id = "agent-client-library"
+id = "agent-runtime-client-library"
 name = "Only adapters import agent_runtime_client"
 type = "forbidden"
 source_modules = [

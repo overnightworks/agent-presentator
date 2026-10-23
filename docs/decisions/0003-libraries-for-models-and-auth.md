@@ -357,6 +357,15 @@ policy names `/logout` in its own `token_exempt`. A file with the five-column
 `sessions` table of v0.21.0 is refused untouched like every older shape: no
 operated database has it, so there is no in-place migration.
 
+### Amendment 2026-10-23: the agent service client is `agent_runtime_client`
+
+Authority: [#460](https://github.com/overnightworks/presentator/issues/460).
+
+The library `agent_client` of the 2026-10-21 amendment is renamed
+`overnightworks-agent-runtime-client` (import `agent_runtime_client`), pinned at
+v0.7.0 from agent-runtime. Nothing on the wire changes; the adapters-only rule
+stands under the new name.
+
 ## Consequences
 
 - Which model presents becomes configuration, not code, and the phase M1 work is
@@ -388,12 +397,3 @@ operated database has it, so there is no in-place migration.
 - **Waiting for the libraries to be published to an index before using them.**
   There is one consumer and one operator; a Git tag pins a version exactly, and
   publishing buys nothing yet.
-
-### Amendment 2026-10-23: the agent service client is `agent_runtime_client`
-
-Authority: [#460](https://github.com/overnightworks/presentator/issues/460).
-
-The library `agent_client` of the 2026-10-21 amendment is renamed
-`overnightworks-agent-runtime-client` (import `agent_runtime_client`), pinned at
-v0.7.0 from agent-runtime. Nothing on the wire changes; the adapters-only rule
-stands under the new name.
