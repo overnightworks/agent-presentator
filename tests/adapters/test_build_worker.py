@@ -92,7 +92,6 @@ class Seen:
 
     steps: list[StepHeader] = field(default_factory=list[StepHeader])
     uploads: list[Path] = field(default_factory=list[Path])
-    after_late_status: bytes | None = None
 
 
 type Script = Callable[[socket.socket, Seen, Path], None]
