@@ -418,7 +418,12 @@ def test_the_limiter_ticket_is_released_after_each_person_token_refusal(
 def test_a_doubled_session_cookie_is_refused_before_any_token_is_fetched(
     tmp_path: Path,
 ) -> None:
-    """Cell 6: the session guard refuses the request before the ask runs."""
+    """Cell 6: webauth reads a doubled cookie as no session, so its CSRF layer refuses.
+
+    The refusal is the library's 403 before the route runs; the route's own
+    401 "Not authenticated" for a missing admission is pinned in
+    test_copresenter.py.
+    """
     run = drive(tmp_path)
     grants = len(run.hosts.issuer.grant_types)
     session = run.talk.cookies[DEFAULT_SESSION_COOKIE_NAME]
