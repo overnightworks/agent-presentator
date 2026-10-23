@@ -40,7 +40,7 @@ def test_an_instance_whose_worker_socket_is_not_the_workers_refuses_to_start_at_
 def test_an_instance_starts_on_a_worker_that_answers_with_the_workers_own_bounds(
     environment: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The root hands the client the worker's identity, its bound and the settings."""
+    """Review need Q4: the seam fields reach the client as one production value."""
     built: list[WorkerToolchain] = []
 
     def answering(toolchain: WorkerToolchain) -> bool:

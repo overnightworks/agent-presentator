@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -61,6 +61,7 @@ from tests.worker_support import OWN_GID, OWN_UID
 MEGABYTES = 1
 WINDOW = 0.6
 PROMPTLY = 10
+WINDOW_TOLERANCE = 0.1
 AS_ROOT = pytest.mark.skipif(
     os.geteuid() == 0, reason="root ignores file modes, so 000 refuses nothing"
 )
@@ -179,24 +180,28 @@ def fake_worker(volume: Path, script: Script, accepts: int = 4) -> Generator[See
 
 
 @pytest.fixture
-def volume(tmp_path: Path) -> Path:
+def volume(tmp_path: Path) -> Generator[Path]:
+    """The socket volume; the worker's umask, set by its bind, ends with the test."""
+    before = os.umask(0)
+    os.umask(before)
     (tmp_path / "volume").mkdir()
-    return tmp_path / "volume"
+    yield tmp_path / "volume"
+    os.umask(before)
 
 
 def toolchain(volume: Path, **overrides: object) -> WorkerToolchain:
-    settings: dict[str, object] = {
-        "socket_path": volume / SOCKET_NAME,
-        "megabytes": MEGABYTES,
-        "reply_bound_seconds": 2.0,
-        "expected_uid": OWN_UID,
-        "expected_gid": OWN_GID,
-        "connect_window_seconds": WINDOW,
-        "first_retry_seconds": 0.02,
-        "longest_retry_seconds": 0.1,
-        "reply_margin_seconds": 0.2,
-    }
-    return WorkerToolchain(**{**settings, **overrides})  # type: ignore[arg-type]
+    base = WorkerToolchain(
+        socket_path=volume / SOCKET_NAME,
+        megabytes=MEGABYTES,
+        reply_bound_seconds=2.0,
+        expected_uid=OWN_UID,
+        expected_gid=OWN_GID,
+        connect_window_seconds=WINDOW,
+        first_retry_seconds=0.02,
+        longest_retry_seconds=0.1,
+        reply_margin_seconds=0.2,
+    )
+    return replace(base, **overrides)
 
 
 def a_step(root: Path, kind: StepKind = StepKind.BUILD) -> BuildStep:
@@ -316,6 +321,23 @@ def test_a_worker_that_is_not_there_is_retried_until_the_window_ends(
     assert WINDOW <= time.monotonic() - started < WINDOW + 0.5
 
 
+@pytest.mark.parametrize("after_the_request", [False, True])
+def test_a_worker_that_keeps_closing_is_retried_until_the_window_ends(
+    volume: Path, *, after_the_request: bool
+) -> None:
+    """Cell B1: a close before STATUS is retried, and the failure comes at W."""
+    keeps_closing = closing_first(
+        50, answering(nothing_to_reply), after_the_request=after_the_request
+    )
+    started = time.monotonic()
+
+    with fake_worker(volume, keeps_closing, accepts=50):
+        answering_at_start = toolchain(volume).is_answering()
+
+    assert not answering_at_start
+    assert WINDOW <= time.monotonic() - started < WINDOW + 0.5
+
+
 def test_a_socket_not_yet_listening_is_retried_until_the_window_ends(
     volume: Path,
 ) -> None:
@@ -330,6 +352,7 @@ def test_a_socket_not_yet_listening_is_retried_until_the_window_ends(
 
 
 def test_a_worker_answering_a_hello_is_answering(volume: Path) -> None:
+    """Cell B14: a worker that answers the HELLO at start is answering."""
     with fake_worker(volume, answering(nothing_to_reply)):
         assert toolchain(volume).is_answering()
 
@@ -424,23 +447,23 @@ def test_a_reply_dripped_past_the_last_deadline_fails_at_it(
 def test_a_status_later_than_the_window_fails_at_it_with_no_upload_byte_sent(
     volume: Path, tmp_path: Path
 ) -> None:
-    """Cell B22."""
+    """Cell B22: the STEP goes out well into W, and its STATUS comes after W."""
     seen_late: list[bytes] = []
 
     def slow_status(connection: socket.socket, _seen: Seen, _uploads: Path) -> None:
         read_request(connection)
-        time.sleep(WINDOW * 2)
+        time.sleep(1.0)
         connection.settimeout(1)
         seen_late.append(connection.recv(1 << 16))
 
+    after_three_closings = closing_first(3, slow_status, after_the_request=False)
     started = time.monotonic()
-    with fake_worker(volume, slow_status):
+    with fake_worker(volume, after_three_closings):
         result = toolchain(volume).ran(a_step(tmp_path))
         elapsed = time.monotonic() - started
-        time.sleep(WINDOW * 2)
 
     assert result == WITHOUT_A_REASON
-    assert WINDOW - 0.05 <= elapsed < WINDOW + 0.2
+    assert abs(elapsed - WINDOW) < WINDOW_TOLERANCE
     assert seen_late == [b""]
 
 
@@ -531,6 +554,7 @@ def test_a_deck_that_cannot_be_walked_fails_without_a_reason(
 def test_a_run_without_its_deck_fails_without_a_reason(
     volume: Path, tmp_path: Path
 ) -> None:
+    """Fault table: the deck directory is missing at the survey."""
     step = a_step(tmp_path)
     (step.place.here / DECK_DIRECTORY / "slides.md").unlink()
     (step.place.here / DECK_DIRECTORY).rmdir()
@@ -541,19 +565,18 @@ def test_a_run_without_its_deck_fails_without_a_reason(
 def test_a_deck_changing_after_the_survey_fails_without_a_reason(
     volume: Path, tmp_path: Path
 ) -> None:
-    """Fault table: send_tree raising after STATUS, here a deck cut short."""
+    """Fault table: a deck that changes between the survey and the upload."""
     step = a_step(tmp_path)
-    (step.place.here / DECK_DIRECTORY / "link").symlink_to("slides.md")
 
-    def survey_misses_it(_deck: int, _megabytes: int) -> None:
-        return None
+    def changing_the_deck(
+        connection: socket.socket, _seen: Seen, _uploads: Path
+    ) -> None:
+        read_request(connection)
+        (step.place.here / DECK_DIRECTORY / "link").symlink_to("slides.md")
+        send_status(connection)
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(
-            "presentator.adapters.build_worker.check_upload", survey_misses_it
-        )
-        with fake_worker(volume, replying(BUILT_BY_STEP)):
-            result = toolchain(volume).ran(step)
+    with fake_worker(volume, changing_the_deck):
+        result = toolchain(volume).ran(step)
 
     assert result == WITHOUT_A_REASON
     assert not staging_of(step).exists()
@@ -576,6 +599,23 @@ def test_a_worker_closing_while_the_deck_is_uploaded_fails_without_a_reason(
         result = toolchain(volume).ran(step)
 
     assert result == WITHOUT_A_REASON
+    assert not staging_of(step).exists()
+
+
+def test_a_worker_closing_in_the_middle_of_its_reply_fails_without_a_reason(
+    volume: Path, tmp_path: Path
+) -> None:
+    """Cell B5 (I): the worker closes in the middle of its reply."""
+    step = a_step(tmp_path)
+
+    def closing_mid_reply(connection: socket.socket, _step: StepHeader) -> None:
+        connection.sendall(support.OUTCOME_BUILT)
+
+    with fake_worker(volume, answering(closing_mid_reply)):
+        result = toolchain(volume).ran(step)
+
+    assert result == WITHOUT_A_REASON
+    assert not staging_of(step).exists()
 
 
 BAD_REPLIES = [
@@ -708,6 +748,7 @@ def test_a_staging_that_cannot_be_removed_leaves_the_result_and_logs_the_fault(
 def test_a_staging_left_over_from_before_is_a_fault_and_is_not_removed(
     tmp_path: Path,
 ) -> None:
+    """Fault table: receiver OSError, a staging that is already there."""
     step = a_step(tmp_path)
     staging_of(step).mkdir()
 
@@ -753,4 +794,5 @@ def test_a_refused_or_failed_reply_is_the_text_the_deck_page_shows(
 def test_the_worker_runs_nothing_that_could_write_in_the_run_directory(
     volume: Path, tmp_path: Path
 ) -> None:
+    """Trace row: nothing_of_it_runs answers True."""
     assert toolchain(volume).nothing_of_it_runs(a_step(tmp_path).place)
