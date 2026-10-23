@@ -138,11 +138,11 @@ def record(descriptor: int, roots: dict[int, str]) -> dict[str, object]:
             overflow = overflow or bool(mask & IN_Q_OVERFLOW)
             if mask & ENDED:
                 ended.add(root)
+            elif (root, name) == (BOUNDARY_ROOT, BOUNDARY_NAME):
+                boundary = True
+                break
             elif mask & (IN_CREATE | IN_MOVED_TO):
                 created[root].append(name)
-                if (root, name) == (BOUNDARY_ROOT, BOUNDARY_NAME):
-                    boundary = True
-                    break
     return {
         "boundary": boundary,
         "overflow": overflow,
