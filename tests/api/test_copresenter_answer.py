@@ -34,7 +34,12 @@ from presentator.api.copresenter import (
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
+from presentator.application.copresenter import (
+    AskLimiter,
+    AskTicket,
+    CoPresenterUse,
+    RetryAfter,
+)
 from presentator.contracts.decks import Build, Deck, Source
 from tests.adapters.agent_service_support import (
     GOOD_ANSWER,
@@ -107,6 +112,17 @@ def a_stalled_transport() -> httpx2.AsyncBaseTransport:
 
 
 @dataclass
+class RecordingLimiter(AskLimiter):
+    """The real limiter, remembering which sessions asked it for a ticket."""
+
+    session_ids: list[str] = field(default_factory=list[str])
+
+    def admit(self, session_id: str) -> AskTicket | RetryAfter:
+        self.session_ids.append(session_id)
+        return super().admit(session_id)
+
+
+@dataclass
 class Run:
     """One ask by a signed-in admin, and everything that could have seen it."""
 
@@ -115,6 +131,7 @@ class Run:
     wire: Wire
     fakes: PrivateFakes
     talk: TestClient
+    limiter: RecordingLimiter
     grants_before: list[str] = field(default_factory=list[str])
 
     @property
@@ -192,6 +209,7 @@ class Scenario:
 def drive(tmp_path: Path, scenario: Scenario = Scenario()) -> Run:  # noqa: B008
     """Sign an admin in at the talk host, then ask once."""
     wire = Wire(scenario.reply)
+    limiter = RecordingLimiter(clock=FrozenClock(instant=NOW))
     fakes = PrivateFakes()
     fakes.speaking.fails_at = scenario.speaking_fails_at
     hosts_made: list[Hosts] = []
@@ -222,7 +240,7 @@ def drive(tmp_path: Path, scenario: Scenario = Scenario()) -> Run:  # noqa: B008
                     auth.relying_party, sessions, auth.config
                 ),
             ),
-            limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
+            limiter=limiter,
             browser_origin=A_TALK_ADDRESS,
             delay=wait,
         )
@@ -240,7 +258,7 @@ def drive(tmp_path: Path, scenario: Scenario = Scenario()) -> Run:  # noqa: B008
     grants_before = list(hosts.issuer.grant_types)
     scenario.before_ask(hosts)
     response = ask(talk, scenario.body)
-    return Run(response, hosts, wire, fakes, talk, grants_before)
+    return Run(response, hosts, wire, fakes, talk, limiter, grants_before)
 
 
 def ask(talk: TestClient, body: Mapping[str, object] = THE_ASKED_DECK) -> Response:
@@ -333,11 +351,18 @@ def test_a_signed_in_admins_ask_reaches_the_service_with_both_tokens_and_only_th
     assert run.events == ["text", "text", "sentence", "audio", "done"]
     (line,) = [r.getMessage() for r in caplog.records if r.name == FIRST_AUDIO]
     assert re.fullmatch(r"co-presenter first audio: ms=\d+", line)
+    assert the_ticket_was_released(run)
 
 
-def the_next_ask_is_admitted(run: Run) -> bool:
-    """Whether the limiter's ticket was released, so the next ask gets through."""
-    return ask(run.talk).status_code != HTTPStatus.TOO_MANY_REQUESTS
+def the_ticket_was_released(run: Run) -> bool:
+    """Whether every ticket the ask took is free again, so its session may ask."""
+    assert run.limiter.session_ids
+    for session_id in set(run.limiter.session_ids):
+        ticket = run.limiter.admit(session_id)
+        if not isinstance(ticket, AskTicket):
+            return False
+        ticket.release()
+    return True
 
 
 @pytest.mark.parametrize(
@@ -385,6 +410,7 @@ def test_a_person_token_refusal_is_answered_before_the_service_is_called(
     assert run.response.json() == {"detail": detail}
     assert run.wire.requests == []
     assert run.fakes.speaking.spoken == []
+    assert the_ticket_was_released(run)
 
 
 def test_a_session_that_ended_during_the_grant_asked_the_issuer_exactly_once(
@@ -412,7 +438,7 @@ def test_the_limiter_ticket_is_released_after_each_person_token_refusal(
     run.hosts.issuer.token_endpoint_is_down = False
 
     assert run.response.status_code != HTTPStatus.OK
-    assert the_next_ask_is_admitted(run)
+    assert the_ticket_was_released(run)
 
 
 def test_a_doubled_session_cookie_is_refused_before_any_token_is_fetched(
@@ -457,7 +483,7 @@ def test_a_refused_workload_token_ends_in_a_plain_error_and_never_posts(
     assert "reason" not in run.error_payload()
     assert run.wire.requests == []
     assert not [r for r in caplog.records if r.name == FIRST_AUDIO]
-    assert the_next_ask_is_admitted(run)
+    assert the_ticket_was_released(run)
 
 
 def test_a_service_that_does_not_enable_the_person_ends_in_error_with_its_reason(
@@ -475,7 +501,7 @@ def test_a_service_that_does_not_enable_the_person_ends_in_error_with_its_reason
     }
     assert NOT_ENABLED_REASON == "not-enabled"
     assert any("not_enabled" in r.getMessage() for r in caplog.records)
-    assert the_next_ask_is_admitted(run)
+    assert the_ticket_was_released(run)
 
 
 def test_a_busy_service_ends_in_error_without_a_reason_and_logs_the_wait(
@@ -494,6 +520,7 @@ def test_a_busy_service_ends_in_error_without_a_reason_and_logs_the_wait(
         "busy" in r.getMessage() and "retry_after=7" in r.getMessage()
         for r in caplog.records
     )
+    assert the_ticket_was_released(run)
 
 
 def test_a_service_that_refuses_the_token_ends_in_error_without_a_reason(
@@ -506,6 +533,7 @@ def test_a_service_that_refuses_the_token_ends_in_error_without_a_reason(
 
     assert run.events == ["error"]
     assert "reason" not in run.error_payload()
+    assert the_ticket_was_released(run)
 
 
 @pytest.mark.parametrize(
@@ -558,7 +586,7 @@ def test_every_other_service_failure_ends_in_a_plain_error_and_never_in_done(
 
     assert run.events == events
     assert "reason" not in run.error_payload()
-    assert the_next_ask_is_admitted(run)
+    assert the_ticket_was_released(run)
 
 
 def test_speech_failing_on_the_second_sentence_ends_after_the_first_in_error(
@@ -579,6 +607,7 @@ def test_speech_failing_on_the_second_sentence_ends_after_the_first_in_error(
 
     assert run.events == ["text", "sentence", "audio", "sentence", "error"]
     assert "reason" not in run.error_payload()
+    assert the_ticket_was_released(run)
 
 
 HANGING_AFTER_THE_FIRST_WORDS: Final = Reply(
@@ -587,20 +616,17 @@ HANGING_AFTER_THE_FIRST_WORDS: Final = Reply(
 )
 
 
-def _after_the_answer_began(
-    change: Callable[[Hosts], None],
-) -> Callable[[Wire, Hosts, float], Awaitable[None]]:
-    """A session re-check that, once the service holds the run, changes the world."""
+@dataclass
+class ChangeOnceTheAnswerHangs:
+    """A session re-check that, once the service has played its words, changes the world."""
 
-    async def check(wire: Wire, hosts: Hosts, _seconds: float) -> None:
-        for _turn in range(50):
-            if wire.requests:
-                break
-            await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        change(hosts)
+    change: Callable[[Hosts], None]
+    waits: int = 0
 
-    return check
+    async def __call__(self, wire: Wire, hosts: Hosts, _seconds: float) -> None:
+        self.waits += 1
+        await asyncio.wait_for(wire.response_stream.hung.wait(), timeout=5)
+        self.change(hosts)
 
 
 @pytest.mark.parametrize(
@@ -614,15 +640,16 @@ def test_an_answer_ends_within_one_recheck_when_the_session_or_the_role_goes(
     tmp_path: Path, change: Callable[[Hosts], None]
 ) -> None:
     """Cells 17 and 19: the service's connection is closed behind it."""
-    scenario = Scenario(
-        reply=HANGING_AFTER_THE_FIRST_WORDS, delay=_after_the_answer_began(change)
-    )
+    recheck = ChangeOnceTheAnswerHangs(change)
+    scenario = Scenario(reply=HANGING_AFTER_THE_FIRST_WORDS, delay=recheck)
 
     run = drive(tmp_path, scenario)
 
     assert run.response.status_code == HTTPStatus.OK
-    assert "done" not in run.events
+    assert run.events == ["text"]
+    assert recheck.waits == 1
     assert run.wire.response_stream.closed.is_set()
+    assert the_ticket_was_released(run)
 
 
 def _a_hanging_app(
@@ -747,7 +774,7 @@ def test_a_deck_without_readable_words_ends_in_error_and_never_calls_the_service
 
     assert run.events == ["error"]
     assert run.wire.requests == []
-    assert the_next_ask_is_admitted(run)
+    assert the_ticket_was_released(run)
 
 
 def test_another_admins_deck_gets_the_ghosts_refusal_and_spends_no_token(
@@ -777,6 +804,7 @@ def test_an_answer_without_any_text_is_done_with_no_audio_and_logs_no_first_audi
     assert run.events == ["done"]
     assert run.response.text == 'event: done\ndata: {"text": ""}\n\n'
     assert not [r for r in caplog.records if r.name == FIRST_AUDIO]
+    assert the_ticket_was_released(run)
 
 
 def _echoing_the_token() -> Reply:
