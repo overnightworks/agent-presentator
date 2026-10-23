@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 from contextlib import closing
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -33,7 +34,7 @@ from presentator.api.copresenter import (
     CoPresenterSurface,
     add_copresenter_routes,
 )
-from presentator.application.copresenter import AskLimiter, CoPresenterUse
+from presentator.application.copresenter import AskLimiter, AskTicket, CoPresenterUse
 from presentator.contracts.decks import Build, Deck, Source
 from tests.adapters.agent_service_support import (
     GOOD_ANSWER,
@@ -619,31 +620,59 @@ def test_an_answer_ends_within_one_recheck_when_the_session_or_the_role_goes(
     assert run.wire.response_stream.closed.is_set()
 
 
-def test_a_browser_that_leaves_mid_answer_closes_the_services_connection() -> None:
-    """Cell 18."""
-    wire = Wire(HANGING_AFTER_THE_FIRST_WORDS)
-    fakes = PrivateFakes()
+def _a_hanging_app(
+    wire: Wire, limiter: AskLimiter, admission: Callable[[object], FixedSession]
+) -> FastAPI:
     app = FastAPI()
     add_copresenter_routes(
         app,
         surface=CoPresenterSurface(
             use=replace(
-                a_use(fakes, the_admins_decks()),
+                a_use(PrivateFakes(), the_admins_decks()),
                 answers=ServiceAnswerer(
                     origin=AN_AGENT_SERVICE,
                     workload_token=a_workload_token,
                     transport=wire.transport,
                 ),
             ),
-            limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
+            limiter=limiter,
             browser_origin=A_TALK_ADDRESS,
         ),
-        admission=lambda _connection: FixedSession(),
+        admission=admission,
     )
+    return app
+
+
+def test_a_browser_that_leaves_mid_answer_closes_the_services_connection() -> None:
+    """Cell 18."""
+    wire = Wire(HANGING_AFTER_THE_FIRST_WORDS)
+    limiter = AskLimiter(clock=FrozenClock(instant=NOW))
+    app = _a_hanging_app(wire, limiter, lambda _connection: FixedSession())
 
     asyncio.run(_ask_and_leave_after_the_first_words(app))
 
     assert wire.response_stream.closed.is_set()
+    assert isinstance(limiter.admit(FixedSession().session_id), AskTicket)
+
+
+def test_the_admission_runs_off_the_event_loop_thread() -> None:
+    """Decision 5: the session read of the admission belongs to the thread hop."""
+    admitted_on: list[int] = []
+
+    def admission(_connection: object) -> FixedSession:
+        admitted_on.append(threading.get_ident())
+        return FixedSession()
+
+    app = _a_hanging_app(
+        Wire(HANGING_AFTER_THE_FIRST_WORDS),
+        AskLimiter(clock=FrozenClock(instant=NOW)),
+        admission,
+    )
+
+    asyncio.run(_ask_and_leave_after_the_first_words(app))
+
+    assert admitted_on
+    assert threading.get_ident() not in admitted_on
 
 
 async def a_workload_token() -> str:

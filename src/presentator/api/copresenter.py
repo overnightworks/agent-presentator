@@ -189,7 +189,7 @@ def _ask_route(
 ) -> Callable[[Request, AskRequest], Awaitable[Response]]:
     async def _ask(request: Request, question: AskRequest) -> Response:
         admitted = await run_in_threadpool(
-            _admit, surface, admission(request), question
+            _admit, surface, admission, request, question
         )
         if isinstance(admitted, Response):
             return admitted
@@ -220,8 +220,12 @@ def _ask_route(
 
 
 def _admit(
-    surface: CoPresenterSurface, connection: SignedIn | None, question: AskRequest
+    surface: CoPresenterSurface,
+    admission: Admission,
+    request: Request,
+    question: AskRequest,
 ) -> _Ask | Response:
+    connection = admission(request)
     if not _may_use(connection):
         return _refusal(connection)
     asked = surface.use.asked_deck(question.deck, viewer=connection.user_id)
