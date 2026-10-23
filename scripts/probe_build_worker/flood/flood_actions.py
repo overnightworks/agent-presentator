@@ -1,8 +1,10 @@
 """The flood deck's build-time actions, run as the build user by its build hook.
 
-`MODE` is one of `hold`, `fork`, `fill` and `fill-after-score`. A mode that must
-hand the driver a record publishes it to the life's `/tmp` and waits, bounded,
-for the driver's ack: the restart that follows a flooded life wipes that tmpfs,
+The mode is the first argument: `hold`, `fork`, `fill` or `fill-after-score`.
+`hold` waits for a `flood.release` file that nothing publishes, so it ends only
+when the client's abandonment cancels the step or its own bound runs out. A mode
+that must hand the driver a record publishes it to the life's `/tmp` and waits,
+bounded, for the driver's ack: the restart that follows a flooded life wipes that tmpfs,
 so the record has to be read before it. A record line is `KEY VALUE`; a failed
 attempt records only the kernel's errno name, never what it touched.
 """

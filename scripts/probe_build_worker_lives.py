@@ -9,11 +9,13 @@ the host's `/proc`. The flood deck (`probe_build_worker/flood`) takes its mode
 from a file the driver publishes into the life's `/tmp` before the STEP.
 """
 
+import select
 import subprocess
 import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import IO
 
 from probe_build_worker_harness import (
     ENTRY_FILE,
@@ -37,7 +39,6 @@ from probe_build_worker_isolation import (
     wait_for_deck,
 )
 
-from presentator.host.worker_serving import HEADER_SECONDS
 from presentator.host.worker_termination import SWEEP_SECONDS
 
 FLOOD_SLUG = "flood"
@@ -54,9 +55,7 @@ FINISH_WINDOW_SECONDS = 2
 LAUNCH_SLACK_SECONDS = 3
 POLL_SECONDS = 0.05
 RECORD_POLL_SECONDS = 0.5
-ACCEPTED_FILL_ENDS = frozenset(
-    {"outcome failed with-text", "outcome failed without-text", "closed"}
-)
+HANDSHAKE_SECONDS = 120
 
 
 class FloodMode(StrEnum):
@@ -66,6 +65,22 @@ class FloodMode(StrEnum):
     FORK = "fork"
     FILL = "fill"
     FILL_AFTER_SCORE = "fill-after-score"
+
+
+class StepEnd(StrEnum):
+    """How a flood client saw its step end; the client prints it, the driver reads."""
+
+    FAILED_WITH_TEXT = "outcome failed with-text"
+    FAILED_WITHOUT_TEXT = "outcome failed without-text"
+    BUILT = "outcome built"
+    REFUSED = "outcome refused"
+    CLOSED = "closed"
+    MALFORMED = "malformed"
+
+
+ACCEPTED_FILL_ENDS = frozenset(
+    {StepEnd.FAILED_WITH_TEXT, StepEnd.FAILED_WITHOUT_TEXT, StepEnd.CLOSED}
+)
 
 
 class Abandonment(StrEnum):
@@ -170,12 +185,12 @@ def acknowledge() -> None:
     docker("exec", worker(), "sh", "-c", f"echo ack > {ACK_FILE}")
 
 
-def outcome_line(client: "subprocess.Popen[str]") -> str:
-    """The one line the flood client printed: the OUTCOME's class, or closed."""
+def outcome_line(client: "subprocess.Popen[str]") -> StepEnd:
+    """The one line the flood client printed: how its step ended."""
     lines = client_result(client, FLOOD_SECONDS)
-    if len(lines) != 1:
+    if len(lines) != 1 or lines[0] not in StepEnd:
         refuse(f"the flood client printed {lines}")
-    return lines[0]
+    return StepEnd(lines[0])
 
 
 def prove_fork_bomb(report: Report) -> None:
@@ -190,7 +205,7 @@ def prove_fork_bomb(report: Report) -> None:
     events = int(record["events-max"])
     if events <= baseline:
         refuse(f"pids.events max did not rise: {baseline} before, {events} after")
-    if outcome != "outcome failed with-text":
+    if outcome is not StepEnd.FAILED_WITH_TEXT:
         refuse(f"the fork bomb's step answered {outcome!r}, not failed with text")
     report.cell(
         "40",
@@ -247,21 +262,34 @@ def build_user_process(pid: str) -> bool:
     return uid == [BUILD_IDENTITY]
 
 
+def handshake_line(client: "subprocess.Popen[str]", pipe: IO[str]) -> str:
+    """The client's next line; a stalled or dead client is a refusal, not a wait."""
+    ready, _, _ = select.select([pipe], [], [], HANDSHAKE_SECONDS)
+    line = pipe.readline().strip() if ready else ""
+    if not line:
+        client.kill()
+        refuse(f"the client not driven: no handshake line: {client.communicate()}")
+    return line
+
+
 def prove_abandoned_build(report: Report, how: Abandonment) -> None:
     """Cell 25 C: a client that leaves after END gets its step killed."""
     restarts_before = begin_life_to_end(FloodMode.HOLD)
     client = start_client("abandon", FLOOD_SLUG, how.value, stdin=subprocess.PIPE)
     if client.stdout is None or client.stdin is None:
         refuse("the abandoning client has no pipes")
-    if client.stdout.readline().strip() != "uploaded":
+    if handshake_line(client, client.stdout) != "uploaded":
         refuse(f"the client did not upload: {client.communicate()}")
     wait_for_deck(client)
     step = docker("exec", worker(), "cat", str(TEMPORARY / "deck.pid")).strip()
     if not build_user_process(step):
         refuse(f"the step {step} is not alive as {BUILD_IDENTITY} before the close")
-    client.stdin.write("close\n")
-    client.stdin.flush()
-    closed_at = float(client.stdout.readline().split()[1])
+    try:
+        client.stdin.write("close\n")
+        client.stdin.flush()
+    except BrokenPipeError:
+        refuse(f"the client died before the close: {client.communicate()}")
+    closed_at = float(handshake_line(client, client.stdout).split()[1])
     client_result(client, ABANDON_SECONDS)
     finished = after_the_next_status(restarts_before)
     gap = (finished - datetime.fromtimestamp(closed_at, UTC)).total_seconds()
@@ -301,8 +329,6 @@ def prove_leftover_swept(name: str, connection: tuple[str, ...]) -> float:
     """One kept-life connection; the seconds until its leftover left /proc."""
     leftover = Path(f"/proc/{leave_leftover()}")
     bound = SWEEP_SECONDS + LAUNCH_SLACK_SECONDS
-    if name == "H expiry":
-        bound += HEADER_SECONDS
     started = time.monotonic()
     client = start_client(*connection)
     while leftover.exists():

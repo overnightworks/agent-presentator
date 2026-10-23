@@ -55,6 +55,7 @@ from probe_build_worker_isolation import prove_attacked_life
 from probe_build_worker_lives import (
     FLOOD_SLUG,
     Abandonment,
+    StepEnd,
     prove_lives_that_end_badly,
 )
 
@@ -250,25 +251,31 @@ def upload_deck(connection: socket.socket, slug: str) -> None:
 
 
 def client_outcome(slug: str) -> None:
-    """Upload the deck and report how the step ended: the OUTCOME's class, or closed."""
+    """Upload the deck and report how the step ended, as a `StepEnd`."""
     connection = start_build(slug)
     try:
         upload_deck(connection, slug)
+        if not connection.recv(1, socket.MSG_PEEK):
+            say(StepEnd.CLOSED)
+            return
         outcome = read_outcome(connection)
-    except (WireRefusedError, ConnectionError):
-        say("closed")
+    except ConnectionError:
+        say(StepEnd.CLOSED)
+        return
+    except WireRefusedError:
+        say(StepEnd.MALFORMED)
         return
     finally:
         connection.close()
     match outcome:
         case FailedOutcome(text=None):
-            say("outcome failed without-text")
+            say(StepEnd.FAILED_WITHOUT_TEXT)
         case FailedOutcome():
-            say("outcome failed with-text")
+            say(StepEnd.FAILED_WITH_TEXT)
         case BuiltOutcome():
-            say("outcome built")
+            say(StepEnd.BUILT)
         case _:
-            say("outcome refused")
+            say(StepEnd.REFUSED)
 
 
 def client_abandon(slug: str, how: Abandonment) -> None:
