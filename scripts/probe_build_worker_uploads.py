@@ -107,8 +107,9 @@ def _drip_record() -> bytes:
     return directory(b"a/" + b"b" * filler)
 
 
+ABSOLUTE_PATH_CLASS = "absolute path"
 _DEFECTS_AFTER_A_DIRECTORY = {
-    "absolute path": b"/b",
+    ABSOLUTE_PATH_CLASS: b"/b",
     "//": b"b//c",
     "trailing /": b"a/",
     ".": b"a/.",
