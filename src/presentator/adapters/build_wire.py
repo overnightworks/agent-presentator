@@ -39,6 +39,7 @@ MAXIMUM_HEADER_BYTES = 4096
 MAXIMUM_PATH_BYTES = 1024
 MAXIMUM_DEPTH = 32
 CHUNK_BYTES = 64 * 1024
+PEER_CREDENTIALS = struct.Struct("3i")
 MAXIMUM_ENTRIES = 100_000
 MEGABYTE = 1024 * 1024
 TOOLCHAIN_SCRATCH_NAME = TOOLCHAIN_SCRATCH_DIRECTORY.encode()
@@ -164,6 +165,14 @@ def read_request(connection: socket.socket) -> EmptyHeader | StepHeader:
     """Read one HELLO or STEP preamble and header; raise WireRefusedError otherwise."""
     kind, header = _read_message(connection, frozenset(_HEADER_MODELS))
     return _validated(TypeAdapter(_HEADER_MODELS[kind]), header)
+
+
+def peer_uid(connection: socket.socket) -> int:
+    """The uid of the process on the other end of a connected unix socket."""
+    credentials = connection.getsockopt(
+        socket.SOL_SOCKET, socket.SO_PEERCRED, PEER_CREDENTIALS.size
+    )
+    return PEER_CREDENTIALS.unpack(credentials)[1]
 
 
 def read_status(connection: socket.socket) -> None:
