@@ -1,8 +1,0 @@
-claim_id = "48cbf2abf2364c3e840f3c1ac53b0b7b"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "e149f3436055379df0f1a972ed5647327de0ddc8"
-branch = "claude/issue-468-web-builds-through-worker"
-scope = ["docs/reference/configuration.md", "scripts/probe_build_worker_refusals.py", "src/presentator/adapters/build_wire.py", "src/presentator/adapters/build_worker.py", "src/presentator/adapters/builds.py", "src/presentator/host/config.py", "src/presentator/host/main.py", "src/presentator/host/worker.py", "tests/adapters/test_build_wire_walk.py", "tests/adapters/test_build_worker.py", "tests/test_host_build_worker.py", "tests/test_worker.py", "tests/test_worker_serving.py", "tests/worker_support.py"]
-opened_commit = "d61531128477bbe857eeb7b5ce1c8bd7269eabbf"
-whole_reason = "One contract, the web's client of the worker: the adapter, the codec's walk it must reuse, the two constants it shares with the worker, the setting and composition that choose it, the worker's readers of the moved constants, their tests and the settings row cannot land apart without a client that raises or code without a caller."
