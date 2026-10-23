@@ -15,16 +15,7 @@ from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAM
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.application.copresenter import AskLimiter
 from presentator.contracts.models import Role, User
-from tests.api.lobby import (
-    A_BROWSERS_ADDRESS,
-    A_TALK_ADDRESS,
-    NOW,
-    USERNAME,
-    a_web_auth,
-    hand_over_session_cookies,
-)
-from tests.api.talk_support import A_DECK, MEMBER, A, Hosts, two_hosts
-from tests.api.test_copresenter import (
+from tests.api.copresenter_support import (
     HEARING,
     POLICY_VIOLATION,
     QUESTION,
@@ -34,6 +25,15 @@ from tests.api.test_copresenter import (
     a_copresenter_talk_host,
     a_use,
 )
+from tests.api.lobby import (
+    A_BROWSERS_ADDRESS,
+    A_TALK_ADDRESS,
+    NOW,
+    USERNAME,
+    a_web_auth,
+    hand_over_session_cookies,
+)
+from tests.api.talk_support import A_DECK, MEMBER, A, Hosts, two_hosts
 from tests.application.fakes import FakeDeckStore, FrozenClock
 
 if TYPE_CHECKING:

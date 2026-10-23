@@ -15,13 +15,13 @@ from presentator.api.auth import BACKCHANNEL_LOGOUT_PATH
 from presentator.api.copresenter import MAX_SAID_LENGTH
 from presentator.contracts.models import Role
 from presentator.contracts.text import DEFAULT_LANGUAGE_TAG
+from tests.api.copresenter_support import QUESTION, a_copresenter_talk_host
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
     A_TALK_ADDRESS,
     a_content_security_policy,
     a_lobby,
 )
-from tests.api.test_copresenter import QUESTION, a_copresenter_talk_host
 from tests.sign_in_support import Scene, a_scene
 
 _FORM = "application/x-www-form-urlencoded"

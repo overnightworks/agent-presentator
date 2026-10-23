@@ -18,8 +18,7 @@ from presentator.api.copresenter import (
     add_copresenter_routes,
 )
 from presentator.application.copresenter import AskLimiter, AskTicket
-from tests.api.lobby import ADMIN
-from tests.api.test_copresenter import (
+from tests.api.copresenter_support import (
     NOW,
     QUESTION,
     TALK_ORIGIN,
@@ -29,6 +28,7 @@ from tests.api.test_copresenter import (
     ask,
     the_admins_decks,
 )
+from tests.api.lobby import ADMIN
 from tests.application.fakes import FrozenClock
 
 if TYPE_CHECKING:
