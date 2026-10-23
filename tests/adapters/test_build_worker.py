@@ -554,7 +554,7 @@ def test_a_deck_that_cannot_be_walked_fails_without_a_reason(
 def test_a_run_without_its_deck_fails_without_a_reason(
     volume: Path, tmp_path: Path
 ) -> None:
-    """Fault table: the deck directory is missing at the survey."""
+    """Sentence B4: a run with its deck gone fails as a BuildFailure, never a raise."""
     step = a_step(tmp_path)
     (step.place.here / DECK_DIRECTORY / "slides.md").unlink()
     (step.place.here / DECK_DIRECTORY).rmdir()
