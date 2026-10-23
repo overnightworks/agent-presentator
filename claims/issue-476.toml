@@ -1,7 +1,0 @@
-claim_id = "779a6744db9543c9b9818da440f66880"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "819adaaa61a365450ca781acd479f1e881b31ee4"
-branch = "claude/issue-476-deck-reader-linear"
-scope = ["src/presentator/adapters/deck_texts.py", "src/presentator/adapters/speech.py", "tests/adapters/test_deck_texts.py"]
-opened_commit = "e9abf27d7c51c9a75618122f85f3803e079516df"
