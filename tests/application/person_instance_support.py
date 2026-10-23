@@ -3,6 +3,8 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
+from pydantic import SecretStr
+
 from presentator.application.decks import Decks
 from presentator.application.people import People
 from presentator.contracts.decks import Source
@@ -99,6 +101,7 @@ def an_instance(
             now=clock.now(),
             expires_at=clock.now() + timedelta(hours=1),
             refresh_token=None,
+            id_token=SecretStr("an-id-token"),
         )
         resolved.key_drafts.mint(person.id, at=clock.now())
     preferences = FakePersonPreferencesStore(

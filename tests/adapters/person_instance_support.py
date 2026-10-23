@@ -100,7 +100,7 @@ def _stores_over(database: Path) -> _Stores:
         runs=SqliteSourceRunStore(database=database),
         key_drafts=a_key_drafts_store(database),
         accounts=SqliteSubjectUserStore(database, ProcessWriteLock()),
-        sessions=SqliteSessionRecordStore(database),
+        sessions=SqliteSessionRecordStore(database, keeps_id_token=True),
         preferences=SqlitePersonPreferencesStore(database),
     )
 
@@ -117,6 +117,7 @@ def _seed_person(
         now=_NOW,
         expires_at=_NOW + timedelta(hours=1),
         refresh_token=SecretStr("a-refresh-token"),
+        id_token=SecretStr("an-id-token"),
     )
     stores.preferences.write(person.id, PersonPreferences(language_tag="de"))
     stores.key_drafts.mint(person.id, at=_NOW)

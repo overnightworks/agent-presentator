@@ -467,7 +467,7 @@ def test_a_lobby_logout_leaves_the_talk_session_standing(hosts: Hosts) -> None:
 
     ended = browser.post(f"{A_BROWSERS_ADDRESS}/logout", headers=_LOBBY_ORIGIN_CLAIMS)
 
-    assert ended.status_code == HTTPStatus.SEE_OTHER
+    assert ended.status_code == HTTPStatus.OK
     assert browser.get(f"{A_BROWSERS_ADDRESS}/").status_code == HTTPStatus.FOUND
     assert (
         browser.get(f"{A_TALK_ADDRESS}/deck/{A_DECK}/presenter/").status_code

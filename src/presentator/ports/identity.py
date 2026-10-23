@@ -4,7 +4,7 @@ from abc import abstractmethod
 from typing import Protocol
 
 from presentator.contracts.models import User
-from presentator.contracts.people import SessionTimes
+from presentator.contracts.people import SessionSecretsHeld, SessionTimes
 
 
 class IdentifierFactory(Protocol):
@@ -35,8 +35,8 @@ class PersonSessions(Protocol):
         """When each sign-in of that account began and ends."""
 
     @abstractmethod
-    def refresh_tokens_held(self, user_id: str) -> int:
-        """How many of that account's sessions hold a refresh token, not the tokens."""
+    def secrets_held(self, user_id: str) -> SessionSecretsHeld:
+        """How many of that account's sessions hold each token, not the tokens."""
 
     @abstractmethod
     def delete_for_user(self, user_id: str) -> int:

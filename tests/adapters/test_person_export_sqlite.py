@@ -3,18 +3,24 @@
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from pydantic import SecretStr
+
+from presentator.adapters.identity import SqliteSessionRecordStore
 from presentator.contracts.people import KeyDraftExport, PersonExport, PersonKind
 from tests.adapters.key_draft_support import a_key_drafts_store
 from tests.adapters.person_instance_support import (
     THE_PERSON,
     WHAT_THE_GIT_HOST_EXPECTS,
+    Instance,
     an_instance_with_both_people,
     tables_reaching_accounts,
 )
 
+_TWO_SESSIONS = 2
+_NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _KIND_OF_TABLE = {
     "users": PersonKind.ACCOUNT,
     "sessions": PersonKind.SESSIONS,
@@ -71,6 +77,7 @@ def test_the_secret_columns_are_counted_withheld_over_real_rows(
         PersonKind.HOOK_SECRET_HASH: 1,
         PersonKind.KEY_DRAFT_PRIVATE_KEY: 1,
         PersonKind.REFRESH_TOKEN: 1,
+        PersonKind.ID_TOKEN: 1,
     }
     shown = str(asdict(export))
     seeded_secrets = (
@@ -78,8 +85,49 @@ def test_the_secret_columns_are_counted_withheld_over_real_rows(
         repr(b"\x11" * 32),
         "PRIVATE KEY",
         "a-refresh-token",
+        "an-id-token",
     )
     assert not [secret for secret in seeded_secrets if secret in shown]
+
+
+def _another_session(instance: Instance, *, keeps_id_token: bool) -> None:
+    SqliteSessionRecordStore(instance.database, keeps_id_token=keeps_id_token).create(
+        THE_PERSON.id,
+        now=_NOW,
+        expires_at=_NOW + timedelta(hours=1),
+        refresh_token=None,
+        id_token=SecretStr("a-second-id-token"),
+    )
+
+
+def test_two_sessions_holding_id_tokens_are_counted_two_over_real_rows(
+    tmp_path: Path,
+) -> None:
+    """#428 cell 22: two ID-token sessions give `id-token`, `secret`, count 2."""
+    instance = an_instance_with_both_people(tmp_path)
+    _another_session(instance, keeps_id_token=True)
+
+    export = instance.people.export_person(THE_PERSON.id)
+
+    assert {entry.kind: entry.count for entry in export.withheld}[
+        PersonKind.ID_TOKEN
+    ] == _TWO_SESSIONS
+    assert "a-second-id-token" not in str(asdict(export))
+
+
+def test_sessions_holding_no_id_token_leave_no_id_token_entry_over_real_rows(
+    tmp_path: Path,
+) -> None:
+    """#428 cell 24: the talk host's NULL-token sessions get no `id-token` entry."""
+    instance = an_instance_with_both_people(tmp_path)
+    with closing(sqlite3.connect(instance.database)) as connection, connection:
+        connection.execute("UPDATE sessions SET id_token = NULL")
+    _another_session(instance, keeps_id_token=False)
+
+    export = instance.people.export_person(THE_PERSON.id)
+
+    assert export.data.sessions
+    assert PersonKind.ID_TOKEN not in {entry.kind for entry in export.withheld}
 
 
 def test_a_draft_that_no_longer_opens_is_shown_without_its_key_and_counted(
