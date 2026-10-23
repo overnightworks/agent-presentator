@@ -1,8 +1,0 @@
-claim_id = "49e6305410924156aa724d4924471f58"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "15333ade751e5344b0054eeaec9a19bd44574c2d"
-branch = "claude/issue-471-web-start-survives-fresh-socket"
-scope = ["src/presentator/adapters/build_wire.py", "src/presentator/adapters/build_worker.py", "src/presentator/host/worker_serving.py", "tests/adapters/build_worker_support.py", "tests/adapters/test_build_worker.py", "tests/adapters/test_build_worker_reply.py", "tests/test_worker_serving_loop.py"]
-opened_commit = "9cfe1e542fc47eb2dd365e93b2f3fe1cccffa4b5"
-whole_reason = "The worker client's start retry and the B1 follow-ups in its own files: three production files and the test module they force to split, each change too small to carry a lane of its own."
