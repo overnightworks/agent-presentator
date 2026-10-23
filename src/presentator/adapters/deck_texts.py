@@ -25,8 +25,9 @@ from presentator.contracts.decks import MANIFEST_FILE, SLIDES_FILE, Deck, Source
 
 _SEPARATOR: Final = "---"
 _FENCE_OPEN = re.compile(r"^\s*`+")
-_NOTE = re.compile(r"<!--(.*?)-->", re.DOTALL)
-_TITLE_LINE = re.compile(r"^#\s+(\S.*)$", re.MULTILINE)
+_NOTE_OPEN: Final = "<!--"
+_NOTE_CLOSE: Final = "-->"
+_TITLE_LINE = re.compile(r"^#[ \t]+(\S.*)$", re.MULTILINE)
 _NO_MANIFEST = DeckManifest(title=None, language=None)
 
 
@@ -199,13 +200,19 @@ def _html_comment_continues(line: str, *, inside: bool) -> bool:
 
 
 def _split_notes(chunk: str) -> tuple[str, str]:
-    matches = list(_NOTE.finditer(chunk))
-    if not matches:
+    last: tuple[int, int] | None = None
+    cursor = 0
+    while (start := chunk.find(_NOTE_OPEN, cursor)) != -1:
+        end = chunk.find(_NOTE_CLOSE, start + len(_NOTE_OPEN))
+        if end == -1:
+            break
+        last = (start, end)
+        cursor = end + len(_NOTE_CLOSE)
+    if last is None:
         return chunk, ""
-    last = matches[-1]
-    notes = last.group(1).strip()
-    content = f"{chunk[: last.start()]}{chunk[last.end() :]}"
-    return content, notes
+    start, end = last
+    notes = chunk[start + len(_NOTE_OPEN) : end].strip()
+    return f"{chunk[:start]}{chunk[end + len(_NOTE_CLOSE) :]}", notes
 
 
 def _title(body: str) -> str:

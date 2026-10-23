@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from presentator.ports.copresenter import PrivateHearing
 
 _PRIVATE_ORIGIN: Final = "http://speech.localhost"
-_STATUS_TIMEOUT: Final = 5.0
+_STEP_TIMEOUT: Final = 5.0
 _BUSY_STATUS: Final = 409
 _SPEAK_READ_TIMEOUT: Final = 30.0
 
@@ -123,7 +123,10 @@ class UdsSpeaking:
         """Keep the socket path and how long speech may stay silent mid-body."""
         self._socket_path = socket_path
         self._timeout = httpx2.Timeout(
-            connect=5.0, write=5.0, pool=5.0, read=read_timeout
+            connect=_STEP_TIMEOUT,
+            write=_STEP_TIMEOUT,
+            pool=_STEP_TIMEOUT,
+            read=read_timeout,
         )
 
     async def speak(self, text: str, language: str) -> bytes:
@@ -152,7 +155,7 @@ class UdsSpeechHearing:
         self._socket_path = socket_path
 
     def _client(self) -> httpx2.AsyncClient:
-        return _uds_client(self._socket_path, httpx2.Timeout(_STATUS_TIMEOUT))
+        return _uds_client(self._socket_path, httpx2.Timeout(_STEP_TIMEOUT))
 
     async def readiness(self) -> CoPresenterReadiness:
         """Validate the two health fields the browser consumes."""
@@ -209,7 +212,7 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(_STATUS_TIMEOUT),
+                timeout=httpx2.Timeout(_STEP_TIMEOUT),
                 trust_env=False,
             ) as client:
                 response = await client.get("/voices")
@@ -244,7 +247,12 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(connect=5.0, write=5.0, pool=5.0, read=None),
+                timeout=httpx2.Timeout(
+                    connect=_STEP_TIMEOUT,
+                    write=_STEP_TIMEOUT,
+                    pool=_STEP_TIMEOUT,
+                    read=None,
+                ),
                 trust_env=False,
             ) as client:
                 response = await client.post(f"/voices/{voice.value}/load")
@@ -261,7 +269,7 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(_STATUS_TIMEOUT),
+                timeout=httpx2.Timeout(_STEP_TIMEOUT),
                 trust_env=False,
             ) as client:
                 response = await client.post("/voices/qwen3-tts-0.6b/download")
@@ -278,7 +286,12 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(connect=5.0, write=5.0, pool=5.0, read=None),
+                timeout=httpx2.Timeout(
+                    connect=_STEP_TIMEOUT,
+                    write=_STEP_TIMEOUT,
+                    pool=_STEP_TIMEOUT,
+                    read=None,
+                ),
                 trust_env=False,
             ) as client:
                 response = await client.post(
