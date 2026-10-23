@@ -59,9 +59,10 @@ def test_a_failing_token_source_is_unavailable() -> None:
     fakes = PrivateFakes()
     fakes.person_access.unavailable = True
     use = a_use(fakes, FakeDeckStore())
+    preparing = use.prepare(ASKED, "session")
 
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(use.prepare(ASKED, "session"))
+        asyncio.run(preparing)
 
 
 async def _read_until_done(use: CoPresenterUse, prepared: PreparedAsk) -> list[object]:
@@ -91,10 +92,10 @@ def test_a_deck_without_words_never_reaches_the_service(*, unreadable: bool) -> 
     fakes.texts.text = None
     fakes.texts.unreadable = unreadable
     use = a_use(fakes, FakeDeckStore())
-    prepared = a_prepared_ask(use)
+    reading = _read_until_done(use, a_prepared_ask(use))
 
     with pytest.raises(CoPresenterUnavailableError):
-        asyncio.run(_read_until_done(use, prepared))
+        asyncio.run(reading)
 
     assert fakes.answers.messages == []
 
