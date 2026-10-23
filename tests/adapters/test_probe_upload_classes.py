@@ -128,7 +128,7 @@ def test_the_drip_is_valid_bytes_so_only_the_upload_time_ends_its_life(
 def test_a_prefix_cut_off_by_the_client_is_refused_with_only_its_entries_made(
     uploads: ModuleType, name: str, tmp_path: Path
 ) -> None:
-    """A7b3a (#462) Done when: a cut-off prefix is refused with only its entries made."""
+    """A7b3a (#462) Done when: a cut-off prefix is refused, only its entries made."""
     row = uploads.UPLOAD_CLASSES[name]
 
     unread = receive(row.prefix, tmp_path / "deck")
