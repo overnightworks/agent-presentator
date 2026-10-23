@@ -115,7 +115,10 @@ def decode(data: bytes) -> list[tuple[int, int, str]]:
 
 
 def record(
-    descriptor: int, roots: dict[int, str], boundary: tuple[str, str]
+    descriptor: int,
+    stdin_descriptor: int,
+    roots: dict[int, str],
+    boundary: tuple[str, str],
 ) -> dict[str, object]:
     """Read until stdin is closed and the next life's socket create is read.
 
@@ -134,7 +137,7 @@ def record(
     ):
         watching = [descriptor]
         if ended_at_close is None:
-            watching.append(sys.stdin.fileno())
+            watching.append(stdin_descriptor)
         readable, _, _ = select.select(watching, [], [], 1.0)
         if descriptor in readable:
             for watch, mask, name in decode(os.read(descriptor, READ_BYTES)):
@@ -148,7 +151,7 @@ def record(
                     ended_at_boundary = sorted(ended)
                 elif mask & (IN_CREATE | IN_MOVED_TO):
                     created[root].append(name)
-        if sys.stdin.fileno() in readable and not os.read(sys.stdin.fileno(), 1):
+        if stdin_descriptor in readable and not os.read(stdin_descriptor, 1):
             deadline = time.monotonic() + BOUNDARY_SECONDS
             ended_at_close = sorted(ended)
     return {
@@ -167,7 +170,9 @@ def main(pid: str, socket_directory: str, socket_name: str) -> None:
     descriptor, roots = arm(pid, table)
     sys.stdout.write(json.dumps({"mounts": table, "directories": directories}) + "\n")
     sys.stdout.flush()
-    report = record(descriptor, roots, (socket_directory, socket_name))
+    report = record(
+        descriptor, sys.stdin.fileno(), roots, (socket_directory, socket_name)
+    )
     sys.stdout.write(json.dumps(report) + "\n")
 
 

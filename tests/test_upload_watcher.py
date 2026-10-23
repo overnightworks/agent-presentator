@@ -5,7 +5,7 @@ import importlib
 import os
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import pytest
 
@@ -19,7 +19,7 @@ def watcher(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 
 def test_a_watch_that_ends_after_the_boundary_is_read_until_the_stdin_close(
-    watcher: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    watcher: ModuleType, tmp_path: Path
 ) -> None:
     """defect:#463 - the watch end between boundary and stdin close is measured."""
     libc = ctypes.CDLL(None, use_errno=True)
@@ -28,13 +28,15 @@ def test_a_watch_that_ends_after_the_boundary_is_read_until_the_stdin_close(
         descriptor, str(tmp_path).encode(), watcher.IN_CREATE | watcher.IN_ONLYDIR
     )
     read_end, write_end = os.pipe()
-    monkeypatch.setattr(sys, "stdin", SimpleNamespace(fileno=lambda: read_end))
     (tmp_path / "worker.sock").touch()
     libc.inotify_rm_watch(descriptor, watch)
     os.close(write_end)
 
     report = watcher.record(
-        descriptor, {watch: "/run/boundary"}, ("/run/boundary", "worker.sock")
+        descriptor,
+        read_end,
+        {watch: "/run/boundary"},
+        ("/run/boundary", "worker.sock"),
     )
 
     os.close(read_end)
