@@ -467,6 +467,7 @@ def test_a_doubled_session_cookie_is_refused_before_any_token_is_fetched(
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
     assert refused.json() == {"detail": "CSRF token missing or invalid"}
+    assert the_browser_saw_no_token(refused)
     assert len(run.wire.requests) == 1
     assert len(run.hosts.issuer.grant_types) == grants
 
@@ -817,6 +818,7 @@ def _echoing_the_token() -> Reply:
 LEAK_SCENARIOS: Final = {
     "happy": Scenario(),
     "sign-in-again": Scenario(refresh_token=None),
+    "invalid-grant": Scenario(before_ask=the_refresh_token_is_revoked),
     "session-ended": Scenario(before_ask=the_session_ends_during_the_grant),
     "issuer-unavailable": Scenario(before_ask=the_token_endpoint_goes_down),
     "token-thread-fails": Scenario(before_ask=the_token_thread_fails),
@@ -837,9 +839,30 @@ LEAK_SCENARIOS: Final = {
             )
         )
     ),
+    "cancelled": Scenario(
+        reply=reply_with(*whole(event_frames(run_started(), cancelled())))
+    ),
+    "stream-violation": Scenario(reply=reply_with(violating_frame())),
+    "speech-fails-on-the-second-sentence": Scenario(
+        reply=reply_with(
+            *whole(
+                event_frames(
+                    run_started(),
+                    assistant_text("Erster Satz. Zweiter Satz. Dritter."),
+                    succeeded(),
+                )
+            )
+        ),
+        speaking_fails_at=1,
+    ),
     "stall": Scenario(transport=a_stalled_transport),
     "refused-connection": Scenario(reply=Reply(refuses_connection=True)),
 }
+
+
+def the_browser_saw_no_token(response: Response) -> bool:
+    shown = f"{response.headers}\n{response.text}"
+    return not any(marker in shown for marker in (*TOKENS, SERVICE_MESSAGE))
 
 
 @pytest.mark.parametrize("scenario", LEAK_SCENARIOS.values(), ids=LEAK_SCENARIOS)
@@ -848,13 +871,11 @@ def test_no_token_reaches_a_log_record_or_the_browser(
 ) -> None:
     """Cells 23 and 24: every logger at DEBUG, and the whole of what the browser got."""
     caplog.set_level(logging.DEBUG)
-    logging.getLogger("httpcore2").setLevel(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="httpcore2")
 
     run = drive(tmp_path, scenario)
 
     logged = everything_shown(caplog.records)
-    browser = f"{run.response.headers}\n{run.response.text}"
-    for marker in (*TOKENS, SERVICE_MESSAGE):
-        assert marker not in browser
+    assert the_browser_saw_no_token(run.response)
     for marker in TOKENS:
         assert marker not in logged
