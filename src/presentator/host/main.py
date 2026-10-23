@@ -199,19 +199,30 @@ def build_instance(
     # the one refresh that runs at a time.
     lobby_auth, talk_auth = installed_auths(settings, relying_party_for)
     return Instance(
-        lobby=create_lobby(
-            sessions=sessions,
-            decks=decks,
-            pages=_pages(settings),
-            auth=lobby_auth,
-            private=_lobby_private(settings, decks, sessions, key_drafts, lobby_auth),
-        ),
+        lobby=_lobby(settings, decks, sessions, key_drafts, lobby_auth),
         talk=_talk(settings, decks, talk_auth, clock),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
         ),
         session_sweep=_session_sweep(sessions, clock),
+    )
+
+
+def _lobby(
+    settings: Settings,
+    decks: Decks,
+    sessions: SqliteSessionRecordStore,
+    key_drafts: SqliteSourceKeyDrafts,
+    auth: InstalledAuth,
+) -> FastAPI:
+    """The lobby host, with the pages and the private routes it serves."""
+    return create_lobby(
+        sessions=sessions,
+        decks=decks,
+        pages=_pages(settings),
+        auth=auth,
+        private=_lobby_private(settings, decks, sessions, key_drafts, auth),
     )
 
 
