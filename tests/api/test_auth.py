@@ -479,9 +479,9 @@ def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
         "bei der Anmeldung und bei jeder Erneuerung ausstellt. Es liegt "
         "unverschlüsselt in der "
         "Sitzungszeile, ist ohne das Client-Geheimnis von Presentator bei Keycloak "
-        "nicht verwendbar und wird mit der Sitzung gelöscht. Zugriffstoken werden "
-        "nicht gespeichert; für jede CoPresenter-Frage holt Presentator ein "
-        "frisches bei Keycloak und gibt es nur an den Agent-Dienst weiter."
+        "nicht verwendbar und wird mit der Sitzung gelöscht. Für jede "
+        "CoPresenter-Frage holt Presentator ein frisches Zugriffstoken bei Keycloak "
+        "und gibt es an den Agent-Dienst weiter; gespeichert wird es nicht."
     ) in page
 
 
@@ -565,11 +565,11 @@ def test_the_datenschutz_names_the_agent_service_and_claims_nothing_of_its_keepi
 
     assert (
         "Stellen Sie im Vortrag eine Frage, sendet Presentator sie mit dem Titel "
-        "und dem Text des gefragten Decks an den Agent-Dienst von hallucinai, der "
-        "sie mit Claude von Anthropic beantwortet. Derzeit ist der CoPresenter nur "
-        "für den Betreiber freigeschaltet; Fragen anderer Personen werden "
-        "abgewiesen, sie gehen nicht an Anthropic."
+        "und dem Text des gefragten Decks an den Agent-Dienst von hallucinai. Was "
+        "der Dienst damit tut, beschreibt sein Abschnitt in der Datenschutzerklärung "
+        "von hallucinai."
     ) in page
+    assert "Anthropic" not in page
     assert "Anthropic Ireland, Limited:" not in page
     assert "Kopien der Claude-Software:" not in page
     assert "Claude-Kommandozeile" not in page
