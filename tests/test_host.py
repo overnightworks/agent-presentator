@@ -193,15 +193,6 @@ def test_the_public_origin_must_be_one_canonical_https_origin(
         load_settings()
 
 
-def test_copresenter_socket_must_be_an_absolute_path(
-    environment: pytest.MonkeyPatch,
-) -> None:
-    environment.setenv("PRESENTATOR_COPRESENTER_SOCKET", "relative/copresenter.sock")
-
-    with pytest.raises(ConfigurationError, match="copresenter_socket"):
-        load_settings()
-
-
 @pytest.mark.parametrize(
     "half",
     [None, "PRESENTATOR_BUILD_IMAGE", "PRESENTATOR_BUILD_VOLUME"],

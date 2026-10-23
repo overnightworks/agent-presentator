@@ -91,9 +91,18 @@ def _split_client_ids(given: str) -> list[str]:
 
 def _one_public_origin(given: str) -> str:
     """Require one canonical https origin, without any address suffix."""
+    return _one_origin(given, schemes=("https",))
+
+
+def _one_service_origin(given: str) -> str:
+    """Require one canonical http or https origin, as the network inside gives."""
+    return _one_origin(given, schemes=("http", "https"))
+
+
+def _one_origin(given: str, *, schemes: tuple[str, ...]) -> str:
     parsed = urlsplit(given)
     if (
-        parsed.scheme != "https"
+        parsed.scheme not in schemes
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
@@ -102,7 +111,10 @@ def _one_public_origin(given: str) -> str:
         or parsed.fragment
         or given != f"{parsed.scheme}://{parsed.netloc}"
     ):
-        message = "is one canonical https origin without credentials or a path"
+        message = (
+            f"is one canonical {' or '.join(schemes)} origin"
+            " without credentials or a path"
+        )
         raise ValueError(message)
     try:
         _port = parsed.port
@@ -197,7 +209,9 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     oidc_issuer: Annotated[str, AfterValidator(_an_https_realm_url)]
     oidc_client_id: str = Field(min_length=1)
     oidc_client_secret_file: Annotated[Path, AfterValidator(_an_absolute_path)]
-    copresenter_socket: Annotated[Path, AfterValidator(_an_absolute_path)]
+    # Where the agent service answers: its origin on the network it shares with
+    # this instance. It is a deployment fact: no default.
+    agent_service: Annotated[str, AfterValidator(_one_service_origin)]
     speech_socket: Annotated[Path, AfterValidator(_an_absolute_path)] = Path(
         "/run/presentator-speech/speech.sock"
     )

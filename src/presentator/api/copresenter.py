@@ -9,22 +9,26 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Final, Protocol, TypeGuard
+from typing import TYPE_CHECKING, Final, Protocol, TypeGuard, assert_never
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
+from starlette.responses import Response
 
 from presentator.application.copresenter import RetryAfter
 from presentator.contracts.copresenter import (
+    AccessRefusal,
     AnswerEvent,
     AnswerText,
-    AnswerUnavailable,
+    AskedDeck,
     Audio,
     CoPresenterUnavailableError,
     Done,
+    NotEnabledError,
     Question,
     Sentence,
 )
@@ -32,7 +36,6 @@ from presentator.contracts.decks import MAXIMUM_NAME_BYTES
 from presentator.contracts.voice import SampleLanguage
 
 if TYPE_CHECKING:
-    from starlette.responses import Response
     from starlette.types import Message
 
     from presentator.application.copresenter import (
@@ -40,6 +43,7 @@ if TYPE_CHECKING:
         AskTicket,
         CoPresenterHearing,
         CoPresenterUse,
+        PreparedAsk,
     )
 
 _CHECK_INTERVAL_SECONDS: Final = 0.5
@@ -47,6 +51,7 @@ _POLICY_VIOLATION: Final = 1008
 _UNSUPPORTED_DATA: Final = 1003
 _INTERNAL_ERROR: Final = 1011
 _GENERIC_ANSWER_FAILURE: Final = "the answer could not be spoken"
+NOT_ENABLED_REASON: Final = "not-enabled"
 _GENERIC_HEARING_FAILURE: Final = "hearing unavailable"
 _BROWSER_DISCONNECT: Final = "websocket.disconnect"
 MAX_SAID_LENGTH: Final = 2_000
@@ -131,9 +136,7 @@ def add_copresenter_routes(
         try:
             ready = await use.readiness()
         except CoPresenterUnavailableError:
-            return JSONResponse(
-                {"detail": "Co-presenter unavailable"}, HTTPStatus.SERVICE_UNAVAILABLE
-            )
+            return _unavailable()
         return JSONResponse(
             {
                 "speech": {
@@ -172,42 +175,104 @@ def add_copresenter_routes(
     app.include_router(router)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Ask:
+    """A question that passed admission, with the deck it is about and its ticket."""
+
+    asked: AskedDeck
+    question: Question
+    ticket: AskTicket
+
+
 def _ask_route(
     surface: CoPresenterSurface, *, admission: Admission, guard: _SessionGuard
-) -> Callable[[Request, AskRequest], Response]:
-    def _ask(request: Request, question: AskRequest) -> Response:
-        connection = admission(request)
-        if not _may_use(connection):
-            return _refusal(connection)
-        asked = surface.use.asked_deck(question.deck, viewer=connection.user_id)
-        if asked is None:
-            return JSONResponse({"detail": "Not found"}, HTTPStatus.NOT_FOUND)
-        ticket = surface.limiter.admit(connection.session_id)
-        if isinstance(ticket, RetryAfter):
-            return JSONResponse(
-                {"detail": "Too many questions"},
-                HTTPStatus.TOO_MANY_REQUESTS,
-                headers={"Retry-After": str(ticket.seconds)},
-            )
-        return StreamingResponse(
-            _answer_events(
-                request,
-                question=Question(
-                    said=question.said,
-                    slide=question.slide,
-                    language=question.language and question.language.value,
-                    deck=asked,
-                ),
-                use=surface.use,
-                guard=guard,
-                ticket=ticket,
-            ),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            background=BackgroundTask(ticket.release),
+) -> Callable[[Request, AskRequest], Awaitable[Response]]:
+    async def _ask(request: Request, question: AskRequest) -> Response:
+        admitted = await run_in_threadpool(
+            _admit, surface, admission(request), question
         )
+        if isinstance(admitted, Response):
+            return admitted
+        streaming = False
+        try:
+            prepared = await _prepare(surface.use, admitted)
+            if isinstance(prepared, Response):
+                return prepared
+            response = StreamingResponse(
+                _answer_events(
+                    request,
+                    ask=admitted,
+                    prepared=prepared,
+                    use=surface.use,
+                    guard=guard,
+                ),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                background=BackgroundTask(admitted.ticket.release),
+            )
+            streaming = True
+            return response
+        finally:
+            if not streaming:
+                admitted.ticket.release()
 
     return _ask
+
+
+def _admit(
+    surface: CoPresenterSurface, connection: SignedIn | None, question: AskRequest
+) -> _Ask | Response:
+    if not _may_use(connection):
+        return _refusal(connection)
+    asked = surface.use.asked_deck(question.deck, viewer=connection.user_id)
+    if asked is None:
+        return JSONResponse({"detail": "Not found"}, HTTPStatus.NOT_FOUND)
+    ticket = surface.limiter.admit(connection.session_id)
+    if isinstance(ticket, RetryAfter):
+        return JSONResponse(
+            {"detail": "Too many questions"},
+            HTTPStatus.TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(ticket.seconds)},
+        )
+    return _Ask(
+        asked=asked,
+        question=Question(
+            said=question.said,
+            slide=question.slide,
+            language=question.language and question.language.value,
+        ),
+        ticket=ticket,
+    )
+
+
+async def _prepare(use: CoPresenterUse, ask: _Ask) -> PreparedAsk | Response:
+    try:
+        prepared = await use.prepare(ask.asked, ask.ticket.session_id)
+    except CoPresenterUnavailableError:
+        return _unavailable()
+    if isinstance(prepared, AccessRefusal):
+        return _access_refusal(prepared)
+    return prepared
+
+
+def _unavailable() -> JSONResponse:
+    return JSONResponse(
+        {"detail": "Co-presenter unavailable"}, HTTPStatus.SERVICE_UNAVAILABLE
+    )
+
+
+def _access_refusal(refusal: AccessRefusal) -> JSONResponse:
+    match refusal:
+        case AccessRefusal.SIGN_IN_AGAIN:
+            return JSONResponse({"detail": "Sign in again"}, HTTPStatus.UNAUTHORIZED)
+        case AccessRefusal.SESSION_ENDED:
+            return JSONResponse(
+                {"detail": "Not authenticated"}, HTTPStatus.UNAUTHORIZED
+            )
+        case AccessRefusal.ISSUER_UNAVAILABLE:
+            return _unavailable()
+        case _:
+            assert_never(refusal)
 
 
 def _may_use(admitted: SignedIn | None) -> TypeGuard[SignedIn]:
@@ -223,17 +288,17 @@ def _refusal(connection: SignedIn | None) -> JSONResponse:
 async def _answer_events(
     request: Request,
     *,
-    question: Question,
+    ask: _Ask,
+    prepared: PreparedAsk,
     use: CoPresenterUse,
     guard: _SessionGuard,
-    ticket: AskTicket,
 ) -> AsyncIterator[bytes]:
     session_watch = asyncio.create_task(
-        _watch_session(request, session_id=ticket.session_id, guard=guard)
+        _watch_session(request, session_id=ask.ticket.session_id, guard=guard)
     )
     try:
         try:
-            async with use.answer(question) as events:
+            async with use.answer(prepared, ask.question) as events:
                 next_event = asyncio.create_task(_next_answer_event(events))
                 try:
                     while True:
@@ -249,15 +314,17 @@ async def _answer_events(
                         except StopAsyncIteration:
                             return
                         yield _sse(event)
-                        if isinstance(event, (Done, AnswerUnavailable)):
+                        if isinstance(event, Done):
                             return
                         next_event = asyncio.create_task(_next_answer_event(events))
                 finally:
                     await _finish_tasks((next_event,))
+        except NotEnabledError:
+            yield _error_sse(NOT_ENABLED_REASON)
         except CoPresenterUnavailableError:
             yield _error_sse()
     finally:
-        ticket.release()
+        ask.ticket.release()
         await _finish_tasks((session_watch,))
 
 
@@ -437,13 +504,14 @@ def _sse(event: AnswerEvent) -> bytes:
             "audio",
             {"text": event.text, "wav_b64": b64encode(event.wav).decode("ascii")},
         )
-    if isinstance(event, Done):
-        return _encoded_sse("done", {"text": event.text})
-    return _error_sse()
+    return _encoded_sse("done", {"text": event.text})
 
 
-def _error_sse() -> bytes:
-    return _encoded_sse("error", {"message": _GENERIC_ANSWER_FAILURE})
+def _error_sse(reason: str | None = None) -> bytes:
+    payload: dict[str, object] = {"message": _GENERIC_ANSWER_FAILURE}
+    if reason is not None:
+        payload["reason"] = reason
+    return _encoded_sse("error", payload)
 
 
 def _encoded_sse(event: str, payload: dict[str, object]) -> bytes:

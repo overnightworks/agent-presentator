@@ -11,22 +11,20 @@ from typing import TYPE_CHECKING
 import anyio
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME
 
-from presentator.api.copresenter import (
-    CoPresenterSurface,
-)
+from presentator.adapters.sentences import split_sentences
+from presentator.api.copresenter import CoPresenterSurface
 from presentator.application.copresenter import AskLimiter, CoPresenterUse
 from presentator.contracts.copresenter import (
-    AnswerEvent,
-    AnswerText,
+    AccessRefusal,
     AskedDeck,
-    Audio,
     CoPresenterReadiness,
     CoPresenterUnavailableError,
-    Done,
+    DeckText,
     HearingTranscript,
-    Question,
+    PersonToken,
+    SlideText,
 )
-from presentator.contracts.decks import Source
+from presentator.contracts.decks import Deck, Source
 from tests.api.lobby import (
     A_BROWSERS_HEADERS,
     A_TALK_ADDRESS,
@@ -59,7 +57,7 @@ if TYPE_CHECKING:
     from fastapi.testclient import TestClient
     from httpx2 import Response
 
-    from presentator.ports.copresenter import PrivateHearing
+    from presentator.ports.copresenter import PrivateHearing, TokenSource
 
 TALK_ORIGIN = A_TALK_ADDRESS
 A_DECK = "kundenfeedback"
@@ -71,6 +69,14 @@ def the_admins_decks() -> FakeDeckStore:
     return a_deck_store(slug=A_DECK, built=a_build())
 
 
+A_DECK_TEXT = DeckText(
+    title="Kundenfeedback",
+    language="de",
+    slides=(
+        SlideText(number=1, title="Start", body="Willkommen", notes=""),
+        SlideText(number=2, title="Wichtig", body="Der Kern", notes="Betonen"),
+    ),
+)
 ASKED = AskedDeck(deck=the_admins_decks().kept[A_DECK], source=A_SOURCE)
 
 
@@ -114,25 +120,15 @@ class RecordingHearing:
 
 
 @dataclass
-class RecordingPrivateCoPresenter:
-    """A recording private service behind the real application use case."""
+class RecordingSpeech:
+    """The speech service's hearing side: readiness and the one hearing child."""
 
     readiness_calls: int = 0
-    questions: list[Question] = field(default_factory=list[Question])
-    answer_exits: int = 0
-    hold_answers: bool = False
     hearing_opens: int = 0
     hearing: RecordingHearing = field(default_factory=RecordingHearing)
     readiness_unavailable: bool = False
-    answer_unavailable: bool = False
     hearing_unavailable: bool = False
     grouped_hearing_context: bool = False
-    busy_answer_events: int | None = None
-    answer_events: list[AnswerEvent] | None = None
-    answer_event_hook: Callable[[int], None] | None = None
-    generated_answer_events: int = 0
-    answer_reader_closed: bool = False
-    answer_reader_closed_before_context_exit: bool = False
 
     async def readiness(self) -> CoPresenterReadiness:
         self.readiness_calls += 1
@@ -142,48 +138,6 @@ class RecordingPrivateCoPresenter:
             hearing_sample_rate=16_000,
             local_hearing_ready=True,
         )
-
-    def answer(
-        self,
-        question: Question,
-    ) -> AbstractAsyncContextManager[AsyncIterator[AnswerEvent]]:
-        @asynccontextmanager
-        async def operation() -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
-            self.questions.append(question)
-            if self.answer_unavailable:
-                raise CoPresenterUnavailableError
-
-            async def events() -> AsyncIterator[AnswerEvent]:
-                try:
-                    if self.answer_events is not None:
-                        for event in self.answer_events:
-                            yield event
-                        return
-                    if self.busy_answer_events is not None:
-                        for index in range(self.busy_answer_events):
-                            if self.answer_event_hook is not None:
-                                self.answer_event_hook(index)
-                            self.generated_answer_events += 1
-                            yield AnswerText(text=f"Antwort {index}")
-                            await asyncio.sleep(0)
-                        return
-                    yield AnswerText(text="Eine Antwort")
-                    if self.hold_answers:
-                        await asyncio.Future()
-                    yield Audio(text="Eine Antwort", wav=b"RIFF")
-                    yield Done(text="Eine Antwort")
-                finally:
-                    self.answer_reader_closed = True
-
-            try:
-                yield events()
-            finally:
-                self.answer_reader_closed_before_context_exit = (
-                    self.answer_reader_closed
-                )
-                self.answer_exits += 1
-
-        return operation()
 
     def hear(self, language: str) -> AbstractAsyncContextManager[PrivateHearing]:
         @asynccontextmanager
@@ -201,9 +155,125 @@ class RecordingPrivateCoPresenter:
         return operation()
 
 
-def a_use(private: RecordingPrivateCoPresenter, decks: FakeDeckStore) -> CoPresenterUse:
+@dataclass
+class RecordingAnswers:
+    """The agent service's text, behind the real application use case."""
+
+    messages: list[str] = field(default_factory=list[str])
+    person_tokens: list[str] = field(default_factory=list[str])
+    exits: int = 0
+    hold: bool = False
+    unavailable: BaseException | None = None
+    deltas: list[str] = field(default_factory=lambda: ["Eine Antwort."])
+    busy_events: int | None = None
+    event_hook: Callable[[int], None] | None = None
+    generated_events: int = 0
+    reader_closed: bool = False
+    reader_closed_before_context_exit: bool = False
+
+    def answer(
+        self, *, message: str, person_token: TokenSource
+    ) -> AbstractAsyncContextManager[AsyncIterator[str]]:
+        @asynccontextmanager
+        async def operation() -> AsyncGenerator[AsyncIterator[str]]:
+            self.messages.append(message)
+            self.person_tokens.append(await person_token())
+            if self.unavailable is not None:
+                raise self.unavailable
+
+            async def texts() -> AsyncIterator[str]:
+                try:
+                    if self.busy_events is not None:
+                        for index in range(self.busy_events):
+                            if self.event_hook is not None:
+                                self.event_hook(index)
+                            self.generated_events += 1
+                            yield f"Antwort {index} "
+                            await asyncio.sleep(0)
+                        return
+                    for delta in self.deltas:
+                        yield delta
+                        if self.hold:
+                            await asyncio.Future()
+                finally:
+                    self.reader_closed = True
+
+            try:
+                yield texts()
+            finally:
+                self.reader_closed_before_context_exit = self.reader_closed
+                self.exits += 1
+
+        return operation()
+
+
+@dataclass
+class FakeSpeaking:
+    """Speaks every sentence as the same WAV header, and remembers what it spoke."""
+
+    spoken: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    fails_at: int | None = None
+
+    async def speak(self, text: str, language: str) -> bytes:
+        if self.fails_at == len(self.spoken):
+            raise CoPresenterUnavailableError
+        self.spoken.append((text, language))
+        return b"RIFF"
+
+
+@dataclass
+class FakePersonAccess:
+    """Gives every session the same person token, or refuses it."""
+
+    refusal: AccessRefusal | None = None
+    unavailable: bool = False
+    sessions: list[str] = field(default_factory=list[str])
+
+    async def fresh(self, session_id: str) -> PersonToken | AccessRefusal:
+        self.sessions.append(session_id)
+        if self.unavailable:
+            raise CoPresenterUnavailableError
+        return self.refusal or PersonToken("person-token")
+
+
+@dataclass
+class FakeDeckTexts:
+    """Reads the same words for every deck, and remembers which it was asked for."""
+
+    text: DeckText | None = field(default_factory=lambda: A_DECK_TEXT)
+    unreadable: bool = False
+    asked: list[tuple[Deck, Source]] = field(default_factory=list[tuple[Deck, Source]])
+
+    def text_of(self, deck: Deck, source: Source) -> DeckText | None:
+        self.asked.append((deck, source))
+        if self.unreadable:
+            raise CoPresenterUnavailableError
+        return self.text
+
+
+@dataclass(kw_only=True)
+class PrivateFakes:
+    """One fake for each port the use case reaches through."""
+
+    answers: RecordingAnswers = field(default_factory=RecordingAnswers)
+    speech: RecordingSpeech = field(default_factory=RecordingSpeech)
+    speaking: FakeSpeaking = field(default_factory=FakeSpeaking)
+    person_access: FakePersonAccess = field(default_factory=FakePersonAccess)
+    texts: FakeDeckTexts = field(default_factory=FakeDeckTexts)
+
+
+def a_use(fakes: PrivateFakes, decks: FakeDeckStore) -> CoPresenterUse:
     sources = FakeSourceStore(sources=[A_SOURCE])
-    return CoPresenterUse(answers=private, speech=private, decks=decks, sources=sources)
+    return CoPresenterUse(
+        answers=fakes.answers,
+        speech=fakes.speech,
+        decks=decks,
+        sources=sources,
+        texts=fakes.texts,
+        boundaries=split_sentences,
+        speaking=fakes.speaking,
+        person_access=fakes.person_access,
+    )
 
 
 def a_copresenter_talk_host(
@@ -212,8 +282,8 @@ def a_copresenter_talk_host(
     delay: Callable[[float], Awaitable[None]] = asyncio.sleep,
     limiter: AskLimiter | None = None,
     decks: FakeDeckStore | None = None,
-) -> tuple[Lobby, RecordingPrivateCoPresenter, FrozenClock]:
-    private = RecordingPrivateCoPresenter()
+) -> tuple[Lobby, PrivateFakes, FrozenClock]:
+    private = PrivateFakes()
     people = a_crowd(users)
     app = a_talk_app(
         people=people,

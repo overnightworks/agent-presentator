@@ -22,7 +22,7 @@ from tests.api.copresenter_support import (
     NOW,
     QUESTION,
     TALK_ORIGIN,
-    RecordingPrivateCoPresenter,
+    PrivateFakes,
     a_copresenter_talk_host,
     a_use,
     ask,
@@ -55,7 +55,7 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     response = ask(client, {**QUESTION, **invalid})
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-    assert private.questions == []
+    assert private.answers.messages == []
 
 
 @pytest.mark.parametrize(
@@ -63,8 +63,8 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     [
         ({"said": "x" * MAX_SAID_LENGTH}, "de"),
         ({"language": "en"}, "en"),
-        ({"language": None}, None),
-        ({"language": ""}, None),
+        ({"language": None}, "de"),
+        ({"language": ""}, "de"),
     ],
     ids=[
         "longest-said",
@@ -74,7 +74,7 @@ def test_ask_refuses_an_overlong_or_foreign_language_question_without_a_turn(
     ],
 )
 def test_ask_accepts_the_limit_and_the_offered_languages(
-    allowed: dict[str, object], language_handed_on: str | None
+    allowed: dict[str, object], language_handed_on: str
 ) -> None:
     lobby, private, _clock = a_copresenter_talk_host()
     client = lobby.client
@@ -83,7 +83,9 @@ def test_ask_accepts_the_limit_and_the_offered_languages(
     response = ask(client, {**QUESTION, **allowed})
 
     assert response.status_code == HTTPStatus.OK
-    assert [question.language for question in private.questions] == [language_handed_on]
+    assert [language for _text, language in private.speaking.spoken] == [
+        language_handed_on
+    ]
 
 
 def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> None:
@@ -103,7 +105,7 @@ def test_the_21st_question_in_ten_minutes_waits_until_the_first_one_leaves() -> 
 
     assert refused.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert refused.headers["retry-after"] == "400"
-    assert len(private.questions) == 20 + 1
+    assert len(private.answers.messages) == 20 + 1
     assert allowed_again.status_code == HTTPStatus.OK
 
 
@@ -117,8 +119,8 @@ def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> Non
         if index == 0 and not second:
             second.append(ask(client))
 
-    private.busy_answer_events = 3
-    private.answer_event_hook = ask_again_mid_answer
+    private.answers.busy_events = 3
+    private.answers.event_hook = ask_again_mid_answer
 
     first = ask(client)
     after = ask(client)
@@ -129,7 +131,7 @@ def test_a_second_question_while_the_first_streams_gets_429_and_no_turn() -> Non
     ]
     assert second[0].headers["retry-after"] == "1"
     assert after.status_code == HTTPStatus.OK
-    assert len(private.questions) == len([first, after])
+    assert len(private.answers.messages) == len([first, after])
 
 
 def test_each_session_has_its_own_question_budget() -> None:
@@ -160,7 +162,7 @@ class FixedSession:
 
 def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> None:
     limiter = AskLimiter(clock=FrozenClock(instant=NOW))
-    private = RecordingPrivateCoPresenter()
+    private = PrivateFakes()
     app = FastAPI()
     add_copresenter_routes(
         app,
@@ -174,7 +176,7 @@ def test_a_disconnect_before_the_answer_streams_still_frees_the_session() -> Non
 
     asyncio.run(_ask_and_disconnect_before_the_body_is_sent(app))
 
-    assert private.questions == []
+    assert private.answers.messages == []
     assert isinstance(limiter.admit(FixedSession().session_id), AskTicket)
 
 

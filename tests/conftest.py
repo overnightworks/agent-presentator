@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.api.lobby import A_BROWSERS_ADDRESS, configure_oidc
+from tests.api.lobby import A_BROWSERS_ADDRESS, AN_AGENT_SERVICE, configure_oidc
 from tests.worker_support import WAIT_SECONDS, listening_socket
 
 EXAMPLE_DECK = Path(__file__).parents[1] / "examples" / "hello-deck"
@@ -193,10 +193,7 @@ def bare_environment(
     monkeypatch.setenv("PRESENTATOR_LOCAL_SOURCES_MOUNT", str(tmp_path))
     monkeypatch.setenv("PRESENTATOR_PUBLIC_ORIGIN", A_BROWSERS_ADDRESS)
     configure_oidc(monkeypatch, tmp_path)
-    monkeypatch.setenv(
-        "PRESENTATOR_COPRESENTER_SOCKET",
-        str(tmp_path / "copresenter.sock"),
-    )
+    monkeypatch.setenv("PRESENTATOR_AGENT_SERVICE", AN_AGENT_SERVICE)
     return monkeypatch
 
 

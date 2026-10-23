@@ -48,7 +48,6 @@ class Question:
     said: str
     slide: int
     language: str | None
-    deck: AskedDeck | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -88,12 +87,7 @@ class Done:
     text: str
 
 
-@dataclass(frozen=True, slots=True)
-class AnswerUnavailable:
-    """A terminal expected answer failure."""
-
-
-type AnswerEvent = AnswerText | Sentence | Audio | Done | AnswerUnavailable
+type AnswerEvent = AnswerText | Sentence | Audio | Done
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

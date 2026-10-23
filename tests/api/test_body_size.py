@@ -172,7 +172,7 @@ def test_a_streamed_ask_over_the_cap_gets_400_and_reaches_no_private_service() -
 
     assert streamed.status == HTTPStatus.BAD_REQUEST
     assert streamed.chunks_taken <= _FIRST_CHUNK_PASSING_THE_CAP
-    assert private.questions == []
+    assert private.answers.messages == []
 
 
 def test_the_longest_ask_in_the_widest_json_spelling_still_fits_the_cap() -> None:
@@ -188,8 +188,8 @@ def test_the_longest_ask_in_the_widest_json_spelling_still_fits_the_cap() -> Non
 
     assert len(body) > _CAP // 2
     assert answer.status_code == HTTPStatus.OK
-    (asked,) = private.questions
-    assert asked.said == "\N{GRINNING FACE}" * MAX_SAID_LENGTH
+    (message,) = private.answers.messages
+    assert message.endswith("The person said: " + "\N{GRINNING FACE}" * MAX_SAID_LENGTH)
 
 
 def test_a_33_kib_settings_form_gets_413_with_the_security_headers() -> None:

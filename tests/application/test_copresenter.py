@@ -1,91 +1,107 @@
 """The application owns each private co-presenter operation it starts."""
 
 import asyncio
+import logging
 import threading
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from presentator.application.copresenter import (
     AskLimiter,
     AskTicket,
     CoPresenterUse,
+    PreparedAsk,
     RetryAfter,
 )
 from presentator.contracts.copresenter import (
-    AnswerEvent,
+    AccessRefusal,
     AnswerText,
     CoPresenterReadiness,
-    HearingTranscript,
+    CoPresenterUnavailableError,
+    Done,
+    PersonToken,
     Question,
 )
-from presentator.ports.copresenter import PrivateHearing
-from tests.application.fakes import FakeDeckStore, FakeSourceStore, FrozenClock
+from tests.api.copresenter_support import ASKED, PrivateFakes, a_use
+from tests.application.fakes import FakeDeckStore, FrozenClock
+
+A_QUESTION = Question(said="Frage", slide=1, language=None)
+FIRST_AUDIO = "presentator.application.copresenter"
 
 
-@dataclass
-class FakeHearing:
-    """A private hearing child that records ownership."""
-
-    closed: int = 0
-    frames: list[bytes] = field(default_factory=list[bytes])
-
-    async def send_pcm(self, frame: bytes) -> None:
-        self.frames.append(frame)
-
-    async def receive(self) -> HearingTranscript | None:
-        return None
-
-    async def aclose(self) -> None:
-        self.closed += 1
+def a_prepared_ask(use: CoPresenterUse) -> PreparedAsk:
+    prepared = asyncio.run(use.prepare(ASKED, "session"))
+    assert isinstance(prepared, PreparedAsk)
+    return prepared
 
 
-@dataclass
-class FakePrivateCoPresenter:
-    """A private port fake with observable context exits."""
+def test_preparing_an_ask_holds_the_sessions_fresh_person_token() -> None:
+    fakes = PrivateFakes()
+    use = a_use(fakes, FakeDeckStore())
 
-    answer_exits: int = 0
-    hearing_exits: int = 0
-    readiness_calls: int = 0
-    hearing: FakeHearing = field(default_factory=FakeHearing)
+    prepared = a_prepared_ask(use)
 
-    async def readiness(self) -> CoPresenterReadiness:
-        self.readiness_calls += 1
-        return CoPresenterReadiness(
-            hearing_sample_rate=16_000,
-            local_hearing_ready=True,
-        )
+    assert prepared.person == PersonToken("person-token")
+    assert prepared.asked == ASKED
+    assert fakes.person_access.sessions == ["session"]
+    assert fakes.answers.messages == []
 
-    def answer(
-        self,
-        question: Question,
-    ) -> AbstractAsyncContextManager[AsyncIterator[AnswerEvent]]:
-        @asynccontextmanager
-        async def operation() -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
-            async def events() -> AsyncIterator[AnswerEvent]:
-                yield AnswerText(text=question.said)
-                await asyncio.Future()
 
-            try:
-                yield events()
-            finally:
-                self.answer_exits += 1
+def test_a_refused_person_token_is_returned_before_any_answer() -> None:
+    fakes = PrivateFakes()
+    fakes.person_access.refusal = AccessRefusal.SIGN_IN_AGAIN
+    use = a_use(fakes, FakeDeckStore())
 
-        return operation()
+    refused = asyncio.run(use.prepare(ASKED, "session"))
 
-    def hear(self, language: str) -> AbstractAsyncContextManager[PrivateHearing]:
-        assert language == "de"
+    assert refused is AccessRefusal.SIGN_IN_AGAIN
+    assert fakes.answers.messages == []
 
-        @asynccontextmanager
-        async def operation() -> AsyncGenerator[PrivateHearing]:
-            try:
-                yield self.hearing
-            finally:
-                self.hearing_exits += 1
 
-        return operation()
+def test_a_failing_token_source_is_unavailable() -> None:
+    fakes = PrivateFakes()
+    fakes.person_access.unavailable = True
+    use = a_use(fakes, FakeDeckStore())
+
+    with pytest.raises(CoPresenterUnavailableError):
+        asyncio.run(use.prepare(ASKED, "session"))
+
+
+async def _read_until_done(use: CoPresenterUse, prepared: PreparedAsk) -> list[object]:
+    async with use.answer(prepared, A_QUESTION) as events:
+        return [event async for event in events]
+
+
+def test_the_service_gets_the_asked_decks_words_and_the_persons_token() -> None:
+    fakes = PrivateFakes()
+    use = a_use(fakes, FakeDeckStore())
+
+    events = asyncio.run(_read_until_done(use, a_prepared_ask(use)))
+
+    assert events[-1] == Done(text="Eine Antwort.")
+    assert fakes.texts.asked == [(ASKED.deck, ASKED.source)]
+    assert fakes.answers.person_tokens == ["person-token"]
+    (message,) = fakes.answers.messages
+    assert message.startswith("Deck: Kundenfeedback\nYou are on slide 1.")
+    assert "The person said: Frage" in message
+
+
+@pytest.mark.parametrize("unreadable", [False, True], ids=["no-slides", "no-mirror"])
+def test_a_deck_without_words_never_reaches_the_service(*, unreadable: bool) -> None:
+    fakes = PrivateFakes()
+    fakes.texts.text = None
+    fakes.texts.unreadable = unreadable
+    use = a_use(fakes, FakeDeckStore())
+    prepared = a_prepared_ask(use)
+
+    with pytest.raises(CoPresenterUnavailableError):
+        asyncio.run(_read_until_done(use, prepared))
+
+    assert fakes.answers.messages == []
 
 
 def test_cancelling_an_answer_awaits_the_private_operation() -> None:
@@ -93,18 +109,16 @@ def test_cancelling_an_answer_awaits_the_private_operation() -> None:
 
 
 async def _cancel_answer() -> None:
-    private = FakePrivateCoPresenter()
-    use = CoPresenterUse(
-        answers=private,
-        speech=private,
-        decks=FakeDeckStore(),
-        sources=FakeSourceStore(),
-    )
+    fakes = PrivateFakes()
+    fakes.answers.hold = True
+    use = a_use(fakes, FakeDeckStore())
+    prepared = await use.prepare(ASKED, "session")
+    assert isinstance(prepared, PreparedAsk)
 
-    async with use.answer(Question(said="Frage", slide=1, language=None)) as events:
-        assert await anext(events) == AnswerText(text="Frage")
+    async with use.answer(prepared, A_QUESTION) as events:
+        assert await anext(events) == AnswerText(text="Eine Antwort.")
 
-    assert private.answer_exits == 1
+    assert fakes.answers.exits == 1
 
 
 def test_ending_hearing_closes_and_awaits_the_private_child() -> None:
@@ -112,44 +126,55 @@ def test_ending_hearing_closes_and_awaits_the_private_child() -> None:
 
 
 async def _end_hearing() -> None:
-    private = FakePrivateCoPresenter()
-    use = CoPresenterUse(
-        answers=private,
-        speech=private,
-        decks=FakeDeckStore(),
-        sources=FakeSourceStore(),
-    )
+    fakes = PrivateFakes()
+    use = a_use(fakes, FakeDeckStore())
 
     async with use.hear("de") as hearing:
         await hearing.send_pcm(b"pcm")
 
-    assert private.hearing.frames == [b"pcm"]
-    assert private.hearing.closed == 1
-    assert private.hearing_exits == 1
+    assert fakes.speech.hearing.frames == [b"pcm"]
+    assert fakes.speech.hearing.closed == 1
 
 
 def test_readiness_comes_from_speech_and_never_touches_the_answer_port() -> None:
-    answers = FakePrivateCoPresenter()
-    speech = FakePrivateCoPresenter()
+    fakes = PrivateFakes()
 
-    readiness = asyncio.run(
-        CoPresenterUse(
-            answers=answers,
-            speech=speech,
-            decks=FakeDeckStore(),
-            sources=FakeSourceStore(),
-        ).readiness()
-    )
+    readiness = asyncio.run(a_use(fakes, FakeDeckStore()).readiness())
 
     assert readiness == CoPresenterReadiness(
         hearing_sample_rate=16_000, local_hearing_ready=True
     )
-    assert speech.readiness_calls == 1
-    assert (answers.readiness_calls, answers.answer_exits, answers.hearing_exits) == (
-        0,
-        0,
-        0,
-    )
+    assert fakes.speech.readiness_calls == 1
+    assert (fakes.answers.messages, fakes.answers.exits) == ([], 0)
+
+
+def test_the_first_audio_is_logged_once_with_its_delay_and_no_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fakes = PrivateFakes()
+    fakes.answers.deltas = ["Erster Satz. ", "Zweiter Satz."]
+    ticks = iter([10.0, 10.25, 99.0])
+    use = replace(a_use(fakes, FakeDeckStore()), monotonic=lambda: next(ticks))
+    caplog.set_level(logging.INFO, logger=FIRST_AUDIO)
+
+    asyncio.run(_read_until_done(use, a_prepared_ask(use)))
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "co-presenter first audio: ms=250"
+    ]
+
+
+def test_an_answer_without_audio_logs_no_first_audio(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fakes = PrivateFakes()
+    fakes.answers.deltas = []
+    use = a_use(fakes, FakeDeckStore())
+    caplog.set_level(logging.INFO, logger=FIRST_AUDIO)
+
+    asyncio.run(_read_until_done(use, a_prepared_ask(use)))
+
+    assert caplog.records == []
 
 
 def a_limiter() -> AskLimiter:

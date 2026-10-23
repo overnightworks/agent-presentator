@@ -21,7 +21,7 @@ from tests.api.copresenter_support import (
     QUESTION,
     TALK_ORIGIN,
     ManualDeadline,
-    RecordingPrivateCoPresenter,
+    PrivateFakes,
     a_copresenter_talk_host,
     a_use,
 )
@@ -79,7 +79,7 @@ def test_who_answers_the_admin_only(
     answer = talk.client.get("/copresenter/who", headers=_JSON)
 
     assert answer.status_code == status
-    assert (private.readiness_calls == 1) is reaches_the_service
+    assert (private.speech.readiness_calls == 1) is reaches_the_service
 
 
 # C5.
@@ -116,7 +116,7 @@ def test_a_valid_token_does_not_excuse_a_post_from_another_site(
     )
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert private.questions == []
+    assert private.answers.messages == []
 
 
 # C5.
@@ -127,7 +127,7 @@ def test_a_same_origin_ask_still_needs_the_token() -> None:
     refused = talk.client.post(_ASK, json=QUESTION)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert private.questions == []
+    assert private.answers.messages == []
 
 
 # C5.
@@ -144,7 +144,7 @@ def test_the_lobbys_csrf_token_does_not_excuse_an_ask_at_the_talk_host() -> None
     refused = talk.client.post(_ASK, json=QUESTION, headers=_ask_headers(lobby_token))
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert private.questions == []
+    assert private.answers.messages == []
 
 
 # C6.
@@ -172,7 +172,7 @@ def test_hear_is_refused_to_a_user_even_from_the_talk_origin() -> None:
     talk.sign_in(role=Role.USER)
 
     assert _hear_with_origin(talk.client, TALK_ORIGIN) == POLICY_VIOLATION
-    assert private.hearing_opens == 0
+    assert private.speech.hearing_opens == 0
 
 
 # C7.
@@ -187,7 +187,7 @@ def test_the_lobbys_session_cookie_does_not_sign_in_at_the_talk_host() -> None:
     answer = talk.client.get("/copresenter/who", headers=_JSON)
 
     assert answer.status_code == HTTPStatus.UNAUTHORIZED
-    assert private.readiness_calls == 0
+    assert private.speech.readiness_calls == 0
 
 
 # C8.
@@ -200,13 +200,13 @@ def test_an_admin_demoted_while_signed_in_loses_the_copresenter_at_once() -> Non
     answer = talk.client.get("/copresenter/who", headers=_JSON)
 
     assert answer.status_code == HTTPStatus.FORBIDDEN
-    assert private.readiness_calls == 0
+    assert private.speech.readiness_calls == 0
 
 
 def _talk_host_with_a_signed_in_admin(
     tmp_path: Path, deadline: ManualDeadline | None = None
-) -> tuple[Hosts, TestClient, RecordingPrivateCoPresenter]:
-    private = RecordingPrivateCoPresenter()
+) -> tuple[Hosts, TestClient, PrivateFakes]:
+    private = PrivateFakes()
     surface = CoPresenterSurface(
         use=a_use(private, FakeDeckStore()),
         limiter=AskLimiter(clock=FrozenClock(instant=NOW)),
@@ -235,7 +235,7 @@ def test_a_lobby_sign_in_that_demotes_the_admin_keeps_the_deck_and_closes_who(
 
     assert deck.status_code == HTTPStatus.OK
     assert who.status_code == HTTPStatus.FORBIDDEN
-    assert private.readiness_calls == 0
+    assert private.speech.readiness_calls == 0
 
 
 # C8.
@@ -256,7 +256,7 @@ def test_a_lobby_sign_in_that_demotes_the_admin_ends_the_running_hearing(
             socket.receive_json()
 
     assert ended.value.code == POLICY_VIOLATION
-    assert private.hearing.closed == 1
+    assert private.speech.hearing.closed == 1
 
 
 # C9.

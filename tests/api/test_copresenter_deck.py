@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from httpx2 import Response
 
     from presentator.contracts.decks import Deck
-    from tests.api.copresenter_support import RecordingPrivateCoPresenter
+    from tests.api.copresenter_support import PrivateFakes
     from tests.api.lobby import Lobby
 
 TARGET = "target"
@@ -43,7 +43,7 @@ def ask_about(lobby: Lobby, slug: str) -> Response:
 
 def an_instance(
     *others: Deck, removed: tuple[str, ...] = ()
-) -> tuple[Lobby, RecordingPrivateCoPresenter]:
+) -> tuple[Lobby, PrivateFakes]:
     """An admin signed in, a budget of one question, and the admin's own deck."""
     decks = the_admins_decks()
     for deck in others:
@@ -73,8 +73,7 @@ def test_the_owner_asks_about_their_own_built_deck() -> None:
     answer = ask(lobby.client)
 
     assert answer.status_code == HTTPStatus.OK
-    (question,) = private.questions
-    assert question.deck == ASKED
+    assert private.texts.asked == [(ASKED.deck, ASKED.source)]
 
 
 @pytest.mark.parametrize(
@@ -103,7 +102,7 @@ def test_a_refused_deck_gets_one_answer_and_spends_no_question(
     ghost_content, ghost_headers = the_answer_to_a_deck_that_does_not_exist()
     assert refused.content == ghost_content
     assert dict(refused.headers) == ghost_headers
-    assert private.questions == []
+    assert private.answers.messages == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
 
 
@@ -118,7 +117,7 @@ def test_a_question_without_a_deck_gets_the_same_refusal() -> None:
     ghost_content, ghost_headers = the_answer_to_a_deck_that_does_not_exist()
     assert refused.content == ghost_content
     assert dict(refused.headers) == ghost_headers
-    assert private.questions == []
+    assert private.answers.messages == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
 
 
@@ -129,7 +128,7 @@ def test_a_name_over_the_length_bound_is_rejected_before_any_lookup() -> None:
     refused = ask_about(lobby, "x" * 256)
 
     assert refused.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-    assert private.questions == []
+    assert private.answers.messages == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
 
 
@@ -147,9 +146,9 @@ def test_an_owner_who_lost_the_admin_role_is_refused() -> None:
     users.users[ADMIN] = replace(users.users[ADMIN], role=Role.ADMIN)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert private.questions == []
+    assert private.answers.messages == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
-    assert len(private.questions) == 1
+    assert len(private.answers.messages) == 1
 
 
 def test_a_signed_out_asker_is_refused_and_spends_no_question() -> None:
@@ -166,5 +165,5 @@ def test_a_signed_out_asker_is_refused_and_spends_no_question() -> None:
     lobby.client.cookies.set(DEFAULT_SESSION_COOKIE_NAME, session)
 
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert private.questions == []
+    assert private.answers.messages == []
     assert ask(lobby.client).status_code == HTTPStatus.OK
