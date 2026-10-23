@@ -106,7 +106,7 @@ class CoPresenterUse:
             raise CoPresenterUnavailableError
         language = spoken_language(question.language, deck_text.language)
 
-        async def person_token() -> str:  # NOSONAR(S7503) TokenSource is an async callable
+        async def person_token() -> str:  # NOSONAR(S7503) TokenSource is awaited
             return prepared.person.value
 
         async with self.answers.answer(
