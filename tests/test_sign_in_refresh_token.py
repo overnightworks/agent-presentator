@@ -9,10 +9,9 @@ from pathlib import Path
 
 import pytest
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
-from webauth.oidc import TokenEndpointAnswer, TokenRequest
+from webauth.oidc import TokenEndpointAnswer, TokenRequest, TokenRequestPost
 
 from presentator.api.auth import LOGOUT_PATH
-from tests.api.fake_issuer import FakeIssuer
 from tests.leak_support import everything_shown
 from tests.sign_in_support import Scene, a_scene, cookie_names
 
@@ -21,25 +20,24 @@ _LOGGERS = ("uvicorn.error", "webauth", "presentator")
 
 
 @pytest.fixture
-def issued_id_tokens(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def issued_id_tokens() -> list[str]:
     """Every ID token the issuer's token endpoint hands out, as it is handed out."""
-    handed_out: list[str] = []
-    answer_the_token_request = FakeIssuer.post_token_request
-
-    def record(issuer: FakeIssuer, request: TokenRequest) -> TokenEndpointAnswer:
-        answer = answer_the_token_request(issuer, request)
-        id_token = json.loads(answer.body).get("id_token")
-        if id_token is not None:
-            handed_out.append(id_token)
-        return answer
-
-    monkeypatch.setattr(FakeIssuer, "post_token_request", record)
-    return handed_out
+    return []
 
 
 @pytest.fixture
-def scene(tmp_path: Path, issued_id_tokens: list[str]) -> Scene:  # noqa: ARG001
-    return a_scene(tmp_path)
+def scene(tmp_path: Path, issued_id_tokens: list[str]) -> Scene:
+    def recording(answer_the_request: TokenRequestPost) -> TokenRequestPost:
+        def record(request: TokenRequest) -> TokenEndpointAnswer:
+            answer = answer_the_request(request)
+            id_token = json.loads(answer.body).get("id_token")
+            if id_token is not None:
+                issued_id_tokens.append(id_token)
+            return answer
+
+        return record
+
+    return a_scene(tmp_path, token_requests=recording)
 
 
 def test_the_sign_ins_refresh_token_is_stored_with_its_session(scene: Scene) -> None:
@@ -241,7 +239,33 @@ def test_a_logout_leaks_the_id_token_to_no_log(
     """#428 cell 11: logout; its page posts the hint to the issuer by design."""
     scene.sign_in()
 
-    scene.lobby.client.post(LOGOUT_PATH)
+    logged_out = scene.lobby.client.post(LOGOUT_PATH)
 
+    assert logged_out.status_code == HTTPStatus.OK
+    assert scene.count("sessions") == 0
     for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
+        assert secret not in everything_shown(log.records)
+
+
+def test_a_refused_logout_leaks_the_id_token_to_neither_page_nor_log(
+    scene: Scene,
+    log: pytest.LogCaptureFixture,
+    issued_id_tokens: list[str],
+) -> None:
+    """#428 cell 11: refused logout."""
+    scene.sign_in()
+
+    refused = scene.lobby.client.post(
+        LOGOUT_PATH,
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "origin": "https://another.example",
+            "sec-fetch-site": "cross-site",
+        },
+    )
+
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert scene.count("sessions") == 1
+    for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
+        assert secret not in refused.text + str(refused.headers)
         assert secret not in everything_shown(log.records)
