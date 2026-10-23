@@ -666,6 +666,7 @@ def test_every_way_of_ending_a_session_removes_its_token_with_the_row(
 def test_a_session_never_shows_its_tokens_in_repr_or_str(
     sessions: SqliteSessionRecordStore,
 ) -> None:
+    """#428 cell 4: neither `repr` nor `str` shows a token."""
     created = sessions.create(
         "user-1",
         now=_NOW,
@@ -682,6 +683,7 @@ def test_a_session_never_shows_its_tokens_in_repr_or_str(
 def test_the_id_token_is_read_back_and_survives_a_touch_and_a_refresh_token_swap(
     sessions: SqliteSessionRecordStore,
 ) -> None:
+    """#428 cells 1-3: the ID token reads back and outlives a touch and a swap."""
     created = sessions.create(
         "user-1",
         now=_NOW,
@@ -702,6 +704,7 @@ def test_the_id_token_is_read_back_and_survives_a_touch_and_a_refresh_token_swap
 def test_a_store_that_does_not_keep_the_id_token_writes_none(
     database: Path,
 ) -> None:
+    """#428 D4 (T1): a store that does not keep the ID token writes NULL."""
     store = SqliteSessionRecordStore(database)
     created = store.create(
         "user-1",

@@ -177,6 +177,7 @@ def _claims_of(token: str | None) -> dict[str, object]:
 def test_the_session_row_holds_the_id_token_the_sign_in_returned(
     scene: Scene,
 ) -> None:
+    """#428 cell 9: the row holds the ID token the issuer returned."""
     scene.sign_in(username="felix")
 
     (stored,) = scene.stored_id_tokens()
@@ -187,6 +188,7 @@ def test_the_session_row_holds_the_id_token_the_sign_in_returned(
 def test_an_id_token_longer_than_a_cookie_could_hold_is_stored_whole(
     scene: Scene,
 ) -> None:
+    """#428 cell 10: an ID token past the old cookie bound is stored whole."""
     answer = scene.sign_in(username="x" * _TOO_LONG_FOR_A_COOKIE)
 
     assert answer.status_code == HTTPStatus.SEE_OTHER
@@ -398,6 +400,7 @@ def test_the_back_script_is_served_without_a_session(scene: Scene) -> None:
 def test_log_out_on_the_no_access_page_asks_the_issuer_without_a_hint(
     scene: Scene,
 ) -> None:
+    """#428 cell 13: the no-access page logs out without a hint."""
     _in_another_group(scene)
 
     answer = scene.lobby.client.post(
