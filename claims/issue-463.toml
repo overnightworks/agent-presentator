@@ -1,8 +1,0 @@
-claim_id = "f70304e0e0ca4e8fb2b33b0ee8db1c60"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "ac2b01575fea0165b84bfdecc5ca4211d2497a7f"
-branch = "claude/issue-463-refused-upload-lives"
-scope = ["pyproject.toml", "scripts/probe_build_worker.py", "scripts/probe_build_worker/upload_watcher.py", "scripts/probe_build_worker_refusals.py", "tests/test_upload_watcher.py"]
-opened_commit = "c196b9f267cd0f06f9053caaf83c296cfc3dba8a"
-whole_reason = "One probe lane for one ruled cell: the root watcher, its pure regression test for the stdin-close watch-end measurement, and the cell-50 prover prove cell 50 together; the entry gains only the cell and its call, and pyproject.toml only their lint entries. No production file changes."
