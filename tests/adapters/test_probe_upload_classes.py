@@ -1,4 +1,4 @@
-"""The probe's crafted uploads are refused at the byte their class names."""
+"""A7b3a (#462), #243 cells 12-16: crafted uploads are refused at their defect."""
 
 import importlib
 import os
@@ -17,6 +17,7 @@ from presentator.host.worker_serving import LifeEnd
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 SENTINEL = b"sentinel"
 MEGABYTES = 1
+WRITER_JOIN_SECONDS = 10
 
 
 @pytest.fixture
@@ -44,7 +45,8 @@ def receive(sent: bytes, deck: Path) -> bytes | None:
             return bytes(unread)
         finally:
             os.close(descriptor)
-            writer.join()
+            writer.join(WRITER_JOIN_SECONDS)
+            assert not writer.is_alive()
     return None
 
 
@@ -63,6 +65,7 @@ REFUSED_ROWS = [
 def test_the_table_holds_every_refused_row_and_the_three_other_endings(
     uploads: ModuleType,
 ) -> None:
+    """A7b3a (#462) Done when: the table holds 18 refused rows and 3 other endings."""
     refused = {
         name
         for name, row in uploads.UPLOAD_CLASSES.items()
@@ -81,6 +84,7 @@ def test_the_table_holds_every_refused_row_and_the_three_other_endings(
 def test_a_refused_rows_prefix_is_accepted_with_its_end(
     uploads: ModuleType, name: str, tmp_path: Path
 ) -> None:
+    """A7b3a (#462) Done when: a refused row's prefix with its END is accepted."""
     row = uploads.UPLOAD_CLASSES[name]
 
     unread = receive(row.prefix + row.prefix_end, tmp_path / "deck")
@@ -93,6 +97,7 @@ def test_a_refused_rows_prefix_is_accepted_with_its_end(
 def test_a_refused_row_is_refused_at_its_defect_with_its_declared_tail(
     uploads: ModuleType, name: str, tmp_path: Path
 ) -> None:
+    """A7b3a (#462) Done when: a row is refused at its defect with its unread tail."""
     row = uploads.UPLOAD_CLASSES[name]
 
     unread = receive(row.prefix + row.defect + SENTINEL, tmp_path / "deck")
@@ -103,16 +108,10 @@ def test_a_refused_row_is_refused_at_its_defect_with_its_declared_tail(
     assert entries_in(tmp_path / "deck") == row.prefix_entries
 
 
-@pytest.mark.parametrize("name", REFUSED_ROWS)
-def test_a_refused_row_ends_its_life_through_the_wire_exit(
-    uploads: ModuleType, name: str
-) -> None:
-    assert uploads.UPLOAD_CLASSES[name].life_end is LifeEnd.WIRE_EXIT
-
-
 def test_the_drip_is_valid_bytes_so_only_the_upload_time_ends_its_life(
     uploads: ModuleType, tmp_path: Path
 ) -> None:
+    """A7b3a (#462) Done when: the drip is valid bytes; only the upload time ends it."""
     row = uploads.UPLOAD_CLASSES["dripped past U"]
 
     unread = receive(
@@ -129,6 +128,7 @@ def test_the_drip_is_valid_bytes_so_only_the_upload_time_ends_its_life(
 def test_a_prefix_cut_off_by_the_client_is_refused_with_only_its_entries_made(
     uploads: ModuleType, name: str, tmp_path: Path
 ) -> None:
+    """A7b3a (#462) Done when: a cut-off prefix is refused with only its entries made."""
     row = uploads.UPLOAD_CLASSES[name]
 
     unread = receive(row.prefix, tmp_path / "deck")

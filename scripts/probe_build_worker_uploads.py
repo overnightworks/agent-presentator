@@ -108,6 +108,10 @@ def _drip_record() -> bytes:
 
 
 ABSOLUTE_PATH_CLASS = "absolute path"
+# The first three rows also meet a second check (orphan for `/b` and `b//c`,
+# rising name for `a/`). They are refused by path_components, which runs from
+# _read_path before _enter_parent; a reorder in the codec would keep them
+# refused by another rule while the discriminator stays green.
 _DEFECTS_AFTER_A_DIRECTORY = {
     ABSOLUTE_PATH_CLASS: b"/b",
     "//": b"b//c",
