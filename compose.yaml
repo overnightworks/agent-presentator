@@ -12,9 +12,14 @@ services:
     build:
       context: .
       args:
-        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
+        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host speech service}
     image: presentator
     user: presentator
+    # The default network carries the published port; `agent` is the one the
+    # agent service answers on, which the edge owns and creates.
+    networks:
+      - default
+      - agent
     # A build spawns a process tree of its own, and a step given up on leaves
     # its grandchildren to be reaped by whatever is process 1.
     init: true
@@ -33,7 +38,7 @@ services:
       PRESENTATOR_SECRET_KEY: ${PRESENTATOR_SECRET_KEY:?set it to at least 32 random characters; an instance without it refuses to start}
       PRESENTATOR_PUBLIC_ORIGIN: ${PRESENTATOR_PUBLIC_ORIGIN:?set it to the one canonical browser origin}
       PRESENTATOR_TALK_ORIGIN: ${PRESENTATOR_TALK_ORIGIN:?set it to the talk host's canonical browser origin, on another hostname}
-      PRESENTATOR_COPRESENTER_SOCKET: /run/presentator-copresenter/copresenter.sock
+      PRESENTATOR_AGENT_SERVICE: http://agent-service:8080
       PRESENTATOR_SPEECH_SOCKET: /run/presentator-speech/speech.sock
       PRESENTATOR_BUILD_IMAGE: *build_image
       # The very volume declared below, under the name Docker gives it: one per
@@ -51,7 +56,6 @@ services:
       - mirrors:/data/mirrors
       - builds:/data/builds
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${COPRESENTER_SOCKET_DIRECTORY:?set it to the host co-presenter's private socket directory}:/run/presentator-copresenter:rw
       - ${SPEECH_SOCKET_DIRECTORY:?set it to the host speech private socket directory}:/run/presentator-speech:rw
 
   # The sealed build worker (ADR 0017). It runs the instance image and starts
@@ -114,7 +118,7 @@ services:
       context: .
       target: toolchain
       args:
-        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host co-presenter}
+        PRESENTATOR_RUNTIME_UID: ${PRESENTATOR_RUNTIME_UID:?set it to the positive non-root uid shared by Presentator and the host speech service}
     image: *build_image
     user: presentator
     profiles:
@@ -129,6 +133,9 @@ networks:
       config:
         - subnet: 172.31.255.0/24
           gateway: 172.31.255.1
+  agent:
+    external: true
+    name: hal_agent
 
 volumes:
   database:

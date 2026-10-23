@@ -465,7 +465,6 @@ jobs:
       PRESENTATOR_PUBLIC_ORIGIN: https://presentator.example.invalid
       PRESENTATOR_TALK_ORIGIN: https://talks.example.invalid
       PRESENTATOR_DOCKER_GROUP: "999"
-      COPRESENTER_SOCKET_DIRECTORY: /tmp
       SPEECH_SOCKET_DIRECTORY: /tmp
     steps:
       - name: Check out the event commit
