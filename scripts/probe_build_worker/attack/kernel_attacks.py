@@ -1,11 +1,11 @@
-"""The kernel-facing attacks of the sealed worker's isolation probe, in two vehicles.
+"""The kernel-facing attacks of the sealed worker's isolation probe, in three vehicles.
 
 `deck ONE PROBE` runs as a child of the attack deck's build code (uid 10001) and
 attacks PID 1 and the probe. `probe` runs as the exec'd 10002 probe, program on
-stdin (`python -I - probe`), and attacks PID 1 and the running step. `fork` and
-`ipc` leave what a life must not carry into the next. Every line printed is
-`KIND ...`; a check records only the kernel's errno name or `succeeded`, never
-what it read.
+stdin (`python -I - probe`), and attacks PID 1 and the running step. `fork`
+leaves what a life must not carry into the next; the SysV creations run inside
+`deck`. Every line printed is `KIND ...`; a check records only the kernel's errno
+name or `succeeded`, never what it read.
 """
 
 import contextlib
