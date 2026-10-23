@@ -32,7 +32,8 @@ Reader: the operator of this machine's deployment.
      socket, which you own.
 
    The `hal_agent_presentator` network must exist: the edge creates it, and the instance
-   joins it to reach the agent service. The instance also needs the sign-in settings
+   joins it to reach the agent service. While it is missing, `docker compose up` fails
+   on the missing external network and starts nothing. The instance also needs the sign-in settings
    ([settings](../reference/configuration.md)) and, in this deployment:
 
    - `PRESENTATOR_TRUSTED_PROXIES=172.31.255.1`: `cloudflared`
