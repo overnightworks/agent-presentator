@@ -51,6 +51,9 @@ MARKER_ROOTS = (str(TEMPORARY), "/dev/shm", "/work")  # noqa: S108
 CONFINEMENT_PROFILE = "docker-default (enforce)"
 SHARED_CGROUP = "same-as-pid-1"
 
+# Two refusers stand behind some rows: `ptrace` EPERM comes from Yama and from the
+# uid rule independently, and `/proc/1/environ` EACCES is the uid rule's own proof.
+# A row therefore reads as a refusal, not as one mechanism.
 DECK_REFUSALS = {
     "36": {
         "kill.1.SIGSTOP": "EPERM",
@@ -269,8 +272,8 @@ def wait_for_deck(step: "subprocess.Popen[str]") -> None:
         time.sleep(POLL_SECONDS)
 
 
-def run_probe() -> str:
-    """Run the 10002 probe with its program on stdin and return what it printed."""
+def run_probe() -> tuple[str, str]:
+    """Run the 10002 probe with its program on stdin; its stdout and stderr."""
     program = (PROBE_SOURCES / "attack" / "kernel_attacks.py").read_text()
     try:
         done = subprocess.run(
@@ -280,7 +283,7 @@ def run_probe() -> str:
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         refuse(f"the 10002 probe not driven: no end within {PROBE_SECONDS} seconds")
-    return done.stdout
+    return done.stdout, done.stderr
 
 
 def finish_step(step: "subprocess.Popen[str]") -> None:
@@ -342,7 +345,14 @@ def left_in_next_life(markers: tuple[str, ...]) -> NextLife:
 def prove_nothing_reaches_the_next_life(
     report: Report, deck: Observations, probe: Observations
 ) -> None:
-    """Cells 39 and 41: no 10001 or 10002 process, marker or SysV object survives."""
+    """Cells 39 and 41: no 10001 or 10002 process, marker or SysV object survives.
+
+    The restarted life's fresh PID, IPC and mount namespaces already void a
+    surviving process or SysV object, so this listing alone does not prove the
+    sweep. That reading rests on the attacked life having answered OUTCOME built
+    before the restart (`finish_step`): the step ended and was swept, not merely
+    restarted over.
+    """
     expected = (BUILD_IDENTITY, WIRE_IDENTITY)
     if [uid for _, uid in (*deck.children, *probe.children)] != list(expected):
         refuse(f"double-forked children: {deck.children} {probe.children}")
@@ -367,14 +377,15 @@ def prove_attacked_life(report: Report) -> None:
     endings_before = life_endings()
     step = start_attack_step()
     wait_for_deck(step)
-    probe = parse_observations(run_probe())
+    probe_output, probe_errors = run_probe()
+    probe = parse_observations(probe_output)
     finish_step(step)
     deck = read_attack_talk()
+    if not probe.complete:
+        refuse(f"the probe did not complete: {probe}\n{probe_errors}")
     # `docker exec --user 10002:10002` lists the primary group, no other.
     require_identity(probe, "probe", WIRE_IDENTITY, (WIRE_IDENTITY,))
     require_confinement(probe, "probe")
-    if not probe.complete:
-        refuse(f"the probe did not complete: {probe}")
     for who in ("node", "python"):
         require_identity(deck, who, BUILD_IDENTITY)
     require_checks(deck, DECK_CREATIONS, "deck")
