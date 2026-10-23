@@ -122,12 +122,7 @@ class UdsSpeaking:
     ) -> None:
         """Keep the socket path and how long speech may stay silent mid-body."""
         self._socket_path = socket_path
-        self._timeout = httpx2.Timeout(
-            connect=_STEP_TIMEOUT,
-            write=_STEP_TIMEOUT,
-            pool=_STEP_TIMEOUT,
-            read=read_timeout,
-        )
+        self._timeout = httpx2.Timeout(_STEP_TIMEOUT, read=read_timeout)
 
     async def speak(self, text: str, language: str) -> bytes:
         """Read the whole WAV, or close the connection and raise."""
@@ -247,12 +242,7 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(
-                    connect=_STEP_TIMEOUT,
-                    write=_STEP_TIMEOUT,
-                    pool=_STEP_TIMEOUT,
-                    read=None,
-                ),
+                timeout=httpx2.Timeout(_STEP_TIMEOUT, read=None),
                 trust_env=False,
             ) as client:
                 response = await client.post(f"/voices/{voice.value}/load")
@@ -286,12 +276,7 @@ class UdsSpeech:
             async with httpx2.AsyncClient(
                 base_url=_PRIVATE_ORIGIN,
                 transport=transport,
-                timeout=httpx2.Timeout(
-                    connect=_STEP_TIMEOUT,
-                    write=_STEP_TIMEOUT,
-                    pool=_STEP_TIMEOUT,
-                    read=None,
-                ),
+                timeout=httpx2.Timeout(_STEP_TIMEOUT, read=None),
                 trust_env=False,
             ) as client:
                 response = await client.post(

@@ -264,6 +264,7 @@ def test_the_last_closed_comment_is_the_notes(
     body: str,
     notes: str,
 ) -> None:
+    """#476 cells 2-6: the last closed comment is the notes, as the regex read it."""
     remote.commit({f"{_TALK}/slides.md": markdown}, at=_PUSHED_AT)
 
     text = read_deck(tmp_path, remote, _TALK)
@@ -276,6 +277,7 @@ def test_unclosed_comment_openers_are_read_in_linear_time(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
+    """#476 cell 1: 160 KB of unclosed openers read within the bound."""
     remote.commit({f"{_TALK}/slides.md": "# T\n" + "<!--" * 40_000}, at=_PUSHED_AT)
 
     started = time.monotonic()
@@ -291,6 +293,7 @@ def test_a_lone_hash_does_not_borrow_a_heading_from_a_later_line(
     remote: GitRemote,
     tmp_path: Path,
 ) -> None:
+    """#476 cell 8 (Decision 3): a heading is one line; a lone # takes no later one."""
     padding = " \n" * 50_000
     remote.commit({f"{_TALK}/slides.md": f"#{padding}# Found\n"}, at=_PUSHED_AT)
 

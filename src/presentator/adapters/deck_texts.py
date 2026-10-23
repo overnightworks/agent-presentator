@@ -183,19 +183,19 @@ def _html_comment_continues(line: str, *, inside: bool) -> bool:
     cursor = 0
     while cursor < len(line):
         if inside:
-            end = line.find("-->", cursor)
+            end = line.find(_NOTE_CLOSE, cursor)
             if end < 0:
                 return True
             inside = False
-            cursor = end + 3
+            cursor = end + len(_NOTE_CLOSE)
             continue
-        start = line.find("<!--", cursor)
+        start = line.find(_NOTE_OPEN, cursor)
         if start < 0:
             return False
-        end = line.find("-->", start + 4)
+        end = line.find(_NOTE_CLOSE, start + len(_NOTE_OPEN))
         if end < 0:
             return True
-        cursor = end + 3
+        cursor = end + len(_NOTE_CLOSE)
     return inside
 
 
