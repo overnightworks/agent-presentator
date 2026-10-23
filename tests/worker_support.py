@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from presentator.adapters import worker_children
+from presentator.adapters import build_wire, worker_children
 from presentator.adapters.build_wire import (
     END_COUNTS,
     LENGTH,
@@ -552,7 +552,7 @@ def wake_until_ended(volume: Path, thread: threading.Thread) -> None:
 def connect(volume: Path, timeout: float = WAIT_SECONDS) -> socket.socket:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(timeout)
-    client.connect(str(volume / worker.SOCKET_NAME))
+    client.connect(str(volume / build_wire.SOCKET_NAME))
     return client
 
 

@@ -6,6 +6,7 @@ adapter satisfies which port.
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -23,6 +24,7 @@ from webauth.rate_limit import SingleProcessRateLimitBackend
 from presentator.adapters.agent_service import ServiceAnswerer
 from presentator.adapters.agent_tokens import PersonAccessTokens, WorkloadToken
 from presentator.adapters.audit import LoggingAuditSink
+from presentator.adapters.build_worker import WorkerToolchain
 from presentator.adapters.builds import (
     ContainerToolchain,
     DaemonRefusedError,
@@ -99,12 +101,18 @@ from presentator.host.oidc import (
     relying_party,
 )
 from presentator.host.polling import Schedule
+from presentator.host.worker_serving import emergency_end
 
 _WITHOUT_A_SANDBOX = (
     "build_image and build_volume say what a deck's build runs in and where it"
     " writes, and a deck is code (line 14a): without both of them there is no"
     " sandbox. Ask for the development run knowingly with"
     " build_runner=host, or name them"
+)
+_WORKER_NOT_ANSWERING = (
+    "The build worker did not answer within {window:g} seconds. Check that the"
+    " build-worker service is running and shares the socket directory with this"
+    " service."
 )
 _NOTHING_BOUNDS_A_BUILD = (
     "this machine's %s storage driver does not take a size for a container's own"
@@ -378,6 +386,8 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     """
     if settings.build_runner is WhereBuildsRun.HOST:
         return HostToolchain(project=settings.toolchain, bound=bound)
+    if settings.build_runner is WhereBuildsRun.WORKER:
+        return _the_build_worker(settings, bound=bound)
     image, volume = settings.build_image, settings.build_volume
     if image is None or volume is None:
         raise cannot_start(_WITHOUT_A_SANDBOX)
@@ -398,6 +408,22 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
         disk=settings.build_disk,
         bound=bound,
     )
+
+
+def _the_build_worker(settings: Settings, *, bound: timedelta) -> WorkerToolchain:
+    """The sealed build worker, which has to answer before anything is served."""
+    toolchain = WorkerToolchain(
+        socket_path=settings.build_worker_socket,
+        megabytes=settings.build_output_megabytes,
+        reply_bound_seconds=emergency_end(0.0, bound.total_seconds()),
+        expected_uid=0,
+        expected_gid=os.getegid(),
+    )
+    if not toolchain.is_answering():
+        raise cannot_start(
+            _WORKER_NOT_ANSWERING.format(window=toolchain.connect_window_seconds)
+        )
+    return toolchain
 
 
 def web_auth_config_for(

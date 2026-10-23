@@ -10,9 +10,15 @@ from pathlib import Path
 import pytest
 
 from presentator.adapters.build_wire import (
+    MAXIMUM_ENTRIES,
     MEGABYTE,
+    RefusalLimit,
+    TreeRefusedError,
     WireRefusedError,
+    check_upload,
+    read_empty_end,
     receive_entries,
+    send_tree,
     send_tree_reply,
 )
 from presentator.contracts.decks import StepKind
@@ -371,3 +377,127 @@ def test_a_file_that_ends_before_its_surveyed_size_aborts_the_reply(
 
     with pytest.raises(WireRefusedError):
         reply_to(output, StepKind.BUILD)
+
+
+def upload_verdict(deck: Path, megabytes: int = MEGABYTES) -> TreeRefusedError | None:
+    """What the upload survey of the deck refuses with, or None when it admits it."""
+    descriptor = os.open(deck, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        check_upload(descriptor, megabytes)
+    except TreeRefusedError as refusal:
+        return refusal
+    finally:
+        os.close(descriptor)
+    return None
+
+
+@pytest.fixture
+def deck(tmp_path: Path) -> Path:
+    (tmp_path / "deck").mkdir()
+    (tmp_path / "deck" / "slides.md").write_text("# hello")
+    return tmp_path / "deck"
+
+
+def test_a_deck_within_the_limits_passes_the_upload_survey(deck: Path) -> None:
+    """Cell B10."""
+    assert upload_verdict(deck) is None
+
+
+def test_a_deck_over_the_megabytes_is_refused_with_the_rounded_up_total(
+    deck: Path,
+) -> None:
+    """Cell B10."""
+    with (deck / "big").open("wb") as big:
+        big.truncate(MEGABYTES * MEGABYTE)
+
+    refusal = upload_verdict(deck)
+
+    assert refusal is not None
+    assert refusal.outcome.limit is RefusalLimit.MEGABYTES
+    assert refusal.outcome.written == MEGABYTES + 1
+
+
+def test_a_deck_over_the_entries_is_refused_as_entries(deck: Path) -> None:
+    """Cell B10."""
+    for number in range(MAXIMUM_ENTRIES):
+        os.close(os.open(deck / f"{number:06d}", os.O_CREAT | os.O_WRONLY))
+
+    refusal = upload_verdict(deck)
+
+    assert refusal is not None
+    assert refusal.outcome.limit is RefusalLimit.ENTRIES
+
+
+@pytest.mark.parametrize("make", [a_path_at_depth_33, a_symlink_to_a_file])
+def test_a_deck_breaking_a_path_or_file_rule_is_refused_as_shape(
+    deck: Path, make: Callable[[Path], None]
+) -> None:
+    """Cell B10."""
+    (deck / "below").mkdir()
+    make(deck / "below")
+
+    refusal = upload_verdict(deck)
+
+    assert refusal is not None
+    assert refusal.outcome.limit is RefusalLimit.SHAPE
+
+
+def test_only_a_top_level_node_modules_is_left_out_of_survey_and_upload(
+    deck: Path, tmp_path: Path
+) -> None:
+    """Cell B11: the omitted one may break every rule; the nested one is sent."""
+    (deck / "node_modules").symlink_to("slides.md")
+    (deck / "a" / "node_modules").mkdir(parents=True)
+    (deck / "a" / "node_modules" / "y").write_text("y")
+    reading_end, writing_end = socket.socketpair()
+    descriptor = os.open(deck, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert upload_verdict(deck) is None
+        send_tree(writing_end, descriptor, omitting=b"node_modules")
+    finally:
+        os.close(descriptor)
+        writing_end.close()
+    destination = tmp_path / "received"
+    destination.mkdir()
+    sent = reading_end.makefile("rb").read()
+    reading_end.close()
+
+    received_into_an_empty_directory(sent, destination)
+
+    assert sorted(tree_of(destination)) == [
+        "a",
+        "a/node_modules",
+        "a/node_modules/y",
+        "slides.md",
+    ]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param(support.END[:-1] + b"\x01", id="a counted entry"),
+        pytest.param(b"\x01", id="an entry instead of END"),
+        pytest.param(support.END[:5], id="a truncated END"),
+    ],
+)
+def test_a_reply_without_entries_must_be_exactly_an_empty_end(reply: bytes) -> None:
+    """Cell B5."""
+    reading_end, writing_end = socket.socketpair()
+    writing_end.sendall(reply)
+    writing_end.close()
+
+    with pytest.raises(WireRefusedError):
+        read_empty_end(reading_end)
+
+    reading_end.close()
+
+
+def test_an_empty_end_is_read_without_a_fault() -> None:
+    """Cell B9."""
+    reading_end, writing_end = socket.socketpair()
+    writing_end.sendall(support.END)
+
+    read_empty_end(reading_end)
+
+    reading_end.close()
+    writing_end.close()
