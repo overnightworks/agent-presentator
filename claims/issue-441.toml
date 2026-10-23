@@ -1,8 +1,0 @@
-claim_id = "3909eefd1c7c4fd9aad895058a11d266"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "9da1547cfa28896a1c48d86d1a4ba975496317d7"
-branch = "claude/issue-441-export-route-s10b"
-scope = ["docs/reference/people.md", "src/presentator/api/people.py", "src/presentator/host/main.py", "tests/api/lobby.py", "tests/api/test_people_erasure_route.py", "tests/api/test_people_export_route.py"]
-opened_commit = "a342247abd45f497021ca6f1663602c4c79ba6ed"
-whole_reason = "One route over one use case: its envelope, its ZIP, its clock and its reference section."
