@@ -74,6 +74,11 @@ class FakeIssuer:
         self.token_endpoint_is_down = False
         self.key_set_is_down = False
 
+    @property
+    def issued_id_tokens(self) -> list[str]:
+        """Every ID token a code exchange can hand out."""
+        return list(self._tokens_by_code.values())
+
     def issue_refresh_token(self, token: str) -> None:
         """Answer every later code exchange with this refresh token too."""
         self._refresh_token = token
