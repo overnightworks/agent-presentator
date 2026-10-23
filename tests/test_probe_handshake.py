@@ -1,5 +1,9 @@
+"""The probe driver refuses a stalled client instead of waiting for it."""
+
+import importlib
 import subprocess
 import sys
+from types import ModuleType
 
 import pytest
 
@@ -10,11 +14,9 @@ TWO_LINES = "print('uploaded'); print('closed 1.5', flush=True)"
 
 
 @pytest.fixture
-def lives(monkeypatch: pytest.MonkeyPatch):
+def lives(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.syspath_prepend("scripts")
-    import probe_build_worker_lives
-
-    return probe_build_worker_lives
+    return importlib.import_module("probe_build_worker_lives")
 
 
 def start(code: str) -> "subprocess.Popen[str]":
@@ -24,7 +26,7 @@ def start(code: str) -> "subprocess.Popen[str]":
 
 
 def test_a_partial_handshake_line_that_stalls_is_refused_as_not_driven(
-    lives, monkeypatch: pytest.MonkeyPatch
+    lives: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(lives, "HANDSHAKE_SECONDS", 1)
     client = start(SILENT_AFTER_PARTIAL_LINE)
@@ -36,7 +38,7 @@ def test_a_partial_handshake_line_that_stalls_is_refused_as_not_driven(
     client.wait(timeout=10)
 
 
-def test_consecutive_handshake_lines_are_each_returned(lives) -> None:
+def test_consecutive_handshake_lines_are_each_returned(lives: ModuleType) -> None:
     client = start(TWO_LINES)
     assert client.stdout is not None
 
