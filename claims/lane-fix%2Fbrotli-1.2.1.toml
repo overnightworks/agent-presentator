@@ -1,7 +1,0 @@
-claim_id = "68f3a891d5f4409d940617afd2a8eaac"
-agent = "claude-731024d8"
-role = "builder"
-base = "e149f3436055379df0f1a972ed5647327de0ddc8"
-branch = "fix/brotli-1.2.1"
-scope = ["speech/providers/chatterbox/uv.lock", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/uv.lock"]
-opened_commit = "c091f7bca184ca5120f6613df09b0e3a2ec9aa87"
