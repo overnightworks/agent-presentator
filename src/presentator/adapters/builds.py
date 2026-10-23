@@ -163,10 +163,10 @@ _TOOK_TOO_LONG_TO_ADD_UP: Final = (
 )
 # What a person reads on the deck page when no toolchain failed but the build
 # is refused all the same.
-_TOO_MUCH_FOR_A_PAGE: Final = (
+TOO_MUCH_FOR_A_PAGE: Final = (
     "The talk this build wrote is {written} MB; a build may leave at most {allowed} MB."
 )
-_TOO_MANY_FOR_A_PAGE: Final = (
+TOO_MANY_FOR_A_PAGE: Final = (
     "The talk this build wrote holds more than {allowed} files;"
     " a build may leave fewer."
 )
@@ -718,13 +718,13 @@ class SlidevBuilds:
         if added.entries > _ENTRIES_AT_MOST:
             _log.warning(_TOO_MUCH_WRITTEN, deck.slug, added.entries)
             return BuildFailure(
-                text=_TOO_MANY_FOR_A_PAGE.format(allowed=_ENTRIES_AT_MOST),
+                text=TOO_MANY_FOR_A_PAGE.format(allowed=_ENTRIES_AT_MOST),
             )
         if added.megabytes <= self.output_megabytes:
             return None
         _log.warning(_TOO_MUCH_WRITTEN, deck.slug, added.megabytes)
         return BuildFailure(
-            text=_TOO_MUCH_FOR_A_PAGE.format(
+            text=TOO_MUCH_FOR_A_PAGE.format(
                 written=added.megabytes,
                 allowed=self.output_megabytes,
             ),

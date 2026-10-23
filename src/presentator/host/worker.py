@@ -18,6 +18,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
+from presentator.adapters import build_wire
 from presentator.adapters.worker_children import (
     ChildIdentity,
     readable_within,
@@ -61,15 +62,12 @@ WIRE_IDENTITY = (10002, 10002)
 NO_CAPABILITIES = "0" * 16
 ROOT_MODE = 0o755
 WORK_MOUNT = "/work"
-SOCKET_DIRECTORY = "/run/presentator-build"
-SOCKET_NAME = "worker.sock"
-SOCKET_DIRECTORY_MODE = 0o750
-SOCKET_MODE = 0o660
 BIND_UMASK = 0o117
 LISTEN_BACKLOG = 4
 TEMPORARY_MOUNT_NAME = "tmp"
 # Mount points below the root, so the self-check names no world-writable path.
-SCRATCH_MOUNT_NAMES = (TEMPORARY_MOUNT_NAME, "dev/shm", SOCKET_DIRECTORY.lstrip("/"))
+SOCKET_MOUNT_NAME = build_wire.SOCKET_DIRECTORY.lstrip("/")
+SCRATCH_MOUNT_NAMES = (TEMPORARY_MOUNT_NAME, "dev/shm", SOCKET_MOUNT_NAME)
 TMPFS_MOUNTS = tuple(
     str(Path("/") / name) for name in (WORK_MOUNT.lstrip("/"), *SCRATCH_MOUNT_NAMES)
 )
@@ -518,7 +516,7 @@ def _fix_up_socket_directory(
             if os.fstat(descriptor).st_uid != controller_uid:
                 raise StartRefusedError(StartRefusal.SOCKET_DIRECTORY)
             os.fchown(descriptor, -1, controller_gid)
-            os.fchmod(descriptor, SOCKET_DIRECTORY_MODE)
+            os.fchmod(descriptor, build_wire.SOCKET_DIRECTORY_MODE)
         finally:
             os.close(descriptor)
     except OSError as error:
@@ -543,7 +541,7 @@ def prepare_socket_directory(
 ) -> None:
     """Step 4: fix up the volume root and clear a stale socket."""
     _fix_up_socket_directory(directory, controller_uid, controller_gid)
-    remove_stale_socket(directory / SOCKET_NAME, controller_uid)
+    remove_stale_socket(directory / build_wire.SOCKET_NAME, controller_uid)
 
 
 def bind_socket(
@@ -554,7 +552,7 @@ def bind_socket(
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     except OSError as error:
         raise StartRefusedError(StartRefusal.BIND) from error
-    socket_path = directory / SOCKET_NAME
+    socket_path = directory / build_wire.SOCKET_NAME
     try:
         os.umask(BIND_UMASK)
         try:
@@ -568,7 +566,7 @@ def bind_socket(
     created_as_expected = (
         stat.S_ISSOCK(status.st_mode)
         and (status.st_uid, status.st_gid) == (controller_uid, controller_gid)
-        and stat.S_IMODE(status.st_mode) == SOCKET_MODE
+        and stat.S_IMODE(status.st_mode) == build_wire.SOCKET_MODE
     )
     if not created_as_expected:
         listener.close()
@@ -747,7 +745,7 @@ def _serve_on_this_machine(
     *, controller_gid: int, runtime_uid: int, settings: WorkerSettings
 ) -> int:
     return serve(
-        Path(SOCKET_DIRECTORY),
+        Path(build_wire.SOCKET_DIRECTORY),
         controller_uid=0,
         controller_gid=controller_gid,
         runtime_uid=runtime_uid,
