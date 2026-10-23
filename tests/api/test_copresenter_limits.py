@@ -40,6 +40,8 @@ from tests.api.lobby import A_TALK_ADDRESS, ADMIN, AN_AGENT_SERVICE
 from tests.application.fakes import FrozenClock
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from httpx2 import Response
     from starlette.types import ASGIApp, Message, Scope
 
