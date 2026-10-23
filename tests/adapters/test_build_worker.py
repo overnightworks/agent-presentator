@@ -1,6 +1,7 @@
 """The web's client of the build worker, against a fake worker on a real socket."""
 
 import errno
+import logging
 import os
 import socket
 import stat
@@ -328,6 +329,102 @@ def test_a_socket_directory_that_cannot_be_searched_is_refused_without_a_retry(
 
     assert not answering_at_start
     assert time.monotonic() - started < PROMPTLY
+
+
+@contextmanager
+def a_worker_arriving_after(volume: Path, seconds: float | None) -> Generator[None]:
+    """A volume the web cannot search until the worker fixes it up, after seconds."""
+    volume.chmod(0)
+    stopped = threading.Event()
+
+    def arrive() -> None:
+        if seconds is None or stopped.wait(seconds):
+            return
+        volume.chmod(SOCKET_DIRECTORY_MODE)
+        with fake_worker(volume, answering(nothing_to_reply)):
+            stopped.wait()
+
+    thread = threading.Thread(target=arrive)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join()
+        volume.chmod(0o700)
+
+
+@AS_ROOT
+def test_a_fresh_volume_is_waited_on_until_the_workers_fix_up_lets_the_web_in(
+    volume: Path,
+) -> None:
+    """Cell B23: an unsearchable directory of the worker's uid is retried within W."""
+    with a_worker_arriving_after(volume, WINDOW / 3):
+        assert toolchain(volume).is_answering()
+
+
+@AS_ROOT
+def test_a_volume_never_fixed_up_is_refused_at_the_window_naming_eacces(
+    volume: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Cell B23: refused at W, logging EACCES as the last cause."""
+    started = time.monotonic()
+
+    with a_worker_arriving_after(volume, None), caplog.at_level(logging.WARNING):
+        answering_at_start = toolchain(volume).is_answering()
+
+    assert not answering_at_start
+    assert WINDOW - WINDOW_TOLERANCE <= time.monotonic() - started < WINDOW + 0.5
+    assert "EACCES" in caplog.text
+
+
+@AS_ROOT
+def test_an_unsearchable_directory_of_another_owner_is_refused_at_once(
+    volume: Path,
+) -> None:
+    """Cell B23: another owner is not waited for."""
+    started = time.monotonic()
+
+    with a_worker_arriving_after(volume, None):
+        answering_at_start = toolchain(
+            volume, expected_uid=OWN_UID + 1, connect_window_seconds=30.0
+        ).is_answering()
+
+    assert not answering_at_start
+    assert time.monotonic() - started < PROMPTLY
+
+
+@AS_ROOT
+def test_a_step_against_an_unsearchable_directory_fails_at_once(
+    volume: Path, tmp_path: Path
+) -> None:
+    """Cell B23: only the start waits for the fix-up, a STEP fails at once."""
+    started = time.monotonic()
+
+    with a_worker_arriving_after(volume, None):
+        result = toolchain(volume, connect_window_seconds=30.0).ran(a_step(tmp_path))
+
+    assert result == WITHOUT_A_REASON
+    assert time.monotonic() - started < PROMPTLY
+
+
+def test_the_directory_is_read_after_the_socket_so_a_fix_up_between_them_counts(
+    volume: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cell B3: a stale directory stat is not judged once the socket is there."""
+    socket_path = volume / SOCKET_NAME
+    lstat = Path.lstat
+
+    def lstat_after_the_fix_up(path: Path) -> os.stat_result:
+        if path == socket_path:
+            volume.chmod(SOCKET_DIRECTORY_MODE)
+        return lstat(path)
+
+    with fake_worker(volume, answering(nothing_to_reply)):
+        volume.chmod(0o770)
+        monkeypatch.setattr(Path, "lstat", lstat_after_the_fix_up)
+
+        assert toolchain(volume).is_answering()
 
 
 def test_a_reply_dripped_past_the_last_deadline_fails_at_it(
