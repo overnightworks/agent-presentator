@@ -340,6 +340,23 @@ back-channel, 400 on a route FastAPI parses. A sign-in that interleaves with a
 back-channel logout of the same person can leave the new session open until its
 cap; the remedy is a unit of work, kept in #242's "Trigger to revisit".
 
+### Amendment 2026-10-23 — webauth v0.22.0 keeps the ID token in the session row
+
+Authority: [#428](https://github.com/overnightworks/presentator/issues/428).
+
+`webauth` v0.22.0 is pinned. The ID token leaves the `__Secure-oidc_id_token_hint`
+cookie for a nullable `id_token` column of the `sessions` table, written by
+`create`. The talk host's store is built with `keeps_id_token` off and writes
+NULL on purpose, which the library's `SessionRecord.id_token` docstring does not
+foresee: that host has no logout route, so a second copy of the person's claims
+would serve nothing. The logout route returns `log_out`'s answer as it is, a
+`no-store` page under its own policy, so the lobby's `form-action` is `'self'`
+again and no end-session origin is configured. The route stays POST only and is
+not in `CsrfPolicy.exempt`; if the lobby ever installs a token policy, that
+policy names `/logout` in its own `token_exempt`. A file with the five-column
+`sessions` table of v0.21.0 is refused untouched like every older shape: no
+operated database has it, so there is no in-place migration.
+
 ## Consequences
 
 - Which model presents becomes configuration, not code, and the phase M1 work is

@@ -144,7 +144,7 @@ def test_a_route_added_after_the_lobby_was_built_still_needs_a_session(
         ("GET", "/login/oidc", HTTPStatus.SEE_OTHER),
         ("GET", "/setup", HTTPStatus.NOT_FOUND),
         ("POST", "/setup", HTTPStatus.NOT_FOUND),
-        ("POST", "/logout", HTTPStatus.SEE_OTHER),
+        ("POST", "/logout", HTTPStatus.OK),
         ("GET", "/static/ui-console.css", HTTPStatus.OK),
     ],
 )

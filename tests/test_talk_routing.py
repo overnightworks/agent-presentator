@@ -1,14 +1,18 @@
 """The Host header alone chooses which app of the instance answers."""
 
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+from pydantic import SecretStr
 from starlette.testclient import TestClient, WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 from webauth.config import installed_web_auth_config
+from webauth.oidc import OidcClientConfig, OidcRelyingParty
 
 from presentator.adapters.identity import SqliteSessionRecordStore
 from presentator.api.talk import TALK_PERMISSIONS_POLICY, talk_content_security_policy
@@ -16,8 +20,10 @@ from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.models import Role, User
 from presentator.host import main
 from presentator.host.config import load_settings
+from tests.api.fake_issuer import FakeIssuer
 from tests.api.lobby import (
     A_BROWSERS_ADDRESS,
+    A_BROWSERS_HEADERS,
     A_TALK_ADDRESS,
     hand_over_session_cookies,
 )
@@ -196,7 +202,11 @@ def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only() -> 
     seed_user(settings.database, _ADMIN)
     now = datetime.now(UTC)
     session = SqliteSessionRecordStore(settings.database).create(
-        _ADMIN.id, now=now, expires_at=now + SESSION_LIFETIME, refresh_token=None
+        _ADMIN.id,
+        now=now,
+        expires_at=now + SESSION_LIFETIME,
+        refresh_token=None,
+        id_token=SecretStr("an-id-token"),
     )
     lobby = TestClient(router, base_url=settings.public_origin)
     talk = TestClient(router, base_url=settings.talk_origin)
@@ -218,3 +228,56 @@ def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only() -> 
 
     assert at_the_lobby.status_code == _NOT_FOUND
     assert at_the_talk_host.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+
+
+# T1, through the composition root's own wiring.
+@pytest.mark.usefixtures("environment")
+def test_the_talk_hosts_sign_in_stores_no_id_token_while_the_lobbys_does() -> None:
+    """#428 cell 29 (D4, T1): lobby row keeps the ID token, talk row none."""
+    settings = load_settings()
+    now = datetime.now(UTC)
+    issuer = FakeIssuer(
+        issuer=settings.oidc_issuer, client_id=settings.oidc_client_id, now=now
+    )
+
+    def relying_party_over_the_fake_issuer(
+        config: OidcClientConfig,
+    ) -> OidcRelyingParty:
+        return OidcRelyingParty(
+            config,
+            post_token_request=issuer.post_token_request,
+            fetch_key_set=issuer.fetch_key_set,
+            wall_clock=now.timestamp,
+            monotonic_clock=lambda: 0.0,
+        )
+
+    router = main.served_by_host(
+        main.build_instance(settings, relying_party_over_the_fake_issuer), settings
+    )
+
+    def stored_id_tokens() -> list[str | None]:
+        with closing(sqlite3.connect(settings.database)) as connection:
+            return [
+                row[0] for row in connection.execute("SELECT id_token FROM sessions")
+            ]
+
+    def sign_in_at(origin: str) -> None:
+        browser = TestClient(
+            router,
+            base_url=origin,
+            follow_redirects=False,
+            headers=A_BROWSERS_HEADERS,
+        )
+        started = browser.get("/login/oidc").headers["location"]
+        query = issuer.authorize(
+            started, subject="subject-1", groups=["/apps/presentator"], username="felix"
+        )
+        assert (
+            browser.get(f"/auth/callback?{query}").status_code == HTTPStatus.SEE_OTHER
+        )
+
+    sign_in_at(settings.talk_origin)
+    assert stored_id_tokens() == [None]
+
+    sign_in_at(settings.public_origin)
+    assert sorted(token is None for token in stored_id_tokens()) == [False, True]

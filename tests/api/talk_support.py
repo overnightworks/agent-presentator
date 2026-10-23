@@ -11,6 +11,7 @@ from typing import Final
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from pydantic import SecretStr
 from starlette.routing import Router
 from starlette.types import ASGIApp, Message, Scope
 from webauth.config import WebAuthConfig
@@ -168,6 +169,7 @@ class Hosts:
                 now=now,
                 expires_at=now + SESSION_LIFETIME,
                 refresh_token=None,
+                id_token=SecretStr("an-id-token"),
             )
             .id
         )
@@ -232,7 +234,7 @@ def two_hosts(
     decks = a_decks(
         replace(NO_DECKS if given is None else given, store=decks_store), clock
     )
-    sessions = SqliteSessionRecordStore(database)
+    sessions = SqliteSessionRecordStore(database, keeps_id_token=True)
     issuer = FakeIssuer(issuer=AN_ISSUER, client_id=A_CLIENT_ID, now=clock.now())
     lobby_auth, talk_auth = _both_auths(database, issuer, clock, admission)
     talk_config = talk_auth.config
@@ -241,7 +243,7 @@ def two_hosts(
         signing_in=SigningIn(sessions=sessions, auth=lobby_auth, decks=decks),
     )
     talk = create_talk(
-        sessions=sessions,
+        sessions=SqliteSessionRecordStore(database),
         decks=decks,
         auth=talk_auth,
         lobby_origin=A_BROWSERS_ADDRESS,

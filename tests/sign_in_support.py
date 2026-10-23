@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi.testclient import TestClient
 from httpx2 import Response as BrowserAnswer
 from webauth.config import WebAuthConfig
-from webauth.oidc import OidcRelyingParty
+from webauth.oidc import OidcRelyingParty, TokenRequestPost
 from webauth.oidc_login import AdmissionConfig
 from webauth.ports import AccountEvent, AuditSink, SubjectUserStore, WriteLock
 
@@ -116,6 +116,14 @@ class Scene:
         with closing(sqlite3.connect(self.database)) as connection:
             return dict(connection.execute("SELECT id, refresh_token FROM sessions"))
 
+    def stored_id_tokens(self) -> list[str | None]:
+        """The ID token of every session row, as the file holds it."""
+        with closing(sqlite3.connect(self.database)) as connection:
+            return [
+                token
+                for (token,) in connection.execute("SELECT id_token FROM sessions")
+            ]
+
     def stored_tokens(self) -> list[str | None]:
         return list(self.stored_sessions().values())
 
@@ -125,13 +133,14 @@ class Scene:
         return int(count)
 
 
-def a_scene(
+def a_scene(  # noqa: PLR0913
     tmp_path: Path,
     *,
     accounts: Callable[[SqliteSubjectUserStore], SubjectUserStore] = lambda real: real,
     lock: WriteLock | None = None,
     audit: Callable[[RecordingAudit], AuditSink] = lambda recording: recording,
     admission: AdmissionConfig | None = None,
+    token_requests: Callable[[TokenRequestPost], TokenRequestPost] = lambda real: real,
 ) -> Scene:
     database = tmp_path / "identity.sqlite3"
     create_identity_tables(database)
@@ -143,14 +152,14 @@ def a_scene(
         people.clock,
         relying_party=a_relying_party(
             people.clock,
-            post_token_request=issuer.post_token_request,
+            post_token_request=token_requests(issuer.post_token_request),
             fetch_key_set=issuer.fetch_key_set,
         ),
         accounts=accounts(users),
         lock=lock,
         audit=audit(recording),
     )
-    sessions = SqliteSessionRecordStore(database)
+    sessions = SqliteSessionRecordStore(database, keeps_id_token=True)
     app, _ = a_lobby_app(
         people=people,
         signing_in=SigningIn(

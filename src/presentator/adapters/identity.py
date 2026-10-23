@@ -19,7 +19,7 @@ from webauth.ports import UsernameTakenError, WriteLock
 
 from presentator.adapters.sqlite import apply_schema, rows
 from presentator.contracts.models import Role, User
-from presentator.contracts.people import SessionTimes
+from presentator.contracts.people import SessionSecretsHeld, SessionTimes
 
 _SCHEMA: Final = """
 CREATE TABLE IF NOT EXISTS users (
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id TEXT NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    refresh_token TEXT
+    refresh_token TEXT,
+    id_token TEXT
 );
 """
 _IDENTIFIER_BYTES: Final = 32
@@ -197,7 +198,7 @@ def _is_a_taken_username(refused: sqlite3.IntegrityError) -> bool:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StoredSession:
-    """A stored sign-in: its account, its instants and its login's refresh token.
+    """A stored sign-in: its account, its instants and its login's secrets.
 
     Whether it still stands is `webauth`'s `admit_session`, not a method here
     (ADR 0003).
@@ -208,6 +209,7 @@ class StoredSession:
     created_at: datetime
     expires_at: datetime
     refresh_token: SecretStr | None
+    id_token: SecretStr | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,11 +217,15 @@ class SqliteSessionRecordStore:
     """The sessions table, joined to the accounts.
 
     Instants are stored as UTC ISO 8601 text, so comparing the text orders the
-    instants. Every call commits on its own. The refresh token sits in plain
-    text in the session's row and leaves with it (ADR 0013).
+    instants. Every call commits on its own. The refresh token and the ID token
+    sit in plain text in the session's row and leave with it (ADR 0013).
+
+    A store that does not keep the ID token writes NULL, so the host that has no
+    logout route holds no second copy of the person's claims.
     """
 
     database: Path
+    keeps_id_token: bool = False
 
     def create(
         self,
@@ -228,6 +234,7 @@ class SqliteSessionRecordStore:
         now: datetime,
         expires_at: datetime,
         refresh_token: SecretStr | None,
+        id_token: SecretStr,
     ) -> StoredSession:
         """Open a session created at `now` that stands until `expires_at`."""
         session_id = secrets.token_urlsafe(_IDENTIFIER_BYTES)
@@ -238,14 +245,15 @@ class SqliteSessionRecordStore:
                 raise LookupError(message)
             cursor.execute(
                 "INSERT INTO sessions"
-                " (id, user_id, created_at, expires_at, refresh_token)"
-                " VALUES (?, ?, ?, ?, ?)",
+                " (id, user_id, created_at, expires_at, refresh_token, id_token)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     user_id,
                     _stored(now),
                     _stored(expires_at),
                     None if refresh_token is None else refresh_token.get_secret_value(),
+                    id_token.get_secret_value() if self.keeps_id_token else None,
                 ),
             )
         return StoredSession(
@@ -254,6 +262,7 @@ class SqliteSessionRecordStore:
             created_at=now,
             expires_at=expires_at,
             refresh_token=refresh_token,
+            id_token=id_token if self.keeps_id_token else None,
         )
 
     def load(self, session_id: str) -> StoredSession | None:
@@ -261,20 +270,22 @@ class SqliteSessionRecordStore:
         with rows(self.database) as cursor:
             row = cursor.execute(
                 "SELECT sessions.id, sessions.created_at, sessions.expires_at,"
-                " sessions.refresh_token, users.id, users.username, users.role"
+                " sessions.refresh_token, sessions.id_token,"
+                " users.id, users.username, users.role"
                 " FROM sessions JOIN users ON users.id = sessions.user_id"
                 " WHERE sessions.id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        stored_id, created_at, expires_at, refresh_token, *account = row
+        stored_id, created_at, expires_at, refresh_token, id_token, *account = row
         return StoredSession(
             id=stored_id,
             user=_user(account),
             created_at=datetime.fromisoformat(created_at),
             expires_at=datetime.fromisoformat(expires_at),
             refresh_token=None if refresh_token is None else SecretStr(refresh_token),
+            id_token=None if id_token is None else SecretStr(id_token),
         )
 
     def touch(self, session_id: str, *, expires_at: datetime) -> bool:
@@ -326,14 +337,17 @@ class SqliteSessionRecordStore:
             for created_at, expires_at in found
         )
 
-    def refresh_tokens_held(self, user_id: str) -> int:
-        """How many sessions of one account hold a refresh token, never the token."""
+    def secrets_held(self, user_id: str) -> SessionSecretsHeld:
+        """How many sessions of one account hold each token, never the token."""
         with rows(self.database) as cursor:
-            (held,) = cursor.execute(
-                "SELECT COUNT(refresh_token) FROM sessions WHERE user_id = ?",
+            refresh_tokens, id_tokens = cursor.execute(
+                "SELECT COUNT(refresh_token), COUNT(id_token)"
+                " FROM sessions WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
-        return int(held)
+        return SessionSecretsHeld(
+            refresh_tokens=int(refresh_tokens), id_tokens=int(id_tokens)
+        )
 
     def delete_expired(self, at: datetime) -> int:
         """Delete every session that ended before `at`; one ending at `at` stands.

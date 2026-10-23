@@ -22,7 +22,12 @@ _TWO_OF_EACH = 2
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _A_HOOK_HASH = b"hook-hash-nobody-may-read"
 _A_REFRESH_WORD = "refresh-word-nobody-may-read"
-_SECRET_WORDS = ("hook-hash-nobody-may-read", _A_REFRESH_WORD, "OPENSSH PRIVATE KEY")
+_SECRET_WORDS = (
+    "hook-hash-nobody-may-read",
+    _A_REFRESH_WORD,
+    "OPENSSH PRIVATE KEY",
+    "an-id-token",
+)
 
 
 def _secret(kind: PersonKind, count: int) -> Withheld:
@@ -40,6 +45,7 @@ def _exported(subject: str = _THE_PERSON) -> PersonExport:
         now=_NOW,
         expires_at=_NOW + timedelta(hours=1),
         refresh_token=SecretStr(_A_REFRESH_WORD),
+        id_token=SecretStr("an-id-token"),
     )
     return instance.people.export_person(subject)
 
@@ -63,6 +69,7 @@ def test_every_kind_of_row_is_in_the_data_and_each_secret_is_counted_withheld() 
         _secret(PersonKind.HOOK_SECRET_HASH, _TWO_OF_EACH),
         _secret(PersonKind.KEY_DRAFT_PRIVATE_KEY, 1),
         _secret(PersonKind.REFRESH_TOKEN, 1),
+        _secret(PersonKind.ID_TOKEN, _TWO_OF_EACH),
     )
 
 

@@ -37,9 +37,9 @@ preferences, key draft, sources with their decks and runs) as the
 is always empty, because builds and mirrors derive from git.
 
 The secrets are never read into it. `withheld` counts each kind left out under
-its own word: `source-credential`, `hook-secret-hash`, `key-draft-private-key`
-and `refresh-token`, each with `reason` `secret`. A source address is exported
-as stored: the guarantee is that its authority carries no credential part; a
+its own word: `source-credential`, `hook-secret-hash`, `key-draft-private-key`,
+`refresh-token` and `id-token`, each with `reason` `secret`. A source address is
+exported as stored: the guarantee is that its authority carries no credential part; a
 secret typed into a path or query is exported as typed.
 
 An unknown subject, and a person who owns no row, answers 200 with `data`
