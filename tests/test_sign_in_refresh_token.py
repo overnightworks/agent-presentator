@@ -1,5 +1,6 @@
 """The refresh token a sign-in stores with its session, and where it never shows."""
 
+import json
 import logging
 import sqlite3
 from contextlib import closing
@@ -8,8 +9,10 @@ from pathlib import Path
 
 import pytest
 from webauth.cookies import DEFAULT_SESSION_COOKIE_NAME
+from webauth.oidc import TokenEndpointAnswer, TokenRequest
 
 from presentator.api.auth import LOGOUT_PATH
+from tests.api.fake_issuer import FakeIssuer
 from tests.leak_support import everything_shown
 from tests.sign_in_support import Scene, a_scene, cookie_names
 
@@ -18,7 +21,24 @@ _LOGGERS = ("uvicorn.error", "webauth", "presentator")
 
 
 @pytest.fixture
-def scene(tmp_path: Path) -> Scene:
+def issued_id_tokens(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every ID token the issuer's token endpoint hands out, as it is handed out."""
+    handed_out: list[str] = []
+    answer_the_token_request = FakeIssuer.post_token_request
+
+    def record(issuer: FakeIssuer, request: TokenRequest) -> TokenEndpointAnswer:
+        answer = answer_the_token_request(issuer, request)
+        id_token = json.loads(answer.body).get("id_token")
+        if id_token is not None:
+            handed_out.append(id_token)
+        return answer
+
+    monkeypatch.setattr(FakeIssuer, "post_token_request", record)
+    return handed_out
+
+
+@pytest.fixture
+def scene(tmp_path: Path, issued_id_tokens: list[str]) -> Scene:  # noqa: ARG001
     return a_scene(tmp_path)
 
 
@@ -157,27 +177,30 @@ def test_a_store_failure_holding_the_token_answers_500_without_it(
     assert _MARKER not in answer.text + str(answer.headers)
 
 
-def _the_id_tokens_and_their_claims(scene: Scene) -> list[str]:
-    tokens = scene.issuer.issued_id_tokens
+def _the_id_tokens_and_their_claims(tokens: list[str]) -> list[str]:
     assert tokens
     return [*tokens, *(token.split(".")[1] for token in tokens)]
 
 
 def test_a_sign_in_that_stores_the_id_token_leaks_it_to_neither_page_nor_log(
-    scene: Scene, log: pytest.LogCaptureFixture
+    scene: Scene,
+    log: pytest.LogCaptureFixture,
+    issued_id_tokens: list[str],
 ) -> None:
     """#428 cell 11: stored sign-in."""
     answer = scene.sign_in()
 
     (stored,) = scene.stored_id_tokens()
-    assert stored in scene.issuer.issued_id_tokens
-    for secret in _the_id_tokens_and_their_claims(scene):
+    assert stored in issued_id_tokens
+    for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
         assert secret not in answer.text + str(answer.headers)
         assert secret not in everything_shown(log.records)
 
 
 def test_a_store_failure_holding_the_id_token_leaks_it_to_no_error_and_no_log(
-    scene: Scene, log: pytest.LogCaptureFixture
+    scene: Scene,
+    log: pytest.LogCaptureFixture,
+    issued_id_tokens: list[str],
 ) -> None:
     """#428 cell 11: store failure."""
     with closing(sqlite3.connect(scene.database)) as connection:
@@ -188,14 +211,16 @@ def test_a_store_failure_holding_the_id_token_leaks_it_to_no_error_and_no_log(
     answer = scene.sign_in(scene.browser(raise_server_exceptions=False))
 
     assert answer.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
-    for secret in _the_id_tokens_and_their_claims(scene):
+    for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
         assert secret not in everything_shown(errors=[failure.value])
         assert secret not in answer.text + str(answer.headers)
         assert secret not in everything_shown(log.records)
 
 
 def test_a_refused_sign_in_leaks_the_id_token_to_neither_page_nor_log(
-    scene: Scene, log: pytest.LogCaptureFixture
+    scene: Scene,
+    log: pytest.LogCaptureFixture,
+    issued_id_tokens: list[str],
 ) -> None:
     """#428 cell 11: refused sign-in."""
     scene.issuer.issue_refresh_token(_MARKER + "é")
@@ -203,18 +228,20 @@ def test_a_refused_sign_in_leaks_the_id_token_to_neither_page_nor_log(
     answer = scene.sign_in()
 
     assert answer.status_code == HTTPStatus.FORBIDDEN
-    for secret in _the_id_tokens_and_their_claims(scene):
+    for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
         assert secret not in answer.text + str(answer.headers)
         assert secret not in everything_shown(log.records)
 
 
 def test_a_logout_leaks_the_id_token_to_no_log(
-    scene: Scene, log: pytest.LogCaptureFixture
+    scene: Scene,
+    log: pytest.LogCaptureFixture,
+    issued_id_tokens: list[str],
 ) -> None:
     """#428 cell 11: logout; its page posts the hint to the issuer by design."""
     scene.sign_in()
 
     scene.lobby.client.post(LOGOUT_PATH)
 
-    for secret in _the_id_tokens_and_their_claims(scene):
+    for secret in _the_id_tokens_and_their_claims(issued_id_tokens):
         assert secret not in everything_shown(log.records)
