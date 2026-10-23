@@ -263,14 +263,18 @@ def build_user_process(pid: str) -> bool:
     return uid == [BUILD_IDENTITY]
 
 
-def handshake_line(client: "subprocess.Popen[str]", pipe: IO[str]) -> str:
+def handshake_line(
+    client: "subprocess.Popen[str]",
+    pipe: IO[str],
+    deadline_seconds: float = HANDSHAKE_SECONDS,
+) -> str:
     """The client's next line; a stalled or dead client is a refusal, not a wait.
 
     The deadline covers the whole line, so a partial line that stalls also
     refuses. Bytes are read unbuffered so no later line is lost in a buffer.
     """
     descriptor = pipe.fileno()
-    deadline = time.monotonic() + HANDSHAKE_SECONDS
+    deadline = time.monotonic() + deadline_seconds
     received = b""
     while not received.endswith(b"\n"):
         remaining = deadline - time.monotonic()
