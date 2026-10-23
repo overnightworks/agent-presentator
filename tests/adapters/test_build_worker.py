@@ -1,7 +1,6 @@
 """The web's client of the build worker, against a fake worker on a real socket."""
 
 import errno
-import logging
 import os
 import socket
 import stat
@@ -9,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -20,9 +19,6 @@ from presentator.adapters.build_wire import (
     SOCKET_DIRECTORY_MODE,
     SOCKET_MODE,
     SOCKET_NAME,
-    FailedOutcome,
-    RefusalLimit,
-    RefusedOutcome,
     StepHeader,
     WireRefusedError,
     read_request,
@@ -32,22 +28,11 @@ from presentator.adapters.build_wire import (
 from presentator.adapters.build_worker import (
     DECK_PATHS_FOR_A_PAGE,
     DECK_SIZE_FOR_A_PAGE,
-    OUTPUT_SHAPE_FOR_A_PAGE,
-    STAGED_PREFIX,
     SocketFault,
-    WorkerToolchain,
-    exchange_with_worker,
     what_is_wrong,
-)
-from presentator.adapters.builds import (
-    TOO_MANY_FOR_A_PAGE,
-    TOO_MUCH_FOR_A_PAGE,
-    BuildPlace,
-    BuildStep,
 )
 from presentator.contracts.decks import (
     DECK_DIRECTORY,
-    FAILURE_TEXT_LIMIT,
     OUTPUT_DIRECTORY,
     PDF_FILE,
     TALK_DIRECTORY,
@@ -56,35 +41,26 @@ from presentator.contracts.decks import (
 )
 from presentator.host import worker
 from tests import worker_support as support
+from tests.adapters.build_worker_support import (
+    BUILT_BY_STEP,
+    BUILT_TALK,
+    INDEX,
+    MEGABYTES,
+    PDF,
+    WINDOW,
+    WITHOUT_A_REASON,
+    a_step,
+    staging_of,
+    toolchain,
+    tree_of,
+)
 from tests.worker_support import OWN_GID, OWN_UID
 
-MEGABYTES = 1
-WINDOW = 0.6
 PROMPTLY = 10
 WINDOW_TOLERANCE = 0.1
 AS_ROOT = pytest.mark.skipif(
     os.geteuid() == 0, reason="root ignores file modes, so 000 refuses nothing"
 )
-WITHOUT_A_REASON = BuildFailure(text=None)
-INDEX = b"<html>"
-PDF = b"%PDF"
-BUILT_TALK = support.OUTCOME_BUILT + support.talk_entries(INDEX)
-BUILT_PDF = (
-    support.OUTCOME_BUILT
-    + support.file_entry(PDF_FILE.encode(), PDF)
-    + support.end_entry(1, len(PDF))
-)
-BUILT_BY_STEP = {StepKind.BUILD: BUILT_TALK, StepKind.EXPORT: BUILT_PDF}
-
-
-def refused_reply(limit: RefusalLimit, written: int | None = None) -> bytes:
-    header = RefusedOutcome(limit=limit, written=written).model_dump_json().encode()
-    return support.framed(header, b"PBW\x01\x05") + support.END
-
-
-def failed_reply(text: str | None) -> bytes:
-    header = FailedOutcome(text=text).model_dump_json().encode()
-    return support.framed(header, b"PBW\x01\x05") + support.END
 
 
 @dataclass
@@ -151,7 +127,7 @@ def fake_worker(volume: Path, script: Script, accepts: int = 4) -> Generator[See
     """A thread serving the script on the worker's real socket in the volume."""
     listener = support.listening_with(volume, accepts)
     seen = Seen()
-    uploads = volume.parent / "uploads"
+    uploads = volume / "uploads"
     uploads.mkdir()
 
     stopped = threading.Event()
@@ -177,76 +153,6 @@ def fake_worker(volume: Path, script: Script, accepts: int = 4) -> Generator[See
             waker.connect(str(volume / SOCKET_NAME))
         thread.join()
         listener.close()
-
-
-@pytest.fixture
-def volume(tmp_path: Path) -> Generator[Path]:
-    """The socket volume; the worker's umask, set by its bind, ends with the test."""
-    before = os.umask(0)
-    os.umask(before)
-    (tmp_path / "volume").mkdir()
-    yield tmp_path / "volume"
-    os.umask(before)
-
-
-def toolchain(volume: Path, **overrides: object) -> WorkerToolchain:
-    base = WorkerToolchain(
-        socket_path=volume / SOCKET_NAME,
-        megabytes=MEGABYTES,
-        reply_bound_seconds=2.0,
-        expected_uid=OWN_UID,
-        expected_gid=OWN_GID,
-        connect_window_seconds=WINDOW,
-        first_retry_seconds=0.02,
-        longest_retry_seconds=0.1,
-        reply_margin_seconds=0.2,
-    )
-    return replace(base, **overrides)
-
-
-def a_step(root: Path, kind: StepKind = StepKind.BUILD) -> BuildStep:
-    place = BuildPlace(root=root / "builds", run=Path("run"))
-    (place.here / DECK_DIRECTORY).mkdir(parents=True, exist_ok=True)
-    (place.here / DECK_DIRECTORY / "slides.md").write_text("# hello")
-    (place.here / OUTPUT_DIRECTORY).mkdir(exist_ok=True)
-    return BuildStep(
-        place=place, slug="my-deck", name=kind, arguments=(), watched=lambda: None
-    )
-
-
-def tree_of(root: Path) -> dict[str, bytes | None]:
-    return {
-        str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-        for path in sorted(root.rglob("*"))
-    }
-
-
-def exchanged_with(
-    step: BuildStep,
-    reply: bytes,
-    remove_staging: Callable[[Path], None] | None = None,
-) -> BuildFailure | None:
-    """The result of an exchange with a worker that has already sent its reply."""
-    ours, theirs = socket.socketpair()
-    theirs.sendall(reply)
-    theirs.shutdown(socket.SHUT_WR)
-    deck = os.open(step.place.here / DECK_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        return exchange_with_worker(
-            ours,
-            step=step,
-            deck=deck,
-            megabytes=MEGABYTES,
-            remove_staging=remove_staging or toolchain(Path("/")).remove_staging,
-        )
-    finally:
-        os.close(deck)
-        ours.close()
-        theirs.close()
-
-
-def staging_of(step: BuildStep) -> Path:
-    return step.place.here / f"{STAGED_PREFIX}{step.name}"
 
 
 def stat_result(
@@ -495,11 +401,6 @@ def a_deck_over_the_megabytes(deck: Path) -> None:
         big.truncate(MEGABYTES * MEGABYTE)
 
 
-def a_deck_over_the_entries(deck: Path) -> None:
-    for number in range(MAXIMUM_ENTRIES):
-        os.close(os.open(deck / f"{number:06d}", os.O_CREAT | os.O_WRONLY))
-
-
 def a_deck_with_a_deep_path(deck: Path) -> None:
     deepest = deck
     for _ in range(33):
@@ -514,11 +415,6 @@ def a_deck_with_a_deep_path(deck: Path) -> None:
             a_deck_over_the_megabytes,
             DECK_SIZE_FOR_A_PAGE.format(megabytes=MEGABYTES, entries=MAXIMUM_ENTRIES),
             id="megabytes",
-        ),
-        pytest.param(
-            a_deck_over_the_entries,
-            DECK_SIZE_FOR_A_PAGE.format(megabytes=MEGABYTES, entries=MAXIMUM_ENTRIES),
-            id="entries",
         ),
         pytest.param(a_deck_with_a_deep_path, DECK_PATHS_FOR_A_PAGE, id="path rule"),
     ],
@@ -615,179 +511,6 @@ def test_a_worker_closing_in_the_middle_of_its_reply_fails_without_a_reason(
         result = toolchain(volume).ran(step)
 
     assert result == WITHOUT_A_REASON
-    assert not staging_of(step).exists()
-
-
-BAD_REPLIES = [
-    pytest.param(b"nonsense", id="a reply that is not the wire"),
-    pytest.param(b"", id="end of file before the outcome"),
-    pytest.param(support.OUTCOME_BUILT, id="end of file before the entries"),
-    pytest.param(
-        support.OUTCOME_BUILT + support.talk_entries(INDEX) + b"x", id="a trailing byte"
-    ),
-    pytest.param(support.OUTCOME_FAILED, id="a failed outcome without END"),
-    pytest.param(failed_reply(None) + b"x", id="a failed outcome and a trailing byte"),
-    pytest.param(
-        support.OUTCOME_FAILED + support.file_entry(b"x", b"") + support.END,
-        id="an entry after a failed outcome",
-    ),
-    pytest.param(
-        support.OUTCOME_FAILED + support.end_entry(1, 0), id="a counted failed END"
-    ),
-    pytest.param(refused_reply(RefusalLimit.MEGABYTES), id="megabytes without written"),
-    pytest.param(refused_reply(RefusalLimit.ENTRIES, 3), id="written on another limit"),
-    pytest.param(
-        support.framed(
-            b'{"outcome":"failed","text":"%s"}' % (b"x" * 2001), b"PBW\x01\x05"
-        )
-        + support.END,
-        id="a text past its bound",
-    ),
-    pytest.param(
-        support.OUTCOME_BUILT
-        + support.directory_entry(b"talk")
-        + support.end_entry(2, 0),
-        id="an END counting what was not sent",
-    ),
-]
-
-
-@pytest.mark.parametrize("reply", BAD_REPLIES)
-def test_a_reply_breaking_the_grammar_fails_and_removes_its_staging(
-    tmp_path: Path, reply: bytes
-) -> None:
-    """Cell B5."""
-    step = a_step(tmp_path)
-
-    result = exchanged_with(step, reply)
-
-    assert result == WITHOUT_A_REASON
-    assert not staging_of(step).exists()
-    assert not list((step.place.here / OUTPUT_DIRECTORY).iterdir())
-
-
-def test_an_export_reply_carrying_a_talk_leaves_the_built_talk_unchanged(
-    tmp_path: Path,
-) -> None:
-    """Cell B6."""
-    step = a_step(tmp_path, StepKind.EXPORT)
-    talk = step.place.here / OUTPUT_DIRECTORY / TALK_DIRECTORY
-    talk.mkdir()
-    (talk / "index.html").write_bytes(INDEX)
-    before = tree_of(talk)
-    reply = (
-        support.OUTCOME_BUILT
-        + support.directory_entry(b"talk")
-        + support.file_entry(b"talk/x", b"x")
-        + support.end_entry(2, 1)
-    )
-
-    result = exchanged_with(step, reply)
-
-    assert result == WITHOUT_A_REASON
-    assert tree_of(talk) == before
-    assert not (step.place.here / OUTPUT_DIRECTORY / PDF_FILE).exists()
-
-
-def test_a_build_reply_carrying_the_pdf_is_refused(tmp_path: Path) -> None:
-    """Cell B6."""
-    step = a_step(tmp_path)
-
-    assert exchanged_with(step, BUILT_PDF) == WITHOUT_A_REASON
-    assert not list((step.place.here / OUTPUT_DIRECTORY).iterdir())
-
-
-def test_a_target_already_in_out_is_not_replaced(tmp_path: Path) -> None:
-    """Cell B7: the rename target exists."""
-    step = a_step(tmp_path)
-    planted = step.place.here / OUTPUT_DIRECTORY / TALK_DIRECTORY
-    planted.mkdir()
-    (planted / "mine").write_text("mine")
-
-    assert exchanged_with(step, BUILT_TALK) == WITHOUT_A_REASON
-    assert tree_of(planted) == {"mine": b"mine"}
-
-
-def test_a_receiver_that_runs_out_of_space_fails_without_a_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Cell B7: ENOSPC while the staged file is written."""
-    step = a_step(tmp_path)
-    write = os.write
-
-    def writing_to_a_full_disk(descriptor: int, data: bytes | memoryview) -> int:
-        if stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError(errno.ENOSPC, "no space left on device")
-        return write(descriptor, data)
-
-    monkeypatch.setattr(os, "write", writing_to_a_full_disk)
-
-    assert exchanged_with(step, BUILT_TALK) == WITHOUT_A_REASON
-    assert not staging_of(step).exists()
-
-
-def test_a_staging_that_cannot_be_removed_leaves_the_result_and_logs_the_fault(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Cell B8."""
-    step = a_step(tmp_path)
-
-    def failing_to_remove(_staged: Path) -> None:
-        raise OSError(errno.EBUSY, "device or resource busy")
-
-    with caplog.at_level(logging.WARNING):
-        result = exchanged_with(step, BUILT_TALK, failing_to_remove)
-
-    assert result is None
-    assert (
-        step.place.here / OUTPUT_DIRECTORY / TALK_DIRECTORY / "index.html"
-    ).read_bytes() == INDEX
-    assert [record.levelno for record in caplog.records] == [logging.WARNING]
-
-
-def test_a_staging_left_over_from_before_is_a_fault_and_is_not_removed(
-    tmp_path: Path,
-) -> None:
-    """Fault table: receiver OSError, a staging that is already there."""
-    step = a_step(tmp_path)
-    staging_of(step).mkdir()
-
-    assert exchanged_with(step, BUILT_TALK) == WITHOUT_A_REASON
-    assert staging_of(step).is_dir()
-
-
-@pytest.mark.parametrize(
-    ("reply", "text"),
-    [
-        pytest.param(
-            refused_reply(RefusalLimit.MEGABYTES, 2),
-            TOO_MUCH_FOR_A_PAGE.format(written=2, allowed=MEGABYTES),
-            id="megabytes",
-        ),
-        pytest.param(
-            refused_reply(RefusalLimit.ENTRIES),
-            TOO_MANY_FOR_A_PAGE.format(allowed=MAXIMUM_ENTRIES),
-            id="entries",
-        ),
-        pytest.param(
-            refused_reply(RefusalLimit.SHAPE), OUTPUT_SHAPE_FOR_A_PAGE, id="shape"
-        ),
-        pytest.param(failed_reply("it broke"), "it broke", id="failed with text"),
-        pytest.param(
-            failed_reply("e" * FAILURE_TEXT_LIMIT),
-            "e" * FAILURE_TEXT_LIMIT,
-            id="failed with the longest text",
-        ),
-        pytest.param(failed_reply(None), None, id="failed without text"),
-    ],
-)
-def test_a_refused_or_failed_reply_is_the_text_the_deck_page_shows(
-    tmp_path: Path, reply: bytes, text: str | None
-) -> None:
-    """Cell B9."""
-    step = a_step(tmp_path)
-
-    assert exchanged_with(step, reply) == BuildFailure(text=text)
     assert not staging_of(step).exists()
 
 
