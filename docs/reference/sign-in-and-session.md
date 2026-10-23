@@ -44,8 +44,8 @@ sessions of both hosts, a logout at the lobby ends the lobby's alone.
 A session that SQLite holds is carried by a signed cookie and ends twelve
 hours after the sign-in that opened it, however often it is used; the store
 keeps the sign-in time and the expiry for that. The session row holds no
-client address and no user agent, and holds the sign-in's refresh token in
-plain text ([ADR 0013](../decisions/0013-secrets-at-rest-and-credential-delivery.md)).
+client address and no user agent, and holds the session's refresh token in
+plain text: the one Keycloak returned at the last renewal, which is the sign-in's until the first co-presenter ask renews it ([ADR 0013](../decisions/0013-secrets-at-rest-and-credential-delivery.md)).
 A session past its expiry is refused, and a schedule of its own deletes
 expired rows every five minutes, apart from the deck refresh.
 
