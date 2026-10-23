@@ -43,7 +43,8 @@ some of them.
 | `PRESENTATOR_BUILD_MEMORY` | `4g` | Memory bound of a build container. |
 | `PRESENTATOR_BUILD_DISK` | `8g` | Filesystem bound of a build container; `none` removes it ([runbook](../runbooks/run-builds-without-a-disk-bound.md)). |
 | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` | `300` | Size bound of the talk a build leaves; compose also hands it to the build worker by name. |
-| `PRESENTATOR_BUILD_RUNNER` | container | `host` builds on this machine instead ([trust boundaries](../explanation/trust-boundaries.md)); `compose.yaml` never sets it. |
+| `PRESENTATOR_BUILD_RUNNER` | container | `host` builds on this machine instead ([trust boundaries](../explanation/trust-boundaries.md)); `compose.yaml` never sets it. `worker` builds through the build worker's socket and refuses to start unless the worker answers within 70 seconds. |
+| `PRESENTATOR_BUILD_WORKER_SOCKET` | `/run/presentator-build/worker.sock` | Where the web reaches the build worker when the runner is `worker`; the worker binds this path. |
 | `PRESENTATOR_BUILD_IMAGE`, `PRESENTATOR_BUILD_VOLUME` | none | The image the toolchain stands in and the volume `PRESENTATOR_BUILDS` is a directory of. Compose sets both; an instance missing either does not start and says which. |
 
 `PRESENTATOR_SOURCE_URL`, `_REF`, `_NAME`, `_CREDENTIAL` and `_HOOK_SECRET` are

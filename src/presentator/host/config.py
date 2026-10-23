@@ -16,6 +16,8 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from webauth.proxies import TrustedProxies
 
+from presentator.adapters.build_wire import SOCKET_DIRECTORY, SOCKET_NAME
+
 # Every secret this instance is handed is at least this many characters, so no
 # guard of it rests on a value somebody could type.
 SECRET_LENGTH: Final = 32
@@ -43,11 +45,13 @@ class WhereBuildsRun(StrEnum):
     """Where the toolchain that builds a deck runs (line 14a).
 
     A container of the build's own is what an instance is; this machine itself
-    is a development run, and a deployment gets it only by saying so.
+    is a development run, and a deployment gets it only by saying so. The
+    worker is the sealed build worker service, reached over its socket.
     """
 
     CONTAINER = "container"
     HOST = "host"
+    WORKER = "worker"
 
 
 class ConfigurationError(ValueError):
@@ -172,6 +176,10 @@ class Settings(BaseSettings, env_prefix=ENVIRONMENT_PREFIX, env_file=".env"):
     # of, are what a deployment names for it. Running the toolchain on this
     # machine instead is a development run, and it takes saying so.
     build_runner: WhereBuildsRun = WhereBuildsRun.CONTAINER
+    # Where the build worker listens; the default is where it binds.
+    build_worker_socket: Annotated[Path, AfterValidator(_an_absolute_path)] = (
+        Path(SOCKET_DIRECTORY) / SOCKET_NAME
+    )
     build_image: str | None = None
     build_volume: str | None = None
     # What one build may take of this machine, in Docker's own words for a size
