@@ -176,12 +176,13 @@ def make_canaries(roots: list[str]) -> None:
 def build_user_rows() -> int | None:
     """How many processes of the build user `docker top` lists; None when it fails."""
     done = subprocess.run(
-        ("docker", "top", worker(), "-eo", "uid"),
+        ("docker", "top", worker(), "-eo", "pid,uid"),
         check=False, capture_output=True, text=True,
     )  # fmt: skip
     if done.returncode:
         return None
-    return done.stdout.split().count(BUILD_IDENTITY)
+    rows = (line.split() for line in done.stdout.splitlines()[1:])
+    return sum(1 for row in rows if row[1:] == [BUILD_IDENTITY])
 
 
 def watch_client(client: "subprocess.Popen[str]", seconds: float) -> Window:
@@ -254,7 +255,7 @@ def prove_control_life() -> str:
             f"{WORK_MOUNT} saw {created[WORK_MOUNT]}, not {sorted(CONTROL_CREATIONS)}"
         )
     if not life.window.build_rows:
-        refuse(f"docker top never listed {BUILD_IDENTITY} in the control life")
+        refuse(f"docker top never listed {BUILD_IDENTITY}: {life.window}")
     mounts = json.dumps(life.watcher.armed.mounts, sort_keys=True)
     say(f"cell 50 mounts: {mounts}")
     rows = life.window.build_rows
