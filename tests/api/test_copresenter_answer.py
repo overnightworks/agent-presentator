@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Final
 
 import httpx2
 import pytest
-from agent_client.wire import FailureCode, RejectionCode, RunRequest
+from agent_runtime_client.wire import FailureCode, RejectionCode, RunRequest
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
 from presentator.adapters.agent_service import ServiceAnswerer
