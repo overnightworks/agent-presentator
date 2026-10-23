@@ -434,6 +434,7 @@ def test_a_session_that_ended_during_the_grant_asked_the_issuer_exactly_once(
 def test_the_limiter_ticket_is_released_after_each_person_token_refusal(
     tmp_path: Path, before_ask: Callable[[Hosts], None]
 ) -> None:
+    """Cells 2 to 5: the ticket the ask took is free again."""
     run = drive(tmp_path, Scenario(before_ask=before_ask))
     run.hosts.issuer.token_endpoint_is_down = False
 
@@ -619,7 +620,7 @@ HANGING_AFTER_THE_FIRST_WORDS: Final = Reply(
 
 @dataclass
 class ChangeOnceTheAnswerHangs:
-    """A session re-check that, once the service has played its words, changes the world."""
+    """A session re-check that changes the world once the service has hung."""
 
     change: Callable[[Hosts], None]
     waits: int = 0

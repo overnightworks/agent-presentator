@@ -10,6 +10,7 @@ _SETTING = "PRESENTATOR_AGENT_SERVICE"
 def test_an_instance_without_the_agent_service_refuses_to_start(
     environment: pytest.MonkeyPatch,
 ) -> None:
+    """Cell 25."""
     environment.delenv(_SETTING)
 
     with pytest.raises(ConfigurationError, match="agent_service"):
@@ -23,6 +24,7 @@ def test_an_instance_without_the_agent_service_refuses_to_start(
 def test_the_agent_service_takes_a_canonical_http_or_https_origin(
     environment: pytest.MonkeyPatch, origin: str
 ) -> None:
+    """Cell 25."""
     environment.setenv(_SETTING, origin)
 
     assert load_settings().agent_service == origin
@@ -44,6 +46,7 @@ def test_the_agent_service_takes_a_canonical_http_or_https_origin(
 def test_the_agent_service_refuses_anything_but_an_origin_without_quoting_it(
     environment: pytest.MonkeyPatch, origin: str
 ) -> None:
+    """Cell 25."""
     environment.setenv(_SETTING, origin)
 
     with pytest.raises(ConfigurationError, match="agent_service") as refused:

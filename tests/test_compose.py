@@ -50,6 +50,7 @@ def test_copresenter_uses_the_speech_socket_and_one_runtime_uid() -> None:
 
 
 def test_the_instance_reaches_the_agent_service_over_the_edges_network() -> None:
+    """Cell 26."""
     written = _COMPOSE.read_text(encoding="utf-8")
     instance = "\n".join(_service_lines("presentator"))
 
