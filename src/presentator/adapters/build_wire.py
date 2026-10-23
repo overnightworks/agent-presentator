@@ -5,7 +5,7 @@ import os
 import socket
 import stat
 import struct
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
@@ -387,6 +387,15 @@ def receive_entries(
             os.close(directory.descriptor)
 
 
+def read_empty_end(connection: socket.socket) -> None:
+    """Read the END of a reply without entries; raise WireRefusedError otherwise."""
+    tag = _read_exactly(connection, 1)[0]
+    if tag != RecordTag.END or END_COUNTS.unpack(
+        _read_exactly(connection, END_COUNTS.size)
+    ) != (0, 0):
+        raise WireRefusedError
+
+
 class TreeRefusedError(Exception):
     """The output tree breaks the step contract, the path rules or a limit."""
 
@@ -441,9 +450,15 @@ def _refuse_unless_directory_or_file(directory: int, name: bytes) -> None:
         raise TreeRefusedError(_SHAPE_REFUSAL)
 
 
-def _tree(directory: int, parent: tuple[bytes, ...] = ()) -> Generator[TreeEntry]:
-    """Walk depth-first in pre-order, names sorted as bytes, never following a link."""
-    for name in sorted(os.fsencode(listed) for listed in os.listdir(directory)):
+def _tree(
+    directory: int, parent: tuple[bytes, ...] = (), *, omitting: bytes | None = None
+) -> Generator[TreeEntry]:
+    """Walk depth-first in pre-order, names sorted as bytes, never following a link.
+
+    A name equal to omitting is left out at this level only, unjudged and unsent.
+    """
+    names = (os.fsencode(listed) for listed in os.listdir(directory))
+    for name in sorted(name for name in names if name != omitting):
         components = (*parent, name)
         try:
             path_components(b"/".join(components))
@@ -478,18 +493,24 @@ def _meets_step_contract(step: StepKind, position: int, entry: TreeEntry) -> boo
     return entry.components[0] == talk
 
 
-def _survey(root: int, step: StepKind, megabytes: int) -> None:
+def _survey(
+    root: int,
+    megabytes: int,
+    *,
+    contract: Callable[[int, TreeEntry], bool] | None = None,
+    omitting: bytes | None = None,
+) -> None:
     """Walk the whole tree; raise TreeRefusedError unless it is within contract."""
     count = total = 0
-    with closing(_tree(root)) as entries:
+    with closing(_tree(root, omitting=omitting)) as entries:
         for entry in entries:
             if count == MAXIMUM_ENTRIES:
                 raise TreeRefusedError(RefusedOutcome(limit=RefusalLimit.ENTRIES))
-            if not _meets_step_contract(step, count, entry):
+            if contract is not None and not contract(count, entry):
                 raise TreeRefusedError(_SHAPE_REFUSAL)
             count += 1
             total += entry.size
-    if count == 0:
+    if contract is not None and count == 0:
         raise TreeRefusedError(_SHAPE_REFUSAL)
     if total > megabytes * MEGABYTE:
         raise TreeRefusedError(
@@ -498,6 +519,27 @@ def _survey(root: int, step: StepKind, megabytes: int) -> None:
                 written=(total + MEGABYTE - 1) // MEGABYTE,
             )
         )
+
+
+def check_step_tree(root: int, step: StepKind, megabytes: int) -> None:
+    """Judge a step's output tree by the step's contract, the path rules and limits.
+
+    Raises TreeRefusedError carrying the refusal the reply sends.
+    """
+    _survey(
+        root,
+        megabytes,
+        contract=lambda position, entry: _meets_step_contract(step, position, entry),
+    )
+
+
+def check_upload(root: int, megabytes: int) -> None:
+    """Judge a deck about to be uploaded by the path rules and limits.
+
+    The top-level toolchain scratch directory is not part of the upload.
+    Raises TreeRefusedError carrying the refusal.
+    """
+    _survey(root, megabytes, omitting=TOOLCHAIN_SCRATCH_NAME)
 
 
 def _send_entry(connection: socket.socket, entry: TreeEntry) -> None:
@@ -524,7 +566,7 @@ def send_tree_reply(
     The whole tree is walked and judged before the first byte is sent; sends block.
     """
     try:
-        _survey(root, step, megabytes)
+        check_step_tree(root, step, megabytes)
     except TreeRefusedError as refusal:
         send_outcome(connection, refusal.outcome)
         send_end(connection, 0, 0)
@@ -533,10 +575,15 @@ def send_tree_reply(
     send_tree(connection, root)
 
 
-def send_tree(connection: socket.socket, root: int) -> None:
-    """Send every entry below the directory, then END; sends block."""
+def send_tree(
+    connection: socket.socket, root: int, *, omitting: bytes | None = None
+) -> None:
+    """Send every entry below the directory, then END; sends block.
+
+    A top-level entry named omitting is left out.
+    """
     count = total = 0
-    with closing(_tree(root)) as entries:
+    with closing(_tree(root, omitting=omitting)) as entries:
         for entry in entries:
             _send_entry(connection, entry)
             count += 1
