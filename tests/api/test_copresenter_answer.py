@@ -12,7 +12,6 @@ import json
 import logging
 import re
 import sqlite3
-import threading
 from contextlib import closing
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -22,7 +21,6 @@ from typing import TYPE_CHECKING, Final
 import httpx2
 import pytest
 from agent_client.wire import FailureCode, RejectionCode, RunRequest
-from fastapi import FastAPI
 from webauth.cookies import DEFAULT_CSRF_COOKIE_NAME, DEFAULT_SESSION_COOKIE_NAME
 
 from presentator.adapters.agent_service import ServiceAnswerer
@@ -32,7 +30,6 @@ from presentator.adapters.sentences import split_sentences
 from presentator.api.copresenter import (
     NOT_ENABLED_REASON,
     CoPresenterSurface,
-    add_copresenter_routes,
 )
 from presentator.application.copresenter import (
     AskLimiter,
@@ -59,14 +56,13 @@ from tests.adapters.agent_service_support import (
 )
 from tests.adapters.test_decks import a_source, folders_under, mirrors_under
 from tests.api.copresenter_support import (
-    A_DECK as SUPPORT_DECK,
-)
-from tests.api.copresenter_support import (
     A_SOURCE,
+    ASK,
+    HANGING_AFTER_THE_FIRST_WORDS,
+    SPOKEN_QUESTION,
+    WORKLOAD,
     FakeDeckTexts,
     PrivateFakes,
-    a_use,
-    the_admins_decks,
 )
 from tests.api.lobby import (
     A_BROWSERS_HEADERS,
@@ -83,7 +79,6 @@ if TYPE_CHECKING:
 
     from fastapi.testclient import TestClient
     from httpx2 import Response
-    from starlette.types import ASGIApp, Message, Scope
 
     from presentator.adapters.identity import SqliteSessionRecordStore
     from presentator.api.auth import InstalledAuth
@@ -92,14 +87,11 @@ if TYPE_CHECKING:
 from tests.leak_support import everything_shown
 
 PERSON: Final = "person-access-MARKER"
-WORKLOAD: Final = "workload-access-MARKER"
 REFRESH: Final = "refresh-MARKER"
 ROTATED: Final = "rotated-MARKER"
 TOKENS: Final = (PERSON, WORKLOAD, REFRESH, ROTATED)
 ADMIN_GROUPS: Final = ["/apps/presentator", "/apps/presentator/admin"]
-ASK: Final = "/copresenter/ask"
-QUESTION: Final = {"said": "Was ist wichtig?", "slide": 1, "language": "de"}
-THE_ASKED_DECK: Final = {**QUESTION, "deck": A_DECK}
+THE_ASKED_DECK: Final = {**SPOKEN_QUESTION, "deck": A_DECK}
 FIRST_AUDIO: Final = "presentator.application.copresenter"
 SERVICE_LOG: Final = "presentator.adapters.agent_service"
 
@@ -327,7 +319,7 @@ def the_asked_decks_words_at_its_built_commit(
         texts=MirroredDeckTexts(mirrors=mirrors_under(tmp_path)),
         sources=[source],
         arrange=own_the_built_deck,
-        body={**QUESTION, "deck": THE_ASKED},
+        body={**SPOKEN_QUESTION, "deck": THE_ASKED},
     )
     return drive(tmp_path, scenario)
 
@@ -612,12 +604,6 @@ def test_speech_failing_on_the_second_sentence_ends_after_the_first_in_error(
     assert the_ticket_was_released(run)
 
 
-HANGING_AFTER_THE_FIRST_WORDS: Final = Reply(
-    chunks=whole(event_frames(run_started(), assistant_text("Erst "))),
-    hangs_after_chunks=True,
-)
-
-
 @dataclass
 class ChangeOnceTheAnswerHangs:
     """A session re-check that changes the world once the service has hung."""
@@ -654,113 +640,6 @@ def test_an_answer_ends_within_one_recheck_when_the_session_or_the_role_goes(
     assert the_ticket_was_released(run)
 
 
-def _a_hanging_app(
-    wire: Wire, limiter: AskLimiter, admission: Callable[[object], FixedSession]
-) -> FastAPI:
-    app = FastAPI()
-    add_copresenter_routes(
-        app,
-        surface=CoPresenterSurface(
-            use=replace(
-                a_use(PrivateFakes(), the_admins_decks()),
-                answers=ServiceAnswerer(
-                    origin=AN_AGENT_SERVICE,
-                    workload_token=a_workload_token,
-                    transport=wire.transport,
-                ),
-            ),
-            limiter=limiter,
-            browser_origin=A_TALK_ADDRESS,
-        ),
-        admission=admission,
-    )
-    return app
-
-
-def test_a_browser_that_leaves_mid_answer_closes_the_services_connection() -> None:
-    """Cell 18."""
-    wire = Wire(HANGING_AFTER_THE_FIRST_WORDS)
-    limiter = AskLimiter(clock=FrozenClock(instant=NOW))
-    app = _a_hanging_app(wire, limiter, lambda _connection: FixedSession())
-
-    asyncio.run(_ask_and_leave_after_the_first_words(app))
-
-    assert wire.response_stream.closed.is_set()
-    assert isinstance(limiter.admit(FixedSession().session_id), AskTicket)
-
-
-def test_the_admission_runs_off_the_event_loop_thread() -> None:
-    """Decision 5: the session read of the admission belongs to the thread hop."""
-    admitted_on: list[int] = []
-
-    def admission(_connection: object) -> FixedSession:
-        admitted_on.append(threading.get_ident())
-        return FixedSession()
-
-    app = _a_hanging_app(
-        Wire(HANGING_AFTER_THE_FIRST_WORDS),
-        AskLimiter(clock=FrozenClock(instant=NOW)),
-        admission,
-    )
-
-    asyncio.run(_ask_and_leave_after_the_first_words(app))
-
-    assert admitted_on
-    assert threading.get_ident() not in admitted_on
-
-
-async def a_workload_token() -> str:
-    return WORKLOAD
-
-
-@dataclass(frozen=True)
-class FixedSession:
-    """The admitted session of a browser."""
-
-    session_id: str = "session"
-    user_id: str = A.id
-    is_admin: bool = True
-
-
-async def _ask_and_leave_after_the_first_words(app: ASGIApp) -> None:
-    first_words_sent = asyncio.Event()
-    messages: list[Message] = [
-        {
-            "type": "http.request",
-            "body": json.dumps({**QUESTION, "deck": SUPPORT_DECK}).encode(),
-        }
-    ]
-
-    async def receive() -> Message:
-        if messages:
-            return messages.pop(0)
-        await first_words_sent.wait()
-        return {"type": "http.disconnect"}
-
-    async def send(message: Message) -> None:
-        if message["type"] == "http.response.body" and message.get("body"):
-            first_words_sent.set()
-
-    scope: Scope = {
-        "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.3"},
-        "http_version": "1.1",
-        "method": "POST",
-        "scheme": "https",
-        "path": ASK,
-        "raw_path": ASK.encode(),
-        "query_string": b"",
-        "headers": [
-            (b"host", b"talk.testserver"),
-            (b"content-type", b"application/json"),
-        ],
-        "client": ("testclient", 50000),
-        "server": ("testserver", 443),
-        "state": {},
-    }
-    await asyncio.wait_for(app(scope, receive, send), timeout=5)
-
-
 @pytest.mark.parametrize(
     "texts",
     [
@@ -785,8 +664,12 @@ def test_another_admins_deck_gets_the_ghosts_refusal_and_spends_no_token(
     """Cell 22: E11 holds before any token is fetched."""
     (tmp_path / "ghost").mkdir()
     (tmp_path / "foreign").mkdir()
-    ghost = drive(tmp_path / "ghost", Scenario(body={**QUESTION, "deck": "ghost"}))
-    foreign = drive(tmp_path / "foreign", Scenario(body={**QUESTION, "deck": B_DECK}))
+    ghost = drive(
+        tmp_path / "ghost", Scenario(body={**SPOKEN_QUESTION, "deck": "ghost"})
+    )
+    foreign = drive(
+        tmp_path / "foreign", Scenario(body={**SPOKEN_QUESTION, "deck": B_DECK})
+    )
 
     assert foreign.response.status_code == HTTPStatus.NOT_FOUND
     assert foreign.response.content == ghost.response.content

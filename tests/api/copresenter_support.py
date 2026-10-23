@@ -25,6 +25,13 @@ from presentator.contracts.copresenter import (
     SlideText,
 )
 from presentator.contracts.decks import Deck, Source
+from tests.adapters.agent_service_support import (
+    Reply,
+    assistant_text,
+    event_frames,
+    run_started,
+    whole,
+)
 from tests.api.lobby import (
     A_BROWSERS_HEADERS,
     A_TALK_ADDRESS,
@@ -62,6 +69,13 @@ if TYPE_CHECKING:
 TALK_ORIGIN = A_TALK_ADDRESS
 A_DECK = "kundenfeedback"
 QUESTION = {"said": "Was ist wichtig?", "slide": 2, "language": "de", "deck": A_DECK}
+ASK = "/copresenter/ask"
+WORKLOAD = "workload-access-MARKER"
+SPOKEN_QUESTION = {"said": "Was ist wichtig?", "slide": 1, "language": "de"}
+HANGING_AFTER_THE_FIRST_WORDS = Reply(
+    chunks=whole(event_frames(run_started(), assistant_text("Erst "))),
+    hangs_after_chunks=True,
+)
 A_SOURCE = Source(id=SOURCE_ID, name="s", url="u", ref="main", owner_id=ADMIN)
 
 
