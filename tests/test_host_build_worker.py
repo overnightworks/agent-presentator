@@ -33,8 +33,10 @@ def test_an_instance_whose_worker_socket_is_not_the_workers_refuses_to_start_at_
     placeholder.bind(str(volume / SOCKET_NAME))
     a_worker_run(environment, volume / SOCKET_NAME)
 
+    settings = load_settings()
+
     with placeholder, pytest.raises(ConfigurationError, match="build worker"):
-        main.build_instance(load_settings())
+        main.build_instance(settings)
 
 
 def test_an_instance_starts_on_a_worker_that_answers_with_the_workers_own_bounds(

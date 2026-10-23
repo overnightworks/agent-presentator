@@ -181,17 +181,17 @@ class _DeadlineSocket(socket.socket):
             raise TimeoutError
         self.settimeout(remaining)
 
-    def connect(self, address: str | Buffer | tuple[object, ...], /) -> None:
+    def connect(self, address: str | Buffer | tuple[object, ...]) -> None:
         """Connect within the deadline."""
         self._armed()
         super().connect(address)
 
-    def recv(self, bufsize: int, flags: int = 0, /) -> bytes:
+    def recv(self, bufsize: int, flags: int = 0) -> bytes:
         """Receive within the deadline."""
         self._armed()
         return super().recv(bufsize, flags)
 
-    def sendall(self, data: Buffer, flags: int = 0, /) -> None:
+    def sendall(self, data: Buffer, flags: int = 0) -> None:
         """Send everything within the deadline."""
         self._armed()
         super().sendall(data, flags)
