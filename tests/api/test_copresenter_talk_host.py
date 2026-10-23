@@ -213,7 +213,7 @@ def _talk_host_with_a_signed_in_admin(
         browser_origin=TALK_ORIGIN,
         delay=asyncio.sleep if deadline is None else deadline.wait,
     )
-    hosts = two_hosts(tmp_path, copresenter=surface)
+    hosts = two_hosts(tmp_path, copresenter=lambda _store, _sessions, _auth: surface)
     return hosts, hosts.signed_in_at(A_TALK_ADDRESS), private
 
 

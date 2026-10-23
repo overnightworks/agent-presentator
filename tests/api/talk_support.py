@@ -2,6 +2,7 @@
 
 import asyncio
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -173,6 +174,11 @@ class Hosts:
         )
 
 
+type SurfaceFactory = Callable[
+    [FakeDeckStore, SqliteSessionRecordStore, InstalledAuth], CoPresenterSurface
+]
+
+
 def _relying_party_at(
     issuer: FakeIssuer, clock: FrozenClock, origin: str
 ) -> OidcRelyingParty:
@@ -212,12 +218,14 @@ def two_hosts(
     *,
     admission: AdmissionConfig | None = None,
     given: GivenDecks | None = None,
-    copresenter: CoPresenterSurface | None = None,
+    copresenter: SurfaceFactory | None = None,
 ) -> Hosts:
     """Both hosts over real identity tables, a fake issuer and one set of decks.
 
     Without `given`, `a-deck` is A's and `b-deck` is B's; `no-deck` belongs to
-    nobody. A given deck side is used instead, its store included.
+    nobody. A given deck side is used instead, its store included. The
+    co-presenter surface is made over this instance's own store, sessions and
+    talk-host sign-in.
     """
     database = tmp_path / "identity.sqlite3"
     create_identity_tables(database)
@@ -245,7 +253,11 @@ def two_hosts(
         decks=decks,
         auth=talk_auth,
         lobby_origin=A_BROWSERS_ADDRESS,
-        copresenter=copresenter,
+        copresenter=(
+            None
+            if copresenter is None
+            else copresenter(decks_store, sessions, talk_auth)
+        ),
     )
     never = Schedule(chore=lambda: None, interval=timedelta(days=1))
     router = served_by_host(
