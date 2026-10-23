@@ -196,7 +196,7 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Agent-Dienst von hallucinai, der sie mit Claude von "
                     "Anthropic beantwortet. Derzeit ist der CoPresenter nur "
                     "für den Betreiber freigeschaltet; Fragen anderer Personen "
-                    "weist der Dienst ab, sie gehen nicht an Anthropic. "
+                    "werden abgewiesen, sie gehen nicht an Anthropic. "
                     "Solange der CoPresenter zuhört, wird Sprache im "
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
                     "als Frage gesendet, außer während der "

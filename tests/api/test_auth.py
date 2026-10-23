@@ -567,8 +567,8 @@ def test_the_datenschutz_names_the_agent_service_and_claims_nothing_of_its_keepi
         "Stellen Sie im Vortrag eine Frage, sendet Presentator sie mit dem Titel "
         "und dem Text des gefragten Decks an den Agent-Dienst von hallucinai, der "
         "sie mit Claude von Anthropic beantwortet. Derzeit ist der CoPresenter nur "
-        "für den Betreiber freigeschaltet; Fragen anderer Personen weist der Dienst "
-        "ab, sie gehen nicht an Anthropic."
+        "für den Betreiber freigeschaltet; Fragen anderer Personen werden "
+        "abgewiesen, sie gehen nicht an Anthropic."
     ) in page
     assert "Anthropic Ireland, Limited:" not in page
     assert "Kopien der Claude-Software:" not in page

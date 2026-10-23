@@ -100,7 +100,7 @@ def test_a_deck_without_words_never_reaches_the_service(*, unreadable: bool) -> 
 
 
 def test_cancelling_an_answer_awaits_the_private_operation() -> None:
-    """Decision 3: cancelling an answer awaits the private operation."""
+    """Unchanged behaviour: cancelling an answer awaits the private operation."""
     asyncio.run(_cancel_answer())
 
 
@@ -118,7 +118,7 @@ async def _cancel_answer() -> None:
 
 
 def test_ending_hearing_closes_and_awaits_the_private_child() -> None:
-    """Decision 3: ending a hearing closes its child."""
+    """Unchanged behaviour: ending a hearing closes its child."""
     asyncio.run(_end_hearing())
 
 
@@ -134,7 +134,7 @@ async def _end_hearing() -> None:
 
 
 def test_readiness_comes_from_speech_and_never_touches_the_answer_port() -> None:
-    """Decision 3: readiness comes from speech alone."""
+    """Unchanged behaviour: readiness comes from speech alone."""
     fakes = PrivateFakes()
 
     readiness = asyncio.run(a_use(fakes, FakeDeckStore()).readiness())
