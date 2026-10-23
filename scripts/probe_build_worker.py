@@ -58,6 +58,12 @@ from probe_build_worker_lives import (
     StepEnd,
     prove_lives_that_end_badly,
 )
+from probe_build_worker_uploads import (
+    ABSOLUTE_PATH_CLASS,
+    UPLOAD_CLASSES,
+    Ending,
+    UploadClass,
+)
 
 from presentator.adapters.build_wire import (
     LENGTH,
@@ -66,7 +72,6 @@ from presentator.adapters.build_wire import (
     BuiltOutcome,
     FailedOutcome,
     MessageKind,
-    RecordTag,
     StepHeader,
     WireRefusedError,
     read_outcome,
@@ -181,7 +186,7 @@ def client_hello() -> None:
     say(f"status after {(time.monotonic() - started) * 1000:.0f} ms")
 
 
-def expect_closed_without_a_reply(connection: socket.socket) -> None:
+def require_closed_without_a_reply(connection: socket.socket) -> None:
     """Wait for the worker to close the connection having written nothing."""
     try:
         reply = connection.recv(1)
@@ -191,6 +196,11 @@ def expect_closed_without_a_reply(connection: socket.socket) -> None:
         refuse("the connection stayed open")
     if reply:
         refuse("the worker answered a connection it must close")
+
+
+def expect_closed_without_a_reply(connection: socket.socket) -> None:
+    """Require the close, then print that nothing was written."""
+    require_closed_without_a_reply(connection)
     say("closed, nothing written")
 
 
@@ -214,15 +224,58 @@ def client_header_class(name: str) -> None:
     connection.close()
 
 
-def client_bad_upload() -> None:
-    """A STEP whose upload breaks the path rules ends the life with no reply."""
-    connection = open_exchange(
-        lambda opened: send_step(opened, StepHeader(step=StepKind.BUILD, slug="a"))
-    )
-    path = b"/absolute"
-    connection.sendall(bytes([RecordTag.DIR]) + LENGTH.pack(len(path)) + path)
-    expect_closed_without_a_reply(connection)
-    connection.close()
+def send_until_closed(connection: socket.socket, data: bytes) -> None:
+    """Send the bytes; a close by the worker while sending ends the sending."""
+    try:
+        connection.sendall(data)
+    except (BrokenPipeError, ConnectionResetError):
+        return
+
+
+def drip_until_closed(connection: socket.socket, record: bytes) -> None:
+    """Send the record one byte a second; fail if the whole record goes out."""
+    for position in range(len(record)):
+        try:
+            connection.send(record[position : position + 1])
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        time.sleep(1)
+    refuse("the worker took a record dripped past its upload time")
+
+
+def finish_upload(
+    connection: socket.socket, row: UploadClass, status_at: float
+) -> None:
+    """Leave the upload as the row's ending says and print the one line it names."""
+    connection.settimeout(CLOSE_SECONDS)
+    match row.ending:
+        case Ending.REFUSED:
+            send_until_closed(connection, row.defect)
+            expect_closed_without_a_reply(connection)
+        case Ending.DRIPPED:
+            drip_until_closed(connection, row.defect)
+            require_closed_without_a_reply(connection)
+            say(f"closed after {time.monotonic() - status_at:.1f}")
+        case Ending.HUNG_UP:
+            connection.close()
+            say(f"hung up {time.time()!r}")
+        case Ending.HALF_CLOSED:
+            half_closed_at = time.monotonic()
+            connection.shutdown(socket.SHUT_WR)
+            require_closed_without_a_reply(connection)
+            say(f"closed after {time.monotonic() - half_closed_at:.1f}")
+
+
+def client_upload_class(name: str) -> None:
+    """Send the row's prefix after a STEP's STATUS, then leave as its ending says."""
+    row = UPLOAD_CLASSES[name]
+    connection = start_build("a")
+    status_at = time.monotonic()
+    try:
+        connection.sendall(row.prefix)
+        finish_upload(connection, row, status_at)
+    finally:
+        connection.close()
 
 
 def client_hold() -> None:
@@ -325,8 +378,8 @@ def client(command: str, arguments: list[str]) -> None:
             client_closed_at_accept()
         case "header-class", [name]:
             client_header_class(name)
-        case "bad-upload", []:
-            client_bad_upload()
+        case "upload-class", [name]:
+            client_upload_class(name)
         case "hold", []:
             client_hold()
         case "step", [slug, step]:
@@ -586,7 +639,7 @@ def prove_fast_lives(report: Report) -> None:
     delays: list[str] = []
     for _ in range(FAST_LIVES):
         _, restarts_before = state()
-        probe_client("bad-upload")
+        probe_client("upload-class", ABSOLUTE_PATH_CLASS)
         delays.append(f"{timed(lambda: probe_client('hello')):.2f}")
         if int(state()[1]) != int(restarts_before) + 1:
             refuse("a fast life did not end in exactly one restart")
