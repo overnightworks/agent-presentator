@@ -32,14 +32,18 @@ repositories, their metadata (a `gitdir` file, `objects/info/alternates`, a
 symlink) and everyone who can write there. It is the door for the operator's
 own folder, not for a repository somebody else controls.
 
-## The co-presenter shares the operator's authority
+## The agent service holds the operator's Claude login
 
-The co-presenter's socket has no authentication layer of its own; filesystem
-access under the shared UID is its only authority. The Presentator container,
-every host process under that operator UID, and root can therefore spend the
-operator's Claude login and card. Untrusted workloads do not belong under that
-authority. Only readiness, question, PCM, transcript and answer events cross
-the private boundary; browser identity and credentials do not.
+The co-presenter's answer comes from the operator's agent service, which holds
+the Claude subscription and its card. The person's fresh access token and
+Presentator's own workload token cross to it over the `hal_agent_presentator` network, an
+internal network with no host address and no published port, whose members the
+edge decides; the plain `http` hop is safe only because of that. The question
+and the asked deck's words cross with them, and the model gets no tools. The
+service checks the person's token on every ask and enables only the operator
+today. Speech stays a private Unix socket under the shared UID: readiness, PCM,
+transcript and spoken sentences cross it, and browser identity and credentials
+do not.
 
 ## The webhook has a secret, not a login
 

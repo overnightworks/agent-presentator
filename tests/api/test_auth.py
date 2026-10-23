@@ -471,18 +471,22 @@ def test_the_datenschutz_says_the_cookies_are_set_at_sign_in_and_not_renewed() -
 def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
     lobby: Lobby,
 ) -> None:
+    """Card G, G3: the renewed refresh token and the per-question access token."""
     page = lobby.client.get("/datenschutz").text
 
     assert (
         "Gespeichert werden Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
         "und des Ablaufs, das ID-Token der Anmeldung sowie das Erneuerungs-Token "
-        "(Refresh-Token), das Keycloak bei der Anmeldung ausstellt. Es liegt "
-        "unverschlüsselt in der Sitzungszeile, ist ohne das Client-Geheimnis von "
-        "Presentator bei Keycloak nicht verwendbar und wird mit der Sitzung "
-        "gelöscht. Auch das ID-Token von Keycloak liegt unverschlüsselt in der "
-        "Sitzungszeile und wird mit ihr gelöscht. Presentator braucht es nur, um "
-        "Sie beim Abmelden auch bei Keycloak abzumelden. Was es enthält, "
-        "beschreibt der Abschnitt zur Anmeldung über Keycloak."
+        "(Refresh-Token), das Keycloak bei der Anmeldung und bei jeder Erneuerung "
+        "ausstellt. Es liegt unverschlüsselt in der Sitzungszeile, ist ohne das "
+        "Client-Geheimnis von Presentator bei Keycloak nicht verwendbar und wird "
+        "mit der Sitzung gelöscht. Auch das ID-Token von Keycloak liegt "
+        "unverschlüsselt in der Sitzungszeile und wird mit ihr gelöscht. "
+        "Presentator braucht es nur, um Sie beim Abmelden auch bei Keycloak "
+        "abzumelden. Was es enthält, beschreibt der Abschnitt zur Anmeldung über "
+        "Keycloak. Für jede CoPresenter-Frage holt Presentator ein frisches "
+        "Zugriffstoken bei Keycloak und gibt es an den Agent-Dienst weiter; "
+        "gespeichert wird es nicht."
     ) in page
 
 
@@ -547,18 +551,23 @@ def test_the_datenschutz_discloses_the_cookie_kinds_the_id_token_and_the_logout_
     )
 
 
-def test_the_datenschutz_says_the_claude_software_keeps_no_conversation_and_no_old_copy(
+def test_the_datenschutz_names_the_agent_service_and_claims_nothing_of_its_keeping(
     lobby: Lobby,
 ) -> None:
+    """Card G, G1: the short paragraph; the service's own facts are not claimed here."""
     page = lobby.client.get("/datenschutz").text
 
-    assert "keinen Gesprächsverlauf auf der Festplatte" in page
-    assert "Sitzung auf der Festplatte" not in page
-    assert "versucht der Dienst es erneut, wenn er geordnet beendet wird" in page
-    assert "gelingt auch das nicht oder bricht der Dienst ab" in page
-    assert "Einzige Ausnahme" not in page
-    assert "die Frage selbst geht weiterhin an Anthropic" in page
-    assert "30 Tage" not in page
+    assert (
+        "Stellen Sie im Vortrag eine Frage, sendet Presentator sie mit dem Titel "
+        "und dem Text des gefragten Decks an den Agent-Dienst von hallucinai. Was "
+        "der Dienst damit tut, beschreibt sein Abschnitt in der Datenschutzerklärung "
+        "von hallucinai."
+    ) in page
+    assert "Anthropic" not in page
+    assert "Anthropic Ireland, Limited:" not in page
+    assert "Kopien der Claude-Software:" not in page
+    assert "Claude-Kommandozeile" not in page
+    assert "Arbeitsspeicher" not in page
 
 
 @pytest.mark.parametrize("stored_client_detail", ["IP-Adresse", "User-Agent"])

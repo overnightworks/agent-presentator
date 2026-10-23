@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -11,12 +11,10 @@ if TYPE_CHECKING:
 
     from presentator.contracts.copresenter import (
         AccessRefusal,
-        AnswerEvent,
         CoPresenterReadiness,
         DeckText,
         HearingTranscript,
         PersonToken,
-        Question,
     )
     from presentator.contracts.decks import Deck, Source
 
@@ -34,14 +32,20 @@ class PrivateHearing(Protocol):
         """Close the connection and await its owned work."""
 
 
-class PrivateCoPresenter(Protocol):
-    """The narrow protocol Presentator may use to have a question answered."""
+type TokenSource = Callable[[], Awaitable[str]]
+
+
+class AgentAnswers(Protocol):
+    """The text of a model's answer to one message, streamed."""
 
     def answer(
-        self,
-        question: Question,
-    ) -> AbstractAsyncContextManager[AsyncIterator[AnswerEvent]]:
-        """Open one incremental answer operation."""
+        self, *, message: str, person_token: TokenSource
+    ) -> AbstractAsyncContextManager[AsyncIterator[str]]:
+        """Open one answer: the text deltas, until the model has finished.
+
+        Raises CoPresenterUnavailableError when the answer cannot be had, and
+        NotEnabledError when the service does not answer this person.
+        """
         ...
 
 

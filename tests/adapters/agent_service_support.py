@@ -142,6 +142,7 @@ class Chunks(httpx2.AsyncByteStream):
         """Play this reply's chunks."""
         self._reply = reply
         self.closed = asyncio.Event()
+        self.hung = asyncio.Event()
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         """Yield the chunks, then break or hang as the reply says."""
@@ -150,6 +151,7 @@ class Chunks(httpx2.AsyncByteStream):
         if self._reply.breaks_after_chunks:
             raise httpx2.ReadError(PERSON)
         if self._reply.hangs_after_chunks:
+            self.hung.set()
             await asyncio.Event().wait()
 
     async def aclose(self) -> None:

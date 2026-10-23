@@ -21,6 +21,8 @@ from webauth.oidc import OidcClientConfig, OidcRelyingParty
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
+from presentator.adapters.agent_service import ServiceAnswerer
+from presentator.adapters.agent_tokens import PersonAccessTokens, WorkloadToken
 from presentator.adapters.audit import LoggingAuditSink
 from presentator.adapters.build_worker import WorkerToolchain
 from presentator.adapters.builds import (
@@ -38,7 +40,7 @@ from presentator.adapters.catalog import (
     duration_in_words,
     load_catalogs,
 )
-from presentator.adapters.copresenter import UdsCoPresenter
+from presentator.adapters.deck_texts import MirroredDeckTexts
 from presentator.adapters.decks import (
     FilesystemLocalMount,
     MirroredConnectionChecker,
@@ -68,7 +70,8 @@ from presentator.adapters.secrets import (
     secret_box,
     talk_session_secret,
 )
-from presentator.adapters.speech import UdsSpeech, UdsSpeechHearing
+from presentator.adapters.sentences import split_sentences
+from presentator.adapters.speech import UdsSpeaking, UdsSpeech, UdsSpeechHearing
 from presentator.api.auth import (
     InstalledAuth,
     LobbyPrivate,
@@ -208,7 +211,7 @@ def build_instance(
     lobby_auth, talk_auth = installed_auths(settings, relying_party_for)
     return Instance(
         lobby=_lobby(settings, decks, sessions, key_drafts, lobby_auth),
-        talk=_talk(settings, decks, talk_auth, clock),
+        talk=_talk(settings, decks, talk_auth, mirrors),
         poller=Schedule(
             chore=decks.refresh,
             interval=timedelta(seconds=settings.source_poll_seconds),
@@ -238,33 +241,45 @@ def _talk(
     settings: Settings,
     decks: Decks,
     auth: InstalledAuth,
-    clock: SystemClock,
+    mirrors: SourceMirrors,
 ) -> FastAPI:
     """The talk host, with the co-presenter it speaks to.
 
     Its own session store keeps no ID token: the talk host has no logout route.
     """
+    sessions = SqliteSessionRecordStore(settings.database)
     return create_talk(
-        sessions=SqliteSessionRecordStore(settings.database),
+        sessions=sessions,
         decks=decks,
         auth=auth,
         lobby_origin=settings.public_origin,
-        copresenter=_copresenter_surface(settings, clock, decks),
+        copresenter=_copresenter_surface(settings, sessions, decks, auth, mirrors),
     )
 
 
 def _copresenter_surface(
-    settings: Settings, clock: SystemClock, decks: Decks
+    settings: Settings,
+    sessions: SqliteSessionRecordStore,
+    decks: Decks,
+    auth: InstalledAuth,
+    mirrors: SourceMirrors,
 ) -> CoPresenterSurface:
-    """What only a signed-in admin may reach at the talk host: the host's sockets."""
+    """What only a signed-in admin may reach at the talk host: the agent service."""
     return CoPresenterSurface(
         use=CoPresenterUse(
-            answers=UdsCoPresenter(settings.copresenter_socket),
+            answers=ServiceAnswerer(
+                origin=settings.agent_service,
+                workload_token=WorkloadToken(auth.relying_party),
+            ),
             speech=UdsSpeechHearing(settings.speech_socket),
             decks=decks.store,
             sources=decks.sources,
+            texts=MirroredDeckTexts(mirrors=mirrors),
+            boundaries=split_sentences,
+            speaking=UdsSpeaking(settings.speech_socket),
+            person_access=PersonAccessTokens(auth.relying_party, sessions, auth.config),
         ),
-        limiter=AskLimiter(clock=clock),
+        limiter=AskLimiter(clock=SystemClock()),
         browser_origin=settings.talk_origin,
     )
 

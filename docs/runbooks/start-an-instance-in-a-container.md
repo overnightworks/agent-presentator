@@ -18,7 +18,7 @@ Reader: the operator of this machine's deployment.
 1. Build both images: `docker compose --profile images build`. Without the
    profile only the instance is built.
 2. Write `.env` beside `compose.yaml` (a file this repository never writes and
-   git never sees). Compose refuses to start the service without these seven and
+   git never sees). Compose refuses to start the service without these six and
    names each one missing:
    - `PRESENTATOR_SECRET_KEY`: a fresh random value of at least 32 bytes.
    - `PRESENTATOR_PUBLIC_ORIGIN`: the canonical https origin.
@@ -28,10 +28,12 @@ Reader: the operator of this machine's deployment.
      group, `getent group docker | cut -d: -f3`, because the server asks the
      daemon for a container for every build and a group id is not a name.
    - `PRESENTATOR_RUNTIME_UID`: the operator's uid.
-   - `COPRESENTER_SOCKET_DIRECTORY` and `SPEECH_SOCKET_DIRECTORY`: private
-     directories you own.
+   - `SPEECH_SOCKET_DIRECTORY`: the private directory of the speech service's
+     socket, which you own.
 
-   The instance also needs the sign-in settings
+   The `hal_agent_presentator` network must exist: the edge creates it, and the instance
+   joins it to reach the agent service. While it is missing, `docker compose up` fails
+   on the missing external network and starts nothing. The instance also needs the sign-in settings
    ([settings](../reference/configuration.md)) and, in this deployment:
 
    - `PRESENTATOR_TRUSTED_PROXIES=172.31.255.1`: `cloudflared`

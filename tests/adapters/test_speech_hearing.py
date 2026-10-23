@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -10,16 +11,15 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
 from httpcore2._backends.auto import AutoBackend
 
-from presentator.adapters.copresenter import UdsCoPresenter
 from presentator.adapters.speech import UdsSpeechHearing
-from presentator.application.copresenter import CoPresenterUse
 from presentator.contracts.copresenter import (
     CoPresenterReadiness,
     CoPresenterUnavailableError,
     HearingTranscript,
 )
 from tests.adapters.serving import Serving, unix_listener
-from tests.application.fakes import FakeDeckStore, FakeSourceStore
+from tests.api.copresenter_support import PrivateFakes, a_use
+from tests.application.fakes import FakeDeckStore
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -279,11 +279,9 @@ def test_ending_the_hearing_closes_speechs_side(tmp_path: Path) -> None:
             peer_saw.set_result(message["type"])
 
         socket_path = tmp_path / "speech.sock"
-        use = CoPresenterUse(
-            answers=UdsCoPresenter(tmp_path / "unused.sock"),
+        use = replace(
+            a_use(PrivateFakes(), FakeDeckStore()),
             speech=UdsSpeechHearing(socket_path),
-            decks=FakeDeckStore(),
-            sources=FakeSourceStore(),
         )
         async with Serving(speech_app(hear=_hear), unix_listener(socket_path)):
             async with use.hear("de"):

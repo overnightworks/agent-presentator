@@ -17,11 +17,8 @@ they share is [trust boundaries](../explanation/trust-boundaries.md).
 - The speech service's `speech.sock` serves `/health` and `/hear` before
   Presentator is upgraded.
 - Both host processes and the Presentator container use the same positive
-  non-root `PRESENTATOR_RUNTIME_UID`, and `COPRESENTER_SOCKET_DIRECTORY` and
-  `PRESENTATOR_TALK_ORIGIN` are set for Compose
-  ([start an instance](start-an-instance-in-a-container.md)). Compose mounts
-  the socket directory read-write at `/run/presentator-copresenter` and hands
-  Presentator the fixed `copresenter.sock` path.
+  non-root `PRESENTATOR_RUNTIME_UID`, and `PRESENTATOR_TALK_ORIGIN` is set for
+  Compose ([start an instance](start-an-instance-in-a-container.md)).
 - No file under `/etc/claude-code/` on this host may configure an export: the
   Datenschutz says the CLI's own telemetry and nonessential traffic are off,
   and the child's switches do not override a managed export.
@@ -38,7 +35,6 @@ Run each as a `systemctl --user` unit, speech first; it is ready when
 # speech/, then copresenter/, each as a user unit with these values
 SPEECH_HOST=127.0.0.1 SPEECH_PORT=8090 uv run presentator-speech
 COPRESENTER_TRANSPORT=unix \
-COPRESENTER_SOCKET_DIRECTORY=<absolute private directory> \
 PRESENTATOR_RUNTIME_UID=<shared uid> \
 COPRESENTER_SPEECH_URL=http://127.0.0.1:8090 \
 COPRESENTER_DECK=<the deck folder> \

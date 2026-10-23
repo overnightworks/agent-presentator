@@ -139,16 +139,18 @@ DATENSCHUTZ: Final = LegalDocument(
                     "Sitzungs-ID, Benutzer-ID, der Zeitpunkt der Anmeldung "
                     "und des Ablaufs, das ID-Token der Anmeldung sowie das "
                     "Erneuerungs-Token (Refresh-Token), das Keycloak bei der "
-                    "Anmeldung ausstellt. Es liegt unverschlüsselt in der "
-                    "Sitzungszeile, ist ohne das Client-Geheimnis von "
-                    "Presentator bei Keycloak nicht verwendbar und wird mit "
-                    "der Sitzung gelöscht. Auch das ID-Token von Keycloak "
-                    "liegt unverschlüsselt in der Sitzungszeile und wird mit "
-                    "ihr gelöscht. Presentator braucht es nur, um Sie beim "
-                    "Abmelden auch bei Keycloak abzumelden. Was es enthält, "
-                    "beschreibt der Abschnitt zur Anmeldung über Keycloak. "
-                    "Das Zugriffstoken der "
-                    "Anmeldung wird nicht gespeichert. Eine "
+                    "Anmeldung und bei jeder Erneuerung ausstellt. Es liegt "
+                    "unverschlüsselt in der Sitzungszeile, ist ohne das "
+                    "Client-Geheimnis von Presentator bei Keycloak nicht "
+                    "verwendbar und wird mit der Sitzung gelöscht. Auch das "
+                    "ID-Token von Keycloak liegt unverschlüsselt in der "
+                    "Sitzungszeile und wird mit ihr gelöscht. Presentator "
+                    "braucht es nur, um Sie beim Abmelden auch bei Keycloak "
+                    "abzumelden. Was es enthält, beschreibt der Abschnitt zur "
+                    "Anmeldung über Keycloak. Für jede CoPresenter-Frage holt "
+                    "Presentator ein frisches Zugriffstoken bei Keycloak und "
+                    "gibt es an den Agent-Dienst weiter; gespeichert wird es "
+                    "nicht. Eine "
                     f"Sitzung endet {_SESSION_HOURS} Stunden nach der Anmeldung. "
                     "Zweck · Rechtsgrundlage: angemeldet bleiben, "
                     f"{_BASIS_CONTRACT}; die Cookies "
@@ -183,20 +185,16 @@ DATENSCHUTZ: Final = LegalDocument(
                     "CoPresenter (Sprachfunktion):",
                     "Ihre gesprochene Frage wird auf dem Server in Text "
                     "umgewandelt; die Audio-Rohdaten werden nicht gespeichert. "
-                    "Von der Folie, die er zeigt, sendet der Browser nur die "
-                    "Nummer, daneben das Mikrofon-Audio und den erkannten Text "
-                    "der Frage. Der CoPresenter nimmt die Folie mit dieser "
-                    "Nummer aus dem Deck, mit dem er gestartet wurde, falls "
-                    "dieses Deck sie hat. Der erkannte Text, der Inhalt dieser "
-                    "Folie und jede Folie dieses Decks mit ihren Notizen "
-                    "werden an Anthropic gesendet, um eine Antwort zu "
-                    "erzeugen; dieses Deck kann vom Deck im Browser "
-                    "abweichen. Solange der CoPresenter zuhört, wird Sprache im "
+                    "Stellen Sie im Vortrag eine Frage, sendet Presentator sie "
+                    "mit dem Titel und dem Text des gefragten Decks an den "
+                    "Agent-Dienst von hallucinai. Was der Dienst damit tut, "
+                    "beschreibt sein Abschnitt in der Datenschutzerklärung von "
+                    "hallucinai. "
+                    "Solange der CoPresenter zuhört, wird Sprache im "
                     "Raum fortlaufend erkannt, und jede erkannte Äußerung wird "
-                    "als Frage an Anthropic gesendet, außer während der "
+                    "als Frage gesendet, außer während der "
                     "CoPresenter spricht oder wenn ein Echo erkannt wird; "
-                    "niemand wählt die Fragen aus. Der CoPresenter "
-                    "steht derzeit nur dem Betreiber zur Verfügung. Die "
+                    "niemand wählt die Fragen aus. Die "
                     "gesprochene Antwort wird "
                     "auf dem Server erzeugt und nur für die Wiedergabe "
                     "gestreamt. Zweck · Rechtsgrundlage: der Vortrag "
@@ -235,17 +233,6 @@ DATENSCHUTZ: Final = LegalDocument(
                 _point(
                     "Git-Hosts der verbundenen Quellen:",
                     "erhalten die Abrufe, mit denen der Server die Quellen spiegelt.",
-                ),
-                _point(
-                    "Anthropic Ireland, Limited:",
-                    "Für die CoPresenter-Antworten wird Claude verwendet, über "
-                    "den eigenen Claude-Zugang des Betreibers (die installierte "
-                    "claude-Kommandozeile). Anthropic ist dafür ein eigener "
-                    "Verantwortlicher. Übertragen werden die gesprochene Frage "
-                    "als Text, der Inhalt der Folie mit der Nummer, die der Browser "
-                    "meldet, aus dem Deck, mit dem der CoPresenter gestartet wurde "
-                    "(falls dieses Deck sie hat), und jede Folie dieses Decks mit "
-                    "ihren Notizen.",
                 ),
                 _point(
                     "Sprachausgabe und Spracherkennung:",
@@ -292,21 +279,6 @@ DATENSCHUTZ: Final = LegalDocument(
                     "ein neuer Build lässt den alten bestehen. Das Entfernen "
                     "einer Quelle löscht ihren Spiegel, ihre Decks und deren "
                     "aktive Builds.",
-                ),
-                _point(
-                    "Kopien der Claude-Software:",
-                    "Die Claude-Software führt jede Frage in einem eigenen "
-                    "privaten Ordner auf dem Server des Betreibers aus, der "
-                    "mit dem Ende der Antwort entfernt wird, und behält "
-                    "keinen Gesprächsverlauf auf der Festplatte. Ihre eigene "
-                    "Telemetrie, ihre Fehlerberichte und ihre nicht "
-                    "notwendigen Verbindungen sind abgeschaltet; die Frage "
-                    "selbst geht weiterhin an Anthropic. Ausnahme: Lässt sich "
-                    "ein Ordner nicht gleich entfernen, etwa weil sich nicht "
-                    "bestätigen lässt, dass alle Prozesse der Antwort beendet "
-                    "sind, versucht der Dienst es erneut, wenn er geordnet "
-                    "beendet wird; gelingt auch das nicht oder bricht der "
-                    "Dienst ab, bleibt der Ordner, bis er entfernt wird.",
                 ),
                 _point(
                     "CoPresenter-Audio:",

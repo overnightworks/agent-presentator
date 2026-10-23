@@ -7,15 +7,21 @@ the authority it shares is [trust boundaries](../explanation/trust-boundaries.md
 
 ## Processes
 
-Two host processes sit beside Presentator. The speech service
+The agent service answers; the speech service speaks and hears.
+
+The agent service is the operator's own, reached at `PRESENTATOR_AGENT_SERVICE`
+over the `hal_agent_presentator` network. Presentator reads the asked deck's words at its
+built commit, sends them with the question as one message, with no tools, and
+streams the model's text back. Both the person's fresh access token and
+Presentator's own workload token go with every run. Presentator splits the text
+into sentences and speaks them.
+
+One host process sits beside Presentator. The speech service
 ([`speech/`](../../speech/README.md)) holds a local speaking model and a local
 hearing model, listens on `127.0.0.1:8090`, never exposed, and offers hearing
 and its readiness to Presentator directly through its private same-UID Unix
 socket `speech.sock` (`/health`, `/hear`); against an older speech,
-`/copresenter/who` answers 503 and hearing reports its failure. The
-co-presenter (`copresenter/`) only answers: it asks Claude through the `claude`
-executable on `COPRESENTER_CLI_SEARCH_PATH` with the shared setup token, and is
-private to Presentator through its own same-UID Unix socket. Which speech
+`/copresenter/who` answers 503 and hearing reports its failure. Which speech
 models run and what they cost on the card is owned by the speech README.
 
 ## Routes and access
@@ -34,6 +40,17 @@ or a session-store failure closes the hearing lease and an ongoing answer
 within one second, since Presentator rechecks the answer and hearing lease
 every half second; generation, capture and queued or playing audio stop.
 
+Before the answer starts, `/ask` fetches the session's fresh access token. A
+session whose refresh token is missing or refused gets 401
+`{"detail": "Sign in again"}`; an ended session gets 401
+`{"detail": "Not authenticated"}`; an unreachable issuer gets 503
+`{"detail": "Co-presenter unavailable"}`. The agent service is not called in any
+of these cases, and the question is counted. Once the answer streams, the
+events are `text`, `sentence`, `audio` and `done`. Every failure ends in an
+`error` event, and an answer the service refuses because the person is not
+enabled carries `"reason": "not-enabled"` in it. The overlay shows "No answer"
+for all of them.
+
 ## Bounds on `/ask`
 
 `said` is at most 2000 characters and `language` is empty or `de`/`en`;
@@ -44,11 +61,6 @@ again) and starts no turn. `deck` names the asker's deck and is at most 255
 characters, else 422; any deck the asker does not own built (malformed, missing,
 nonexistent, unbuilt, source-less or another admin's) gets one identical 404
 before the limiter, so it spends no question.
-
-## Turn homes
-
-Each turn's home lives below `COPRESENTER_CLI_WORKING_ROOT`; the service tries
-to remove it when the turn ends ([clear leftovers](../runbooks/clear-leftover-turn-homes.md)).
 
 ## Settings · Voice
 

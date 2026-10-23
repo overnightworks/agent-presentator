@@ -1,39 +1,69 @@
 """Lifetime ownership for private co-presenter operations."""
 
+import asyncio
+import logging
 import math
+import time
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import AbstractContextManager, asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from contextlib import AbstractContextManager, aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock
 
+from presentator.application.copresenter_prompt import user_message
+from presentator.application.spoken_answer import spoken_events, spoken_language
 from presentator.contracts.copresenter import (
+    AccessRefusal,
     AnswerEvent,
     AskedDeck,
+    Audio,
     CoPresenterReadiness,
+    CoPresenterUnavailableError,
+    PersonToken,
     Question,
 )
 from presentator.contracts.decks import is_a_plain_folder_name
 from presentator.ports.clock import Clock
 from presentator.ports.copresenter import (
-    PrivateCoPresenter,
+    AgentAnswers,
+    DeckTexts,
+    PersonAccess,
     PrivateHearing,
+    SentenceBoundaries,
+    Speaking,
     SpeechHearing,
 )
 from presentator.ports.decks import DeckStore, SourceStore
 
 type CoPresenterHearing = PrivateHearing
 
+_LOGGER = logging.getLogger(__name__)
+_MILLISECONDS = 1000
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreparedAsk:
+    """An ask whose person's token is in hand, and when it began."""
+
+    asked: AskedDeck
+    person: PersonToken
+    started: float
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CoPresenterUse:
     """Use at most one private operation and close every operation it opens."""
 
-    answers: PrivateCoPresenter
+    answers: AgentAnswers
     speech: SpeechHearing
     decks: DeckStore
     sources: SourceStore
+    texts: DeckTexts
+    boundaries: SentenceBoundaries
+    speaking: Speaking
+    person_access: PersonAccess
+    monotonic: Callable[[], float] = time.monotonic
 
     def asked_deck(self, slug: str, *, viewer: str) -> AskedDeck | None:
         """The viewer's own built deck and its source, or nothing for any other."""
@@ -51,13 +81,51 @@ class CoPresenterUse:
         """Return speech's narrow readiness report."""
         return await self.speech.readiness()
 
+    async def prepare(
+        self, asked: AskedDeck, session_id: str
+    ) -> PreparedAsk | AccessRefusal:
+        """Fetch the session's fresh person token, before anything is streamed.
+
+        Raises CoPresenterUnavailableError when the token source fails.
+        """
+        started = self.monotonic()
+        person = await self.person_access.fresh(session_id)
+        if isinstance(person, AccessRefusal):
+            return person
+        return PreparedAsk(asked=asked, person=person, started=started)
+
     @asynccontextmanager
     async def answer(
-        self, question: Question
+        self, prepared: PreparedAsk, question: Question
     ) -> AsyncGenerator[AsyncIterator[AnswerEvent]]:
-        """Keep the private answer owned for exactly as long as its caller reads it."""
-        async with self.answers.answer(question) as events:
-            yield events
+        """Stream the spoken answer for as long as its caller reads it."""
+        deck_text = await asyncio.to_thread(
+            self.texts.text_of, prepared.asked.deck, prepared.asked.source
+        )
+        if deck_text is None:
+            raise CoPresenterUnavailableError
+        language = spoken_language(question.language, deck_text.language)
+
+        async def person_token() -> str:  # NOSONAR(S7503) TokenSource is awaited
+            return prepared.person.value
+
+        async with self.answers.answer(
+            message=user_message(question, deck_text), person_token=person_token
+        ) as texts:
+            events = spoken_events(texts, self.boundaries, self.speaking, language)
+            async with aclosing(self._timed(events, prepared.started)) as timed:
+                yield timed
+
+    async def _timed(
+        self, events: AsyncIterator[AnswerEvent], started: float
+    ) -> AsyncGenerator[AnswerEvent]:
+        first_audio_pending = True
+        async for event in events:
+            if first_audio_pending and isinstance(event, Audio):
+                first_audio_pending = False
+                elapsed = self.monotonic() - started
+                _LOGGER.info("co-presenter first audio: ms=%d", elapsed * _MILLISECONDS)
+            yield event
 
     @asynccontextmanager
     async def hear(self, language: str) -> AsyncGenerator[PrivateHearing]:

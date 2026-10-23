@@ -34,7 +34,9 @@ from presentator.contracts.copresenter import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, AsyncIterator, Callable
+
+    from presentator.ports.copresenter import TokenSource
 
 _LOGGER = logging.getLogger(__name__)
 _AGENT_FILE: Final = Path(__file__).parent.parent / "agents" / "copresenter.md"
@@ -45,8 +47,6 @@ _WHOLE_SECONDS: Final = re.compile(r"\d{1,9}", re.ASCII)
 _TIMEOUT: Final = httpx2.Timeout(connect=5, write=5, pool=5, read=60)
 _RUNS_PATH: Final = "/runs"
 _MILLISECONDS: Final = 1000
-
-type TokenSource = Callable[[], Awaitable[str]]
 
 
 def _fail(reason: str) -> NoReturn:
