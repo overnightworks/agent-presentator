@@ -232,10 +232,8 @@ def test_the_composition_root_serves_the_copresenter_at_the_talk_host_only() -> 
 
 # T1, through the composition root's own wiring.
 @pytest.mark.usefixtures("environment")
-def test_a_sign_in_at_the_talk_host_stores_no_id_token_while_one_at_the_lobby_does() -> (
-    None
-):
-    """#428 cell 29 (D4, T1): the lobby's row keeps the ID token, the talk host's none."""
+def test_the_talk_hosts_sign_in_stores_no_id_token_while_the_lobbys_does() -> None:
+    """#428 cell 29 (D4, T1): lobby row keeps the ID token, talk row none."""
     settings = load_settings()
     now = datetime.now(UTC)
     issuer = FakeIssuer(
