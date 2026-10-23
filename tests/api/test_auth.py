@@ -479,8 +479,10 @@ def test_the_datenschutz_page_carries_the_approved_session_storage_sentence(
         "(Refresh-Token), das Keycloak bei der Anmeldung ausstellt. Es liegt "
         "unverschlüsselt in der Sitzungszeile, ist ohne das Client-Geheimnis von "
         "Presentator bei Keycloak nicht verwendbar und wird mit der Sitzung "
-        "gelöscht. Auch das ID-Token liegt unverschlüsselt in der Sitzungszeile "
-        "und wird mit ihr gelöscht."
+        "gelöscht. Auch das ID-Token von Keycloak liegt unverschlüsselt in der "
+        "Sitzungszeile und wird mit ihr gelöscht. Presentator braucht es nur, um "
+        "Sie beim Abmelden auch bei Keycloak abzumelden. Was es enthält, "
+        "beschreibt der Abschnitt zur Anmeldung über Keycloak."
     ) in page
 
 
@@ -523,22 +525,6 @@ def test_the_datenschutz_names_the_hours_the_code_keeps_a_draft_and_a_session(
     [
         "drei Cookie-Arten",
         "bleibt es, bis seine {pending_minutes} Minuten ablaufen",
-        (
-            "Es enthält Ihre Subject-ID, Ihre Gruppen und, soweit in Keycloak "
-            "hinterlegt, Ihren Benutzernamen, Ihren Namen, weitere Profilangaben "
-            "und Ihre E-Mail-Adresse samt der Angabe, ob sie bestätigt ist, dazu "
-            "technische Angaben zur Anmeldung (u. a. Aussteller, Empfänger, "
-            "Zeitpunkte, Keycloak-Sitzungskennung)."
-        ),
-        (
-            "Presentator braucht es nur zum Abmelden: Dann löscht Presentator die "
-            "Sitzung und liefert Ihrem Browser eine Seite, die nicht "
-            "zwischengespeichert wird und das ID-Token als Hinweis per Formular an "
-            "Keycloak sendet, damit Keycloak ohne Rückfrage abmelden kann. Der "
-            "Hinweis steht nicht in der aufgerufenen Adresse. Ist die Sitzung "
-            "schon beendet, fehlt der Hinweis, und Keycloak fragt einmal nach."
-        ),
-        "Für die Anmeldung am Talk-Host speichert Presentator kein ID-Token.",
         (
             "Presentator beendet beim Abmelden sofort die Sitzung in "
             "Presentator und leitet den Browser zu Keycloak weiter, um dort "
