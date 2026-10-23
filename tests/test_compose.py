@@ -56,7 +56,10 @@ def test_the_instance_reaches_the_agent_service_over_the_edges_network() -> None
 
     assert "PRESENTATOR_AGENT_SERVICE: http://agent-service:8080" in instance
     assert "    networks:\n      - default\n      - agent" in instance
-    assert "\n  agent:\n    external: true\n    name: hal_agent_presentator" in written
+    assert (
+        "\n  agent:\n    external: true\n"
+        "    name: hal_agent_presentator\n"
+    ) in written
 
 
 def _service_lines(name: str) -> list[str]:
