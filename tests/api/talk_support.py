@@ -27,6 +27,7 @@ from presentator.adapters.identity import (
 from presentator.api.auth import InstalledAuth
 from presentator.api.copresenter import CoPresenterSurface
 from presentator.api.talk import create_talk, talk_content_security_policy
+from presentator.application.decks import Decks
 from presentator.application.identity import SESSION_LIFETIME
 from presentator.contracts.models import Role, User
 from presentator.host.main import Instance, served_by_host
@@ -213,6 +214,27 @@ def _both_auths(
     return lobby_auth, talk_auth
 
 
+def _talk_over(
+    sessions: SqliteSessionRecordStore,
+    decks: Decks,
+    decks_store: FakeDeckStore,
+    talk_auth: InstalledAuth,
+    copresenter: SurfaceFactory | None,
+) -> FastAPI:
+    """The talk host, its co-presenter surface made over this instance's store."""
+    return create_talk(
+        sessions=sessions,
+        decks=decks,
+        auth=talk_auth,
+        lobby_origin=A_BROWSERS_ADDRESS,
+        copresenter=(
+            None
+            if copresenter is None
+            else copresenter(decks_store, sessions, talk_auth)
+        ),
+    )
+
+
 def two_hosts(
     tmp_path: Path,
     *,
@@ -248,17 +270,7 @@ def two_hosts(
         people=people,
         signing_in=SigningIn(sessions=sessions, auth=lobby_auth, decks=decks),
     )
-    talk = create_talk(
-        sessions=sessions,
-        decks=decks,
-        auth=talk_auth,
-        lobby_origin=A_BROWSERS_ADDRESS,
-        copresenter=(
-            None
-            if copresenter is None
-            else copresenter(decks_store, sessions, talk_auth)
-        ),
-    )
+    talk = _talk_over(sessions, decks, decks_store, talk_auth, copresenter)
     never = Schedule(chore=lambda: None, interval=timedelta(days=1))
     router = served_by_host(
         Instance(lobby=lobby, talk=talk, poller=never, session_sweep=never),
