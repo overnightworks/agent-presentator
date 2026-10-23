@@ -3,7 +3,6 @@
 import logging
 import os
 import socket
-import struct
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
+from presentator.adapters import build_wire
 from presentator.adapters.worker_children import ChildSurroundings
 from presentator.contracts.decks import DECK_DIRECTORY
 from presentator.host.worker_termination import (
@@ -28,7 +28,6 @@ from presentator.host.worker_wire import (
 
 logger = logging.getLogger(__name__)
 
-PEER_CREDENTIALS = struct.Struct("3i")
 HEADER_SECONDS = 2.0
 UPLOAD_SECONDS = 60.0
 GATE_SECONDS = 5.0
@@ -67,14 +66,6 @@ def _phase_end(serving: "Serving", budget: float, life_ends_at: float) -> float:
 def peer_admitted(peer_uid: int, runtime_uid: int) -> bool:
     """Only the runtime uid may talk to the worker; uid 0 never."""
     return peer_uid != 0 and peer_uid == runtime_uid
-
-
-def _peer_uid(connection: socket.socket) -> int:
-    credentials = connection.getsockopt(
-        socket.SOL_SOCKET, socket.SO_PEERCRED, PEER_CREDENTIALS.size
-    )
-    _pid, uid, _gid = PEER_CREDENTIALS.unpack(credentials)
-    return uid
 
 
 class LifeEnd(StrEnum):
@@ -643,7 +634,7 @@ def accept_connections(
         serving.watchdog.arm(accepted_at + WATCHDOG_SECONDS - serving.clock())
         with connection:
             try:
-                peer_uid = _peer_uid(connection)
+                peer_uid = build_wire.peer_uid(connection)
             except OSError:
                 logger.exception("peer credentials unreadable")
                 return LifeEnd.ACCEPT

@@ -12,6 +12,7 @@ from typing import ClassVar, NoReturn, overload
 
 import pytest
 
+from presentator.adapters.build_wire import PEER_CREDENTIALS
 from presentator.host import worker, worker_serving
 from presentator.host.worker_serving import HEADER_SECONDS, LifeEnd
 from presentator.host.worker_termination import SWEEP_SECONDS, SweepEffects, sweep
@@ -74,7 +75,7 @@ class RootConnection(socket.socket):
     def getsockopt(
         self, _level: int, _optname: int, _buflen: int | None = None, /
     ) -> int | bytes:
-        return worker_serving.PEER_CREDENTIALS.pack(1, 0, 0)
+        return PEER_CREDENTIALS.pack(1, 0, 0)
 
 
 class RootListener(BoundedListener):
