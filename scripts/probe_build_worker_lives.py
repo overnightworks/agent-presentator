@@ -9,6 +9,7 @@ the host's `/proc`. The flood deck (`probe_build_worker/flood`) takes its mode
 from a file the driver publishes into the life's `/tmp` before the STEP.
 """
 
+import os
 import select
 import subprocess
 import time
@@ -263,12 +264,28 @@ def build_user_process(pid: str) -> bool:
 
 
 def handshake_line(client: "subprocess.Popen[str]", pipe: IO[str]) -> str:
-    """The client's next line; a stalled or dead client is a refusal, not a wait."""
-    ready, _, _ = select.select([pipe], [], [], HANDSHAKE_SECONDS)
-    line = pipe.readline().strip() if ready else ""
+    """The client's next line; a stalled or dead client is a refusal, not a wait.
+
+    The deadline covers the whole line, so a partial line that stalls also
+    refuses. Bytes are read unbuffered so no later line is lost in a buffer.
+    """
+    descriptor = pipe.fileno()
+    deadline = time.monotonic() + HANDSHAKE_SECONDS
+    received = b""
+    while not received.endswith(b"\n"):
+        remaining = deadline - time.monotonic()
+        ready = remaining > 0 and select.select([descriptor], [], [], remaining)[0]
+        chunk = os.read(descriptor, 1) if ready else b""
+        if not chunk:
+            break
+        received += chunk
+    line = received.decode().strip()
     if not line:
         client.kill()
         refuse(f"the client not driven: no handshake line: {client.communicate()}")
+    if not received.endswith(b"\n"):
+        client.kill()
+        refuse(f"the client not driven: a partial handshake line {line!r}")
     return line
 
 
