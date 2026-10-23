@@ -1,8 +1,0 @@
-claim_id = "489ddc959141450d9d4f37002f17736e"
-agent = "Claude 731024d8-ea1b-47ad-b55d-366eaee74c9a"
-role = "builder"
-base = "0daee359442a1ab0c04f31258a351feb1bb723d1"
-branch = "claude/issue-462-upload-class-table"
-scope = ["pyproject.toml", "scripts/probe_build_worker.py", "scripts/probe_build_worker_uploads.py", "tests/adapters/test_probe_upload_classes.py"]
-opened_commit = "2169c0c6961c27177cea82a64367dc83de0d795b"
-whole_reason = "One owner of the probe's crafted uploads: the table, the client that sends a row, and the test that proves each row's refusal point belong together, and pyproject.toml carries only the table's lint entry. No production file changes."
