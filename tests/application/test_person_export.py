@@ -22,7 +22,12 @@ _TWO_OF_EACH = 2
 _NOW = datetime(2026, 1, 15, 9, tzinfo=UTC)
 _A_HOOK_HASH = b"hook-hash-nobody-may-read"
 _A_REFRESH_WORD = "refresh-word-nobody-may-read"
-_SECRET_WORDS = ("hook-hash-nobody-may-read", _A_REFRESH_WORD, "OPENSSH PRIVATE KEY")
+_SECRET_WORDS = (
+    "hook-hash-nobody-may-read",
+    _A_REFRESH_WORD,
+    "OPENSSH PRIVATE KEY",
+    "an-id-token",
+)
 
 
 def _secret(kind: PersonKind, count: int) -> Withheld:

@@ -43,11 +43,13 @@ _PATH: Final = "/api/admin/people/"
 _A_HOOK_HASH: Final = b"hook-hash-nobody-may-read"
 _A_REFRESH_WORD: Final = "refresh-word-nobody-may-read"
 _A_CREDENTIAL_WORD: Final = "credential-nobody-may-read"
+_AN_ID_TOKEN: Final = "an-id-token"  # noqa: S105
 _SECRET_WORDS: Final = (
     "hook-hash-nobody-may-read",
     _A_REFRESH_WORD,
     _A_CREDENTIAL_WORD,
     "OPENSSH PRIVATE KEY",
+    _AN_ID_TOKEN,
 )
 _SHARED_KEYS: Final = {
     "people_export",
@@ -91,7 +93,7 @@ def a_scene() -> Scene:
         now=NOW,
         expires_at=NOW + timedelta(hours=1),
         refresh_token=SecretStr(_A_REFRESH_WORD),
-        id_token=SecretStr("an-id-token"),
+        id_token=SecretStr(_AN_ID_TOKEN),
     )
     an_offset_instant = (NOW + timedelta(microseconds=123456)).astimezone(
         timezone(timedelta(hours=5, minutes=30))
@@ -221,7 +223,7 @@ def test_data_keys_are_sorted_at_every_depth() -> None:
 
 
 def test_no_secret_is_in_any_decompressed_member_or_member_name() -> None:
-    """S10: no secret, private key or hook hash, as bytes or text, in any name."""
+    """S10, #428 cell 23: no secret, ID token, private key or hook hash, in any name."""
     members = _members(a_scene().export(THE_PERSON.id))
 
     for name, content in members.items():
