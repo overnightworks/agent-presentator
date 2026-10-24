@@ -1,7 +1,0 @@
-claim_id = "1643743300ec4f2caaef76c77381da2d"
-agent = "Codex presentator 01a16e6f-5659-76e2-b3ba-64375778b5af"
-role = "builder"
-base = "f1fbc708bb9289ff97cfae5f501a4fc2055bf874"
-branch = "codex/issue-488-probe-outcome"
-scope = ["scripts/probe_build_worker_web.py", "tests/test_probe_handshake.py"]
-opened_commit = "36c8bbd3fd6b1f0442add842cf8abdc9b0e4d2e5"
