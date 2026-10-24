@@ -1,8 +1,0 @@
-claim_id = "63547f682c89487d93b446f688222a77"
-agent = "Claude af82d84c-aa5c-4ee2-89e3-1347c7a6fa91"
-role = "builder"
-base = "9357a8010a20447a9bff16c6042f3c41997d2c59"
-branch = "claude/issue-472-build-worker-b2"
-scope = [".github/workflows/ci.yml", "compose.yaml", "docs/explanation/trust-boundaries.md", "docs/reference/builds.md", "docs/reference/configuration.md", "docs/runbooks/start-an-instance-in-a-container.md", "pyproject.toml", "scripts/probe_build_worker.py", "scripts/probe_build_worker/limits", "scripts/probe_build_worker/web_client.py", "scripts/probe_build_worker_web.py", "src/presentator/host/main.py", "tests/test_compose.py"]
-opened_commit = "cd65ae17fd1c19854938635ba77a54b087e75ed4"
-whole_reason = "One flip of the deployed web: its compose service with the hardening keys, the composition the probe must reuse, the CI drive that proves the flipped service, and the documents the flip makes false cannot land apart without a deployment no test or document describes."
