@@ -423,13 +423,14 @@ jobs:
     timeout-minutes: 40
     # Compose interpolates the whole file, so the service the worker shares its
     # image with needs values too; none of them reaches the worker, which has no
-    # env_file and names only the two build variables.
+    # env_file and names only the two build variables. The web is started with
+    # the settings of the throwaway `.env` below and a client secret that only
+    # this job knows.
     env:
       COMPOSE_PROJECT_NAME: build-worker-probe
       PRESENTATOR_RUNTIME_UID: "1001"
       PRESENTATOR_PUBLIC_ORIGIN: https://presentator.example.invalid
       PRESENTATOR_TALK_ORIGIN: https://talks.example.invalid
-      PRESENTATOR_DOCKER_GROUP: "999"
       SPEECH_SOCKET_DIRECTORY: /tmp
     steps:
       - name: Check out the event commit
@@ -461,11 +462,52 @@ jobs:
       - name: Drive the sealed worker through its socket
         run: uv run --locked python scripts/probe_build_worker.py drive
 
-      - name: Remove the worker and its volume
+      # The web needs no issuer at start: the sign-in client reads only the
+      # secret file, and the issuer is called at sign-in. The override adds
+      # three read-only bind mounts to the web and nothing else, because a
+      # read-only root cannot take a copy.
+      - name: Prepare the web's throwaway settings
+        run: |
+          secret=$(openssl rand -hex 32)
+          echo "::add-mask::$secret"
+          (umask 0377 && printf '%s\n' "$secret" > "$RUNNER_TEMP/oidc-client-secret")
+          cat > .env <<'EOF'
+          PRESENTATOR_OIDC_ISSUER=https://auth.example.invalid/realms/probe
+          PRESENTATOR_OIDC_CLIENT_ID=build-worker-probe
+          PRESENTATOR_OIDC_CLIENT_SECRET_FILE=/run/probe-oidc-secret
+          EOF
+          cat > "$RUNNER_TEMP/web-probe.yaml" <<EOF
+          services:
+            presentator:
+              volumes:
+                - type: bind
+                  source: $RUNNER_TEMP/oidc-client-secret
+                  target: /run/probe-oidc-secret
+                  read_only: true
+                - type: bind
+                  source: $GITHUB_WORKSPACE/examples/hello-deck
+                  target: /decks/hello-deck
+                  read_only: true
+                - type: bind
+                  source: $GITHUB_WORKSPACE/scripts/probe_build_worker
+                  target: /decks/probe
+                  read_only: true
+          EOF
+          echo "WEB_PROBE_OVERRIDE=$RUNNER_TEMP/web-probe.yaml" >> "$GITHUB_ENV"
+          docker network create hal_agent_presentator
+
+      - name: Drive the deployed web through the worker
+        run: uv run --locked python scripts/probe_build_worker_web.py drive
+
+      - name: Remove the web, the worker and their volumes
         if: ${{ always() }}
         run: |
           docker rm --force build-worker-probe-holder || true
-          docker compose down --volumes
+          if [ -n "$WEB_PROBE_OVERRIDE" ]; then
+            docker compose --file compose.yaml --file "$WEB_PROBE_OVERRIDE" down --volumes
+          else
+            docker compose down --volumes
+          fi
 
   coverage:
     name: "Coverage report"

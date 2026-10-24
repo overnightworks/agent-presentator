@@ -74,6 +74,8 @@ from probe_build_worker_uploads import (
 from presentator.adapters.build_wire import (
     LENGTH,
     MAGIC,
+    SOCKET_DIRECTORY,
+    SOCKET_NAME,
     VERSION,
     BuiltOutcome,
     FailedOutcome,
@@ -87,17 +89,18 @@ from presentator.adapters.build_wire import (
     send_step,
     send_tree,
 )
+from presentator.adapters.build_worker import (
+    CONNECT_WINDOW_SECONDS,
+    FIRST_RETRY_SECONDS,
+    LONGEST_RETRY_SECONDS,
+)
 from presentator.contracts.decks import StepKind
 
 IMAGE = "presentator"
-SOCKET_DIRECTORY = "/run/presentator-build"
-SOCKET_PATH = f"{SOCKET_DIRECTORY}/worker.sock"
+SOCKET_PATH = f"{SOCKET_DIRECTORY}/{SOCKET_NAME}"
 DECKS_DIRECTORY = "/decks"
 HELLO_DECK = f"{DECKS_DIRECTORY}/hello-deck"
 FOREIGN_USER = "4242:presentator"
-CONNECT_WINDOW_SECONDS = 70
-FIRST_RETRY_SECONDS = 0.25
-LONGEST_RETRY_SECONDS = 4
 ATTEMPT_SECONDS = 30
 EXCHANGE_SECONDS = 900
 CLOSE_SECONDS = 10

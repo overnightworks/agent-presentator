@@ -15,15 +15,16 @@ repository's own stands behind that: with no network, no capability and
 nothing of this host mounted, Docker's default profiles already deny what there
 is to deny.
 
-The price is the socket. `compose.yaml` mounts `/var/run/docker.sock` into the
-instance and puts the server in the `docker` group, so the server may ask the
-daemon for any container this machine could run: an authority wider than the
-one it uses, and the reason `PRESENTATOR_DOCKER_GROUP` exists. A machine whose
-decks are all the operator's own can trade it the other way with
-`PRESENTATOR_BUILD_RUNNER=host`, which keeps the socket out of the container
-and runs every deck's code as the server, with its rights over every file and
-the network. An instance serving a repository somebody else can push to does
-not.
+The deployed instance pays no such price. `compose.yaml` hands every step to
+the build worker over a socket in a volume the two services share, and the web
+holds no Docker socket and no docker group: it runs with every capability
+dropped, no new privilege and a read-only root, so a deck's code reaches neither
+the daemon nor this machine's root. The worker is the one service that runs a
+deck, sealed ([ADR 0017](../decisions/0017-a-build-worker-runs-each-step-sealed.md)).
+A machine whose decks are all the operator's own can still trade the sandbox
+away with `PRESENTATOR_BUILD_RUNNER=host`, which runs every deck's code as the
+server, with its rights over every file and the network. An instance serving a
+repository somebody else can push to does not.
 
 ## A source on this box is trusted as the operator
 
