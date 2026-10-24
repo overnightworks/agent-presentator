@@ -64,9 +64,10 @@ services:
           nocopy: true
 
   # The sealed build worker (ADR 0017). It runs the instance image and starts
-  # no step of its own accord; the instance hands it each one. It never pulls: `docker compose build presentator` has to make
-  # the image first, and a missing one is an error rather than a pull of some
-  # registry's `presentator`. Every key below is a boundary the worker's
+  # no step of its own accord; the instance hands it each one. It never pulls:
+  # `docker compose build presentator` has to make the image first, and a
+  # missing one is an error rather than a pull of some registry's
+  # `presentator`. Every key below is a boundary the worker's
   # self-check or ADR 0017 relies on, and `tests/test_compose.py` pins them.
   build-worker:
     image: presentator

@@ -62,6 +62,7 @@ COMPOSE_MOUNTS = frozenset(
 TEMPORARY = "/tmp"  # noqa: S108
 ROUTE_POLL_SECONDS = 0.5
 STEP_SECONDS = 900
+STAGING_POLLS = 1200
 RESTART_SECONDS = 60
 CELLS = ("B25", "B12 C", "B13", "B15 C")
 UNWRITTEN = "WRITTENNUMBER"
@@ -106,6 +107,7 @@ def start_client(case: str, *steps: str) -> "subprocess.Popen[str]":
         refuse("the web client has no stdin")
     client.stdin.write(CLIENT_PROGRAM.read_text(encoding="utf-8"))
     client.stdin.close()
+    client.stdin = None  # communicate() would flush the closed stream and raise
     return client
 
 
@@ -210,6 +212,19 @@ def the_next_build_delivers_hello_deck() -> None:
         refuse(f"hello-deck was not delivered: {done}")
 
 
+def refuse_if_the_web_answers(why: str) -> None:
+    """Fail when the web serves although it must still be waiting."""
+    if web_answers():
+        refuse(f"the web answered {why}")
+
+
+def refuse_unless_after_the_worker_began(answered: datetime) -> None:
+    """Fail unless the first answer came after the worker's current life began."""
+    started, _ = state()
+    if answered < docker_time(started):
+        refuse("the web answered before the worker's current life began")
+
+
 def prove_inspected_shape() -> None:
     """The web holds no socket, no group, the hardening keys and only ruled mounts."""
     shape = json.loads(docker("inspect", web("ps", "--quiet", WEB)))[0]
@@ -242,8 +257,10 @@ def prove_start_before_the_worker(report: Report) -> None:
     fresh = in_web("stat", "-c", "%a %u %g", SOCKET_DIRECTORY).stdout.strip()
     if fresh != "750 0 0":
         refuse(f"the socket volume is not fresh: {fresh}")
+    refuse_if_the_web_answers("before the worker was started")
     web("up", "--detach", "--no-build", "--no-deps", SERVICE)
     seconds = wait_until_the_web_answers()
+    refuse_unless_after_the_worker_began(datetime.now(UTC))
     if "did not answer" in web("logs", "--no-color", WEB):
         refuse("the web's log holds a start refusal")
     prove_inspected_shape()
@@ -285,10 +302,8 @@ def prove_restart_mid_step(report: Report) -> None:
     held.wait()
     seconds = wait_until_the_web_answers()
     answered = datetime.now(UTC)
-    started, _ = state()
-    if answered < docker_time(started):
-        refuse("the web answered before the worker's new life began")
     restart_count_is(int(restarts) + 1)
+    refuse_unless_after_the_worker_began(answered)
     the_next_build_delivers_hello_deck()
     report.cell(
         "B12 C",
@@ -306,7 +321,8 @@ def prove_reply_cut_off(report: Report) -> None:
     staged = f"{BUILDS_ROOT}/{run}/staged-build"
     waited = in_web(
         "sh", "-c",
-        f'until [ -n "$(ls -A {staged} 2>/dev/null)" ]; do sleep 0.05; done',
+        f"for _ in $(seq {STAGING_POLLS}); do"
+        f' [ -n "$(ls -A {staged} 2>/dev/null)" ] && exit 0; sleep 0.05; done; exit 1',
     )  # fmt: skip
     if waited.returncode or client.poll() is not None:
         refuse(f"the reply ended before the worker was killed: {waited}")
