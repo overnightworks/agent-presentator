@@ -52,3 +52,37 @@ def test_consecutive_handshake_lines_are_each_returned(lives: ModuleType) -> Non
     client.wait(timeout=10)
 
     assert lines == ["uploaded", "closed 1.5"]
+
+
+def test_finished_web_client_preserves_its_run_and_refusal_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "path", [str(SCRIPTS), *sys.path])
+    web = importlib.import_module("probe_build_worker_web")
+    program = """
+print('{"run": "refused-build"}')
+print('{"steps": [{"step": "build", "failed": true, "text": "Build refused"}], '
+      '"staged": [], "out": [], "talk_page": false, "pdf": false}')
+"""
+    with subprocess.Popen(  # noqa: S603
+        (sys.executable, "-c", program),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as client:
+        try:
+            client.wait(timeout=10)
+            assert web.run_name_of(client) == "refused-build"
+            assert web.outcome_of(client) == web.Outcome(
+                steps=(
+                    web.StepOutcome(step="build", failed=True, text="Build refused"),
+                ),
+                staged=(),
+                out=(),
+                talk_page=False,
+                pdf=False,
+            )
+        finally:
+            if client.poll() is None:
+                client.kill()
+            client.wait(timeout=10)

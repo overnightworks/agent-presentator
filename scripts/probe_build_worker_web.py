@@ -36,7 +36,13 @@ from probe_build_worker_harness import (
     state,
     worker,
 )
-from probe_build_worker_lives import MODE_FILE, FloodMode, docker_time, wait_for_uptime
+from probe_build_worker_lives import (
+    MODE_FILE,
+    FloodMode,
+    docker_time,
+    handshake_line,
+    wait_for_uptime,
+)
 
 from presentator.adapters.build_wire import MAXIMUM_ENTRIES, SOCKET_DIRECTORY
 from presentator.adapters.build_worker import (
@@ -117,9 +123,7 @@ def run_name_of(client: "subprocess.Popen[str]") -> str:
     """The run directory the client builds in, from its first line."""
     if client.stdout is None:
         refuse("the web client has no stdout")
-    first = client.stdout.readline()
-    if not first:
-        refuse(f"the web client ended before it began: {client.communicate()[1]}")
+    first = handshake_line(client, client.stdout)
     return str(json.loads(first)["run"])
 
 
