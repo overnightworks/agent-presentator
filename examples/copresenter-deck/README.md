@@ -10,5 +10,5 @@ names the deck it is asked from in its `deck` field (the slug in the deck's
 address); Presentator answers only for a built deck its asker owns.
 Presentator checks the existing session before readiness, answers, or microphone
 capture and keeps the hearing lease open only while local hearing is active.
-How to run the private service is
-[`copresenter/README.md`](../../copresenter/README.md).
+How to run the private speech service is
+[the speech runbook](../../docs/runbooks/run-the-speech-service-on-the-host.md).

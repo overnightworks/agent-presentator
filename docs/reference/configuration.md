@@ -98,7 +98,7 @@ Values the compose file needs rather than the process: `PRESENTATOR_RUNTIME_UID`
 service without the secret key, the public origin and the first two of these
 values.
 
-## Co-presenter and speech (host processes)
+## Speech (host process)
 
-`COPRESENTER_*` and `SPEECH_*` settings of the host processes are named in
-[run the speech service and the co-presenter](../runbooks/run-the-co-presenter-on-the-host.md).
+`SPEECH_*` settings of the host process are named in
+[run the speech service](../runbooks/run-the-speech-service-on-the-host.md).

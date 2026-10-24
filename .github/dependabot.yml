@@ -32,10 +32,6 @@ updates:
     directory: /speech/providers/voxcpm
     schedule:
       interval: daily
-  - package-ecosystem: uv
-    directory: /copresenter
-    schedule:
-      interval: daily
   - package-ecosystem: npm
     directory: /frontend
     schedule:

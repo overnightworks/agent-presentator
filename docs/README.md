@@ -40,9 +40,7 @@ One task each, in [`runbooks/`](runbooks/).
   [add a folder on this box](runbooks/add-a-folder-on-this-box.md),
   [call the fetch-now hook](runbooks/call-the-fetch-now-hook.md).
 - Decks: [prepare a talk for the build](runbooks/prepare-a-deck-for-the-build.md).
-- Co-presenter: [run it on the host](runbooks/run-the-co-presenter-on-the-host.md),
-  [set the Claude token](runbooks/set-the-claude-token.md),
-  [clear leftover turn homes](runbooks/clear-leftover-turn-homes.md).
+- Speech: [run the speech service on the host](runbooks/run-the-speech-service-on-the-host.md).
 - Repository: [bootstrap SonarCloud](runbooks/bootstrap-sonarcloud.md).
 
 ## Reference

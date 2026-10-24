@@ -1,5 +1,11 @@
 [gate]
-mandatory_jobs = ["Python: architecture, lint, types", "Python: tests", "Speech: lint, tests", "Speech: Chatterbox provider", "Speech: Qwen provider", "Speech: VoxCPM provider", "Speech: Magpie provider", "Co-presenter: lint, tests", "Frontend: lint, types, tests, deck build", "Coverage report", "Container image", "Build worker: sealed step"]
+mandatory_jobs = ["Python: architecture, lint, types", "Python: tests", "Speech: lint, tests", "Speech: Chatterbox provider", "Speech: Qwen provider", "Speech: VoxCPM provider", "Speech: Magpie provider", "Frontend: lint, types, tests, deck build", "Coverage report", "Container image", "Build worker: sealed step"]
+
+[[gate.loosened]]
+what = 'mandatory job "Co-presenter: lint, tests" removed'
+item = "#477"
+date = 2026-10-24
+reason = "the host co-presenter package is deleted (D1 of #355, operator ruling 21.10.2026); its job checks code that no longer exists"
 
 # speech/providers/chatterbox/uv.lock: advisories no relock reaches
 [[advisories.allow]]

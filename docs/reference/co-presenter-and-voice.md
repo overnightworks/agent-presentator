@@ -2,7 +2,7 @@
 
 Audience: an engineer or operator looking up what answers beside a talk, who
 may use it, and what bounds it. Running it is
-[run the speech service and the co-presenter](../runbooks/run-the-co-presenter-on-the-host.md);
+[run the speech service](../runbooks/run-the-speech-service-on-the-host.md);
 the authority it shares is [trust boundaries](../explanation/trust-boundaries.md).
 
 ## Processes
