@@ -1,0 +1,8 @@
+claim_id = "6aeb7b787c64401e823877b55f86eced"
+agent = "Claude af82d84c-aa5c-4ee2-89e3-1347c7a6fa91"
+role = "builder"
+base = "a7305b1e30b5cedcf0175232a878400f3adee024"
+branch = "fix/speech-lock-advisories"
+scope = ["quality/config.toml", "speech/providers/chatterbox/uv.lock", "speech/providers/magpie/uv.lock", "speech/providers/qwen/uv.lock", "speech/providers/voxcpm/uv.lock", "speech/uv.lock"]
+opened_commit = "2123f070434fc14628f0bebd8580c2193b106ead"
+whole_reason = "One gate red: the five speech locks and the allow list the gate reads must move together or quality / verdict stays red"
