@@ -1,9 +1,8 @@
-"""What the compose file promises the server about this machine's Docker.
+"""What the compose file promises about the instance and its build worker.
 
-The server is handed names it later gives the daemon, and a name that drifts
-from what Docker really made is a build reading somebody else's talks or none
-at all. Nothing here starts a container; it reads the one file that must agree
-with itself.
+The instance builds through the sealed worker and carries no authority over
+this machine's Docker, and the worker keeps every key that seals it. Nothing
+here starts a container; it reads the one file that must agree with itself.
 """
 
 from pathlib import Path
@@ -11,23 +10,6 @@ from pathlib import Path
 import pytest
 
 _COMPOSE = Path(__file__).parents[1] / "compose.yaml"
-_THE_BUILDS_VOLUME = "builds"
-
-
-def test_the_server_is_handed_the_very_volume_this_file_declares() -> None:
-    written = _COMPOSE.read_text(encoding="utf-8")
-
-    # Docker names a declared volume after the project it belongs to, so the
-    # name the server is given and the volume that exists agree exactly while
-    # this file derives the one and pins neither.
-    assert (
-        f"PRESENTATOR_BUILD_VOLUME: ${{COMPOSE_PROJECT_NAME}}_{_THE_BUILDS_VOLUME}"
-        in written
-    )
-    lines = written.splitlines()
-    assert f"  {_THE_BUILDS_VOLUME}:" in lines
-    declared_volumes = lines[lines.index("volumes:") :]
-    assert not [line for line in declared_volumes if line.strip().startswith("name:")]
 
 
 def test_copresenter_uses_the_speech_socket_and_one_runtime_uid() -> None:
@@ -132,3 +114,38 @@ def test_the_socket_volume_starts_as_a_private_root_directory() -> None:
     written = _COMPOSE.read_text(encoding="utf-8")
 
     assert "      o: size=16k,nr_inodes=8,mode=0750,uid=0" in written
+
+
+@pytest.mark.parametrize(
+    "hardening_line",
+    [
+        "      PRESENTATOR_BUILD_RUNNER: worker",
+        "        source: build-socket\n        target: /run/presentator-build",
+        "        volume:\n          nocopy: true",
+        "      build-worker:\n        condition: service_started",
+        "    cap_drop:\n      - ALL",
+        "    security_opt:\n      - no-new-privileges:true",
+        "    read_only: true",
+        "      - /tmp:size=512m,nr_inodes=10k,mode=1777,nosuid,nodev",
+    ],
+)
+def test_the_instance_builds_through_the_worker_hardened(hardening_line: str) -> None:
+    """B16: the web's flipped and hardened service in compose."""
+    assert hardening_line in "\n".join(_service_lines("presentator"))
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        "docker.sock",
+        "group_add",
+        "DOCKER_GROUP",
+        "PRESENTATOR_BUILD_IMAGE",
+        "PRESENTATOR_BUILD_VOLUME",
+    ],
+)
+def test_the_instance_holds_no_authority_over_this_machines_docker(
+    authority: str,
+) -> None:
+    """B16: no socket, docker group or container-runner value in the file."""
+    assert authority not in _COMPOSE.read_text(encoding="utf-8")

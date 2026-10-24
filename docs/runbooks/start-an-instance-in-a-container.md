@@ -4,8 +4,9 @@ Reader: the operator of this machine's deployment.
 
 ## Before you start
 
-- Docker Engine 26 or newer (API 1.45). An older daemon refuses the start and
-  names the version.
+- Docker with the Compose plugin. The instance builds through the build worker
+  service and never asks the daemon for a container, so it checks no daemon
+  version at start.
 - A Keycloak client ([configure Keycloak](configure-keycloak.md)).
 - Private directories you own for the two sockets, for example under
   `/run/user/<uid>`.
@@ -18,15 +19,12 @@ Reader: the operator of this machine's deployment.
 1. Build both images: `docker compose --profile images build`. Without the
    profile only the instance is built.
 2. Write `.env` beside `compose.yaml` (a file this repository never writes and
-   git never sees). Compose refuses to start the service without these six and
+   git never sees). Compose refuses to start the service without these five and
    names each one missing:
    - `PRESENTATOR_SECRET_KEY`: a fresh random value of at least 32 bytes.
    - `PRESENTATOR_PUBLIC_ORIGIN`: the canonical https origin.
    - `PRESENTATOR_TALK_ORIGIN`: the talk host's canonical https origin, another
      hostname that reaches the same listener.
-   - `PRESENTATOR_DOCKER_GROUP`: the numeric id of this machine's `docker`
-     group, `getent group docker | cut -d: -f3`, because the server asks the
-     daemon for a container for every build and a group id is not a name.
    - `PRESENTATOR_RUNTIME_UID`: the operator's uid.
    - `SPEECH_SOCKET_DIRECTORY`: the private directory of the speech service's
      socket, which you own.
@@ -40,9 +38,8 @@ Reader: the operator of this machine's deployment.
      ([ADR 0007](../decisions/0007-browser-client-behind-tunnel.md)) enters
      through the published port, so the container sees it as the gateway of
      its own network, never as `127.0.0.1`.
-3. If the daemon's storage driver refuses a disk bound, also
-   [run builds without a disk bound](run-builds-without-a-disk-bound.md).
-4. Start it: `docker compose up -d`. Only `127.0.0.1:8000` is published.
+3. Start it: `docker compose up -d`. Only `127.0.0.1:8000` is published. The
+   instance starts once the build worker answers, within 70 seconds of its start.
 
 Everything else in `.env` is optional. A value exported in the shell reaches
 compose itself, but the container is handed nothing but that file and the key.

@@ -70,27 +70,18 @@ build fails and the failure is in the server log.
 
 ## The sandbox
 
-An instance builds every deck in a container of its own. The server asks the
-daemon for a container per step: no network at all, every capability dropped,
-no new privilege from a setuid program, no log kept by Docker (the failure tail
-is read from the client's stderr), and none of this server's environment.
-It sees two directories of the builds volume, the deck's own tree read-only and
-the directory that run writes its talk and PDF into, neither named after
-anything a deck's author chose; everything else it writes is the container's
-own and goes with it. It runs as the image's unprivileged user. A deck that
-reads a file it does not carry, or opens a connection, fails the build with the
-toolchain's own words on the deck page, and the talk that stood keeps standing.
-The container's own root is left writable because Slidev's PDF export writes
-its dependency cache inside the toolchain it runs from; that filesystem is the
-image's and lives as long as the one build.
+The instance of `compose.yaml` builds every deck through the build worker (next
+section): the web sends each step over a socket, and the worker runs it sealed,
+in a container of its own, as an unprivileged user with no network, every
+capability dropped and none of the server's environment. The web holds no
+Docker socket and no docker group. A deck that reads a file it does not carry,
+or opens a connection, fails the build with the toolchain's own words on the
+deck page, and the talk that stood keeps standing.
 
-An instance refuses to start, naming which, without the image and the volume it
-builds in, on a daemon older than Docker Engine 26 (API 1.45; the client is
-pinned to it besides, so a daemon swapped under a running instance refuses the
-call rather than mounting more than it was asked for), on a daemon that does
-not carry the build image, or on a machine that will not hold a container's
-own filesystem to a size unless the operator says to do without that bound
-([runbook](../runbooks/run-builds-without-a-disk-bound.md)). Building on this
+The container runner is the code default until it leaves: with
+`PRESENTATOR_BUILD_RUNNER` unset, a server asks a daemon for a container per
+step and refuses to start without `PRESENTATOR_BUILD_IMAGE` and
+`PRESENTATOR_BUILD_VOLUME`. `compose.yaml` sets neither. Building on this
 machine instead is `PRESENTATOR_BUILD_RUNNER=host`, for a development run; it
 costs the sandbox altogether.
 
@@ -98,36 +89,41 @@ costs the sandbox altogether.
 
 | Bound | Setting | What happens at it |
 | --- | --- | --- |
-| Time, per step | `PRESENTATOR_BUILD_TIMEOUT_SECONDS` (`300`) | The step is killed and its container taken down; the page says the build was given up on |
-| Memory | `PRESENTATOR_BUILD_MEMORY` (`4g`) | The kernel ends the build, and the toolchain's own words say so |
-| Processes | 512, a constant | The container may spawn no more |
-| Its own filesystem | `PRESENTATOR_BUILD_DISK` (`8g`) | Writing past it fails inside the build |
-| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | The step still running is stopped there, in this server's own words on the page, and what it wrote is taken away |
+| Time, per step | `PRESENTATOR_BUILD_TIMEOUT_SECONDS` (`300`) | The step is killed and the page says the build was given up on |
+| Memory | `mem_limit` of the worker, `4g`, swap included | The kernel ends the worker's life, and the next step runs in a fresh one |
+| Processes | `pids_limit` of the worker, 512 | The container may spawn no more |
+| Its own filesystem | the worker's 2 GiB `/work` | Writing past it fails inside the build |
+| The talk it leaves | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` (`300`) | Both ends check it: the worker refuses the reply, and the web shows the page text below |
 | The files that talk holds | 100 000, a constant | The same, in the same words |
-| What it writes into a file it has unlinked | Nothing counts it | No scan can see such a file, so the step's time and the memory bound are what limit it, and the container's exit frees it |
+| A deck sent to be built | the same megabytes and 100 000 entries, not counting its top-level `node_modules` | The web refuses it before it connects to the worker |
 
-The talk is added up while the build runs, not only when it ends, because a
-machine is filled long before a build is over; a step that has written past
-either bound does not get to finish. Nothing in a run's own directory is
-followed while that happens: a link a build leaves counts as the name it is,
-never as what it points at, and adding up stops at the first entry this server
-cannot read rather than passing over it.
+A connection to the worker is not bounded by the build's bound alone: before the
+worker answers the web waits at most the connect window (70 seconds, retrying
+with a growing pause), and afterwards at most the step's bound plus a margin.
 
-Which storage drivers take the disk bound is not guessed from a name: at every
-start the server makes and starts one container of its own, bounded like a
-build's, running nothing, and takes it down. With `PRESENTATOR_BUILD_DISK=none`
-the log says at every start that nothing but a step's time bounds what a build
-writes beside its talk.
+### Page texts
+
+Each text stands once, in the constant named beside it, and the deck page shows
+it whole:
+
+| Constant | Text |
+| --- | --- |
+| `TOO_MUCH_FOR_A_PAGE` (`adapters/builds.py`) | The talk this build wrote is {written} MB; a build may leave at most {allowed} MB. |
+| `TOO_MANY_FOR_A_PAGE` (`adapters/builds.py`) | The talk this build wrote holds more than {allowed} files; a build may leave fewer. |
+| `OUTPUT_SHAPE_FOR_A_PAGE` (`adapters/build_worker.py`) | The talk this build wrote cannot be taken: it holds a link, a special or unreadable file, a path of more than 32 parts (folders and the file) or 1024 bytes, or a file this step may not write. |
+| `DECK_SIZE_FOR_A_PAGE` (`adapters/build_worker.py`) | This deck is too large to build: a deck may hold at most {megabytes} MB and at most {entries} files and folders together, not counting its top-level node_modules. |
+| `DECK_PATHS_FOR_A_PAGE` (`adapters/build_worker.py`) | This deck cannot be built: it holds a path of more than 32 parts (folders and the file) or 1024 bytes, or a link, a special or an unreadable file. |
 
 ## The build worker
 
-`compose.yaml` also declares `build-worker`, the sealed service of
-[ADR 0017](../decisions/0017-a-build-worker-runs-each-step-sealed.md). It is
-deployed but uncalled: the instance still builds through the Docker socket, and
-nothing connects to the worker's socket, which lives in the `build-socket`
-volume at `/run/presentator-build/worker.sock`. `docker compose up -d` therefore
-also starts an idle worker; it needs the image the `presentator` service builds
-and never pulls one.
+`compose.yaml` declares `build-worker`, the sealed service of
+[ADR 0017](../decisions/0017-a-build-worker-runs-each-step-sealed.md). The
+`presentator` service runs with `PRESENTATOR_BUILD_RUNNER=worker`, mounts the
+`build-socket` volume at `/run/presentator-build` and depends on the worker
+having started; the worker's socket is `worker.sock` in that volume. The web
+refuses to start until the worker answers, and retries across a restarting
+worker within the connect window. The worker needs the image the `presentator`
+service builds and never pulls one.
 
 The worker reads `PRESENTATOR_BUILD_TIMEOUT_SECONDS` and
 `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` from the project's environment by name; a
