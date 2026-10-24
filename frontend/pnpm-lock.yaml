@@ -18,7 +18,7 @@ importers:
         version: 10.0.1(eslint@10.12.0(jiti@2.7.0))
       '@slidev/cli':
         specifier: 52.19.1
-        version: 52.19.1(@devframes/hub@0.8.2(devframe@0.8.2(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)))(@nuxt/kit@3.21.11(magicast@0.5.5))(@oxc-project/types@0.155.0)(@types/markdown-it@14.2.0)(@types/node@22.20.1)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)(vite@8.3.5(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)))(@vue/compiler-sfc@3.5.44)(cac@7.0.0)(crossws@0.4.12(srvx@1.0.3))(hono@4.13.13)(lightningcss@1.33.0)(magicast@0.5.5)(markdown-it@14.3.3)(oxc-parser@0.131.0)(playwright-chromium@1.63.0)(postcss@8.5.31)(rolldown@1.2.15)(srvx@1.0.3)
+        version: 52.19.1(@devframes/hub@0.8.2(devframe@0.8.2(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)))(@nuxt/kit@3.21.11(magicast@0.5.5))(@oxc-project/types@0.155.0)(@types/markdown-it@14.2.0)(@types/node@22.20.1)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)(vite@8.3.5(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)))(@vue/compiler-sfc@3.5.44)(cac@7.0.0)(crossws@0.4.12(srvx@1.0.3))(hono@4.13.13)(lightningcss@1.33.0)(magicast@0.5.5)(markdown-it@14.3.3)(oxc-parser@0.131.0)(playwright-chromium@1.64.1)(postcss@8.5.31)(rolldown@1.2.15)(srvx@1.0.3)
       '@slidev/theme-apple-basic':
         specifier: 0.25.1
         version: 0.25.1
@@ -47,8 +47,8 @@ importers:
         specifier: 30.1.2
         version: 30.1.2
       playwright-chromium:
-        specifier: 1.63.0
-        version: 1.63.0
+        specifier: 1.64.1
+        version: 1.64.1
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -2935,13 +2935,13 @@ packages:
   plantuml-encoder@1.4.0:
     resolution: {integrity: sha512-sxMwpDw/ySY1WB2CE3+IdMuEcWibJ72DDOsXLkSmEaSzwEUaYBT6DWgOfBiHGCux4q433X6+OEFWjlVqp7gL6g==}
 
-  playwright-chromium@1.63.0:
-    resolution: {integrity: sha512-Bb0ZqhnFFcY8KTFl4XphnqEpZv/BU1flx9apJ4l/UfOBsNppWg6AEue51uuvsrOEZnsPQXf0+C53uzLjhA4Q6w==}
+  playwright-chromium@1.64.1:
+    resolution: {integrity: sha512-lvAzvvIRtbHaeLwl7XoUkhSNuWHKshbrYv2sjqYgLQS4SsTTwgSTlg9BwU5LeGxYkHxBXTnKtNDEQdZSOj/01g==}
     engines: {node: '>=20'}
     hasBin: true
 
-  playwright-core@1.63.0:
-    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4499,7 +4499,7 @@ snapshots:
 
   '@shikijs/vscode-textmate@10.0.2': {}
 
-  '@slidev/cli@52.19.1(@devframes/hub@0.8.2(devframe@0.8.2(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)))(@nuxt/kit@3.21.11(magicast@0.5.5))(@oxc-project/types@0.155.0)(@types/markdown-it@14.2.0)(@types/node@22.20.1)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)(vite@8.3.5(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)))(@vue/compiler-sfc@3.5.44)(cac@7.0.0)(crossws@0.4.12(srvx@1.0.3))(hono@4.13.13)(lightningcss@1.33.0)(magicast@0.5.5)(markdown-it@14.3.3)(oxc-parser@0.131.0)(playwright-chromium@1.63.0)(postcss@8.5.31)(rolldown@1.2.15)(srvx@1.0.3)':
+  '@slidev/cli@52.19.1(@devframes/hub@0.8.2(devframe@0.8.2(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)))(@nuxt/kit@3.21.11(magicast@0.5.5))(@oxc-project/types@0.155.0)(@types/markdown-it@14.2.0)(@types/node@22.20.1)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.3.1)(cac@7.0.0)(srvx@1.0.3)(vite@8.3.5(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)))(@vue/compiler-sfc@3.5.44)(cac@7.0.0)(crossws@0.4.12(srvx@1.0.3))(hono@4.13.13)(lightningcss@1.33.0)(magicast@0.5.5)(markdown-it@14.3.3)(oxc-parser@0.131.0)(playwright-chromium@1.64.1)(postcss@8.5.31)(rolldown@1.2.15)(srvx@1.0.3)':
     dependencies:
       '@antfu/ni': 30.5.0
       '@antfu/utils': 9.3.0
@@ -4577,7 +4577,7 @@ snapshots:
       yargs: 18.1.0
       zod: 4.6.7
     optionalDependencies:
-      playwright-chromium: 1.63.0
+      playwright-chromium: 1.64.1
     transitivePeerDependencies:
       - '@devframes/hub'
       - '@devframes/hub-ui'
@@ -7238,11 +7238,11 @@ snapshots:
 
   plantuml-encoder@1.4.0: {}
 
-  playwright-chromium@1.63.0:
+  playwright-chromium@1.64.1:
     dependencies:
-      playwright-core: 1.63.0
+      playwright-core: 1.64.1
 
-  playwright-core@1.63.0: {}
+  playwright-core@1.64.1: {}
 
   points-on-curve@0.2.0: {}
 
