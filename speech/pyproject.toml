@@ -13,7 +13,7 @@ dependencies = [
     "huggingface-hub==2.2.0",
     "numpy==2.5.4",
     "nvidia-cublas-cu12==12.4.5.8",
-    "nvidia-cudnn-cu12==9.1.0.70",
+    "nvidia-cudnn-cu12==9.27.0.42",
     "piper-tts==1.8.0",
     "pydantic-settings==2.15.0",
     "uvicorn==0.54.0",
