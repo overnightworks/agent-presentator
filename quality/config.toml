@@ -618,6 +618,30 @@ date = 2026-10-22
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
 
+[[advisories.allow]]
+id = "GHSA-5x8w-8jj5-q52h"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-654x-cwwv-5j9c"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.8.0 requires pillow<13.0, held by the chatterbox-tts gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-xmj3-9gf7-h52w"
+lock = "speech/providers/chatterbox/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "setuptools 81.0.0: setuptools==81.0.0 is pinned because resemble-perth needs pkg_resources, gone at setuptools 82; local TTS worker, text over a local socket"
+
 # speech/providers/magpie/uv.lock: advisories no relock reaches
 [[advisories.allow]]
 id = "PYSEC-2026-4217"
@@ -1028,6 +1052,22 @@ date = 2026-10-22
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0, held by the qwen-tts gradio pin; local TTS worker, text over a local socket"
 
+[[advisories.allow]]
+id = "GHSA-5x8w-8jj5-q52h"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0 and the newest gradio (6.30.0) still does; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-654x-cwwv-5j9c"
+lock = "speech/providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.17.3 requires pillow<13.0 and the newest gradio (6.30.0) still does; local TTS worker, text over a local socket"
+
 # speech/providers/voxcpm/uv.lock: advisories no relock reaches
 [[advisories.allow]]
 id = "PYSEC-2026-3716"
@@ -1356,3 +1396,19 @@ until = 2027-01-31
 date = 2026-10-22
 item = "overnightworks/presentator#371"
 reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0, held by the voxcpm gradio pin; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-5x8w-8jj5-q52h"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0 and the newest gradio (6.30.0) still does; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-654x-cwwv-5j9c"
+lock = "speech/providers/voxcpm/uv.lock"
+until = 2027-01-31
+date = 2026-10-24
+item = "overnightworks/presentator#371"
+reason = "pillow 12.3.0: gradio 6.27.0 requires pillow<13.0 and the newest gradio (6.30.0) still does; local TTS worker, text over a local socket"
