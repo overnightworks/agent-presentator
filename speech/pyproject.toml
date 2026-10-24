@@ -15,7 +15,7 @@ dependencies = [
     "nvidia-cublas-cu12==12.4.5.8",
     "nvidia-cudnn-cu12==9.1.0.70",
     "piper-tts==1.8.0",
-    "pydantic-settings==2.15.0",
+    "pydantic-settings==2.16.1",
     "uvicorn==0.54.0",
     "websockets==17.2",
     "overnightworks-presentator-speech-provider-contract",
