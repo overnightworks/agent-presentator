@@ -1,0 +1,8 @@
+claim_id = "65b01a3b28f241b8973b3fa589149856"
+agent = "Claude af82d84c-aa5c-4ee2-89e3-1347c7a6fa91"
+role = "builder"
+base = "9357a8010a20447a9bff16c6042f3c41997d2c59"
+branch = "claude/issue-477-copresenter-goes"
+scope = [".github/dependabot.yml", ".github/workflows/ci.yml", "README.md", "copresenter", "docs/README.md", "docs/explanation/trust-boundaries.md", "docs/reference/co-presenter-and-voice.md", "docs/reference/configuration.md", "docs/runbooks/clear-leftover-turn-homes.md", "docs/runbooks/run-the-co-presenter-on-the-host.md", "docs/runbooks/run-the-speech-service-on-the-host.md", "docs/runbooks/set-the-claude-token.md", "docs/runbooks/upgrade-an-instance.md", "examples/copresenter-deck/README.md", "quality/baseline.toml", "quality/config.toml", "scripts/check_root_layout.py"]
+opened_commit = "d8af0c4b5f4acbb0189d416f0646fbd23e98663c"
+whole_reason = "The directory, its CI job, its mandatory_jobs entry, its root-layout entry and its baseline entries must leave together or CI goes red, and the runbooks and documents that name the host process become false in the same change."
