@@ -29,7 +29,6 @@ from presentator.adapters.build_wire import (
 from presentator.adapters.build_worker import (
     DECK_PATHS_FOR_A_PAGE,
     DECK_SIZE_FOR_A_PAGE,
-    WAITING_FOR_THE_WORKER,
     SocketFault,
     what_is_wrong,
 )
@@ -227,16 +226,6 @@ def test_a_worker_that_is_not_there_is_retried_until_the_window_ends(
 
     assert not answering_at_start
     assert WINDOW <= time.monotonic() - started < WINDOW + 0.5
-
-
-def test_a_start_announces_its_wait_for_the_worker(
-    volume: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Cell B25: the deployed probe judges the wait by this line."""
-    with caplog.at_level(logging.INFO):
-        toolchain(volume / "absent").is_answering()
-
-    assert WAITING_FOR_THE_WORKER in caplog.text
 
 
 @pytest.mark.parametrize("after_the_request", [False, True])

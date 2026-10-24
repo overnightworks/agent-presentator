@@ -44,7 +44,6 @@ from presentator.adapters.build_worker import (
     DECK_PATHS_FOR_A_PAGE,
     DECK_SIZE_FOR_A_PAGE,
     OUTPUT_SHAPE_FOR_A_PAGE,
-    WAITING_FOR_THE_WORKER,
 )
 from presentator.adapters.builds import TOO_MANY_FOR_A_PAGE, TOO_MUCH_FOR_A_PAGE
 from presentator.host.config import DEFAULT_BUILD_OUTPUT_MEGABYTES
@@ -62,6 +61,7 @@ COMPOSE_MOUNTS = frozenset(
 )
 TEMPORARY = "/tmp"  # noqa: S108
 ROUTE_POLL_SECONDS = 0.5
+WAITING_HOLD_SECONDS = 4.0
 STEP_SECONDS = 900
 STAGING_POLLS = 1200
 RESTART_SECONDS = 60
@@ -226,12 +226,13 @@ def refuse_unless_after_the_worker_began(answered: datetime) -> None:
         refuse("the web answered before the worker's current life began")
 
 
-def wait_until_the_web_waits_for_the_worker() -> None:
-    """Fail unless the web reaches its worker check within the connect window."""
-    deadline = time.monotonic() + CONNECT_WINDOW_SECONDS
-    while WAITING_FOR_THE_WORKER not in web("logs", "--no-color", WEB):
-        if time.monotonic() > deadline:
-            refuse("the web never reached its wait for the worker")
+def refuse_unless_the_web_keeps_waiting() -> None:
+    """Fail when the web serves or exits while no worker exists to answer it."""
+    deadline = time.monotonic() + WAITING_HOLD_SECONDS
+    while time.monotonic() < deadline:
+        refuse_if_the_web_answers("while waiting for the worker, before it was started")
+        if not web("ps", "--quiet", WEB).strip():
+            refuse("the web exited instead of waiting for the worker")
         time.sleep(ROUTE_POLL_SECONDS)
 
 
@@ -267,8 +268,7 @@ def prove_start_before_the_worker(report: Report) -> None:
     fresh = in_web("stat", "-c", "%a %u %g", SOCKET_DIRECTORY).stdout.strip()
     if fresh != "750 0 0":
         refuse(f"the socket volume is not fresh: {fresh}")
-    wait_until_the_web_waits_for_the_worker()
-    refuse_if_the_web_answers("while waiting for the worker, before it was started")
+    refuse_unless_the_web_keeps_waiting()
     web("up", "--detach", "--no-build", "--no-deps", SERVICE)
     seconds = wait_until_the_web_answers()
     refuse_unless_after_the_worker_began(datetime.now(UTC))
