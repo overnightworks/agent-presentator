@@ -40,8 +40,8 @@ Presentator's own workload token cross to it over the `hal_agent_presentator` ne
 internal network with no host address and no published port, whose members the
 edge decides; the plain `http` hop is safe only because of that. The question
 and the asked deck's words cross with them, and the model gets no tools. The
-service checks the person's token on every ask and enables only the operator
-today. Speech stays a private Unix socket under the shared UID: readiness, PCM,
+service checks the person's token on every ask; whom it admits is edge's
+decision (`edge/docs/agent-service.md`). Speech stays a private Unix socket under the shared UID: readiness, PCM,
 transcript and spoken sentences cross it, and browser identity and credentials
 do not.
 

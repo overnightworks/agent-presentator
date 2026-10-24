@@ -4,9 +4,8 @@ Audience: a human opening this repository for the first time.
 
 presentator is a tool for giving a talk. The Slidev deck lives on the
 operator's home server; he opens it from any browser and presents. Per talk he
-can switch on an AI co-presenter — Claude, Codex, or Grok, through his own
-subscription — which speaks the slides, navigates itself, listens to the room,
-and answers questions. Without the AI the talk still runs, and a static build
+can switch on an AI co-presenter that listens to the room and answers questions
+about the shown deck with a spoken voice, through the operator's agent service. Without the AI the talk still runs, and a static build
 plus a PDF export survives a dead tunnel. Why it exists is [docs/VISION.md](docs/VISION.md); what the instance does is
 listed in [docs/README.md](docs/README.md).
 
@@ -28,7 +27,7 @@ Do not copy an owner's facts into another document.
 ## Verifying a change
 
 CI on the pull request is the gate; the [workflow](.github/workflows/ci.yml)
-defines every check for the root, `frontend/`, `speech/`, `copresenter/` and the
+defines every check for the root, `frontend/`, `speech/` and the
 container image. Locally, run the checks the change touches: `pyproject.toml`
 configures the Python ones (`ruff`, `pyright`, `lint-imports`, `vulture`,
 `pytest`, plus `scripts/check_root_layout.py` and
