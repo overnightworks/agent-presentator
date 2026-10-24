@@ -114,6 +114,9 @@ _WORKER_NOT_ANSWERING = (
     " build-worker service is running and shares the socket directory with this"
     " service."
 )
+WAITING_FOR_THE_WORKER = (
+    "Waiting for the build worker to answer on %s, for up to %g seconds"
+)
 _NOTHING_BOUNDS_A_BUILD = (
     "this machine's %s storage driver does not take a size for a container's own"
     " filesystem, so a build could fill this machine with what it writes beside"
@@ -175,7 +178,7 @@ def build_instance(
         pull_timeout=source_timeout,
         local_mount=local_mount,
     )
-    build_bound = timedelta(seconds=settings.build_timeout_seconds)
+    build_bound = build_bound_of(settings)
     decks = Decks(
         sources=sources,
         key_drafts=key_drafts,
@@ -387,7 +390,7 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     if settings.build_runner is WhereBuildsRun.HOST:
         return HostToolchain(project=settings.toolchain, bound=bound)
     if settings.build_runner is WhereBuildsRun.WORKER:
-        return _the_build_worker(settings, bound=bound)
+        return the_build_worker(settings, bound=bound)
     image, volume = settings.build_image, settings.build_volume
     if image is None or volume is None:
         raise cannot_start(_WITHOUT_A_SANDBOX)
@@ -410,7 +413,12 @@ def _what_builds_a_deck(settings: Settings, *, bound: timedelta) -> DeckToolchai
     )
 
 
-def _the_build_worker(settings: Settings, *, bound: timedelta) -> WorkerToolchain:
+def build_bound_of(settings: Settings) -> timedelta:
+    """The one bound of a build step, shared by every runner and the probe."""
+    return timedelta(seconds=settings.build_timeout_seconds)
+
+
+def the_build_worker(settings: Settings, *, bound: timedelta) -> WorkerToolchain:
     """The sealed build worker, which has to answer before anything is served."""
     toolchain = WorkerToolchain(
         socket_path=settings.build_worker_socket,
@@ -418,6 +426,11 @@ def _the_build_worker(settings: Settings, *, bound: timedelta) -> WorkerToolchai
         reply_bound_seconds=emergency_end(0.0, bound.total_seconds()),
         expected_uid=0,
         expected_gid=os.getegid(),
+    )
+    _log.info(
+        WAITING_FOR_THE_WORKER,
+        settings.build_worker_socket,
+        toolchain.connect_window_seconds,
     )
     if not toolchain.is_answering():
         raise cannot_start(
