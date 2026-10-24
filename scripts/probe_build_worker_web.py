@@ -47,6 +47,7 @@ from presentator.adapters.build_worker import (
 )
 from presentator.adapters.builds import TOO_MANY_FOR_A_PAGE, TOO_MUCH_FOR_A_PAGE
 from presentator.host.config import DEFAULT_BUILD_OUTPUT_MEGABYTES
+from presentator.host.main import WAITING_FOR_THE_WORKER
 
 WEB = "presentator"
 CLIENT_PROGRAM = PROBE_SOURCES / "web_client.py"
@@ -226,32 +227,25 @@ def refuse_unless_after_the_worker_began(answered: datetime) -> None:
         refuse("the web answered before the worker's current life began")
 
 
-def web_cpu_ticks() -> int:
-    """The CPU ticks the web's main process has used, as /proc counts them."""
-    stat = in_web("cat", "/proc/1/stat").stdout
-    user, system = stat.rsplit(")", 1)[1].split()[11:13]
-    return int(user) + int(system)
+def refuse_unless_the_web_logged_its_wait() -> None:
+    """Fail unless the web says in its log that it waits for the worker."""
+    said = WAITING_FOR_THE_WORKER.split("%", 1)[0]
+    started = time.monotonic()
+    while said not in web("logs", "--no-color", WEB):
+        if time.monotonic() - started > CONNECT_WINDOW_SECONDS:
+            refuse("the web never logged that it waits for the worker")
+        time.sleep(ROUTE_POLL_SECONDS)
 
 
 def refuse_unless_the_web_keeps_waiting() -> None:
-    """Fail unless the web sits idle, unserved and alive, with no worker to answer it.
-
-    Initialisation burns CPU; only the wait for the worker leaves the web idle,
-    so a quiet stretch separates waiting from merely starting slowly.
-    """
-    started = time.monotonic()
-    quiet_since = started
-    ticks = web_cpu_ticks()
-    while time.monotonic() - quiet_since < WAITING_HOLD_SECONDS:
-        if time.monotonic() - started > CONNECT_WINDOW_SECONDS:
-            refuse("the web never sat idle waiting for the worker")
-        time.sleep(ROUTE_POLL_SECONDS)
+    """Fail unless the web, once it logged its wait, stays unserved and alive."""
+    refuse_unless_the_web_logged_its_wait()
+    deadline = time.monotonic() + WAITING_HOLD_SECONDS
+    while time.monotonic() < deadline:
         refuse_if_the_web_answers("while waiting for the worker, before it was started")
         if not web("ps", "--quiet", WEB).strip():
             refuse("the web exited instead of waiting for the worker")
-        now_ticks = web_cpu_ticks()
-        if now_ticks != ticks:
-            ticks, quiet_since = now_ticks, time.monotonic()
+        time.sleep(ROUTE_POLL_SECONDS)
 
 
 def prove_inspected_shape() -> None:

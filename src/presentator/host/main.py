@@ -114,6 +114,9 @@ _WORKER_NOT_ANSWERING = (
     " build-worker service is running and shares the socket directory with this"
     " service."
 )
+WAITING_FOR_THE_WORKER = (
+    "Waiting for the build worker to answer on %s, for up to %g seconds"
+)
 _NOTHING_BOUNDS_A_BUILD = (
     "this machine's %s storage driver does not take a size for a container's own"
     " filesystem, so a build could fill this machine with what it writes beside"
@@ -423,6 +426,11 @@ def the_build_worker(settings: Settings, *, bound: timedelta) -> WorkerToolchain
         reply_bound_seconds=emergency_end(0.0, bound.total_seconds()),
         expected_uid=0,
         expected_gid=os.getegid(),
+    )
+    _log.info(
+        WAITING_FOR_THE_WORKER,
+        settings.build_worker_socket,
+        toolchain.connect_window_seconds,
     )
     if not toolchain.is_answering():
         raise cannot_start(
