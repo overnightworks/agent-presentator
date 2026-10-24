@@ -44,6 +44,7 @@ from presentator.adapters.build_worker import (
     DECK_PATHS_FOR_A_PAGE,
     DECK_SIZE_FOR_A_PAGE,
     OUTPUT_SHAPE_FOR_A_PAGE,
+    WAITING_FOR_THE_WORKER,
 )
 from presentator.adapters.builds import TOO_MANY_FOR_A_PAGE, TOO_MUCH_FOR_A_PAGE
 from presentator.host.config import DEFAULT_BUILD_OUTPUT_MEGABYTES
@@ -225,6 +226,15 @@ def refuse_unless_after_the_worker_began(answered: datetime) -> None:
         refuse("the web answered before the worker's current life began")
 
 
+def wait_until_the_web_waits_for_the_worker() -> None:
+    """Fail unless the web reaches its worker check within the connect window."""
+    deadline = time.monotonic() + CONNECT_WINDOW_SECONDS
+    while WAITING_FOR_THE_WORKER not in web("logs", "--no-color", WEB):
+        if time.monotonic() > deadline:
+            refuse("the web never reached its wait for the worker")
+        time.sleep(ROUTE_POLL_SECONDS)
+
+
 def prove_inspected_shape() -> None:
     """The web holds no socket, no group, the hardening keys and only ruled mounts."""
     shape = json.loads(docker("inspect", web("ps", "--quiet", WEB)))[0]
@@ -257,7 +267,8 @@ def prove_start_before_the_worker(report: Report) -> None:
     fresh = in_web("stat", "-c", "%a %u %g", SOCKET_DIRECTORY).stdout.strip()
     if fresh != "750 0 0":
         refuse(f"the socket volume is not fresh: {fresh}")
-    refuse_if_the_web_answers("before the worker was started")
+    wait_until_the_web_waits_for_the_worker()
+    refuse_if_the_web_answers("while waiting for the worker, before it was started")
     web("up", "--detach", "--no-build", "--no-deps", SERVICE)
     seconds = wait_until_the_web_answers()
     refuse_unless_after_the_worker_began(datetime.now(UTC))

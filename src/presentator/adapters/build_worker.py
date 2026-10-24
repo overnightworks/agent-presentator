@@ -75,6 +75,7 @@ DECK_PATHS_FOR_A_PAGE: Final = (
 )
 _FAULTED: Final = "build %s of deck %s failed: %s"
 _ANSWERING: Final = "the build worker did not answer: %s (%s)"
+WAITING_FOR_THE_WORKER: Final = "waiting for the build worker to answer"
 _NOT_REMOVED: Final = "the staging %s of a build reply could not be removed: %s"
 
 _log = logging.getLogger(__name__)
@@ -338,6 +339,7 @@ class WorkerToolchain:
     def is_answering(self) -> bool:
         """Whether the worker answers a HELLO within the connect window."""
         window_ends = time.monotonic() + self.connect_window_seconds
+        _log.info(WAITING_FOR_THE_WORKER)
         try:
             with closing(
                 self._opened(send_hello, window_ends, at_start=True)
