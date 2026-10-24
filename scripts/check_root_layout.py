@@ -33,7 +33,6 @@ ALLOWED_ROOT_DIRECTORIES: frozenset[str] = frozenset(
     {
         ".aco",
         ".github",
-        "copresenter",
         "docs",
         "examples",
         "frontend",

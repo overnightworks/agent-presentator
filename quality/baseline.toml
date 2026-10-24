@@ -1,8 +1,5 @@
 # Measured by `quality baseline write`. Entries only ever go down.
 
-[ccn."copresenter/scripts/prove_loop.py"]
-"_ok_standin" = 20
-
 [ccn."speech/scripts/prove.py"]
 "_speak_measured" = 16
 
@@ -10,7 +7,6 @@
 "Runtime._activate_voice" = 18
 
 [file_lines]
-"copresenter/scripts/prove_loop.py" = 849
 "speech/tests/test_provider_process.py" = 872
 "speech/tests/test_voice_status.py" = 1513
 "src/presentator/adapters/builds.py" = 1172
@@ -22,12 +18,6 @@
 "tests/api/test_sources.py" = 1719
 "tests/application/test_decks.py" = 2057
 "tests/gitmirror/test_mirror.py" = 1229
-
-[function_lines."copresenter/scripts/prove_loop.py"]
-"_drive_late_microphone_after_lease_loss" = 75
-
-[function_lines."copresenter/src/copresenter/app.py"]
-"create_app" = 62
 
 [function_lines."speech/providers/chatterbox/src/presentator_chatterbox/model.py"]
 "speech_token_chunks" = 84

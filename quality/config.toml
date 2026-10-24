@@ -1,5 +1,5 @@
 [gate]
-mandatory_jobs = ["Python: architecture, lint, types", "Python: tests", "Speech: lint, tests", "Speech: Chatterbox provider", "Speech: Qwen provider", "Speech: VoxCPM provider", "Speech: Magpie provider", "Co-presenter: lint, tests", "Frontend: lint, types, tests, deck build", "Coverage report", "Container image", "Build worker: sealed step"]
+mandatory_jobs = ["Python: architecture, lint, types", "Python: tests", "Speech: lint, tests", "Speech: Chatterbox provider", "Speech: Qwen provider", "Speech: VoxCPM provider", "Speech: Magpie provider", "Frontend: lint, types, tests, deck build", "Coverage report", "Container image", "Build worker: sealed step"]
 
 # speech/providers/chatterbox/uv.lock: advisories no relock reaches
 [[advisories.allow]]
