@@ -44,9 +44,9 @@ some of them.
 | `PRESENTATOR_BUILD_MEMORY` | `4g` | Memory bound of a build container. |
 | `PRESENTATOR_BUILD_DISK` | `8g` | Filesystem bound of a build container; `none` removes it ([runbook](../runbooks/run-builds-without-a-disk-bound.md)). |
 | `PRESENTATOR_BUILD_OUTPUT_MEGABYTES` | `300` | Size bound of the talk a build leaves; compose also hands it to the build worker by name. |
-| `PRESENTATOR_BUILD_RUNNER` | container | `host` builds on this machine instead ([trust boundaries](../explanation/trust-boundaries.md)); `compose.yaml` never sets it. `worker` builds through the build worker's socket and refuses to start unless the worker answers within 70 seconds. |
+| `PRESENTATOR_BUILD_RUNNER` | container | `host` builds on this machine instead ([trust boundaries](../explanation/trust-boundaries.md)). `worker`, which `compose.yaml` sets, builds through the build worker's socket and refuses to start unless the worker answers within 70 seconds. |
 | `PRESENTATOR_BUILD_WORKER_SOCKET` | `/run/presentator-build/worker.sock` | Where the web reaches the build worker when the runner is `worker`; the default is where the worker binds, so set it only where the socket volume is mounted elsewhere. |
-| `PRESENTATOR_BUILD_IMAGE`, `PRESENTATOR_BUILD_VOLUME` | none | The image the toolchain stands in and the volume `PRESENTATOR_BUILDS` is a directory of. Compose sets both; an instance missing either does not start and says which. |
+| `PRESENTATOR_BUILD_IMAGE`, `PRESENTATOR_BUILD_VOLUME` | none | The image the toolchain stands in and the volume `PRESENTATOR_BUILDS` is a directory of, for the default container runner. Compose sets neither; an instance on that runner missing either does not start and says which. |
 
 `PRESENTATOR_SOURCE_URL`, `_REF`, `_NAME`, `_CREDENTIAL` and `_HOOK_SECRET` are
 not settings; leaving them in the environment does nothing, and a line naming
@@ -80,8 +80,7 @@ image sets them and the defaults above do not apply; compose sets the rest.
 | `PRESENTATOR_LOCAL_SOURCES_MOUNT` | `/data/local-sources` |
 | `PRESENTATOR_TOOLCHAIN` | `/app/frontend` |
 | `PRESENTATOR_HOST` | `0.0.0.0`, offered by compose at `127.0.0.1:8000` |
-| `PRESENTATOR_BUILD_IMAGE` | `presentator-build`, set by `compose.yaml` |
-| `PRESENTATOR_BUILD_VOLUME` | the project's own `builds` volume, derived by `compose.yaml` |
+| `PRESENTATOR_BUILD_RUNNER` | `worker`, set by `compose.yaml` |
 | `PRESENTATOR_AGENT_SERVICE` | `http://agent-service:8080`, set by `compose.yaml` |
 | `PRESENTATOR_SPEECH_SOCKET` | `/run/presentator-speech/speech.sock`, set by `compose.yaml` |
 
@@ -91,13 +90,12 @@ runs in), and the whole instance on top of it. The image carries the CA
 certificates an HTTPS source needs to verify the git host's TLS certificate;
 CI proves it with a live HTTPS fetch on every build.
 
-Values the compose file needs rather than the process: `PRESENTATOR_DOCKER_GROUP`
-(numeric id of the `docker` group), `PRESENTATOR_RUNTIME_UID`,
+Values the compose file needs rather than the process: `PRESENTATOR_RUNTIME_UID`,
 `SPEECH_SOCKET_DIRECTORY`,
 `PRESENTATOR_LOCAL_SOURCES` (only with the override of
 [add a folder on this box](../runbooks/add-a-folder-on-this-box.md)), and
 `COMPOSE_PROJECT_NAME`, which names the volumes. Compose refuses to start the
-service without the secret key, the public origin and the first three of these
+service without the secret key, the public origin and the first two of these
 values.
 
 ## Co-presenter and speech (host processes)

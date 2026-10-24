@@ -1,10 +1,10 @@
-# One service is the instance, and a second, the build worker, only waits for a
-# caller that does not exist yet. What has to survive the instance stands in a
-# named volume; what may never be written down here comes from the environment.
+# One service is the instance, and a second, the build worker, runs every
+# step of a deck's build for it over a socket, because a deck is code. What has
+# to survive the instance stands in a named volume; what may never be written
+# down here comes from the environment.
 #
-# The image below is handed to the server as well as to Docker, because a deck
-# is code: the server asks this machine's daemon to run every build in a
-# container of that image, over directories of the builds volume (line 14a).
+# The image below is named by the sandbox service alone, which stays until the
+# container runner leaves the code.
 x-build-image: &build_image presentator-build
 
 services:
@@ -20,8 +20,7 @@ services:
     networks:
       - default
       - agent
-    # A build spawns a process tree of its own, and a step given up on leaves
-    # its grandchildren to be reaped by whatever is process 1.
+    # A pull's git and ssh children need a reaper.
     init: true
     # The tunnel of ADR 0007 runs on this machine and enters here, so the
     # address is offered to this machine alone — and the instance sees that
@@ -40,27 +39,32 @@ services:
       PRESENTATOR_TALK_ORIGIN: ${PRESENTATOR_TALK_ORIGIN:?set it to the talk host's canonical browser origin, on another hostname}
       PRESENTATOR_AGENT_SERVICE: http://agent-service:8080
       PRESENTATOR_SPEECH_SOCKET: /run/presentator-speech/speech.sock
-      PRESENTATOR_BUILD_IMAGE: *build_image
-      # The very volume declared below, under the name Docker gives it: one per
-      # project, so a second instance on this machine builds into its own and
-      # an instance that upgrades keeps the talks it has.
-      PRESENTATOR_BUILD_VOLUME: ${COMPOSE_PROJECT_NAME}_builds
-    # The socket is the one privilege this design trades for the sandbox: the
-    # server may ask the daemon for a container, which is the daemon's whole
-    # authority over this machine. The group is this machine's own, because a
-    # gid is not a name.
-    group_add:
-      - "${PRESENTATOR_DOCKER_GROUP:?set it to the gid of this machine's docker group, which 'getent group docker' reads}"
+      PRESENTATOR_BUILD_RUNNER: worker
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,nr_inodes=10k,mode=1777,nosuid,nodev
+    # The worker answers on a socket in the volume it owns; the web only waits
+    # for it to be started and retries until it answers.
+    depends_on:
+      build-worker:
+        condition: service_started
     volumes:
       - database:/data/database
       - mirrors:/data/mirrors
       - builds:/data/builds
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${SPEECH_SOCKET_DIRECTORY:?set it to the host speech private socket directory}:/run/presentator-speech:rw
+      - type: volume
+        source: build-socket
+        target: /run/presentator-build
+        volume:
+          nocopy: true
 
   # The sealed build worker (ADR 0017). It runs the instance image and starts
-  # no step of its own accord; nothing calls it until the instance is wired to
-  # its socket. It never pulls: `docker compose build presentator` has to make
+  # no step of its own accord; the instance hands it each one. It never pulls: `docker compose build presentator` has to make
   # the image first, and a missing one is an error rather than a pull of some
   # registry's `presentator`. Every key below is a boundary the worker's
   # self-check or ADR 0017 relies on, and `tests/test_compose.py` pins them.
